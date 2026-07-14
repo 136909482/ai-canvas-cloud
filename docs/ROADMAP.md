@@ -40,18 +40,25 @@
 
 完成标准：长期文档互相一致，未声明不存在的代码、命令或部署能力。
 
-## P1：工程骨架与本地云环境
+## P1：工程骨架与本地云环境（进行中，第一批已落地）
 
 交付物：
 
-- npm workspaces monorepo，建立 `apps/web`、`apps/api`、`apps/worker` 和必要 packages。
-- TypeScript、Lint、格式化、测试和生产构建基础配置。
-- 本地 PostgreSQL、Redis、MinIO 和邮件捕获服务。
-- API/Worker 配置校验、结构化日志、request ID 和优雅关闭。
-- 数据库迁移工具、空库初始化、迁移状态检查。
-- `/health/live` 与 `/health/ready`。
-- `.env.example`，不包含真实密钥。
+- npm workspaces monorepo，建立 `apps/web`、`apps/api`、`apps/worker` 和必要 packages。（已落地）
+- TypeScript、Lint、格式化、测试和生产构建基础配置。（已落地）
+- 本地 PostgreSQL、Redis、MinIO 和邮件捕获服务。（PostgreSQL、Redis、MinIO 已落地；邮件捕获待后续需要时接入）
+- API/Worker 配置校验、结构化日志、request ID 和优雅关闭。（已落地）
+- 数据库迁移工具、空库初始化、迁移状态检查。（迁移文件与迁移检查已落地；真实数据库应用迁移待 server/db 模块深化）
+- `/health/live` 与 `/health/ready`。（已落地）
+- `.env.example`，不包含真实密钥。（已落地）
 - CI 执行 lint、单测、迁移测试和构建。
+
+第一批说明：
+
+- `apps/web` 已从本地版一次性迁移 React/Vite 画布、节点、store、主题、模型协议和必要测试。
+- 未复制 Electron、release、dist、桌面 SQLite、本地目录持久化和 File System Access 平台实现。
+- Web 当前使用临时 Cloud 内存 adapter 独立启动和构建，P3 再接入 Cloud API 图适配层。
+- Vite 开发配置不提供任意 target URL Provider 代理。
 
 验收标准：
 
@@ -212,4 +219,3 @@
 ## P9：团队与协作（P8 后评估）
 
 个人空间稳定运营后，再根据真实需求评估团队邀请、角色 UI、只读分享、评论、项目锁定和实时多人编辑。实时协作需要单独选择操作日志、服务端串行命令或 CRDT 协议，不在个人云空间阶段提前实现。
-

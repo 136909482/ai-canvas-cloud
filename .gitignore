@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-ssr/
+coverage/
+.tmp/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+infra/local/data/
+test-results/

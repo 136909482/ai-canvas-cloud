@@ -1,0 +1,6 @@
+node_modules
+dist
+dist-ssr
+coverage
+infra/local/data
+package-lock.json

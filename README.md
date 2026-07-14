@@ -2,7 +2,7 @@
 
 AI Canvas Cloud 是 AI Canvas 的独立网站端仓库，面向长期运营的账号制 SaaS。用户登录后进入个人空间，项目图、任务和资产元数据保存在云端，图片与视频存入私有对象存储。
 
-当前阶段只建立长期架构文档，尚未开始业务代码和工程脚手架。实现顺序以 `docs/ROADMAP.md` 为准。
+当前处于 P1 工程骨架阶段。仓库已经建立 npm workspaces monorepo，包含迁移后的 React/Vite 画布前端、API/Worker 进程骨架、共享 packages、本地云依赖配置和基础迁移检查。实现顺序以 `docs/ROADMAP.md` 为准。
 
 ## 核心架构
 
@@ -30,7 +30,46 @@ AI Canvas Cloud 是 AI Canvas 的独立网站端仓库，面向长期运营的�
 - `docs/API.md`：认证、项目图、资产、任务和迁移 API 契约。
 - `docs/ROADMAP.md`：分阶段实现顺序和验收门槛。
 
+## 本地开发
+
+安装依赖：
+
+```bash
+npm install
+```
+
+复制 `.env.example` 为本地 `.env` 后，可启动本地依赖：
+
+```bash
+docker compose -f infra/local/docker-compose.yml up -d
+```
+
+常用开发入口：
+
+```bash
+npm run dev:web
+npm run dev:api
+npm run dev:worker
+```
+
+当前已验证命令：
+
+```bash
+npm run test
+npm run lint
+npm run db:migrate:test
+npm run build
+```
+
+API 健康检查端点：
+
+```text
+GET /health/live
+GET /health/ready
+GET /api/v1/health/live
+GET /api/v1/health/ready
+```
+
 ## 状态
 
-第一批提交仅包含文档。实际命令、依赖和部署说明必须在对应脚手架落地并验证后再加入，README 不提前声明不存在的能力。
-
+P0 文档基线已完成。P1 第一批代码已落地：`apps/web` 使用临时 Cloud 内存适配器独立启动和构建；`apps/api` 和 `apps/worker` 提供配置校验、结构化日志和优雅关闭；`infra/local` 提供 PostgreSQL、Redis 和 MinIO 基础配置。

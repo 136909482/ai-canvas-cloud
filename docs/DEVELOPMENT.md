@@ -13,6 +13,21 @@ AI Canvas Cloud 是账号制、多设备访问的 AI 画布 SaaS。首发提供�
 - 两端通过版本化 `ProjectRecord` 与目录包显式迁移。
 - 登录、退出或网络恢复不会自动上传本地工作区。
 
+## 当前工程骨架
+
+P1 第一批代码已经建立 npm workspaces monorepo：
+
+- `apps/web`：Vite + React 画布前端，一次性迁移自本地版稳定画布代码，并替换为 Cloud 内存平台适配器。
+- `apps/api`：HTTP 入口、配置校验、结构化日志、request ID、`/health/live`、`/health/ready` 和优雅关闭。
+- `apps/worker`：后台 Worker 进程骨架、配置校验、结构化日志和优雅关闭。
+- `packages/contracts`：API 错误码和健康检查响应契约。
+- `packages/project-graph`：项目图纯操作和基础测试。
+- `packages/shared`：共享环境读取、request ID 和日志工具。
+- `infra/local`：PostgreSQL、Redis 和 MinIO 的 Docker Compose 基础配置。
+- `server/db/migrations`：显式迁移文件和迁移检查入口。
+
+当前 Web 适配器只用于 P1 独立启动和构建，不提供云端持久化事实来源；P3 会把它替换为版本化 Cloud API 图适配层。
+
 ## 目标拓扑
 
 ```text
@@ -140,5 +155,21 @@ Cloud 以 `generation_tasks` 为任务事实来源，前端 task queue 是投影
 - 浏览器 E2E：两账号隔离、跨设备恢复、双标签冲突、资产上传和关闭页面后任务恢复。
 - 灾难恢复：数据库与对象存储恢复后校验当前图、检查点和资产引用一致。
 
-具体命令必须等脚手架真实落地后写入 README、AGENTS 和本文件，不预先声明未验证脚本。
+当前已验证命令：
 
+```bash
+npm run test
+npm run lint
+npm run db:migrate:test
+npm run build
+```
+
+开发入口：
+
+```bash
+npm run dev:web
+npm run dev:api
+npm run dev:worker
+```
+
+每次新增或修改真实命令时，必须同步更新 README、AGENTS 和本文件。

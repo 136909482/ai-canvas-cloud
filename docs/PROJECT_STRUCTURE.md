@@ -1,8 +1,8 @@
 # AI Canvas Cloud 项目结构
 
-本文档定义计划中的 monorepo 目录和依赖方向。目录应在对应路线阶段真正需要时创建，不保留空占位目录。
+本文档定义 monorepo 目录和依赖方向。目录应在对应路线阶段真正需要时创建，不保留空占位目录。
 
-## 目标目录
+## 当前与目标目录
 
 ```text
 apps/
@@ -13,23 +13,23 @@ apps/
 packages/
   contracts/           API 请求/响应、错误码和运行时 schema
   project-graph/       图 diff、操作批次、检查点与 ProjectRecord 适配
-  provider-adapters/   图片、视频和 LLM Provider 协议
+  provider-adapters/   图片、视频和 LLM Provider 协议（P5 建立）
   shared/              前后端安全共享的纯类型和工具
 
 server/
   db/                  PostgreSQL schema、迁移、事务与查询
   modules/
-    auth/              用户、会话、验证和密码重置
-    workspaces/        工作区、成员、权限和配额
-    project-graph/     云端节点、连线、变更和检查点写入入口
-    assets/            上传、签名读取、引用和 GC
-    tasks/             任务状态机、尝试记录和用量
-    providers/         凭据解密、目标白名单和模型调用边界
-  shared/              仅服务端使用的配置、日志和基础设施适配
+    auth/              用户、会话、验证和密码重置（P2 建立）
+    workspaces/        工作区、成员、权限和配额（P2 建立）
+    project-graph/     云端节点、连线、变更和检查点写入入口（P3 建立）
+    assets/            上传、签名读取、引用和 GC（P4 建立）
+    tasks/             任务状态机、尝试记录和用量（P5 建立）
+    providers/         凭据解密、目标白名单和模型调用边界（P5 建立）
+  shared/              仅服务端使用的配置、日志和基础设施适配（后续按需建立）
 
 infra/
-  local/               PostgreSQL、Redis、MinIO 和邮件捕获
-  deploy/              staging/production 部署定义
+  local/               PostgreSQL、Redis、MinIO
+  deploy/              staging/production 部署定义（P7 建立）
 
 docs/                  长期架构、数据、API 和路线文档
 test-fixtures/          历史 ProjectRecord、目录包和 API 兼容样本
@@ -81,6 +81,8 @@ src/
 
 `platform/cloud` 维护图基线、版本、sequence、ID 级 diff 和签名 URL 生命周期。组件和 store 继续使用项目/画布领域对象，不感知 PostgreSQL 表。
 
+P1 第一批使用内存 Cloud adapter 让画布独立启动和构建，不访问本地目录、Electron、SQLite、File System Access API、数据库、Redis 或对象存储管理凭据。
+
 ## API 应用
 
 `apps/api` 保持薄入口：
@@ -129,4 +131,3 @@ src/
 - API/数据库/对象存储集成测试放在对应 app 或 server module。
 - 浏览器 E2E 放在仓库级测试目录，并使用独立账号、工作区和对象前缀。
 - 历史兼容样本统一放 `test-fixtures/`，已提交旧样本不得静默改写为当前格式。
-

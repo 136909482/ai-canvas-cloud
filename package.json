@@ -1,0 +1,42 @@
+{
+  "name": "ai-canvas-cloud",
+  "description": "Cloud SaaS monorepo for AI Canvas.",
+  "author": "AI Canvas",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w @ai-canvas-cloud/web",
+    "dev:api": "npm run dev -w @ai-canvas-cloud/api",
+    "dev:worker": "npm run dev -w @ai-canvas-cloud/worker",
+    "test": "node scripts/run-tests.mjs",
+    "lint": "eslint .",
+    "build": "npm run build --workspaces --if-present",
+    "db:migrate:test": "node scripts/check-migrations.mjs",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@tailwindcss/vite": "^4.2.2",
+    "@types/node": "^24.12.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.4.0",
+    "prettier": "^3.8.1",
+    "tsx": "^4.21.1",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.58.0",
+    "vite": "^8.0.4"
+  },
+  "dependencies": {
+    "@rolldown/binding-win32-x64-msvc": "^1.1.5"
+  }
+}

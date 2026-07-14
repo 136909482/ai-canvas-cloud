@@ -54,6 +54,16 @@
 
 在脚手架落地前，不得在文档中声明不存在的 npm 命令。每增加一个真实命令，必须同步更新 README 和开发指南。
 
+当前真实命令：
+
+- `npm run dev:web`
+- `npm run dev:api`
+- `npm run dev:worker`
+- `npm run test`
+- `npm run lint`
+- `npm run db:migrate:test`
+- `npm run build`
+
 代码落地后，常规改动至少验证：
 
 - 相关单元测试
@@ -71,4 +81,3 @@
 - HTTP 请求/响应和错误码写入 `docs/API.md`。
 - 目录职责和依赖方向写入 `docs/PROJECT_STRUCTURE.md`。
 - 实现与文档不一致时，修正实现或同步更新长期文档，不保留两套相互冲突的事实。
-
