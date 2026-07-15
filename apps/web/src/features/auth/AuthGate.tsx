@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Eye, EyeOff, Loader2, LockKeyhole, LogIn, Sparkles, UserPlus } from 'lucide-react'
+import { AUTH_SESSION_EXPIRED_EVENT } from '@/api/cloudApiClient'
 import { requestAuthPasswordReset, resetAuthPassword, verifyAuthEmail } from './api'
 import { useAuthStore } from './useAuthStore'
 import { themeClasses } from '@/styles/themeClasses'
@@ -9,6 +10,8 @@ interface AuthGateProps {
 }
 
 type AuthMode = 'login' | 'register' | 'forgot' | 'reset'
+
+const SESSION_INTERACTION_PROBE_MIN_INTERVAL_MS = 2500
 
 function getSubmitLabel(mode: AuthMode, pending: boolean) {
   if (pending) {
@@ -61,10 +64,66 @@ export function AuthGate({ children }: AuthGateProps) {
   const [emailVerificationStatus, setEmailVerificationStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle')
   const [emailVerificationMessage, setEmailVerificationMessage] = useState<string | null>(null)
   const verificationConsumedRef = useRef(false)
+  const sessionProbeInFlightRef = useRef(false)
+  const lastSessionProbeAtRef = useRef(0)
 
   useEffect(() => {
     void checkSession()
   }, [checkSession])
+
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      void checkSession()
+    }
+
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired)
+
+    return () => {
+      window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired)
+    }
+  }, [checkSession])
+
+  useEffect(() => {
+    if (status !== 'authenticated' || !session || mode === 'reset') {
+      return
+    }
+
+    const probeSession = () => {
+      const now = Date.now()
+
+      if (
+        sessionProbeInFlightRef.current
+        || now - lastSessionProbeAtRef.current < SESSION_INTERACTION_PROBE_MIN_INTERVAL_MS
+      ) {
+        return
+      }
+
+      sessionProbeInFlightRef.current = true
+      lastSessionProbeAtRef.current = now
+
+      void checkSession({ silent: true }).finally(() => {
+        sessionProbeInFlightRef.current = false
+      })
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        probeSession()
+      }
+    }
+
+    window.addEventListener('pointerdown', probeSession, { capture: true })
+    window.addEventListener('keydown', probeSession, { capture: true })
+    window.addEventListener('focus', probeSession)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener('pointerdown', probeSession, { capture: true })
+      window.removeEventListener('keydown', probeSession, { capture: true })
+      window.removeEventListener('focus', probeSession)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [checkSession, mode, session, status])
 
   useEffect(() => {
     if (window.location.pathname !== '/auth/reset-password') {

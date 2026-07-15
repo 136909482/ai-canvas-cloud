@@ -39,9 +39,18 @@ import {
   getFallbackProjectSummary,
   normalizeProjectName,
 } from '@/store/projectRecords'
+import { isProjectVersionConflictError } from '@/platform/errors'
 import type { ProjectRecord, ProjectSnapshot } from '@/types'
 
 type SaveProjectResult = 'saved' | 'storage-required' | 'no-project'
+
+export interface ProjectPersistenceConflict {
+  projectId: string
+  message: string
+  currentVersion: number | null
+  currentSequence: number | null
+  occurredAt: number
+}
 
 interface ProjectStore {
   projects: ProjectRecord[]
@@ -49,6 +58,7 @@ interface ProjectStore {
   lastOpenedProjectId: string | null
   persistedSnapshotByProjectId: Record<string, string>
   persistenceMetaByProjectId: Record<string, ProjectPersistenceMeta>
+  persistenceConflictByProjectId: Record<string, ProjectPersistenceConflict>
   isPersisting: boolean
   lastPersistenceError: string | null
   lastThumbnailBackfillCount: number
@@ -74,6 +84,8 @@ interface ProjectStore {
   hasUnsavedChanges: () => boolean
   hasPersistedChanges: () => boolean
   getActiveProject: () => ProjectRecord | null
+  getActivePersistenceConflict: () => ProjectPersistenceConflict | null
+  clearPersistenceConflict: (projectId?: string) => void
   getActivePersistenceMeta: () => ProjectPersistenceMeta | null
   getActivePersistenceStatus: () => ProjectPersistenceStatus
 }
@@ -126,9 +138,26 @@ function cloneLoadedProjectRecord(project: ProjectRecord) {
   }
 }
 
+function withoutProjectConflict(
+  conflicts: Record<string, ProjectPersistenceConflict>,
+  projectId: string | null | undefined,
+) {
+  if (!projectId || !conflicts[projectId]) {
+    return conflicts
+  }
+
+  const next = { ...conflicts }
+  delete next[projectId]
+  return next
+}
+
 function setProjectPersistenceError(error: unknown, operation = 'background-save') {
   if (error === null || error === undefined) {
-    useProjectStore.setState({ lastPersistenceError: null })
+    const projectId = useProjectStore.getState().activeProjectId
+    useProjectStore.setState((state) => ({
+      lastPersistenceError: null,
+      persistenceConflictByProjectId: withoutProjectConflict(state.persistenceConflictByProjectId, projectId),
+    }))
     return
   }
 
@@ -144,6 +173,20 @@ function setProjectPersistenceError(error: unknown, operation = 'background-save
   })
   useProjectStore.setState({
     lastPersistenceError: diagnostic.message,
+    ...(isProjectVersionConflictError(error) && useProjectStore.getState().activeProjectId
+      ? {
+          persistenceConflictByProjectId: {
+            ...useProjectStore.getState().persistenceConflictByProjectId,
+            [useProjectStore.getState().activeProjectId!]: {
+              projectId: useProjectStore.getState().activeProjectId!,
+              message: error.message,
+              currentVersion: error.currentVersion,
+              currentSequence: error.currentSequence,
+              occurredAt: Date.now(),
+            },
+          },
+        }
+      : {}),
   })
 }
 
@@ -179,6 +222,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
             [openedProject.id]: serializeProjectSnapshot(openedProject.workingSnapshot),
           },
           persistenceMetaByProjectId: {},
+          persistenceConflictByProjectId: {},
           isPersisting: false,
           lastPersistenceError: null,
           lastThumbnailBackfillCount: 0,
@@ -214,6 +258,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
         lastOpenedProjectId: null,
         persistedSnapshotByProjectId: {},
         persistenceMetaByProjectId: {},
+        persistenceConflictByProjectId: {},
         isPersisting: false,
         lastPersistenceError: null,
         lastThumbnailBackfillCount: 0,
@@ -239,6 +284,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
       lastOpenedProjectId: fallbackProject.id,
       persistedSnapshotByProjectId: workspaceData ? buildPersistedSnapshotMap(initialData.projects) : {},
       persistenceMetaByProjectId: {},
+      persistenceConflictByProjectId: {},
       isPersisting: false,
       lastPersistenceError: null,
       lastThumbnailBackfillCount: 0,
@@ -256,6 +302,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
   lastOpenedProjectId: null,
   persistedSnapshotByProjectId: {},
   persistenceMetaByProjectId: {},
+  persistenceConflictByProjectId: {},
   isPersisting: false,
   lastPersistenceError: null,
   lastThumbnailBackfillCount: 0,
@@ -272,6 +319,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
       lastOpenedProjectId: null,
       persistedSnapshotByProjectId: {},
       persistenceMetaByProjectId: {},
+      persistenceConflictByProjectId: {},
       isPersisting: false,
       lastPersistenceError: null,
       lastThumbnailBackfillCount: 0,
@@ -374,8 +422,13 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
         },
         isPersisting: false,
         lastPersistenceError: null,
+        persistenceConflictByProjectId: withoutProjectConflict(currentState.persistenceConflictByProjectId, projectId),
         lastThumbnailBackfillCount: stats.thumbnailBackfillCount,
       }))
+
+      void platformBridge.createProjectCheckpoint(projectId, {
+        checkpointType: 'periodic',
+      }).catch((error) => setProjectPersistenceError(error, 'periodic-checkpoint'))
 
       return 'saved'
     } catch (error) {
@@ -432,6 +485,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
         activeProjectId: nextState.activeProjectId,
         lastOpenedProjectId: nextState.lastOpenedProjectId,
       })
+      await platformBridge.createProjectCheckpoint(state.activeProjectId)
 
       const serializedSnapshot = serializeProjectSnapshot(snapshot)
 
@@ -454,6 +508,10 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
           : currentState.persistenceMetaByProjectId,
         isPersisting: false,
         lastPersistenceError: null,
+        persistenceConflictByProjectId: withoutProjectConflict(
+          currentState.persistenceConflictByProjectId,
+          currentState.activeProjectId,
+        ),
         lastThumbnailBackfillCount: stats.thumbnailBackfillCount,
       }))
       return 'saved'
@@ -941,6 +999,29 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
   getActiveProject: () => {
     const state = get()
     return state.projects.find((project) => project.id === state.activeProjectId) ?? null
+  },
+
+  getActivePersistenceConflict: () => {
+    const state = get()
+
+    if (!state.activeProjectId) {
+      return null
+    }
+
+    return state.persistenceConflictByProjectId[state.activeProjectId] ?? null
+  },
+
+  clearPersistenceConflict: (projectId) => {
+    const targetProjectId = projectId ?? get().activeProjectId
+
+    if (!targetProjectId) {
+      return
+    }
+
+    set((state) => ({
+      persistenceConflictByProjectId: withoutProjectConflict(state.persistenceConflictByProjectId, targetProjectId),
+      lastPersistenceError: state.activeProjectId === targetProjectId ? null : state.lastPersistenceError,
+    }))
   },
 
   getActivePersistenceMeta: () => {

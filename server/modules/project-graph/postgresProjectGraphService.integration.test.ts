@@ -104,6 +104,19 @@ test('PostgreSQL graph batches are atomic, idempotent, versioned, and tenant iso
     assert.equal(graph.nodes.length, 2)
     assert.equal(graph.edges.length, 1)
     assert.equal(graph.nodes.find((node) => node.id === 'node-b')?.parentNodeId, 'node-a')
+    const firstChanges = await graphs.getChanges(projectA.id, 0, actorA)
+    assert.equal(firstChanges.version, 1)
+    assert.equal(firstChanges.sequence, 1)
+    assert.equal(firstChanges.after, 0)
+    assert.equal(firstChanges.hasMore, false)
+    assert.equal(firstChanges.changes.length, 1)
+    assert.equal(firstChanges.changes[0]?.sequence, 1)
+    assert.equal(firstChanges.changes[0]?.baseVersion, 0)
+    assert.equal(firstChanges.changes[0]?.resultVersion, 1)
+    assert.equal(firstChanges.changes[0]?.clientId, 'browser_a')
+    assert.equal(firstChanges.changes[0]?.batchId, 'batch_a_1')
+    assert.equal(firstChanges.changes[0]?.source, 'user')
+    assert.equal('actorUserId' in firstChanges.changes[0]!, false)
     const projectCounts = await pool.query(
       'SELECT version, last_sequence, node_count, edge_count FROM projects WHERE id = $1',
       [projectA.id],
@@ -158,6 +171,8 @@ test('PostgreSQL graph batches are atomic, idempotent, versioned, and tenant iso
     }
     const deleted = await graphs.applyOperations(projectA.id, secondBatch, actorA)
     assert.equal(deleted.version, 2)
+    const changesAfterFirst = await graphs.getChanges(projectA.id, 1, actorA)
+    assert.deepEqual(changesAfterFirst.changes.map((change) => change.sequence), [2])
     const afterDelete = await graphs.getGraph(projectA.id, actorA)
     assert.deepEqual(afterDelete.nodes.map((node) => node.id), ['node-a'])
     assert.equal(afterDelete.edges.length, 0)
@@ -179,6 +194,12 @@ test('PostgreSQL graph batches are atomic, idempotent, versioned, and tenant iso
 
     await assert.rejects(
       () => graphs.getGraph(projectB.id, actorA),
+      (error: unknown) => error instanceof AuthServiceError
+        && error.statusCode === 404
+        && error.apiCode === 'RESOURCE_NOT_FOUND',
+    )
+    await assert.rejects(
+      () => graphs.getChanges(projectB.id, 0, actorA),
       (error: unknown) => error instanceof AuthServiceError
         && error.statusCode === 404
         && error.apiCode === 'RESOURCE_NOT_FOUND',

@@ -74,7 +74,7 @@
 
 - 注册、登录、退出和会话恢复。
 - 邮箱验证、重发、忘记密码与重置密码。（已落地最小闭环；真实邮件供应商待后续）
-- 活跃会话列表、其他设备下线和账号删除申请。
+- 单活跃会话、新登录踢旧设备、活跃会话列表和账号删除申请。
 - 注册事务自动创建 personal workspace 和 owner membership。
 - 认证/工作区授权中间件。（基础授权服务和当前工作区 API 已落地）
 - 密码、会话和认证操作限流与审计。
@@ -91,7 +91,7 @@
 - `server/modules/workspaces` 已提供基础授权服务，按 session 用户、workspace ID、成员角色和工作区状态校验访问；非成员访问按不泄漏存在性的 `RESOURCE_NOT_FOUND` 处理。
 - `GET /api/v1/workspaces/current` 已接入，返回当前 session 的工作区摘要。
 - 前端已接入认证门禁、登录/注册 UI、session 恢复、账号菜单、活跃会话展示、其他设备下线、退出登录、未验证提示、重发验证邮件、邮箱验证链接消费、忘记密码和密码重置表单；登录后再初始化画布工作区。
-- 开发/测试环境已支持把邮箱验证和密码重置链接输出到日志；生产真实邮件供应商、账号删除申请、浏览器级两账号隔离 E2E 和更完整限流审计待后续批次接入。
+- 首发策略调整为同账号单活跃会话：新登录成功后旧设备 session 必须失效，旧设备下一次交互、窗口聚焦或业务请求回到登录态。开发/测试环境已支持把邮箱验证和密码重置链接输出到日志；生产真实邮件供应商、账号删除申请、浏览器级两账号隔离 E2E、新登录踢旧设备 E2E 和更完整限流审计待后续批次接入。
 
 验收标准：
 
@@ -99,15 +99,16 @@
 - 并发注册重试不产生重复用户或工作区。
 - token 只能使用一次，过期和并发消费安全失败。
 - 退出和撤销后会话立即不可用。
+- 新登录成功后，同账号旧设备会话立即不可用。
 - Cookie 的 HttpOnly、Secure、SameSite、Path 和过期符合环境配置。
 
-## P3：关系化项目图与增量保存（P3-1 至 P3-4 和 Web 图适配已落地）
+## P3：关系化项目图与增量保存（P3-1 至 P3-14 已落地）
 
 交付物：
 
 - `projects`、`project_nodes`、`project_edges`、`project_changes`、`project_snapshots` schema、迁移、约束和索引。
 - 项目摘要列表、创建、加载、重命名、复制、归档、恢复和软删除。
-- Cloud 前端适配层和跨设备唯一 ID 工厂。
+- Cloud 前端适配层和全局唯一 ID 工厂。
 - CanvasSnapshot 与关系图的拆分/组装。
 - ID 级图 diff 与版本化操作批次。
 - 事务写入、幂等键、项目 version 和 change sequence。
@@ -120,14 +121,20 @@ P3-1 至 P3-4 说明：
 
 - `0003_project_graph.sql` 已建立 `projects`、`project_nodes`、`project_edges`、`project_changes` 和 `project_snapshots`，包含工作区项目索引、项目内节点/连线外键、变更 sequence/batch/幂等约束、检查点约束，以及 `workspace_user_state` 的同工作区项目外键；`0004_project_snapshot_scope.sql` 进一步保证项目只能引用自己的 saved snapshot。
 - 项目摘要 contracts、PostgreSQL 领域服务和项目元数据 HTTP API 已落地：活动/归档列表、创建、读取、重命名、归档、恢复和软删除。所有作用域从可信 session 解析，写操作要求 owner/admin/editor，跨工作区读取统一返回 `RESOURCE_NOT_FOUND`。
-- 规范化图读取和增量图 PATCH 已落地。操作批次在锁定项目的单事务内校验 `baseVersion`、节点父级/环、连线端点和幂等键，更新节点/连线软删除状态与计数，追加连续 `project_changes`，再递增 version/sequence；重复请求返回原结果，双标签同版本提交只有一个成功。
+- 规范化图读取、增量图 PATCH 和 `GET /changes` 已落地。操作批次在锁定项目的单事务内校验 `baseVersion`、节点父级/环、连线端点和幂等键，更新节点/连线软删除状态与计数，追加连续 `project_changes`，再递增 version/sequence；重复请求返回原结果，双标签同版本提交只有一个成功。changes 读取通过 session/workspace 授权，按 sequence 返回不含 workspace、actor 和幂等键的有序批次。
+- 服务端 manual/periodic checkpoint 已落地。`POST /projects/:projectId/checkpoints` 要求 expected version/sequence 与当前项目一致，锁定项目后从关系化节点/连线组装 schemaVersion 1 的 `record_json`，写入有效 `project_snapshots`；manual 更新 `projects.saved_snapshot_id`，periodic 只作为历史恢复点保留；跨工作区隐藏、归档拒绝、冲突返回 `PROJECT_VERSION_CONFLICT`。
+- checkpoint 摘要列表已落地。`GET /projects/:projectId/revisions` 通过 session/workspace 授权后按 `createdAt DESC, id DESC` keyset 分页返回摘要和大小，不返回完整 `record_json`。
+- checkpoint 详情已落地。`GET /projects/:projectId/revisions/:version` 按项目版本读取该版本最新 checkpoint，返回完整 schemaVersion 1 record，用于恢复预览和 restore 事务。
+- checkpoint restore 已落地。`POST /projects/:projectId/revisions/:version/restore` 要求 expected version/sequence 与当前项目一致，锁定项目后读取目标有效 checkpoint，先创建 `pre_restore` 检查点，再替换当前节点/连线关系图、追加 `source="restore"` 的 `project_changes` 并递增 version/sequence；当前恢复范围为 P3 节点和连线，任务与资产引用随 P4/P5 接入后扩展。
+- Web 手动保存入口已接入 manual checkpoint：手动保存先通过 Cloud 图保存链路 flush 当前画布，再使用已确认的 version/sequence 调用 `POST /checkpoints`。Web 自动保存成功后会按 sequence 增量和时间间隔尝试创建 periodic checkpoint，未达到阈值时跳过。
+- Web 冲突处理最小闭环和非重叠增量追平已落地：Cloud 适配器把 `PROJECT_VERSION_CONFLICT` 转成可识别的项目版本冲突，冲突时读取 `GET /changes`，若远端 changes 与本地待提交操作未触碰同一节点/连线，则推进 baseVersion/sequence 后重试；仍冲突或触碰同一实体时，store 按项目保留冲突状态和本地工作副本，画布提示提供重新加载云端版本、另存为副本和稍后处理。
 - 已覆盖领域单测、API session 作用域测试、真实 PostgreSQL 两工作区隔离、原子回滚、幂等、父级环、关联边清理和并发版本冲突集成测试，以及从空 schema 顺序升级并校验关键约束的迁移测试。
-- Web Cloud 适配层已接入活动/归档项目列表、创建、读取、重命名、归档/恢复、软删除、图 GET/PATCH、React Flow 与关系图映射、稳定序列化、ID 级 diff、version/sequence 基线和自动保存；刷新页面后可从 Cloud API 恢复画布，换账号、登出或 session 失效会清理前端项目/画布/任务/模板和临时资产缓存。
-- 项目复制、`GET /changes`、资产引用、完整冲突 UI、检查点生成/恢复、搜索、单批超过 500 操作的拆批，以及 P4/P5 前的媒体资产和任务持久化仍属于后续切片，当前不能视为已完成。
+- Web Cloud 适配层已接入活动/归档项目列表、创建、读取、重命名、归档/恢复、软删除、图 GET/PATCH、React Flow 与关系图映射、稳定序列化、ID 级 diff、version/sequence 基线、自动保存，以及超过 500 个图操作时按拓扑安全顺序拆分为多个 PATCH 批次；刷新页面后可从 Cloud API 恢复画布，换账号、登出或 session 失效会清理前端项目/画布/任务/模板和临时资产缓存。
+- 资产引用、冲突三方合并、搜索，以及 P4/P5 前的媒体资产和任务持久化仍属于后续切片，当前不能视为已完成。
 
 验收标准：
 
-- 注册 -> 创建项目 -> 编辑 -> 自动保存 -> 退出 -> 另一浏览器登录后完整恢复。
+- 注册 -> 创建项目 -> 编辑 -> 自动保存 -> 退出 -> 重新登录后完整恢复。
 - 移动单节点只更新该节点、项目元数据和一个 change batch，不重写整份项目 JSONB。
 - 节点新增/更新/删除和连线新增/更新/删除均有契约与数据库集成测试。
 - 两标签基于同一版本保存只能一个成功，失败方保留本地待处理内容。
@@ -136,7 +143,7 @@ P3-1 至 P3-4 说明：
 - 检查点损坏时不会裁剪仍需恢复的操作日志。
 - 历史 ProjectRecord fixture 可无损拆分并组装回语义等价格式。
 
-## P4：对象存储与资产治理
+## P4：对象存储与资产治理（P4-1 至 P4-3 已落地）
 
 交付物：
 
@@ -148,11 +155,32 @@ P3-1 至 P3-4 说明：
 - 工作区存储用量与配额。
 - 孤立对象扫描、缺失对象诊断、宽限期和幂等 GC。
 
+P4-1 说明：
+
+- 本批先建立资产治理数据库底座：`assets` 保存工作区内不可变对象元数据和状态，`asset_uploads` 保存短期上传会话、期望元数据、幂等键和完成状态，`asset_references` 保存项目节点或任务对资产的当前引用。
+- 所有资产表都以 `workspace_id` 为租户边界；资产可绑定 `origin_project_id`，但授权仍必须通过 session 用户和 `workspace_members` 校验工作区。对象 key 不包含邮箱、项目名称或用户可读路径。
+- `asset_references` 要求同一引用唯一，节点引用通过 `(project_id, node_id)` 复合外键绑定到当前项目图；任务引用先预留 `task_id` 文本，待 P5 `generation_tasks` 落地后补外键。
+- 本批只落 schema、契约类型和领域输入校验；对象存储实际完成确认、短期读取 URL、前端 URL 缓存和 GC 仍属于后续 P4 切片。
+
+P4-2 说明：
+
+- `POST /api/v1/assets/uploads` 已接入 API。路由从 HttpOnly session 解析用户和工作区，服务端用 `workspace_members` 校验 owner/admin/editor，不接受客户端提交 `user_id` 或 `workspace_id`。
+- `server/modules/assets` 已提供 PostgreSQL 上传会话服务：创建 pending `assets` 和 `asset_uploads`，按工作区/项目/资产 ID 生成对象 key，并以 `(workspace_id, idempotency_key)` 做幂等。复用幂等键但文件元数据不同会返回稳定冲突；上传会话过期或非 pending 后不重新签发上传 URL。
+- 当前对象存储适配使用 S3 兼容协议和 path-style URL，面向本地 MinIO 试跑；后续接入 OSS 时保留资产领域服务和 API 契约，只替换对象存储适配或配置。
+- 本批返回短期预签名 `PUT` URL、必带上传 headers 和过期时间，不返回对象存储永久凭据、object key、workspace ID 或 secret。
+
+P4-3 说明：
+
+- `POST /api/v1/assets/uploads/:uploadId/complete` 已接入 API。路由仍从 HttpOnly session 解析用户和工作区，服务端按 workspace scope 查找上传会话，跨工作区或不存在统一返回 `RESOURCE_NOT_FOUND`。
+- 完成确认不相信浏览器声明。服务端先确认上传会话仍为 pending 且未过期，再通过对象存储适配器对 MinIO/S3 对象执行 `HEAD`，校验真实对象大小和 MIME；请求创建上传会话时提供 `sha256` 的，还会读取对象流计算 SHA-256 并比对。
+- 校验通过后，服务端在 PostgreSQL 事务中把 `asset_uploads.status` 和 `assets.status` 更新为 `completed`；已 completed 的会话重复 complete 可幂等返回当前 completed 元数据。
+- 对象不存在返回 `409 ASSET_NOT_READY`；会话过期返回 `409 ASSET_UPLOAD_EXPIRED`；大小、MIME 或 SHA-256 不匹配返回 `422 ASSET_VALIDATION_FAILED`。当前尚未把失败对象标记 quarantined，也尚未开放短期读取 URL、前端缓存和 GC。
+
 验收标准：
 
 - Bucket 私有，B 不能读取或完成 A 的资产上传。
 - 上传中断不会产生可被节点引用的 completed 资产。
-- 换设备和签名 URL 过期后资产仍可恢复。
+- 重新登录和签名 URL 过期后资产仍可恢复。
 - 复制项目可共享不可变资产；删除原项目不误删副本引用。
 - 节点、任务和检查点不持久化新 data URL 或第三方临时 URL。
 - GC 在删除前重新验证当前图、任务和保留检查点引用。

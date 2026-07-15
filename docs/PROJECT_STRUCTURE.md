@@ -22,8 +22,9 @@ server/
     auth/              Better Auth 适配、邮件服务边界、Cloud 工作区补齐、认证错误映射（P2 建立）
     workspaces/        工作区、成员、权限和配额授权（P2 建立）
     projects/          项目元数据、列表分页、归档/恢复和软删除（P3 建立）
-    project-graph/     云端图读取、节点/连线增量事务和后续检查点入口（P3 建立）
-    assets/            上传、签名读取、引用和 GC（P4 建立）
+    project-graph/     云端图读取、节点/连线增量事务和变更日志读取（P3 建立）
+    project-snapshots/ 手动/定期检查点、历史摘要/详情和 checkpoint restore（P3 建立）
+    assets/            资产上传会话、MinIO/S3 预签名上传、元数据、引用和后续签名读取/GC（P4 建立）
     tasks/             任务状态机、尝试记录和用量（P5 建立）
     providers/         凭据解密、目标白名单和模型调用边界（P5 建立）
   shared/              仅服务端使用的配置、日志和基础设施适配（后续按需建立）
@@ -98,7 +99,7 @@ P1 第一批使用内存 Cloud adapter 让画布独立启动和构建；P3 已�
 - 不在路由文件中编写跨表事务。
 - 不直接调用任意 Provider target URL。
 
-业务事务集中在 `server/modules`。项目节点、连线、变更、检查点和资产引用只能通过 `server/modules/project-graph` 修改。访问任何工作区资源前，领域模块必须先使用 `server/modules/workspaces` 校验 session 用户的成员关系、角色和工作区状态。
+业务事务集中在 `server/modules`。项目节点、连线和变更只能通过 `server/modules/project-graph` 修改；检查点只能通过 `server/modules/project-snapshots` 创建、列出和恢复；资产引用只能通过后续资产领域模块治理。访问任何工作区资源前，领域模块必须先使用 `server/modules/workspaces` 校验 session 用户的成员关系、角色和工作区状态。
 
 ## Worker 应用
 

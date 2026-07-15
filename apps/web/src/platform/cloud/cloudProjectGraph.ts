@@ -1,5 +1,6 @@
 import type { Edge, Node } from '@xyflow/react'
 import type {
+  ProjectGraphChange,
   ProjectGraphEdge,
   ProjectGraphNode,
   ProjectGraphOperation,
@@ -8,6 +9,7 @@ import type {
 import type { CanvasSnapshot } from '@/types'
 
 const EDGE_ENVELOPE_KEY = '__aiCanvasCloudEdge'
+export const PROJECT_GRAPH_OPERATION_BATCH_SIZE = 500
 
 function cloneSerializable<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
@@ -165,4 +167,204 @@ export function diffCanvasSnapshots(
   }
 
   return operations
+}
+
+function sortUpsertNodeOperations(operations: ProjectGraphOperation[]) {
+  const upserts = operations.filter((operation) => operation.type === 'upsertNode')
+  const byNodeId = new Map(upserts.map((operation) => [operation.node.id, operation]))
+  const originalOrder = new Map(upserts.map((operation, index) => [operation.node.id, index]))
+  const sorted: ProjectGraphOperation[] = []
+  const visiting = new Set<string>()
+  const visited = new Set<string>()
+
+  const visit = (operation: Extract<ProjectGraphOperation, { type: 'upsertNode' }>) => {
+    if (visited.has(operation.node.id)) {
+      return
+    }
+    if (visiting.has(operation.node.id)) {
+      sorted.push(operation)
+      visited.add(operation.node.id)
+      return
+    }
+
+    visiting.add(operation.node.id)
+    const parentId = operation.node.parentNodeId
+    const parentOperation = parentId ? byNodeId.get(parentId) : undefined
+    if (parentOperation) {
+      visit(parentOperation)
+    }
+    visiting.delete(operation.node.id)
+
+    if (!visited.has(operation.node.id)) {
+      sorted.push(operation)
+      visited.add(operation.node.id)
+    }
+  }
+
+  for (const operation of [...upserts].sort((left, right) =>
+    (originalOrder.get(left.node.id) ?? 0) - (originalOrder.get(right.node.id) ?? 0),
+  )) {
+    visit(operation)
+  }
+
+  return sorted
+}
+
+function getBaselineNodeDepths(baseline: CanvasSnapshot) {
+  const parents = new Map(
+    baseline.nodes.map((node) => [node.id, canvasNodeToProjectGraphNode(node).parentNodeId ?? null]),
+  )
+  const depths = new Map<string, number>()
+
+  const depthOf = (nodeId: string): number => {
+    const cached = depths.get(nodeId)
+    if (cached !== undefined) {
+      return cached
+    }
+
+    const parentId = parents.get(nodeId)
+    const depth = parentId && parents.has(parentId) ? depthOf(parentId) + 1 : 0
+    depths.set(nodeId, depth)
+    return depth
+  }
+
+  for (const nodeId of parents.keys()) {
+    depthOf(nodeId)
+  }
+
+  return depths
+}
+
+export function buildProjectGraphOperationBatches(
+  baseline: CanvasSnapshot,
+  operations: ProjectGraphOperation[],
+  maxBatchSize = PROJECT_GRAPH_OPERATION_BATCH_SIZE,
+) {
+  if (!Number.isSafeInteger(maxBatchSize) || maxBatchSize < 1) {
+    throw new Error('maxBatchSize must be a positive safe integer')
+  }
+
+  const baselineDepths = getBaselineNodeDepths(baseline)
+  const deleteNodeOperations = operations
+    .filter((operation) => operation.type === 'deleteNode')
+    .sort((left, right) => (baselineDepths.get(right.nodeId) ?? 0) - (baselineDepths.get(left.nodeId) ?? 0))
+  const orderedOperations = [
+    ...operations.filter((operation) => operation.type === 'deleteEdge'),
+    ...deleteNodeOperations,
+    ...sortUpsertNodeOperations(operations),
+    ...operations.filter((operation) => operation.type === 'upsertEdge'),
+  ]
+  const batches: ProjectGraphOperation[][] = []
+
+  for (let index = 0; index < orderedOperations.length; index += maxBatchSize) {
+    batches.push(orderedOperations.slice(index, index + maxBatchSize))
+  }
+
+  return batches
+}
+
+export function applyProjectGraphOperationBatch(
+  baseline: CanvasSnapshot,
+  operations: ProjectGraphOperation[],
+): CanvasSnapshot {
+  const nodes = new Map(baseline.nodes.map((node) => [node.id, canvasNodeToProjectGraphNode(node)]))
+  const edges = new Map(baseline.edges.map((edge) => [edge.id, canvasEdgeToProjectGraphEdge(edge)]))
+
+  for (const operation of operations) {
+    if (operation.type === 'upsertNode') {
+      nodes.set(operation.node.id, cloneSerializable(operation.node))
+    } else if (operation.type === 'deleteNode') {
+      nodes.delete(operation.nodeId)
+      for (const [edgeId, edge] of edges) {
+        if (edge.source === operation.nodeId || edge.target === operation.nodeId) {
+          edges.delete(edgeId)
+        }
+      }
+    } else if (operation.type === 'upsertEdge') {
+      edges.set(operation.edge.id, cloneSerializable(operation.edge))
+    } else if (operation.type === 'deleteEdge') {
+      edges.delete(operation.edgeId)
+    }
+  }
+
+  return {
+    nodes: [...nodes.values()].map(projectGraphNodeToCanvasNode),
+    edges: [...edges.values()].map(projectGraphEdgeToCanvasEdge),
+  }
+}
+
+interface ProjectGraphOperationTouchSet {
+  nodeIds: Set<string>
+  edgeIds: Set<string>
+}
+
+function collectProjectGraphOperationTouches(operations: ProjectGraphOperation[]): ProjectGraphOperationTouchSet {
+  const touches: ProjectGraphOperationTouchSet = {
+    nodeIds: new Set<string>(),
+    edgeIds: new Set<string>(),
+  }
+
+  for (const operation of operations) {
+    if (operation.type === 'upsertNode') {
+      touches.nodeIds.add(operation.node.id)
+      if (operation.node.parentNodeId) {
+        touches.nodeIds.add(operation.node.parentNodeId)
+      }
+    } else if (operation.type === 'deleteNode') {
+      touches.nodeIds.add(operation.nodeId)
+    } else if (operation.type === 'upsertEdge') {
+      touches.edgeIds.add(operation.edge.id)
+      touches.nodeIds.add(operation.edge.source)
+      touches.nodeIds.add(operation.edge.target)
+    } else if (operation.type === 'deleteEdge') {
+      touches.edgeIds.add(operation.edgeId)
+    }
+  }
+
+  return touches
+}
+
+function touchesOverlap(left: ProjectGraphOperationTouchSet, right: ProjectGraphOperationTouchSet) {
+  for (const nodeId of left.nodeIds) {
+    if (right.nodeIds.has(nodeId)) {
+      return true
+    }
+  }
+  for (const edgeId of left.edgeIds) {
+    if (right.edgeIds.has(edgeId)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+export function doProjectGraphOperationsOverlap(
+  left: ProjectGraphOperation[],
+  right: ProjectGraphOperation[],
+) {
+  return touchesOverlap(
+    collectProjectGraphOperationTouches(left),
+    collectProjectGraphOperationTouches(right),
+  )
+}
+
+export function doProjectGraphChangesOverlap(
+  localOperations: ProjectGraphOperation[],
+  remoteChanges: ProjectGraphChange[],
+) {
+  return doProjectGraphOperationsOverlap(
+    localOperations,
+    remoteChanges.flatMap((change) => change.operations),
+  )
+}
+
+export function applyProjectGraphChanges(
+  baseline: CanvasSnapshot,
+  changes: ProjectGraphChange[],
+) {
+  return changes.reduce(
+    (current, change) => applyProjectGraphOperationBatch(current, change.operations),
+    baseline,
+  )
 }

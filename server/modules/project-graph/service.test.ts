@@ -4,6 +4,7 @@ import { AuthServiceError } from '../../dist/modules/auth/service.js'
 import {
   PROJECT_GRAPH_MAX_OPERATIONS,
   validateApplyProjectGraphOperationsRequest,
+  validateProjectGraphChangesAfter,
 } from '../../dist/modules/project-graph/service.js'
 
 function validRequest() {
@@ -79,4 +80,11 @@ test('graph request validation rejects invalid geometry and edge data', () => {
     } as never),
     AuthServiceError,
   )
+})
+
+test('graph changes query validation accepts omitted after and rejects invalid sequences', () => {
+  assert.equal(validateProjectGraphChangesAfter(undefined), 0)
+  assert.equal(validateProjectGraphChangesAfter('12'), 12)
+  assert.throws(() => validateProjectGraphChangesAfter('-1'), AuthServiceError)
+  assert.throws(() => validateProjectGraphChangesAfter('1.5'), AuthServiceError)
 })

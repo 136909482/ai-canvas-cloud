@@ -16,10 +16,10 @@ function formatSessionTime(value: string) {
 
 function getSessionTitle(session: SessionSummary) {
   if (session.current) {
-    return '当前设备'
+    return '当前登录设备'
   }
 
-  return session.deviceLabel || '其他设备'
+  return session.deviceLabel || '待下线登录'
 }
 
 export function AccountMenu() {
@@ -114,7 +114,7 @@ export function AccountMenu() {
           <div className="px-3 py-3">
             <div className="mb-2 flex items-center justify-between">
               <div className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${themeClasses.textMuted}`}>
-                活跃会话
+                登录设备
               </div>
               {isLoadingSessions ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-muted)]" /> : null}
             </div>
@@ -133,7 +133,7 @@ export function AccountMenu() {
                       {getSessionTitle(item)}
                     </div>
                     <div className={`mt-0.5 truncate text-[10px] ${themeClasses.textMuted}`}>
-                      {item.current ? '正在使用' : `最近 ${formatSessionTime(item.lastUsedAt)}`}
+                      {item.current ? '当前正在使用' : `旧登录 最近 ${formatSessionTime(item.lastUsedAt)}`}
                     </div>
                   </div>
                   {item.current ? (
@@ -146,8 +146,8 @@ export function AccountMenu() {
                       disabled={revokingSessionId === item.id}
                       onClick={() => void handleRevokeSession(item.id)}
                       className={`${themeClasses.iconButton} h-7 w-7 rounded-lg opacity-80 transition group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-50`}
-                      aria-label="下线此设备"
-                      title="下线此设备"
+                      aria-label="下线旧登录"
+                      title="下线旧登录"
                     >
                       {revokingSessionId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
                     </button>
@@ -157,7 +157,7 @@ export function AccountMenu() {
 
               {!isLoadingSessions && sessions.length === 0 ? (
                 <div className={`rounded-[12px] border border-[var(--border-subtle)] px-3 py-3 text-xs ${themeClasses.textMuted}`}>
-                  暂时没有可显示的活跃会话。
+                  暂时没有可显示的登录设备。
                 </div>
               ) : null}
             </div>
@@ -183,7 +183,7 @@ export function AccountMenu() {
                 退出登录
               </span>
               {otherSessions.length > 0 ? (
-                <span className="text-[10px] text-[var(--text-muted)]">{otherSessions.length} 台其他设备</span>
+                <span className="text-[10px] text-[var(--text-muted)]">检测到 {otherSessions.length} 个旧登录</span>
               ) : null}
             </button>
           </div>

@@ -46,7 +46,7 @@ POST   /api/v1/auth/password/reset
 DELETE /api/v1/account
 ```
 
-认证兼容接口保留在 `/api/v1/auth/*`，底层委托 Better Auth 管理邮箱密码、签名 HttpOnly Cookie、session、邮箱验证 token 和密码重置 token。注册、登录和会话恢复后，Cloud 侧会幂等确保个人工作区和 owner membership 存在。`GET /auth/sessions` 返回当前用户的活跃会话摘要，`DELETE /auth/sessions/:sessionId` 只能下线当前用户自己的会话。`POST /auth/email/resend` 从当前登录 session 解析邮箱后重发验证邮件，不接受客户端指定用户 ID；`POST /auth/email/verify` 消费 Better Auth 验证 token 并返回 `{ "ok": true }`。`POST /auth/password/forgot` 只接受邮箱并始终对存在/不存在账号返回一致成功结果；`POST /auth/password/reset` 消费一次性重置 token 并设置新密码，重置成功后撤销旧会话。登录、注册、验证和重置需要分层限流；忘记密码接口不得泄漏邮箱是否存在，避免账号枚举。
+认证兼容接口保留在 `/api/v1/auth/*`，底层委托 Better Auth 管理邮箱密码、签名 HttpOnly Cookie、session、邮箱验证 token 和密码重置 token。注册、登录和会话恢复后，Cloud 侧会幂等确保个人工作区和 owner membership 存在。首发同账号只保留一个活跃登录设备：注册或登录成功创建新 session 后，服务端撤销该用户其他 session；旧设备后续调用 `/auth/session` 或业务 API 会得到未授权响应，前端也会在用户下一次交互、键盘操作、窗口重新聚焦或页面重新可见时静默检查 session，失败后必须清理 Cloud 会话缓存并回到登录页。`GET /auth/sessions` 返回当前用户的活跃会话摘要，单活跃会话策略下通常只包含当前会话；`DELETE /auth/sessions/:sessionId` 只能下线当前用户自己的会话，用于退出当前设备或管理兜底。`POST /auth/email/resend` 从当前登录 session 解析邮箱后重发验证邮件，不接受客户端指定用户 ID；`POST /auth/email/verify` 消费 Better Auth 验证 token 并返回 `{ "ok": true }`。`POST /auth/password/forgot` 只接受邮箱并始终对存在/不存在账号返回一致成功结果；`POST /auth/password/reset` 消费一次性重置 token 并设置新密码，重置成功后撤销旧会话。登录、注册、验证和重置需要分层限流；忘记密码接口不得泄漏邮箱是否存在，避免账号枚举。
 
 邮箱验证请求：
 
@@ -144,7 +144,7 @@ PATCH /api/v1/projects/:projectId/graph
 GET   /api/v1/projects/:projectId/changes?after=<sequence>
 ```
 
-当前已实现 `GET /graph` 和 `PATCH /graph`；`GET /changes` 尚未开放。图读取响应包含项目 ID、版本、last sequence、规范化活动节点和活动连线，不返回数据库行版本、软删除行、工作区 ID 或其他租户信息：
+当前已实现 `GET /graph`、`PATCH /graph` 和 `GET /changes`。图读取响应包含项目 ID、版本、last sequence、规范化活动节点和活动连线，不返回数据库行版本、软删除行、工作区 ID 或其他租户信息：
 
 ```json
 {
@@ -153,6 +153,35 @@ GET   /api/v1/projects/:projectId/changes?after=<sequence>
   "sequence": 41,
   "nodes": [],
   "edges": []
+}
+```
+
+`GET /changes` 从当前 HttpOnly session 解析用户和工作区，只返回该工作区内未软删除项目在指定 sequence 之后的有序变更批次；`after` 省略时按 `0` 处理，必须是非负安全整数。响应最多返回 500 条 change，客户端可在 `hasMore=true` 时用最后一条 `sequence` 继续请求。响应不包含 `workspaceId`、`actorUserId`、幂等键或数据库内部行信息：
+
+```json
+{
+  "projectId": "11111111-1111-4111-8111-111111111111",
+  "version": 19,
+  "sequence": 42,
+  "after": 41,
+  "changes": [
+    {
+      "sequence": 42,
+      "baseVersion": 18,
+      "resultVersion": 19,
+      "clientId": "browser_01J...",
+      "batchId": "batch_01J...",
+      "source": "user",
+      "operations": [
+        {
+          "type": "deleteEdge",
+          "edgeId": "edge_01J..."
+        }
+      ],
+      "createdAt": "2026-07-14T10:00:00.000Z"
+    }
+  ],
+  "hasMore": false
 }
 ```
 
@@ -199,6 +228,7 @@ GET   /api/v1/projects/:projectId/changes?after=<sequence>
 约束：
 
 - 服务端不接受客户端指定 `workspace_id` 或操作者。
+- `GET /changes` 同样不接受客户端指定 `workspace_id`、`user_id` 或操作者；跨工作区、已软删除或不存在项目统一返回 `404 RESOURCE_NOT_FOUND`。
 - 所有 operations 作为一个事务接受或拒绝。
 - 同一 actor、client、batch、幂等键、baseVersion 和 operations 的重复提交返回同一已接受结果；复用幂等键或 batch ID 提交不同内容返回 `409 VALIDATION_FAILED`。
 - 非幂等重试的 `baseVersion` 不一致返回 `409 PROJECT_VERSION_CONFLICT`，`details.currentVersion` 提供重新加载依据。
@@ -216,7 +246,108 @@ GET  /api/v1/projects/:projectId/revisions/:version
 POST /api/v1/projects/:projectId/revisions/:version/restore
 ```
 
-手动 checkpoint 先确认客户端无待提交批次或由请求显式提交最后批次。恢复创建新版本，不覆盖旧检查点。历史列表返回摘要和大小，不默认返回完整 `record_json`。
+当前已实现 `POST /revisions/:version/restore`。请求必须携带客户端最近确认的当前项目 `expectedVersion` 和 `expectedSequence`，服务端从 session 解析用户和工作区，锁定项目后校验当前版本一致，读取目标版本最新有效 checkpoint，先创建 `pre_restore` 检查点保护恢复前状态，再用目标 checkpoint 的节点和连线替换当前关系图，追加一条 `source="restore"` 的 `project_changes`，递增项目 version/sequence，并把 `projects.saved_snapshot_id` 指向被恢复的 checkpoint。请求体不接受 `workspace_id`、`user_id`、操作者或任意 `record_json`。
+
+成功响应包含 `restoredCheckpoint`、`preRestoreCheckpoint`、更新后的 `project` 摘要，以及新的 `version` 和 `sequence`。版本不一致返回 `409 PROJECT_VERSION_CONFLICT` 并带 `details.currentVersion/currentSequence`；归档项目返回 `403 ACCESS_DENIED`；目标 checkpoint 不存在、跨工作区或项目已软删除返回 `404 RESOURCE_NOT_FOUND`。
+
+当前已实现 `POST /checkpoints` 创建 `manual` 或 `periodic` checkpoint。请求必须携带客户端最近确认的项目版本和 sequence，服务端从 session 解析用户和工作区，锁定项目后确认当前版本完全一致，再读取当前关系化节点/连线生成 `project_snapshots`。`checkpointType` 省略时按 `manual` 处理；`manual` 会把 `projects.saved_snapshot_id` 指向新检查点，`periodic` 只写入历史检查点，不改变手动保存点。请求体不接受 `workspace_id`、`user_id`、操作者或任意 `record_json`：
+
+```json
+{
+  "expectedVersion": 19,
+  "expectedSequence": 42,
+  "checkpointType": "periodic"
+}
+```
+
+成功返回 `201`：
+
+```json
+{
+  "checkpoint": {
+    "id": "checkpoint_...",
+    "projectId": "11111111-1111-4111-8111-111111111111",
+    "projectVersion": 19,
+    "lastSequence": 42,
+    "snapshotType": "manual",
+    "schemaVersion": 1,
+    "byteSize": 2048,
+    "isValid": true,
+    "createdAt": "2026-07-15T10:00:00.000Z"
+  },
+  "project": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "name": "产品主视觉",
+    "version": 19,
+    "lastSequence": 42,
+    "nodeCount": 12,
+    "edgeCount": 8,
+    "taskCount": 0,
+    "archivedAt": null,
+    "createdAt": "2026-07-15T08:00:00.000Z",
+    "updatedAt": "2026-07-15T10:00:00.000Z"
+  }
+}
+```
+
+若项目已被其他客户端更新，返回 `409 PROJECT_VERSION_CONFLICT`，`details.currentVersion` 和 `details.currentSequence` 提供重新加载或增量追平依据。归档项目拒绝创建新 checkpoint；跨工作区、已软删除或不存在项目统一返回 `404 RESOURCE_NOT_FOUND`。
+
+当前已实现 `GET /revisions`，返回 checkpoint 摘要列表，不返回完整 `record_json`。列表按 `createdAt DESC, id DESC` 排序，支持 `limit=1..100`（默认 20）和不透明 `cursor`：
+
+```json
+{
+  "revisions": [
+    {
+      "id": "checkpoint_...",
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "projectVersion": 19,
+      "lastSequence": 42,
+      "snapshotType": "manual",
+      "schemaVersion": 1,
+      "byteSize": 2048,
+      "isValid": true,
+      "createdAt": "2026-07-15T10:00:00.000Z"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+当前已实现 `GET /revisions/:version`，按项目版本读取该版本最新创建的 checkpoint，并返回完整 `record`。同一版本存在多个 checkpoint 时，返回 `createdAt DESC, id DESC` 的第一条；不存在、跨工作区或项目已软删除时返回 `404 RESOURCE_NOT_FOUND`：
+
+```json
+{
+  "checkpoint": {
+    "id": "checkpoint_...",
+    "projectId": "11111111-1111-4111-8111-111111111111",
+    "projectVersion": 19,
+    "lastSequence": 42,
+    "snapshotType": "manual",
+    "schemaVersion": 1,
+    "byteSize": 2048,
+    "isValid": true,
+    "createdAt": "2026-07-15T10:00:00.000Z"
+  },
+  "record": {
+    "schemaVersion": 1,
+    "project": {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "产品主视觉",
+      "version": 19,
+      "lastSequence": 42
+    },
+    "canvas": {
+      "nodes": [],
+      "edges": []
+    },
+    "taskQueue": {
+      "tasks": []
+    }
+  }
+}
+```
+
+恢复会创建新版本，不覆盖旧检查点；restore 已开放，当前恢复范围覆盖 P3 关系化节点和连线，任务队列与资产引用随 P4/P5 接入后扩展。
 
 ## 资产
 
@@ -228,9 +359,102 @@ GET    /api/v1/assets/:assetId/url
 DELETE /api/v1/assets/:assetId
 ```
 
-创建上传会话请求包含项目、文件名、MIME、字节数和可选哈希。响应返回短期预签名上传信息，不返回对象存储永久凭据。
+当前已实现 `POST /assets/uploads` 创建上传会话。请求包含项目、文件名、MIME、字节数、资产类型、引用用途和幂等键，可选 `sha256` 与图片尺寸。服务端从 session 解析用户和工作区，不接受客户端提交 `workspace_id` 或 `user_id`，写操作要求 owner/admin/editor。当前对象存储适配使用 S3 兼容预签名 `PUT`，本地开发面向 MinIO，后续可替换为 OSS 兼容适配：
 
-完成接口从对象存储读取实际元数据并验证；浏览器声明不能作为事实。读取 URL 在签发前检查成员资格和资产状态，返回短 TTL 与过期时间。
+```json
+{
+  "projectId": "11111111-1111-4111-8111-111111111111",
+  "originalFileName": "reference.png",
+  "mimeType": "image/png",
+  "byteSize": 2048,
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "width": 1024,
+  "height": 768,
+  "assetKind": "upload",
+  "referenceRole": "source",
+  "idempotencyKey": "asset_upload_01J..."
+}
+```
+
+成功返回 `201`，只包含可暴露给浏览器的短期上传信息，不返回 object key、workspace ID、永久 access key 或 secret：
+
+```json
+{
+  "upload": {
+    "id": "55555555-5555-4555-8555-555555555555",
+    "assetId": "66666666-6666-4666-8666-666666666666",
+    "projectId": "11111111-1111-4111-8111-111111111111",
+    "originalFileName": "reference.png",
+    "expectedMimeType": "image/png",
+    "expectedByteSize": 2048,
+    "expectedSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "assetKind": "upload",
+    "status": "pending",
+    "expiresAt": "2026-07-15T00:15:00.000Z",
+    "createdAt": "2026-07-15T00:00:00.000Z"
+  },
+  "asset": {
+    "id": "66666666-6666-4666-8666-666666666666",
+    "projectId": "11111111-1111-4111-8111-111111111111",
+    "originalFileName": "reference.png",
+    "mimeType": "image/png",
+    "byteSize": 2048,
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "width": 1024,
+    "height": 768,
+    "assetKind": "upload",
+    "status": "pending",
+    "createdAt": "2026-07-15T00:00:00.000Z",
+    "updatedAt": "2026-07-15T00:00:00.000Z"
+  },
+  "directUpload": {
+    "method": "PUT",
+    "url": "http://localhost:9000/ai-canvas-cloud/...",
+    "headers": {
+      "content-type": "image/png"
+    },
+    "expiresAt": "2026-07-15T00:15:00.000Z"
+  }
+}
+```
+
+同一工作区复用同一 `idempotencyKey` 且元数据一致时返回同一 upload/asset 并重新生成短期上传 URL；复用幂等键但文件元数据不同返回 `409 VALIDATION_FAILED`；上传会话已过期或不再 pending 返回 `409 ASSET_UPLOAD_EXPIRED`。
+
+当前已实现 `POST /assets/uploads/:uploadId/complete`。请求体为空；服务端从 session 解析用户和工作区，按当前工作区查找上传会话，不接受客户端提交 `workspace_id`、`user_id` 或对象 key。完成接口从对象存储读取实际元数据并验证；浏览器声明不能作为事实。成功返回 completed upload 和 asset 摘要：
+
+```json
+{
+  "upload": {
+    "id": "55555555-5555-4555-8555-555555555555",
+    "assetId": "66666666-6666-4666-8666-666666666666",
+    "projectId": "11111111-1111-4111-8111-111111111111",
+    "originalFileName": "reference.png",
+    "expectedMimeType": "image/png",
+    "expectedByteSize": 2048,
+    "expectedSha256": null,
+    "assetKind": "upload",
+    "status": "completed",
+    "expiresAt": "2026-07-15T00:15:00.000Z",
+    "createdAt": "2026-07-15T00:00:00.000Z"
+  },
+  "asset": {
+    "id": "66666666-6666-4666-8666-666666666666",
+    "projectId": "11111111-1111-4111-8111-111111111111",
+    "originalFileName": "reference.png",
+    "mimeType": "image/png",
+    "byteSize": 2048,
+    "sha256": null,
+    "width": null,
+    "height": null,
+    "assetKind": "upload",
+    "status": "completed",
+    "createdAt": "2026-07-15T00:00:00.000Z",
+    "updatedAt": "2026-07-15T00:10:00.000Z"
+  }
+}
+```
+
+对象尚未直传完成返回 `409 ASSET_NOT_READY`；上传会话过期返回 `409 ASSET_UPLOAD_EXPIRED`；对象真实大小、MIME 或 SHA-256 与上传会话不一致返回 `422 ASSET_VALIDATION_FAILED`。读取 URL 在签发前检查成员资格和资产状态，返回短 TTL 与过期时间；该读取接口尚未开放。
 
 ## 任务
 

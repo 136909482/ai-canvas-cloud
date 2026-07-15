@@ -1,5 +1,7 @@
 import type { CanvasSnapshot, ProjectRecord, WorkflowTemplateLibrary, WorkspaceConfigFile, WorkspaceData } from '@/types'
 
+export type ProjectCheckpointRequestType = 'manual' | 'periodic'
+
 export interface WriteWorkspaceAssetInput {
   pathSegments: string[]
   fileName: string
@@ -52,6 +54,12 @@ export interface DeleteWorkspaceProjectInput {
   projectId: string
   activeProjectId?: string | null
   lastOpenedProjectId?: string | null
+}
+
+export interface CreateProjectCheckpointInput {
+  checkpointType?: ProjectCheckpointRequestType
+  minSequenceDelta?: number
+  minIntervalMs?: number
 }
 
 export interface WorkflowImportResult {
@@ -225,6 +233,7 @@ export interface PlatformBridge {
   listWorkspaceProjects: () => Promise<WorkspaceProjectIndex | null>
   loadWorkspaceProject: (projectId: string) => Promise<ProjectRecord | null>
   saveWorkspaceProject: (input: SaveWorkspaceProjectInput) => Promise<void>
+  createProjectCheckpoint: (projectId: string, input?: CreateProjectCheckpointInput) => Promise<void>
   deleteWorkspaceProject: (input: DeleteWorkspaceProjectInput) => Promise<void>
   loadWorkspaceConfig: () => Promise<WorkspaceConfigFile | null>
   saveWorkspaceConfig: (config: WorkspaceConfigFile) => Promise<void>

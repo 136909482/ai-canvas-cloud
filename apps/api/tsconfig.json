@@ -10,6 +10,7 @@
       "@ai-canvas-cloud/server": ["../../server/index.ts"],
       "@ai-canvas-cloud/server/modules/auth": ["../../server/modules/auth/index.ts"],
       "@ai-canvas-cloud/server/modules/project-graph": ["../../server/modules/project-graph/index.ts"],
+      "@ai-canvas-cloud/server/modules/project-snapshots": ["../../server/modules/project-snapshots/index.ts"],
       "@ai-canvas-cloud/server/modules/projects": ["../../server/modules/projects/index.ts"],
       "@ai-canvas-cloud/shared": ["../../packages/shared/src/index.ts"]
     }

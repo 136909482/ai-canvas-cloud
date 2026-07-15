@@ -19,7 +19,7 @@ AI Canvas Cloud 是 AI Canvas 的独立网站端仓库，面向长期运营的�
 本仓库独立于本地 Web/Electron 项目 `136909482/ai-canvas`：
 
 - `ai-canvas` 继续维护本地目录、Electron SQLite 和桌面交付。
-- `ai-canvas-cloud` 负责账号、个人空间、多设备访问、云端图持久化、对象存储和服务端任务。
+- `ai-canvas-cloud` 负责账号、个人空间、单活跃会话、云端图持久化、对象存储和服务端任务。
 - 两端通过版本化 `ProjectRecord` 与目录包迁移数据，不共享运行时数据库或隐式同步本地文件。
 
 ## 长期文档
@@ -85,4 +85,4 @@ GET /api/v1/health/ready
 
 P0 文档基线已完成。P1 第一批代码已落地：`apps/web` 使用临时 Cloud 内存适配器独立启动和构建；`apps/api` 和 `apps/worker` 提供配置校验、结构化日志和优雅关闭；`infra/local` 提供 PostgreSQL、Redis 和 MinIO 基础配置。
 
-P2 第一批基础已落地并已切到 Better Auth：核心认证表使用 `"user"`、`"session"`、`"account"`、`"verification"`；`PostgreSQL AuthService` 通过 Better Auth 的 `signUpEmail`、`signInEmail`、`getSession`、`signOut`、`listSessions`、`revokeSession`、`sendVerificationEmail`、`verifyEmail`、`requestPasswordReset` 和 `resetPassword` 管理邮箱密码、签名 HttpOnly Cookie、会话恢复、活跃会话列表、单设备下线、邮箱验证和密码重置。Cloud 侧继续维护 personal workspace、成员关系、工作区用户状态和认证审计表；前端认证门禁、登录/注册 UI、账号菜单、活跃会话展示、其他设备下线、退出登录、未验证提示、重发验证邮件、验证链接消费、忘记密码和重置密码已接入。开发/测试环境会把邮箱验证和密码重置链接输出到日志；生产真实邮件供应商、两账号隔离 E2E 和更完整限流审计待后续批次实现。
+P2 第一批基础已落地并已切到 Better Auth：核心认证表使用 `"user"`、`"session"`、`"account"`、`"verification"`；`PostgreSQL AuthService` 通过 Better Auth 的 `signUpEmail`、`signInEmail`、`getSession`、`signOut`、`listSessions`、`revokeSession`、`sendVerificationEmail`、`verifyEmail`、`requestPasswordReset` 和 `resetPassword` 管理邮箱密码、签名 HttpOnly Cookie、会话恢复、活跃会话列表、会话撤销、邮箱验证和密码重置。首发产品策略为单活跃会话：同账号新登录成功后撤销旧登录设备，旧设备下次交互、窗口聚焦或业务请求会回到登录态；Cloud 侧继续维护 personal workspace、成员关系、工作区用户状态和认证审计表。前端认证门禁、登录/注册 UI、账号菜单、活跃会话展示、其他设备下线、退出登录、未验证提示、重发验证邮件、验证链接消费、忘记密码和重置密码已接入。开发/测试环境会把邮箱验证和密码重置链接输出到日志；生产真实邮件供应商、两账号隔离 E2E 和更完整限流审计待后续批次实现。

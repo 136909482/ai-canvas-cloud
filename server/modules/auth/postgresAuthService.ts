@@ -376,6 +376,25 @@ async function getPrimaryWorkspace(client: Pick<DbClient, 'query'>, userId: stri
   return result.rows[0] ?? null
 }
 
+async function revokeOtherUserSessions(
+  client: Pick<DbClient, 'query'>,
+  userId: string,
+  currentToken: string | null | undefined,
+) {
+  if (!currentToken) {
+    return
+  }
+
+  await client.query(
+    `
+      DELETE FROM "session"
+      WHERE user_id = $1
+        AND token <> $2
+    `,
+    [userId, currentToken],
+  )
+}
+
 function createDefaultBetterAuthApi(pool: DbPool, options: PostgresAuthServiceOptions): BetterAuthApi {
   const publicWebUrl = options.publicWebUrl ?? process.env.WEB_PUBLIC_URL ?? DEFAULT_PUBLIC_WEB_URL
   const auth = betterAuth({
@@ -463,6 +482,7 @@ export function createPostgresAuthService(
         })
 
         await ensurePersonalWorkspace(pool, result.response.user)
+        await revokeOtherUserSessions(pool, result.response.user.id, result.response.token)
         const row = await getPrimaryWorkspace(pool, result.response.user.id)
 
         if (!row) {
@@ -492,6 +512,7 @@ export function createPostgresAuthService(
         })
 
         await ensurePersonalWorkspace(pool, result.response.user)
+        await revokeOtherUserSessions(pool, result.response.user.id, result.response.token)
         const row = await getPrimaryWorkspace(pool, result.response.user.id)
 
         if (!row) {

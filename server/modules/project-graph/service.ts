@@ -2,6 +2,7 @@ import type {
   ApplyProjectGraphOperationsRequest,
   ApplyProjectGraphOperationsResponse,
   ProjectGraphEdge,
+  ProjectGraphChangesResponse,
   ProjectGraphNode,
   ProjectGraphOperation,
   ProjectGraphResponse,
@@ -10,10 +11,12 @@ import { AuthServiceError } from '../auth/service.js'
 import type { ProjectActor } from '../projects/service.js'
 
 export const PROJECT_GRAPH_MAX_OPERATIONS = 500
+export const PROJECT_GRAPH_CHANGES_PAGE_SIZE = 500
 const ENTITY_ID_MAX_LENGTH = 128
 
 export interface ProjectGraphService {
   getGraph: (projectId: string, actor: ProjectActor) => Promise<ProjectGraphResponse>
+  getChanges: (projectId: string, after: number, actor: ProjectActor) => Promise<ProjectGraphChangesResponse>
   applyOperations: (
     projectId: string,
     input: ApplyProjectGraphOperationsRequest,
@@ -194,6 +197,16 @@ export function validateApplyProjectGraphOperationsRequest(
   }
 }
 
+export function validateProjectGraphChangesAfter(value: unknown) {
+  const after = value === undefined || value === null || value === '' ? 0 : Number(value)
+
+  if (!Number.isSafeInteger(after) || after < 0) {
+    return validationError('after must be a non-negative safe integer')
+  }
+
+  return after
+}
+
 export function createUnavailableProjectGraphService(): ProjectGraphService {
   const unavailable = () => {
     throw new AuthServiceError({
@@ -206,6 +219,9 @@ export function createUnavailableProjectGraphService(): ProjectGraphService {
 
   return {
     async getGraph() {
+      return unavailable()
+    },
+    async getChanges() {
       return unavailable()
     },
     async applyOperations() {

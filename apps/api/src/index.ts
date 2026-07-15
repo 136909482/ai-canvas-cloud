@@ -1,9 +1,12 @@
 import {
   createDevelopmentAuthEmailService,
+  createPostgresAssetService,
   createPostgresAuthService,
   createPostgresPool,
   createPostgresProjectGraphService,
+  createPostgresProjectSnapshotService,
   createPostgresProjectService,
+  createS3ObjectStorage,
   createWorkspaceAuthorizationService,
   loadDotEnv,
   seedDevelopmentAdminAccount,
@@ -27,9 +30,30 @@ const authService = createPostgresAuthService(dbPool, {
   }),
 })
 const workspaceAuthorizationService = createWorkspaceAuthorizationService(dbPool)
+const objectStorage = createS3ObjectStorage({
+  endpoint: config.s3Endpoint,
+  bucket: config.s3Bucket,
+  region: config.s3Region,
+  accessKeyId: config.s3AccessKeyId,
+  secretAccessKey: config.s3SecretAccessKey,
+  forcePathStyle: true,
+})
+const assetService = createPostgresAssetService(dbPool, {
+  authorizationService: workspaceAuthorizationService,
+  objectStorage,
+})
 const projectGraphService = createPostgresProjectGraphService(dbPool, { authorizationService: workspaceAuthorizationService })
+const projectSnapshotService = createPostgresProjectSnapshotService(dbPool, { authorizationService: workspaceAuthorizationService })
 const projectService = createPostgresProjectService(dbPool, { authorizationService: workspaceAuthorizationService })
-const server = createApiServer({ config, logger, authService, projectGraphService, projectService })
+const server = createApiServer({
+  config,
+  logger,
+  authService,
+  assetService,
+  projectGraphService,
+  projectSnapshotService,
+  projectService,
+})
 
 void seedDevelopmentAdminAccount({
   enabled: config.devSeedAdmin,

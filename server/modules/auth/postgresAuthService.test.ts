@@ -82,7 +82,56 @@ test('register delegates credentials to Better Auth and creates workspace data',
   assert(calls.some((call) => call.text.includes('INSERT INTO workspaces')))
   assert(calls.some((call) => call.text.includes('INSERT INTO workspace_members')))
   assert(calls.some((call) => call.text.includes('INSERT INTO workspace_user_state')))
+  assert(calls.some((call) => call.text.includes('DELETE FROM "session"')
+    && call.values?.[0] === 'user-1'
+    && call.values?.[1] === 'raw-token'))
   assert.equal(calls.some((call) => call.text.includes('INSERT INTO sessions')), false)
+})
+
+test('login revokes previous sessions for single-active-device policy', async () => {
+  const authApi = {
+    async signInEmail() {
+      const headers = new Headers()
+      headers.append('set-cookie', 'better-auth.session_token=new-signed; HttpOnly; Path=/')
+      return {
+        headers,
+        response: {
+          redirect: false,
+          token: 'new-token',
+          user: {
+            id: 'user-1',
+            email: 'artist@example.com',
+            emailVerified: true,
+            name: 'artist',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+      }
+    },
+  }
+  const { pool, calls } = createMockPool(({ text }) => {
+    if (text.includes('INSERT INTO workspaces')) {
+      return { rows: [{ id: 'workspace-1' }] }
+    }
+
+    if (text.includes('SELECT') && text.includes('JOIN workspace_members')) {
+      return { rows: [createWorkspaceRows()] }
+    }
+
+    return { rows: [] }
+  })
+  const authService = createPostgresAuthService(pool as never, { authApi: authApi as never })
+  const result = await authService.login(
+    { email: ' Artist@Example.COM ', password: 'long-enough-password' },
+    { requestId: 'req_1', userAgent: 'agent', ipAddress: '127.0.0.1' },
+  )
+
+  assert.equal(result.response.user.email, 'artist@example.com')
+  assert.match(result.setCookieHeaders.join('\n'), /better-auth\.session_token=new-signed/)
+  assert(calls.some((call) => call.text.includes('DELETE FROM "session"')
+    && call.values?.[0] === 'user-1'
+    && call.values?.[1] === 'new-token'))
 })
 
 test('register maps Better Auth duplicate email errors to validation conflicts', async () => {

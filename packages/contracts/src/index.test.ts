@@ -6,6 +6,15 @@ import {
   type AuthSuccessResponse,
   type CurrentWorkspaceResponse,
   type ApplyProjectGraphOperationsRequest,
+  type CreateProjectCheckpointRequest,
+  type ProjectCheckpointResponse,
+  type ProjectRevisionRestoreResponse,
+  type ProjectRevisionResponse,
+  type ProjectRevisionsResponse,
+  type ProjectGraphChangesResponse,
+  type AssetUploadResponse,
+  type CompleteAssetUploadResponse,
+  type CreateAssetUploadRequest,
   type CreateProjectRequest,
   type ProjectGraphResponse,
   type ProjectResponse,
@@ -109,6 +118,258 @@ test('project graph contracts keep versioned operations explicit', () => {
   }
 
   assert.equal(graph.nodes[0]?.id, 'node_1')
+})
+
+test('project graph changes contract exposes ordered non-tenant change batches', () => {
+  const response: ProjectGraphChangesResponse = {
+    projectId: 'project_1',
+    version: 2,
+    sequence: 2,
+    after: 1,
+    changes: [{
+      sequence: 2,
+      baseVersion: 1,
+      resultVersion: 2,
+      clientId: 'browser_1',
+      batchId: 'batch_2',
+      source: 'user',
+      operations: [{ type: 'deleteNode', nodeId: 'node_1' }],
+      createdAt: '2026-07-15T00:00:00.000Z',
+    }],
+    hasMore: false,
+  }
+
+  assert.equal(response.changes[0]?.sequence, 2)
+  assert.equal('workspaceId' in response.changes[0]!, false)
+  assert.equal('actorUserId' in response.changes[0]!, false)
+})
+
+test('project checkpoint contract exposes saved snapshot metadata without tenant fields', () => {
+  const request: CreateProjectCheckpointRequest = {
+    expectedVersion: 2,
+    expectedSequence: 2,
+    checkpointType: 'periodic',
+  }
+  const response: ProjectCheckpointResponse = {
+    checkpoint: {
+      id: '33333333-3333-4333-8333-333333333333',
+      projectId: '11111111-1111-4111-8111-111111111111',
+      projectVersion: 2,
+      lastSequence: 2,
+      snapshotType: 'manual',
+      schemaVersion: 1,
+      byteSize: 128,
+      isValid: true,
+      createdAt: '2026-07-15T00:00:00.000Z',
+    },
+    project: {
+      id: '11111111-1111-4111-8111-111111111111',
+      name: '产品主视觉',
+      version: 2,
+      lastSequence: 2,
+      nodeCount: 1,
+      edgeCount: 0,
+      taskCount: 0,
+      archivedAt: null,
+      createdAt: '2026-07-15T00:00:00.000Z',
+      updatedAt: '2026-07-15T00:00:00.000Z',
+    },
+  }
+
+  assert.equal(request.checkpointType, 'periodic')
+  assert.equal(response.checkpoint.snapshotType, 'manual')
+  assert.equal('workspaceId' in response.checkpoint, false)
+  assert.equal('actorUserId' in response.checkpoint, false)
+})
+
+test('project revisions contract exposes paginated checkpoint summaries', () => {
+  const response: ProjectRevisionsResponse = {
+    revisions: [{
+      id: '33333333-3333-4333-8333-333333333333',
+      projectId: '11111111-1111-4111-8111-111111111111',
+      projectVersion: 2,
+      lastSequence: 2,
+      snapshotType: 'manual',
+      schemaVersion: 1,
+      byteSize: 128,
+      isValid: true,
+      createdAt: '2026-07-15T00:00:00.000Z',
+    }],
+    nextCursor: null,
+  }
+
+  assert.equal(response.revisions[0]?.lastSequence, 2)
+  assert.equal('recordJson' in response.revisions[0]!, false)
+})
+
+test('project revision detail contract exposes the saved record for a version', () => {
+  const response: ProjectRevisionResponse = {
+    checkpoint: {
+      id: '33333333-3333-4333-8333-333333333333',
+      projectId: '11111111-1111-4111-8111-111111111111',
+      projectVersion: 2,
+      lastSequence: 2,
+      snapshotType: 'manual',
+      schemaVersion: 1,
+      byteSize: 128,
+      isValid: true,
+      createdAt: '2026-07-15T00:00:00.000Z',
+    },
+    record: {
+      schemaVersion: 1,
+      project: {
+        id: '11111111-1111-4111-8111-111111111111',
+        name: '产品主视觉',
+        version: 2,
+        lastSequence: 2,
+      },
+      canvas: {
+        nodes: [],
+        edges: [],
+      },
+      taskQueue: {
+        tasks: [],
+      },
+    },
+  }
+
+  assert.equal(response.record.project.version, response.checkpoint.projectVersion)
+  assert.equal('workspaceId' in response.record.project, false)
+})
+
+test('project revision restore contract exposes restore checkpoints and new project version', () => {
+  const restoredCheckpoint = {
+    id: '33333333-3333-4333-8333-333333333333',
+    projectId: '11111111-1111-4111-8111-111111111111',
+    projectVersion: 2,
+    lastSequence: 2,
+    snapshotType: 'manual' as const,
+    schemaVersion: 1,
+    byteSize: 128,
+    isValid: true,
+    createdAt: '2026-07-15T00:00:00.000Z',
+  }
+  const response: ProjectRevisionRestoreResponse = {
+    restoredCheckpoint,
+    preRestoreCheckpoint: {
+      ...restoredCheckpoint,
+      id: '44444444-4444-4444-8444-444444444444',
+      projectVersion: 4,
+      lastSequence: 4,
+      snapshotType: 'pre_restore',
+    },
+    project: {
+      id: '11111111-1111-4111-8111-111111111111',
+      name: '产品主视觉',
+      version: 5,
+      lastSequence: 5,
+      nodeCount: 1,
+      edgeCount: 0,
+      taskCount: 0,
+      archivedAt: null,
+      createdAt: '2026-07-15T00:00:00.000Z',
+      updatedAt: '2026-07-15T01:00:00.000Z',
+    },
+    version: 5,
+    sequence: 5,
+  }
+
+  assert.equal(response.restoredCheckpoint.snapshotType, 'manual')
+  assert.equal(response.preRestoreCheckpoint.snapshotType, 'pre_restore')
+  assert.equal(response.version, response.project.version)
+  assert.equal('workspaceId' in response, false)
+})
+
+test('asset upload contract keeps storage credentials out of metadata', () => {
+  const request: CreateAssetUploadRequest = {
+    projectId: '11111111-1111-4111-8111-111111111111',
+    originalFileName: 'reference.png',
+    mimeType: 'image/png',
+    byteSize: 2048,
+    sha256: 'a'.repeat(64),
+    width: 1024,
+    height: 768,
+    assetKind: 'upload',
+    referenceRole: 'source',
+    idempotencyKey: 'asset_upload_1',
+  }
+  const response: AssetUploadResponse = {
+    upload: {
+      id: '55555555-5555-4555-8555-555555555555',
+      assetId: '66666666-6666-4666-8666-666666666666',
+      projectId: request.projectId!,
+      originalFileName: request.originalFileName,
+      expectedMimeType: request.mimeType,
+      expectedByteSize: request.byteSize,
+      expectedSha256: request.sha256!,
+      assetKind: 'upload',
+      status: 'pending',
+      expiresAt: '2026-07-15T01:00:00.000Z',
+      createdAt: '2026-07-15T00:00:00.000Z',
+    },
+    asset: {
+      id: '66666666-6666-4666-8666-666666666666',
+      projectId: request.projectId!,
+      originalFileName: request.originalFileName,
+      mimeType: request.mimeType,
+      byteSize: request.byteSize,
+      sha256: request.sha256!,
+      width: request.width!,
+      height: request.height!,
+      assetKind: 'upload',
+      status: 'pending',
+      createdAt: '2026-07-15T00:00:00.000Z',
+      updatedAt: '2026-07-15T00:00:00.000Z',
+    },
+    directUpload: {
+      method: 'PUT',
+      url: 'https://object-storage.example/upload',
+      headers: { 'content-type': request.mimeType },
+      expiresAt: '2026-07-15T01:00:00.000Z',
+    },
+  }
+
+  assert.equal(response.upload.assetId, response.asset.id)
+  assert.equal('workspaceId' in response.asset, false)
+  assert.equal('objectKey' in response.asset, false)
+  assert.equal('accessKeyId' in response.directUpload, false)
+  assert.equal('secretAccessKey' in response.directUpload, false)
+})
+
+test('asset upload completion contract returns completed metadata only', () => {
+  const response: CompleteAssetUploadResponse = {
+    upload: {
+      id: '55555555-5555-4555-8555-555555555555',
+      assetId: '66666666-6666-4666-8666-666666666666',
+      projectId: '11111111-1111-4111-8111-111111111111',
+      originalFileName: 'reference.png',
+      expectedMimeType: 'image/png',
+      expectedByteSize: 2048,
+      expectedSha256: null,
+      assetKind: 'upload',
+      status: 'completed',
+      expiresAt: '2026-07-15T01:00:00.000Z',
+      createdAt: '2026-07-15T00:00:00.000Z',
+    },
+    asset: {
+      id: '66666666-6666-4666-8666-666666666666',
+      projectId: '11111111-1111-4111-8111-111111111111',
+      originalFileName: 'reference.png',
+      mimeType: 'image/png',
+      byteSize: 2048,
+      sha256: null,
+      width: null,
+      height: null,
+      assetKind: 'upload',
+      status: 'completed',
+      createdAt: '2026-07-15T00:00:00.000Z',
+      updatedAt: '2026-07-15T00:10:00.000Z',
+    },
+  }
+
+  assert.equal(response.asset.status, 'completed')
+  assert.equal(response.upload.status, 'completed')
+  assert.equal('objectKey' in response.asset, false)
 })
 
 function neverValue(): never {

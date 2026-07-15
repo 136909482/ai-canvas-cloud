@@ -4,7 +4,7 @@
 
 ## 通用约定
 
-- 服务端实体 ID 使用 UUID/ULID 等跨设备唯一值。
+- 服务端实体 ID 使用 UUID/ULID 等全局唯一值。
 - 所有时间使用带时区时间戳并由服务端生成。
 - 所有租户资源包含 `workspace_id`，查询和唯一约束不得跨租户混淆。
 - 需要用户恢复或后台清理的资源使用软删除；硬删除由受控 GC 完成。
@@ -24,6 +24,8 @@
 
 前端和 API 日志不得记录密码、`better-auth.session_token`、重置 token、生产验证/重置链接、Authorization 或 Provider API Key。开发/测试环境可以打印邮箱验证和密码重置链接用于本地调试；生产环境必须接入真实邮件发送服务，不能依赖日志取 token。Cloud 业务授权不信任客户端传入的 `user_id`，必须先从 Better Auth session 解析用户，再通过 `workspace_members` 校验工作区权限。
 
+首发采用单活跃会话策略。注册或登录创建新 session 后，服务端撤销同用户其他 session；旧 session 行可由 Better Auth 标记失效或删除，但无论实现细节如何，业务 API 都只能信任当前有效 session。密码重置成功后同样撤销旧 session。
+
 ### `workspaces`
 
 主要字段：`id`、`type`、`name`、`owner_user_id`、`status`、`plan_key`、配额字段和时间戳。
@@ -38,7 +40,7 @@
 
 ### `workspace_user_state`
 
-保存某用户在某工作区的最近项目、当前项目和非敏感 UI 游标。该状态不能放在 `workspaces` 上，否则不同设备或未来不同成员会互相覆盖。
+保存某用户在某工作区的最近项目、当前项目和非敏感 UI 游标。首发单活跃会话避免多个设备同时更新该状态；该状态仍不能放在 `workspaces` 上，否则未来团队成员会互相覆盖。
 
 ### `auth_audit_events`
 
@@ -135,6 +137,8 @@ created_at
 - `operations_json` 使用版本化 schema，只保存必要操作和非敏感摘要。
 - `source` 区分 user、worker、import、restore 和 system。
 
+`GET /api/v1/projects/:projectId/changes?after=<sequence>` 只在 session 用户通过 `workspace_members` 授权后读取当前工作区、未软删除项目的变更日志。响应按 `sequence ASC` 返回 `after` 之后的批次，并带当前项目 `version`/`last_sequence`；API 不返回 `actor_user_id`、`idempotency_key`、`workspace_id` 或数据库内部行信息。
+
 ### `project_snapshots`
 
 主要字段：`id`、`project_id`、`project_version`、`last_sequence`、`snapshot_type`、`schema_version`、`record_json`、`byte_size`、`asset_manifest_json`、`is_valid` 和时间戳。
@@ -142,6 +146,12 @@ created_at
 `snapshot_type` 至少包含 `manual`、`periodic`、`import`、`pre_restore`。检查点不是当前事实来源；显式恢复会产生新版本。
 
 `projects.saved_snapshot_id` 使用 `(project_id, snapshot_id)` 复合外键，只能指向本项目检查点。保留策略必须同时约束检查点数量、总字节和变更日志窗口。只有有效检查点覆盖目标 sequence 且通过恢复测试后，才能裁剪更早 `project_changes`。
+
+服务端 manual/periodic checkpoint 从当前关系化 `project_nodes` 和 `project_edges` 组装 `record_json`，不接受客户端上传整份 record。P3 当前 `record_json.schemaVersion=1`，包含 `project` 摘要、`canvas.nodes`、`canvas.edges` 和空 `taskQueue.tasks`；P4/P5 接入后再把资产 manifest 和持久化任务状态纳入同一可恢复记录。manual 和 periodic checkpoint 都只在请求携带的 `expectedVersion` 与 `expectedSequence` 同时匹配当前项目时创建；manual 会把 `projects.saved_snapshot_id` 更新为新检查点，periodic 只作为历史恢复点保留，不改变手动保存点。
+
+checkpoint 列表只返回摘要字段，按 `(created_at, id)` 倒序 keyset 分页，不返回 `record_json`。读取列表仍先通过 session 用户和 `workspace_members` 校验当前工作区，再限定项目属于该工作区且未软删除。checkpoint 详情按 `project_version` 读取该版本最新创建的检查点并返回完整 `record_json`，仍不得返回 `workspace_id`、`actor_user_id` 或数据库内部行信息。
+
+checkpoint restore 要求请求携带当前确认的 `expectedVersion` 和 `expectedSequence`。服务端在同一事务中锁定项目、校验当前版本、读取目标版本最新有效 checkpoint、创建 `pre_restore` 检查点、替换当前 `project_nodes`/`project_edges` 活动关系、追加 `source='restore'` 的 `project_changes`，再递增 `projects.version` 和 `projects.last_sequence`。P3 restore 当前只恢复节点和连线；资产引用与任务状态随 P4/P5 表落地后纳入同一恢复事务。
 
 ### P3 schema 迁移策略
 
@@ -172,17 +182,17 @@ deleted_at
 created_at / updated_at
 ```
 
-`object_key` 唯一，不含邮箱和项目名称。`status` 至少包含 pending、completed、failed、quarantined、deleted。
+`object_key` 唯一，不含邮箱和项目名称。`status` 至少包含 pending、completed、failed、quarantined、deleted。P4-1 迁移已建立 `assets` 表，`workspace_id` 是所有查询和配额统计的租户边界；`origin_project_id` 通过 `(workspace_id, project_id)` 复合外键保证不能指向其他工作区项目。`object_key` 按工作区、项目或用途分段，但必须由服务端 ID 组成，不保存用户邮箱、项目名称或原始完整本地路径。
 
 ### `asset_uploads`
 
-保存上传会话、工作区、目标对象 key、期望 MIME/大小、幂等键、过期时间和完成状态。完成确认必须查询对象存储验证实际对象，不能只相信浏览器上报。
+保存上传会话、工作区、目标对象 key、期望 MIME/大小、幂等键、过期时间和完成状态。完成确认必须查询对象存储验证实际对象，不能只相信浏览器上报。P4-1 迁移已建立 `asset_uploads`，同一工作区的 `(workspace_id, idempotency_key)` 唯一；上传会话只能指向同工作区 asset，过期或已完成会话不能复用为新的资产写入。P4-3 完成确认会在对象存储校验通过后，于同一数据库事务中把上传会话和资产状态更新为 `completed`；对象不存在、过期或元数据不匹配时不会产生可被节点引用的 completed 资产。
 
 ### `asset_references`
 
 主要字段：`asset_id`、`workspace_id`、`project_id`、`node_id` 或 `task_id`、引用角色和时间戳。
 
-同一引用使用复合唯一约束。节点/任务变化与引用更新在同一 PostgreSQL 事务中完成。检查点的历史资产集合记录在 snapshot manifest，并参与 GC 保护。
+同一引用使用复合唯一约束。节点/任务变化与引用更新在同一 PostgreSQL 事务中完成。检查点的历史资产集合记录在 snapshot manifest，并参与 GC 保护。P4-1 迁移已建立 `asset_references`，项目引用通过 `(workspace_id, project_id)` 和 `(project_id, node_id)` 约束锁定在同一工作区、同一项目图；任务引用预留 `task_id`，待 P5 `generation_tasks` 建表后通过前向迁移补齐外键。
 
 ## 任务与用量
 
@@ -226,7 +236,7 @@ P3-3/P3-4 当前实现已覆盖步骤 1、2、3 中的节点/连线校验、4、
 
 ### 手动检查点
 
-提交待处理图变化后，在一致版本读取当前节点、连线、任务和资产引用，组装检查点，验证可恢复，再更新 `projects.saved_snapshot_id`。
+提交待处理图变化后，在一致版本读取当前节点、连线、任务和资产引用，组装检查点并验证可恢复。manual checkpoint 更新 `projects.saved_snapshot_id`；periodic checkpoint 只进入历史列表和恢复候选，不改变手动保存点。P3 当前 manual/periodic checkpoint 已覆盖节点和连线；任务和资产引用仍随 P4/P5 接入。
 
 ### 任务完成
 
@@ -234,7 +244,7 @@ P3-3/P3-4 当前实现已覆盖步骤 1、2、3 中的节点/连线校验、4、
 
 ### 历史恢复
 
-锁定项目，读取并验证目标检查点，先创建 pre-restore 检查点，再替换当前关系状态、重建引用、追加 restore 变更并递增版本。原检查点和历史行保持不变。
+锁定项目，校验 `expectedVersion`/`expectedSequence`，读取并验证目标检查点，先创建 pre-restore 检查点，再替换当前关系状态、重建引用、追加 restore 变更并递增版本。原检查点和历史行保持不变。P3 当前实现已经覆盖节点和连线关系，资产引用重建随 P4 接入。
 
 ## 导入导出映射
 

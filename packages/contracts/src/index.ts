@@ -203,12 +203,172 @@ export type ProjectGraphOperation =
   | { type: 'upsertEdge'; edge: ProjectGraphEdge }
   | { type: 'deleteEdge'; edgeId: string }
 
+export type ProjectGraphChangeSource = 'user' | 'worker' | 'import' | 'restore' | 'system'
+
+export interface ProjectGraphChange {
+  sequence: number
+  baseVersion: number
+  resultVersion: number
+  clientId: string | null
+  batchId: string
+  source: ProjectGraphChangeSource
+  operations: ProjectGraphOperation[]
+  createdAt: string
+}
+
 export interface ProjectGraphResponse {
   projectId: string
   version: number
   sequence: number
   nodes: ProjectGraphNode[]
   edges: ProjectGraphEdge[]
+}
+
+export interface ProjectGraphChangesResponse {
+  projectId: string
+  version: number
+  sequence: number
+  after: number
+  changes: ProjectGraphChange[]
+  hasMore: boolean
+}
+
+export type ProjectCheckpointType = 'manual' | 'periodic' | 'import' | 'pre_restore'
+
+export interface CreateProjectCheckpointRequest {
+  expectedVersion: number
+  expectedSequence: number
+  checkpointType?: Extract<ProjectCheckpointType, 'manual' | 'periodic'>
+}
+
+export interface ProjectCheckpointSummary {
+  id: string
+  projectId: string
+  projectVersion: number
+  lastSequence: number
+  snapshotType: ProjectCheckpointType
+  schemaVersion: number
+  byteSize: number
+  isValid: boolean
+  createdAt: string
+}
+
+export interface ProjectCheckpointResponse {
+  checkpoint: ProjectCheckpointSummary
+  project: ProjectSummary
+}
+
+export interface ProjectRevisionsResponse {
+  revisions: ProjectCheckpointSummary[]
+  nextCursor: string | null
+}
+
+export interface ProjectRevisionRecord {
+  schemaVersion: number
+  project: {
+    id: string
+    name: string
+    version: number
+    lastSequence: number
+  }
+  canvas: {
+    nodes: ProjectGraphNode[]
+    edges: ProjectGraphEdge[]
+  }
+  taskQueue: {
+    tasks: unknown[]
+  }
+}
+
+export interface ProjectRevisionResponse {
+  checkpoint: ProjectCheckpointSummary
+  record: ProjectRevisionRecord
+}
+
+export interface RestoreProjectRevisionRequest {
+  expectedVersion: number
+  expectedSequence: number
+}
+
+export interface ProjectRevisionRestoreResponse {
+  restoredCheckpoint: ProjectCheckpointSummary
+  preRestoreCheckpoint: ProjectCheckpointSummary
+  project: ProjectSummary
+  version: number
+  sequence: number
+}
+
+export type AssetKind = 'upload' | 'generated' | 'edit' | 'crop' | 'thumbnail' | 'preview' | 'video'
+export type AssetStatus = 'pending' | 'completed' | 'failed' | 'quarantined' | 'deleted'
+export type AssetUploadStatus = 'pending' | 'completed' | 'expired' | 'failed'
+export type AssetReferenceRole = 'source' | 'result' | 'thumbnail' | 'preview' | 'mask' | 'attachment'
+
+export interface AssetSummary {
+  id: string
+  projectId: string | null
+  originalFileName: string | null
+  mimeType: string
+  byteSize: number
+  sha256: string | null
+  width: number | null
+  height: number | null
+  assetKind: AssetKind
+  status: AssetStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateAssetUploadRequest {
+  projectId?: string | null
+  originalFileName: string
+  mimeType: string
+  byteSize: number
+  sha256?: string | null
+  width?: number | null
+  height?: number | null
+  assetKind: AssetKind
+  referenceRole?: AssetReferenceRole
+  idempotencyKey: string
+}
+
+export interface AssetUploadSummary {
+  id: string
+  assetId: string
+  projectId: string | null
+  originalFileName: string
+  expectedMimeType: string
+  expectedByteSize: number
+  expectedSha256: string | null
+  assetKind: AssetKind
+  status: AssetUploadStatus
+  expiresAt: string
+  createdAt: string
+}
+
+export interface AssetUploadResponse {
+  upload: AssetUploadSummary
+  asset: AssetSummary
+  directUpload: {
+    method: 'PUT' | 'POST'
+    url: string
+    headers: Record<string, string>
+    expiresAt: string
+  }
+}
+
+export interface CompleteAssetUploadResponse {
+  upload: AssetUploadSummary
+  asset: AssetSummary
+}
+
+export interface AssetResponse {
+  asset: AssetSummary
+}
+
+export interface AssetUrlResponse {
+  assetId: string
+  url: string
+  expiresAt: string
 }
 
 export interface ApplyProjectGraphOperationsRequest {

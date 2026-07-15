@@ -1,8 +1,11 @@
 import type {
   ApplyProjectGraphOperationsResponse,
+  ProjectGraphChange,
+  ProjectGraphChangeSource,
   ProjectGraphEdge,
   ProjectGraphNode,
   ProjectGraphOperation,
+  ProjectGraphChangesResponse,
   ProjectGraphResponse,
   WorkspaceRole,
 } from '@ai-canvas-cloud/contracts'
@@ -13,7 +16,9 @@ import {
   type WorkspaceAuthorizationService,
 } from '../workspaces/authorization.js'
 import {
+  PROJECT_GRAPH_CHANGES_PAGE_SIZE,
   validateApplyProjectGraphOperationsRequest,
+  validateProjectGraphChangesAfter,
   type ProjectGraphService,
 } from './service.js'
 
@@ -44,6 +49,17 @@ interface ExistingChangeRow {
   batch_id: string
   idempotency_key: string
   operations_match: boolean
+  created_at: Date | string
+}
+
+interface ChangeRow {
+  sequence: string | number
+  base_version: string | number
+  result_version: string | number
+  client_id: string | null
+  batch_id: string
+  source: ProjectGraphChangeSource
+  operations_json: ProjectGraphOperation[]
   created_at: Date | string
 }
 
@@ -328,6 +344,71 @@ export function createPostgresProjectGraphService(
         nodes: row.nodes_json,
         edges: row.edges_json,
       } satisfies ProjectGraphResponse
+    },
+
+    async getChanges(projectId, rawAfter, actor) {
+      assertProjectId(projectId)
+      const after = validateProjectGraphChangesAfter(rawAfter)
+      await authorizationService.requireWorkspaceAccess({
+        userId: actor.userId,
+        workspaceId: actor.workspaceId,
+      })
+
+      const projectResult = await pool.query<{
+        project_id: string
+        version: string | number
+        last_sequence: string | number
+      }>(
+        `
+          SELECT id::text AS project_id, version, last_sequence
+          FROM projects
+          WHERE id = $1
+            AND workspace_id = $2
+            AND deleted_at IS NULL
+          LIMIT 1
+        `,
+        [projectId, actor.workspaceId],
+      )
+      const project = projectResult.rows[0] ?? projectNotFound()
+      const changeResult = await pool.query<ChangeRow>(
+        `
+          SELECT
+            sequence,
+            base_version,
+            result_version,
+            client_id,
+            batch_id,
+            source,
+            operations_json,
+            created_at
+          FROM project_changes
+          WHERE project_id = $1
+            AND sequence > $2
+          ORDER BY sequence ASC
+          LIMIT $3
+        `,
+        [projectId, after, PROJECT_GRAPH_CHANGES_PAGE_SIZE],
+      )
+      const changes: ProjectGraphChange[] = changeResult.rows.map((row) => ({
+        sequence: Number(row.sequence),
+        baseVersion: Number(row.base_version),
+        resultVersion: Number(row.result_version),
+        clientId: row.client_id,
+        batchId: row.batch_id,
+        source: row.source,
+        operations: row.operations_json,
+        createdAt: toIso(row.created_at),
+      }))
+      const lastReturnedSequence = changes.at(-1)?.sequence ?? after
+
+      return {
+        projectId: project.project_id,
+        version: Number(project.version),
+        sequence: Number(project.last_sequence),
+        after,
+        changes,
+        hasMore: Number(project.last_sequence) > lastReturnedSequence,
+      } satisfies ProjectGraphChangesResponse
     },
 
     async applyOperations(projectId, rawInput, actor) {

@@ -3,16 +3,24 @@ import http from 'node:http'
 import test from 'node:test'
 import {
   API_V1_PREFIX,
+  type AssetUploadResponse,
   type ApplyProjectGraphOperationsResponse,
   type AuthSessionResponse,
   type AuthSessionsResponse,
+  type CompleteAssetUploadResponse,
   type AuthSuccessResponse,
   type CurrentWorkspaceResponse,
+  type ProjectCheckpointResponse,
+  type ProjectGraphChangesResponse,
   type ProjectGraphResponse,
+  type ProjectRevisionRestoreResponse,
+  type ProjectRevisionResponse,
+  type ProjectRevisionsResponse,
   type ProjectResponse,
   type ProjectsResponse,
   type RevokeSessionResponse,
 } from '@ai-canvas-cloud/contracts'
+import type { AssetService } from '@ai-canvas-cloud/server/modules/assets'
 import {
   BETTER_AUTH_SESSION_COOKIE_NAME,
   AuthServiceError,
@@ -20,6 +28,7 @@ import {
   type IssuedAuthSession,
 } from '@ai-canvas-cloud/server/modules/auth'
 import type { ProjectGraphService } from '@ai-canvas-cloud/server/modules/project-graph'
+import type { ProjectSnapshotService } from '@ai-canvas-cloud/server/modules/project-snapshots'
 import type { ProjectActor, ProjectService } from '@ai-canvas-cloud/server/modules/projects'
 import { closeApiServer, createApiServer } from '../dist/server.js'
 import type { ApiConfig } from './config.ts'
@@ -224,6 +233,17 @@ function createFakeProjectGraphService() {
       actors.push(actor)
       return graph
     },
+    async getChanges(_projectId, after, actor): Promise<ProjectGraphChangesResponse> {
+      actors.push(actor)
+      return {
+        projectId: graph.projectId,
+        version: graph.version,
+        sequence: graph.sequence,
+        after,
+        changes: [],
+        hasMore: false,
+      }
+    },
     async applyOperations(_projectId, input, actor): Promise<ApplyProjectGraphOperationsResponse> {
       actors.push(actor)
       if (input.baseVersion !== 0) {
@@ -241,6 +261,216 @@ function createFakeProjectGraphService() {
         sequence: 1,
         acceptedBatchId: input.batchId,
         updatedAt: '2026-07-15T01:00:00.000Z',
+      }
+    },
+  }
+
+  return { actors, service }
+}
+
+function createFakeProjectSnapshotService() {
+  const actors: ProjectActor[] = []
+  const service: ProjectSnapshotService = {
+    async listRevisions(_projectId, input, actor): Promise<ProjectRevisionsResponse> {
+      actors.push(actor)
+      return {
+        revisions: [{
+          id: '33333333-3333-4333-8333-333333333333',
+          projectId: '11111111-1111-4111-8111-111111111111',
+          projectVersion: 1,
+          lastSequence: 1,
+          snapshotType: 'manual',
+          schemaVersion: 1,
+          byteSize: 128,
+          isValid: true,
+          createdAt: '2026-07-15T02:00:00.000Z',
+        }],
+        nextCursor: input.limit === 1 ? 'cursor_1' : null,
+      }
+    },
+    async getRevision(_projectId, version, actor): Promise<ProjectRevisionResponse> {
+      actors.push(actor)
+      if (version !== 1) {
+        throw new AuthServiceError({
+          statusCode: 404,
+          apiCode: 'RESOURCE_NOT_FOUND',
+          message: 'Project revision not found',
+        })
+      }
+
+      return {
+        checkpoint: {
+          id: '33333333-3333-4333-8333-333333333333',
+          projectId: '11111111-1111-4111-8111-111111111111',
+          projectVersion: 1,
+          lastSequence: 1,
+          snapshotType: 'manual',
+          schemaVersion: 1,
+          byteSize: 128,
+          isValid: true,
+          createdAt: '2026-07-15T02:00:00.000Z',
+        },
+        record: {
+          schemaVersion: 1,
+          project: {
+            id: '11111111-1111-4111-8111-111111111111',
+            name: 'Project',
+            version: 1,
+            lastSequence: 1,
+          },
+          canvas: { nodes: [], edges: [] },
+          taskQueue: { tasks: [] },
+        },
+      }
+    },
+    async createCheckpoint(_projectId, input, actor): Promise<ProjectCheckpointResponse> {
+      actors.push(actor)
+      if (input.expectedVersion !== 1 || input.expectedSequence !== 1) {
+        throw new AuthServiceError({
+          statusCode: 409,
+          apiCode: 'PROJECT_VERSION_CONFLICT',
+          message: 'Project was updated before checkpoint creation',
+          details: { currentVersion: 1, currentSequence: 1 },
+        })
+      }
+
+      return {
+        checkpoint: {
+          id: '33333333-3333-4333-8333-333333333333',
+          projectId: '11111111-1111-4111-8111-111111111111',
+          projectVersion: 1,
+          lastSequence: 1,
+          snapshotType: input.checkpointType ?? 'manual',
+          schemaVersion: 1,
+          byteSize: 128,
+          isValid: true,
+          createdAt: '2026-07-15T02:00:00.000Z',
+        },
+        project: createProjectResponse({ version: 1, lastSequence: 1 }).project,
+      }
+    },
+    async restoreRevision(_projectId, version, input, actor): Promise<ProjectRevisionRestoreResponse> {
+      actors.push(actor)
+      if (version !== 1) {
+        throw new AuthServiceError({
+          statusCode: 404,
+          apiCode: 'RESOURCE_NOT_FOUND',
+          message: 'Project revision not found',
+        })
+      }
+      if (input.expectedVersion !== 2 || input.expectedSequence !== 2) {
+        throw new AuthServiceError({
+          statusCode: 409,
+          apiCode: 'PROJECT_VERSION_CONFLICT',
+          message: 'Project was updated before revision restore',
+          details: { currentVersion: 2, currentSequence: 2 },
+        })
+      }
+
+      return {
+        restoredCheckpoint: {
+          id: '33333333-3333-4333-8333-333333333333',
+          projectId: '11111111-1111-4111-8111-111111111111',
+          projectVersion: 1,
+          lastSequence: 1,
+          snapshotType: 'manual',
+          schemaVersion: 1,
+          byteSize: 128,
+          isValid: true,
+          createdAt: '2026-07-15T02:00:00.000Z',
+        },
+        preRestoreCheckpoint: {
+          id: '44444444-4444-4444-8444-444444444444',
+          projectId: '11111111-1111-4111-8111-111111111111',
+          projectVersion: 2,
+          lastSequence: 2,
+          snapshotType: 'pre_restore',
+          schemaVersion: 1,
+          byteSize: 256,
+          isValid: true,
+          createdAt: '2026-07-15T03:00:00.000Z',
+        },
+        project: createProjectResponse({ version: 3, lastSequence: 3 }).project,
+        version: 3,
+        sequence: 3,
+      }
+    },
+  }
+
+  return { actors, service }
+}
+
+function createFakeAssetService() {
+  const actors: ProjectActor[] = []
+  const service: AssetService = {
+    async createUpload(input, actor): Promise<AssetUploadResponse> {
+      actors.push(actor)
+      return {
+        upload: {
+          id: '55555555-5555-4555-8555-555555555555',
+          assetId: '66666666-6666-4666-8666-666666666666',
+          projectId: input.projectId ?? null,
+          originalFileName: input.originalFileName,
+          expectedMimeType: input.mimeType,
+          expectedByteSize: input.byteSize,
+          expectedSha256: input.sha256 ?? null,
+          assetKind: input.assetKind,
+          status: 'pending',
+          expiresAt: '2026-07-15T00:15:00.000Z',
+          createdAt: '2026-07-15T00:00:00.000Z',
+        },
+        asset: {
+          id: '66666666-6666-4666-8666-666666666666',
+          projectId: input.projectId ?? null,
+          originalFileName: input.originalFileName,
+          mimeType: input.mimeType,
+          byteSize: input.byteSize,
+          sha256: input.sha256 ?? null,
+          width: input.width ?? null,
+          height: input.height ?? null,
+          assetKind: input.assetKind,
+          status: 'pending',
+          createdAt: '2026-07-15T00:00:00.000Z',
+          updatedAt: '2026-07-15T00:00:00.000Z',
+        },
+        directUpload: {
+          method: 'PUT',
+          url: 'http://localhost:9000/ai-canvas-cloud/presigned-upload',
+          headers: { 'content-type': input.mimeType },
+          expiresAt: '2026-07-15T00:15:00.000Z',
+        },
+      }
+    },
+    async completeUpload(uploadId, actor): Promise<CompleteAssetUploadResponse> {
+      actors.push(actor)
+      return {
+        upload: {
+          id: uploadId,
+          assetId: '66666666-6666-4666-8666-666666666666',
+          projectId: '11111111-1111-4111-8111-111111111111',
+          originalFileName: 'reference.png',
+          expectedMimeType: 'image/png',
+          expectedByteSize: 2048,
+          expectedSha256: null,
+          assetKind: 'upload',
+          status: 'completed',
+          expiresAt: '2026-07-15T00:15:00.000Z',
+          createdAt: '2026-07-15T00:00:00.000Z',
+        },
+        asset: {
+          id: '66666666-6666-4666-8666-666666666666',
+          projectId: '11111111-1111-4111-8111-111111111111',
+          originalFileName: 'reference.png',
+          mimeType: 'image/png',
+          byteSize: 2048,
+          sha256: null,
+          width: null,
+          height: null,
+          assetKind: 'upload',
+          status: 'completed',
+          createdAt: '2026-07-15T00:00:00.000Z',
+          updatedAt: '2026-07-15T00:10:00.000Z',
+        },
       }
     },
   }
@@ -536,6 +766,74 @@ test('project metadata routes use the session actor for the complete lifecycle',
   }
 })
 
+test('asset upload route uses the session actor and returns presigned upload metadata', async () => {
+  const assets = createFakeAssetService()
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+    assetService: assets.service,
+  })
+  const port = await listen(server)
+  const cookie = `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`
+
+  try {
+    const missingSession = await requestJson(port, {
+      method: 'POST',
+      path: `${API_V1_PREFIX}/assets/uploads`,
+      body: {
+        originalFileName: 'reference.png',
+        mimeType: 'image/png',
+        byteSize: 2048,
+        assetKind: 'upload',
+        idempotencyKey: 'asset_upload_1',
+      },
+    })
+    assert.equal(missingSession.statusCode, 401)
+
+    const created = await requestJson(port, {
+      method: 'POST',
+      path: `${API_V1_PREFIX}/assets/uploads`,
+      cookie,
+      body: {
+        projectId: '11111111-1111-4111-8111-111111111111',
+        originalFileName: 'reference.png',
+        mimeType: 'image/png',
+        byteSize: 2048,
+        assetKind: 'upload',
+        idempotencyKey: 'asset_upload_1',
+        userId: 'forged-user',
+        workspaceId: 'forged-workspace',
+      },
+    })
+
+    assert.equal(created.statusCode, 201)
+    const body = created.body as AssetUploadResponse
+    assert.equal(body.directUpload.method, 'PUT')
+    assert.equal(body.upload.assetId, body.asset.id)
+    assert.equal('workspaceId' in body.asset, false)
+    assert.equal('objectKey' in body.asset, false)
+    assert.deepEqual(assets.actors, [{ userId: 'user_1', workspaceId: 'workspace_1' }])
+
+    const completed = await requestJson(port, {
+      method: 'POST',
+      path: `${API_V1_PREFIX}/assets/uploads/55555555-5555-4555-8555-555555555555/complete?workspaceId=forged-workspace`,
+      cookie,
+    })
+
+    assert.equal(completed.statusCode, 200)
+    const completedBody = completed.body as CompleteAssetUploadResponse
+    assert.equal(completedBody.asset.status, 'completed')
+    assert.equal(completedBody.upload.status, 'completed')
+    assert.equal('objectKey' in completedBody.asset, false)
+    assert.deepEqual(assets.actors, [
+      { userId: 'user_1', workspaceId: 'workspace_1' },
+      { userId: 'user_1', workspaceId: 'workspace_1' },
+    ])
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
 test('project routes preserve non-disclosing two-account isolation', async () => {
   const baseAuthService = createFakeAuthService()
   const authService: AuthService = {
@@ -642,6 +940,21 @@ test('project graph routes use the session actor and preserve conflict details',
     assert.equal(graph.statusCode, 200)
     assert.equal((graph.body as ProjectGraphResponse).version, 0)
 
+    const changes = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/projects/11111111-1111-4111-8111-111111111111/changes?after=0&user_id=forged-user&workspace_id=forged-workspace`,
+      cookie,
+    })
+    assert.equal(changes.statusCode, 200)
+    assert.equal((changes.body as ProjectGraphChangesResponse).after, 0)
+
+    const invalidAfter = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/projects/11111111-1111-4111-8111-111111111111/changes?after=-1`,
+      cookie,
+    })
+    assert.equal(invalidAfter.statusCode, 400)
+
     const applied = await requestJson(port, {
       method: 'PATCH',
       path,
@@ -661,6 +974,172 @@ test('project graph routes use the session actor and preserve conflict details',
     assert.equal(conflict.statusCode, 409)
     assert.equal((conflict.body as { error: { code: string } }).error.code, 'PROJECT_VERSION_CONFLICT')
     assert.equal((conflict.body as { error: { details: { currentVersion: number } } }).error.details.currentVersion, 1)
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('project checkpoint route uses the session actor and preserves version conflicts', async () => {
+  const snapshots = createFakeProjectSnapshotService()
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+    projectSnapshotService: snapshots.service,
+  })
+  const port = await listen(server)
+  const cookie = `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`
+  const path = `${API_V1_PREFIX}/projects/11111111-1111-4111-8111-111111111111/checkpoints`
+
+  try {
+    const missingSession = await requestJson(port, {
+      method: 'POST',
+      path,
+      body: { expectedVersion: 1, expectedSequence: 1 },
+    })
+    assert.equal(missingSession.statusCode, 401)
+
+    const created = await requestJson(port, {
+      method: 'POST',
+      path,
+      cookie,
+      body: {
+        expectedVersion: 1,
+        expectedSequence: 1,
+        userId: 'forged-user',
+        workspaceId: 'forged-workspace',
+      },
+    })
+    assert.equal(created.statusCode, 201)
+    assert.equal((created.body as ProjectCheckpointResponse).checkpoint.snapshotType, 'manual')
+    assert(snapshots.actors.every((actor) => actor.userId === 'user_1' && actor.workspaceId === 'workspace_1'))
+
+    const periodic = await requestJson(port, {
+      method: 'POST',
+      path,
+      cookie,
+      body: { expectedVersion: 1, expectedSequence: 1, checkpointType: 'periodic' },
+    })
+    assert.equal(periodic.statusCode, 201)
+    assert.equal((periodic.body as ProjectCheckpointResponse).checkpoint.snapshotType, 'periodic')
+
+    const conflict = await requestJson(port, {
+      method: 'POST',
+      path,
+      cookie,
+      body: { expectedVersion: 0, expectedSequence: 0 },
+    })
+    assert.equal(conflict.statusCode, 409)
+    assert.equal((conflict.body as { error: { code: string } }).error.code, 'PROJECT_VERSION_CONFLICT')
+    assert.equal((conflict.body as { error: { details: { currentSequence: number } } }).error.details.currentSequence, 1)
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('project revisions route uses the session actor and returns checkpoint summaries', async () => {
+  const snapshots = createFakeProjectSnapshotService()
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+    projectSnapshotService: snapshots.service,
+  })
+  const port = await listen(server)
+  const cookie = `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`
+  const path = `${API_V1_PREFIX}/projects/11111111-1111-4111-8111-111111111111/revisions?limit=1`
+
+  try {
+    const missingSession = await requestJson(port, { method: 'GET', path })
+    assert.equal(missingSession.statusCode, 401)
+
+    const listed = await requestJson(port, { method: 'GET', path, cookie })
+    assert.equal(listed.statusCode, 200)
+    const body = listed.body as ProjectRevisionsResponse
+    assert.equal(body.revisions.length, 1)
+    assert.equal(body.revisions[0]?.snapshotType, 'manual')
+    assert.equal(body.nextCursor, 'cursor_1')
+    assert.equal('recordJson' in body.revisions[0]!, false)
+    assert(snapshots.actors.every((actor) => actor.userId === 'user_1' && actor.workspaceId === 'workspace_1'))
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('project revision detail route uses the session actor and returns the saved record', async () => {
+  const snapshots = createFakeProjectSnapshotService()
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+    projectSnapshotService: snapshots.service,
+  })
+  const port = await listen(server)
+  const cookie = `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`
+  const path = `${API_V1_PREFIX}/projects/11111111-1111-4111-8111-111111111111/revisions/1`
+
+  try {
+    const detail = await requestJson(port, { method: 'GET', path, cookie })
+    assert.equal(detail.statusCode, 200)
+    const body = detail.body as ProjectRevisionResponse
+    assert.equal(body.checkpoint.projectVersion, 1)
+    assert.deepEqual(body.record.canvas.nodes, [])
+    assert(snapshots.actors.every((actor) => actor.userId === 'user_1' && actor.workspaceId === 'workspace_1'))
+
+    const missing = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/projects/11111111-1111-4111-8111-111111111111/revisions/2`,
+      cookie,
+    })
+    assert.equal(missing.statusCode, 404)
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('project revision restore route uses the session actor and preserves conflicts', async () => {
+  const snapshots = createFakeProjectSnapshotService()
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+    projectSnapshotService: snapshots.service,
+  })
+  const port = await listen(server)
+  const cookie = `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`
+  const path = `${API_V1_PREFIX}/projects/11111111-1111-4111-8111-111111111111/revisions/1/restore`
+
+  try {
+    const missingSession = await requestJson(port, {
+      method: 'POST',
+      path,
+      body: { expectedVersion: 2, expectedSequence: 2 },
+    })
+    assert.equal(missingSession.statusCode, 401)
+
+    const restored = await requestJson(port, {
+      method: 'POST',
+      path,
+      cookie,
+      body: {
+        expectedVersion: 2,
+        expectedSequence: 2,
+        userId: 'forged-user',
+        workspaceId: 'forged-workspace',
+      },
+    })
+    assert.equal(restored.statusCode, 200)
+    const body = restored.body as ProjectRevisionRestoreResponse
+    assert.equal(body.restoredCheckpoint.snapshotType, 'manual')
+    assert.equal(body.preRestoreCheckpoint.snapshotType, 'pre_restore')
+    assert.equal(body.version, 3)
+    assert(snapshots.actors.every((actor) => actor.userId === 'user_1' && actor.workspaceId === 'workspace_1'))
+
+    const conflict = await requestJson(port, {
+      method: 'POST',
+      path,
+      cookie,
+      body: { expectedVersion: 1, expectedSequence: 1 },
+    })
+    assert.equal(conflict.statusCode, 409)
+    assert.equal((conflict.body as { error: { code: string } }).error.code, 'PROJECT_VERSION_CONFLICT')
+    assert.equal((conflict.body as { error: { details: { currentSequence: number } } }).error.details.currentSequence, 2)
   } finally {
     await closeApiServer(server, 1_000)
   }

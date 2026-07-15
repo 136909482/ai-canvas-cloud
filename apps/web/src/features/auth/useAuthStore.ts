@@ -9,7 +9,7 @@ interface AuthStore {
   status: AuthStatus
   session: AuthSessionResponse | null
   error: string | null
-  checkSession: () => Promise<void>
+  checkSession: (options?: { silent?: boolean }) => Promise<void>
   login: (input: { email: string; password: string }) => Promise<void>
   register: (input: { email: string; password: string }) => Promise<void>
   logout: () => Promise<void>
@@ -27,8 +27,14 @@ export const useAuthStore = create<AuthStore>()((set) => ({
   session: null,
   error: null,
 
-  checkSession: async () => {
-    set({ status: 'checking', error: null })
+  checkSession: async (options) => {
+    const silent = options?.silent ?? false
+
+    if (!silent) {
+      set({ status: 'checking', error: null })
+    } else {
+      set({ error: null })
+    }
 
     try {
       const session = await fetchAuthSession()

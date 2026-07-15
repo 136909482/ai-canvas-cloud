@@ -79,6 +79,7 @@ async function expectRejected(client, text, values, message) {
 
   try {
     await client.query(text, values)
+    await client.query('SET CONSTRAINTS ALL IMMEDIATE')
   } catch {
     await client.query('ROLLBACK TO SAVEPOINT expected_failure')
     await client.query('RELEASE SAVEPOINT expected_failure')
@@ -88,6 +89,177 @@ async function expectRejected(client, text, values, message) {
   await client.query('ROLLBACK TO SAVEPOINT expected_failure')
   await client.query('RELEASE SAVEPOINT expected_failure')
   throw new Error(message)
+}
+
+async function assertAssetGovernanceSchema(client, schemaName) {
+  const tables = ['assets', 'asset_uploads', 'asset_references']
+  const tableResult = await client.query(
+    `
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = $1
+        AND table_name = ANY($2::text[])
+    `,
+    [schemaName, tables],
+  )
+
+  if (tableResult.rowCount !== tables.length) {
+    throw new Error('Asset governance migration did not create all required tables')
+  }
+
+  const requiredConstraints = [
+    'assets_workspace_project_fk',
+    'assets_object_key_unique',
+    'asset_uploads_workspace_idempotency_unique',
+    'asset_uploads_workspace_asset_fk',
+    'asset_references_workspace_asset_fk',
+    'asset_references_workspace_project_fk',
+    'asset_references_project_node_fk',
+  ]
+  const constraintResult = await client.query(
+    `
+      SELECT conname
+      FROM pg_constraint c
+      JOIN pg_namespace n ON n.oid = c.connamespace
+      WHERE n.nspname = $1
+        AND conname = ANY($2::text[])
+    `,
+    [schemaName, requiredConstraints],
+  )
+
+  if (constraintResult.rowCount !== requiredConstraints.length) {
+    throw new Error('Asset governance migration is missing required tenant constraints')
+  }
+
+  const requiredIndexes = [
+    'assets_workspace_status_updated_idx',
+    'asset_uploads_workspace_pending_expiry_idx',
+    'asset_references_node_unique_idx',
+    'asset_references_task_unique_idx',
+  ]
+  const indexResult = await client.query(
+    `
+      SELECT indexname
+      FROM pg_indexes
+      WHERE schemaname = $1
+        AND indexname = ANY($2::text[])
+    `,
+    [schemaName, requiredIndexes],
+  )
+
+  if (indexResult.rowCount !== requiredIndexes.length) {
+    throw new Error('Asset governance migration is missing required indexes')
+  }
+
+  await client.query(`
+    INSERT INTO assets (
+      id, workspace_id, origin_project_id, created_by_user_id, object_key,
+      original_file_name, mime_type, byte_size, sha256, width, height, asset_kind, status
+    ) VALUES (
+      '55555555-5555-4555-8555-555555555555',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      '11111111-1111-4111-8111-111111111111',
+      'migration-user',
+      'workspaces/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/projects/11111111-1111-4111-8111-111111111111/uploads/55555555-5555-4555-8555-555555555555.png',
+      'reference.png',
+      'image/png',
+      2048,
+      repeat('a', 64),
+      1024,
+      768,
+      'upload',
+      'pending'
+    )
+  `)
+  await client.query(`
+    INSERT INTO asset_uploads (
+      id, workspace_id, project_id, asset_id, created_by_user_id, object_key,
+      original_file_name, expected_mime_type, expected_byte_size, expected_sha256,
+      asset_kind, idempotency_key, expires_at
+    ) VALUES (
+      '66666666-6666-4666-8666-666666666666',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      '11111111-1111-4111-8111-111111111111',
+      '55555555-5555-4555-8555-555555555555',
+      'migration-user',
+      'workspaces/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/projects/11111111-1111-4111-8111-111111111111/uploads/55555555-5555-4555-8555-555555555555.png',
+      'reference.png',
+      'image/png',
+      2048,
+      repeat('a', 64),
+      'upload',
+      'migration-upload',
+      now() + interval '1 hour'
+    )
+  `)
+  await client.query(`
+    INSERT INTO asset_references (
+      workspace_id, asset_id, project_id, node_id, reference_role
+    ) VALUES (
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      '55555555-5555-4555-8555-555555555555',
+      '11111111-1111-4111-8111-111111111111',
+      'node-a',
+      'source'
+    )
+  `)
+
+  await expectRejected(
+    client,
+    `
+      INSERT INTO assets (
+        workspace_id, origin_project_id, created_by_user_id, object_key,
+        mime_type, byte_size, asset_kind
+      ) VALUES (
+        $1, $2, 'migration-user', 'bad/../object.png', 'image/png', 1, 'upload'
+      )
+    `,
+    ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '11111111-1111-4111-8111-111111111111'],
+    'Asset object key constraint accepted a traversal segment',
+  )
+  await expectRejected(
+    client,
+    `
+      INSERT INTO asset_uploads (
+        workspace_id, project_id, asset_id, created_by_user_id, object_key,
+        original_file_name, expected_mime_type, expected_byte_size, asset_kind,
+        idempotency_key, expires_at
+      ) VALUES (
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        '11111111-1111-4111-8111-111111111111',
+        '55555555-5555-4555-8555-555555555555',
+        'migration-user',
+        'workspaces/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/projects/11111111-1111-4111-8111-111111111111/uploads/duplicate.png',
+        'duplicate.png',
+        'image/png',
+        1024,
+        'upload',
+        'migration-upload',
+        now() + interval '1 hour'
+      )
+    `,
+    [],
+    'Asset upload constraint accepted a duplicate workspace idempotency key',
+  )
+  await expectRejected(
+    client,
+    `
+      INSERT INTO assets (
+        workspace_id, origin_project_id, created_by_user_id, object_key,
+        mime_type, byte_size, asset_kind
+      ) VALUES (
+        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        '11111111-1111-4111-8111-111111111111',
+        'migration-user',
+        'workspaces/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/projects/11111111-1111-4111-8111-111111111111/uploads/cross.png',
+        'image/png',
+        1,
+        'upload'
+      )
+    `,
+    [],
+    'Asset constraint accepted a project from another workspace',
+  )
 }
 
 async function assertProjectGraphSchema(client, schemaName) {
@@ -154,12 +326,24 @@ async function assertProjectGraphSchema(client, schemaName) {
     VALUES ('migration-user', 'Migration User', 'migration-user@example.com', true)
   `)
   await client.query(`
+    INSERT INTO "user" (id, name, email, email_verified)
+    VALUES ('migration-user-2', 'Migration User 2', 'migration-user-2@example.com', true)
+  `)
+  await client.query(`
     INSERT INTO workspaces (id, name, owner_user_id)
     VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Migration workspace', 'migration-user')
   `)
   await client.query(`
     INSERT INTO workspace_members (workspace_id, user_id, role)
     VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'migration-user', 'owner')
+  `)
+  await client.query(`
+    INSERT INTO workspaces (id, name, owner_user_id)
+    VALUES ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'Other migration workspace', 'migration-user-2')
+  `)
+  await client.query(`
+    INSERT INTO workspace_members (workspace_id, user_id, role)
+    VALUES ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'migration-user-2', 'owner')
   `)
   await client.query(`
     INSERT INTO projects (id, workspace_id, name)
@@ -289,10 +473,13 @@ try {
   }
 
   await assertProjectGraphSchema(client, schemaName)
+  await assertAssetGovernanceSchema(client, schemaName)
+  await client.query('SET CONSTRAINTS ALL IMMEDIATE')
   await client.query('ROLLBACK')
   console.log(`Checked and upgraded ${migrations.length} migration file(s) in an isolated PostgreSQL schema.`)
 } finally {
   if (client.readyForQuery) {
+    await client.query('ROLLBACK').catch(() => undefined)
     await client.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`)
   }
   await client.end()

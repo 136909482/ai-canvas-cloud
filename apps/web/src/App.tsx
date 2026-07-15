@@ -7,6 +7,7 @@ import { Canvas } from '@/components/Canvas'
 import { CanvasQuickActions } from '@/components/CanvasTopBar'
 import { FloatingToolbar } from '@/components/FloatingToolbar'
 import { ProjectBootstrap } from '@/components/ProjectBootstrap'
+import { ProjectConflictBanner } from '@/components/ProjectConflictBanner'
 import { TaskQueueRunner } from '@/components/TaskQueueRunner'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { Toolbar } from '@/components/Toolbar'
@@ -126,6 +127,7 @@ function AppContent() {
         <WorkspaceSearchDialog />
         <FloatingToolbar />
         <EmailVerificationBanner />
+        <ProjectConflictBanner />
         <TaskQueueRunner />
         <Canvas />
         {imageEditorSession ? (

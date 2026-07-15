@@ -1,0 +1,76 @@
+import { createHash } from 'node:crypto'
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import type { AssetObjectStorage } from './service.js'
+
+export interface S3ObjectStorageOptions {
+  endpoint: string
+  bucket: string
+  region: string
+  accessKeyId: string
+  secretAccessKey: string
+  forcePathStyle?: boolean
+}
+
+export function createS3ObjectStorage(options: S3ObjectStorageOptions): AssetObjectStorage {
+  const client = new S3Client({
+    endpoint: options.endpoint,
+    region: options.region,
+    forcePathStyle: options.forcePathStyle ?? true,
+    credentials: {
+      accessKeyId: options.accessKeyId,
+      secretAccessKey: options.secretAccessKey,
+    },
+  })
+
+  return {
+    async createPresignedUpload(input) {
+      const expiresAt = new Date(Date.now() + input.expiresInSeconds * 1000)
+      const command = new PutObjectCommand({
+        Bucket: options.bucket,
+        Key: input.objectKey,
+        ContentType: input.mimeType,
+        ContentLength: input.byteSize,
+      })
+
+      return {
+        method: 'PUT',
+        url: await getSignedUrl(client, command, { expiresIn: input.expiresInSeconds }),
+        headers: {
+          'content-type': input.mimeType,
+        },
+        expiresAt: expiresAt.toISOString(),
+      }
+    },
+
+    async getObjectMetadata(objectKey) {
+      const result = await client.send(new HeadObjectCommand({
+        Bucket: options.bucket,
+        Key: objectKey,
+      }))
+
+      return {
+        byteSize: result.ContentLength ?? 0,
+        mimeType: result.ContentType ?? null,
+      }
+    },
+
+    async calculateObjectSha256(objectKey) {
+      const result = await client.send(new GetObjectCommand({
+        Bucket: options.bucket,
+        Key: objectKey,
+      }))
+
+      if (!result.Body || !(Symbol.asyncIterator in Object(result.Body))) {
+        throw new Error('Object body is not readable')
+      }
+
+      const hash = createHash('sha256')
+      for await (const chunk of result.Body as AsyncIterable<Uint8Array>) {
+        hash.update(chunk)
+      }
+
+      return hash.digest('hex')
+    },
+  }
+}

@@ -2,6 +2,9 @@ import type {
   ApplyProjectGraphOperationsRequest,
   ApplyProjectGraphOperationsResponse,
   CurrentWorkspaceResponse,
+  ProjectCheckpointResponse,
+  ProjectGraphChange,
+  ProjectGraphChangesResponse,
   ProjectGraphResponse,
   ProjectListStatus,
   ProjectResponse,
@@ -12,13 +15,18 @@ import type { CanvasSnapshot, ProjectRecord, ProjectSnapshot, WorkflowTemplateLi
 import { CloudApiError, requestCloudJson } from '@/api/cloudApiClient'
 import { CURRENT_PROJECT_SNAPSHOT_SCHEMA_VERSION } from '@/features/projectManager/migrations'
 import { extractProjectSearchDocuments, searchWorkspaceDocuments } from '@/features/workspaceSearch/runtime'
+import { ProjectVersionConflictError } from '@/platform/errors'
 import {
+  applyProjectGraphOperationBatch,
+  buildProjectGraphOperationBatches,
   diffCanvasSnapshots,
+  doProjectGraphChangesOverlap,
   projectGraphResponseToCanvasSnapshot,
 } from '@/platform/cloud/cloudProjectGraph'
 import type {
   CleanupWorkspaceAssetsResult,
   CommitProjectBundleImportResult,
+  CreateProjectCheckpointInput,
   ImportWorkspaceBundleResult,
   PlatformBridge,
   ProjectBundleImportCandidate,
@@ -30,6 +38,9 @@ import type {
   WorkspaceProjectSummary,
   WorkspaceStatus,
 } from '@/platform/types'
+
+const PERIODIC_CHECKPOINT_MIN_SEQUENCE_DELTA = 25
+const PERIODIC_CHECKPOINT_MIN_INTERVAL_MS = 10 * 60_000
 
 const memoryAssetUrls = new Map<string, string>()
 const memoryAssetBlobs = new Map<string, Blob>()
@@ -47,6 +58,8 @@ interface CloudProjectState {
   sequence: number
   baselineCanvas: CanvasSnapshot
   pending?: PendingGraphSave
+  lastPeriodicCheckpointSequence: number
+  lastPeriodicCheckpointAt: number
 }
 
 let memoryWorkspaceData: WorkspaceData = {
@@ -174,6 +187,20 @@ function updateWorkspaceSelection(input: Pick<SaveWorkspaceProjectInput, 'active
   }
 }
 
+function getNumericDetail(details: Record<string, unknown> | undefined, key: string) {
+  const value = details?.[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function toProjectVersionConflictError(error: CloudApiError) {
+  return new ProjectVersionConflictError({
+    message: '项目已在其他位置更新，请选择重新加载云端版本或将当前画布另存为副本。',
+    currentVersion: getNumericDetail(error.details, 'currentVersion'),
+    currentSequence: getNumericDetail(error.details, 'currentSequence'),
+    cause: error,
+  })
+}
+
 async function listProjectsByStatus(status: ProjectListStatus) {
   const projects: ProjectSummary[] = []
   let cursor: string | null = null
@@ -204,6 +231,8 @@ async function loadCloudProject(projectId: string) {
     version: graph.version,
     sequence: graph.sequence,
     baselineCanvas: cloneJson(project.workingSnapshot.canvas),
+    lastPeriodicCheckpointSequence: graph.sequence,
+    lastPeriodicCheckpointAt: Date.now(),
   })
   cacheProjectRecord(project)
   return project
@@ -229,6 +258,8 @@ async function ensureCloudProject(project: ProjectRecord) {
     version: created.project.version,
     sequence: created.project.lastSequence,
     baselineCanvas: { nodes: [], edges: [] },
+    lastPeriodicCheckpointSequence: created.project.lastSequence,
+    lastPeriodicCheckpointAt: Date.now(),
   }
 
   knownProjectSummaries.set(project.id, created.project)
@@ -242,7 +273,71 @@ async function updateProjectMetadata(state: CloudProjectState, response: Promise
   knownProjectSummaries.set(result.project.id, result.project)
 }
 
-async function flushPendingGraphSave(projectId: string, state: CloudProjectState) {
+async function loadProjectGraphChangesAfter(projectId: string, after: number) {
+  const changes: ProjectGraphChange[] = []
+  let cursor = after
+  let version = 0
+  let sequence = after
+
+  for (;;) {
+    const query = new URLSearchParams({ after: String(cursor) })
+    const response = await requestCloudJson<ProjectGraphChangesResponse>(
+      `/projects/${encodeURIComponent(projectId)}/changes?${query.toString()}`,
+    )
+    changes.push(...response.changes)
+    version = response.version
+    sequence = response.sequence
+
+    if (!response.hasMore) {
+      return { changes, version, sequence }
+    }
+
+    const lastChange = response.changes.at(-1)
+    if (!lastChange || lastChange.sequence <= cursor) {
+      return null
+    }
+    cursor = lastChange.sequence
+  }
+}
+
+async function tryRebasePendingGraphSave(projectId: string, state: CloudProjectState) {
+  const pending = state.pending
+  if (!pending) {
+    return false
+  }
+
+  const remote = await loadProjectGraphChangesAfter(projectId, state.sequence)
+  if (!remote || remote.changes.length === 0) {
+    return false
+  }
+
+  if (doProjectGraphChangesOverlap(pending.request.operations, remote.changes)) {
+    return false
+  }
+
+  state.version = remote.version
+  state.sequence = remote.sequence
+  const requestId = crypto.randomUUID()
+  state.pending = {
+    request: {
+      ...pending.request,
+      baseVersion: remote.version,
+      batchId: `batch_${requestId}`,
+      idempotencyKey: `graph_${requestId}`,
+    },
+    targetCanvas: pending.targetCanvas,
+  }
+  state.summary = {
+    ...state.summary,
+    version: remote.version,
+    lastSequence: remote.sequence,
+  }
+  knownProjectSummaries.set(projectId, state.summary)
+
+  return true
+}
+
+async function flushPendingGraphSave(projectId: string, state: CloudProjectState, allowRebase = true) {
   const pending = state.pending
   if (!pending) {
     return
@@ -268,7 +363,11 @@ async function flushPendingGraphSave(projectId: string, state: CloudProjectState
     knownProjectSummaries.set(projectId, state.summary)
   } catch (error) {
     if (error instanceof CloudApiError && error.code === 'PROJECT_VERSION_CONFLICT') {
-      throw new Error('项目已在其他位置更新，请重新加载云端版本后再处理本地修改。', { cause: error })
+      if (allowRebase && await tryRebasePendingGraphSave(projectId, state)) {
+        await flushPendingGraphSave(projectId, state, false)
+        return
+      }
+      throw toProjectVersionConflictError(error)
     }
     throw error
   }
@@ -300,22 +399,25 @@ async function saveCloudProject(input: SaveWorkspaceProjectInput) {
   const targetCanvas = cloneJson(project.workingSnapshot.canvas)
   const operations = diffCanvasSnapshots(state.baselineCanvas, targetCanvas)
 
-  if (operations.length > 500) {
-    throw new Error('本次画布变化超过 500 个操作，请缩小单次修改规模后重试。')
-  }
   if (operations.length > 0) {
-    const requestId = crypto.randomUUID()
-    state.pending = {
-      request: {
-        baseVersion: state.version,
-        clientId: getCloudClientId(),
-        batchId: `batch_${requestId}`,
-        idempotencyKey: `graph_${requestId}`,
-        operations,
-      },
-      targetCanvas,
+    const batches = buildProjectGraphOperationBatches(state.baselineCanvas, operations)
+
+    for (const batch of batches) {
+      const requestId = crypto.randomUUID()
+      const batchTargetCanvas = applyProjectGraphOperationBatch(state.baselineCanvas, batch)
+      state.pending = {
+        request: {
+          baseVersion: state.version,
+          clientId: getCloudClientId(),
+          batchId: `batch_${requestId}`,
+          idempotencyKey: `graph_${requestId}`,
+          operations: batch,
+        },
+        targetCanvas: batchTargetCanvas,
+      }
+      await flushPendingGraphSave(project.id, state)
     }
-    await flushPendingGraphSave(project.id, state)
+    state.baselineCanvas = cloneJson(targetCanvas)
   }
 
   if (!state.summary.archivedAt && project.archivedAt) {
@@ -326,6 +428,61 @@ async function saveCloudProject(input: SaveWorkspaceProjectInput) {
   }
 
   cacheProjectRecord(project)
+}
+
+function shouldSkipPeriodicCheckpoint(state: CloudProjectState, input: CreateProjectCheckpointInput) {
+  const minSequenceDelta = input.minSequenceDelta ?? PERIODIC_CHECKPOINT_MIN_SEQUENCE_DELTA
+  const minIntervalMs = input.minIntervalMs ?? PERIODIC_CHECKPOINT_MIN_INTERVAL_MS
+  const sequenceDelta = state.sequence - state.lastPeriodicCheckpointSequence
+  const intervalMs = Date.now() - state.lastPeriodicCheckpointAt
+
+  return state.sequence <= 0 || sequenceDelta < minSequenceDelta || intervalMs < minIntervalMs
+}
+
+async function createCloudProjectCheckpoint(projectId: string, input: CreateProjectCheckpointInput = {}) {
+  const state = cloudProjectStates.get(projectId)
+
+  if (!state) {
+    await loadCloudProject(projectId)
+  }
+
+  const currentState = cloudProjectStates.get(projectId)
+  if (!currentState) {
+    throw new Error('项目尚未加载，无法创建云端检查点')
+  }
+
+  await flushPendingGraphSave(projectId, currentState)
+  const checkpointType = input.checkpointType ?? 'manual'
+
+  if (checkpointType === 'periodic' && shouldSkipPeriodicCheckpoint(currentState, input)) {
+    return
+  }
+
+  let response: ProjectCheckpointResponse
+  try {
+    response = await requestCloudJson<ProjectCheckpointResponse>(
+      `/projects/${encodeURIComponent(projectId)}/checkpoints`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          expectedVersion: currentState.version,
+          expectedSequence: currentState.sequence,
+          checkpointType,
+        }),
+      },
+    )
+  } catch (error) {
+    if (error instanceof CloudApiError && error.code === 'PROJECT_VERSION_CONFLICT') {
+      throw toProjectVersionConflictError(error)
+    }
+    throw error
+  }
+  currentState.summary = response.project
+  if (checkpointType === 'periodic') {
+    currentState.lastPeriodicCheckpointSequence = currentState.sequence
+    currentState.lastPeriodicCheckpointAt = Date.now()
+  }
+  knownProjectSummaries.set(projectId, response.project)
 }
 
 function normalizeAssetPath(relativePath: string) {
@@ -481,6 +638,10 @@ export const cloudPlatformBridge: PlatformBridge = {
 
   async saveWorkspaceProject(input) {
     await saveCloudProject(input)
+  },
+
+  async createProjectCheckpoint(projectId, input) {
+    await createCloudProjectCheckpoint(projectId, input)
   },
 
   async deleteWorkspaceProject(input) {

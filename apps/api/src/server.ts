@@ -5,6 +5,8 @@ import {
   type ApiErrorResponse,
   type ApplyProjectGraphOperationsRequest,
   type AuthSessionsResponse,
+  type CreateAssetUploadRequest,
+  type CreateProjectCheckpointRequest,
   type CurrentWorkspaceResponse,
   type EmailVerificationResponse,
   type EmailVerifyRequest,
@@ -18,8 +20,13 @@ import {
   type ProjectListStatus,
   type RenameProjectRequest,
   type RegisterRequest,
+  type RestoreProjectRevisionRequest,
   type RevokeSessionResponse,
 } from '@ai-canvas-cloud/contracts'
+import {
+  createUnavailableAssetService,
+  type AssetService,
+} from '@ai-canvas-cloud/server/modules/assets'
 import {
   AuthServiceError,
   createUnavailableAuthService,
@@ -28,8 +35,13 @@ import {
 } from '@ai-canvas-cloud/server/modules/auth'
 import {
   createUnavailableProjectGraphService,
+  validateProjectGraphChangesAfter,
   type ProjectGraphService,
 } from '@ai-canvas-cloud/server/modules/project-graph'
+import {
+  createUnavailableProjectSnapshotService,
+  type ProjectSnapshotService,
+} from '@ai-canvas-cloud/server/modules/project-snapshots'
 import {
   createUnavailableProjectService,
   type ProjectService,
@@ -42,7 +54,9 @@ interface ServerOptions {
   config: ApiConfig
   logger?: Logger
   authService?: AuthService
+  assetService?: AssetService
   projectGraphService?: ProjectGraphService
+  projectSnapshotService?: ProjectSnapshotService
   projectService?: ProjectService
 }
 
@@ -73,6 +87,21 @@ function isWorkspacePath(pathname: string, route: string) {
   return pathname === `${API_V1_PREFIX}/workspaces/${route}`
 }
 
+function isAssetPath(pathname: string, route: string) {
+  return pathname === `${API_V1_PREFIX}/assets/${route}`
+}
+
+function getAssetUploadCompleteId(pathname: string) {
+  const prefix = `${API_V1_PREFIX}/assets/uploads/`
+
+  if (!pathname.startsWith(prefix) || !pathname.endsWith('/complete')) {
+    return null
+  }
+
+  const uploadId = pathname.slice(prefix.length, -'/complete'.length)
+  return uploadId ? decodeURIComponent(uploadId) : null
+}
+
 function getAuthSessionIdFromPath(pathname: string) {
   const prefix = `${API_V1_PREFIX}/auth/sessions/`
 
@@ -93,7 +122,7 @@ function getProjectRoute(pathname: string) {
 
   const segments = pathname.slice(prefix.length).split('/')
 
-  if (segments.length < 1 || segments.length > 2 || !segments[0]) {
+  if (segments.length < 1 || segments.length > 4 || !segments[0]) {
     return null
   }
 
@@ -101,6 +130,8 @@ function getProjectRoute(pathname: string) {
     return {
       projectId: decodeURIComponent(segments[0]),
       action: segments[1] ?? null,
+      subresourceId: segments[2] ? decodeURIComponent(segments[2]) : null,
+      subresourceAction: segments[3] ? decodeURIComponent(segments[3]) : null,
     }
   } catch {
     throw new AuthServiceError({
@@ -355,6 +386,7 @@ async function handleProjectRoute(
   requestId: string,
   authService: AuthService,
   projectGraphService: ProjectGraphService,
+  projectSnapshotService: ProjectSnapshotService,
   projectService: ProjectService,
 ) {
   const isCollectionPath = requestUrl.pathname === `${API_V1_PREFIX}/projects`
@@ -422,6 +454,58 @@ async function handleProjectRoute(
       return true
     }
 
+    if (route.action === 'changes' && request.method === 'GET') {
+      const after = validateProjectGraphChangesAfter(requestUrl.searchParams.get('after'))
+      sendJson(response, 200, await projectGraphService.getChanges(route.projectId, after, actor), requestId)
+      return true
+    }
+
+    if (route.action === 'checkpoints' && request.method === 'POST') {
+      const payload = await projectSnapshotService.createCheckpoint(
+        route.projectId,
+        await readJsonBody<CreateProjectCheckpointRequest>(request),
+        actor,
+      )
+      sendJson(response, 201, payload, requestId)
+      return true
+    }
+
+    if (route.action === 'revisions' && request.method === 'GET') {
+      if (route.subresourceId && !route.subresourceAction) {
+        const payload = await projectSnapshotService.getRevision(
+          route.projectId,
+          Number(route.subresourceId),
+          actor,
+        )
+        sendJson(response, 200, payload, requestId)
+        return true
+      }
+
+      const limitValue = requestUrl.searchParams.get('limit')
+      const payload = await projectSnapshotService.listRevisions(route.projectId, {
+        cursor: requestUrl.searchParams.get('cursor'),
+        limit: limitValue === null ? undefined : Number(limitValue),
+      }, actor)
+      sendJson(response, 200, payload, requestId)
+      return true
+    }
+
+    if (
+      route.action === 'revisions'
+      && route.subresourceId
+      && route.subresourceAction === 'restore'
+      && request.method === 'POST'
+    ) {
+      const payload = await projectSnapshotService.restoreRevision(
+        route.projectId,
+        Number(route.subresourceId),
+        await readJsonBody<RestoreProjectRevisionRequest>(request),
+        actor,
+      )
+      sendJson(response, 200, payload, requestId)
+      return true
+    }
+
     if (route.action === null && request.method === 'GET') {
       sendJson(response, 200, await projectService.getProject(route.projectId, actor), requestId)
       return true
@@ -463,11 +547,69 @@ async function handleProjectRoute(
   }
 }
 
+async function handleAssetRoute(
+  request: http.IncomingMessage,
+  response: http.ServerResponse,
+  requestUrl: URL,
+  requestId: string,
+  authService: AuthService,
+  assetService: AssetService,
+) {
+  if (!requestUrl.pathname.startsWith(`${API_V1_PREFIX}/assets/`)) {
+    return false
+  }
+
+  const context = getAuthContext(request, requestId)
+
+  try {
+    if (!context.cookieHeader) {
+      throw new AuthServiceError({
+        statusCode: 401,
+        apiCode: 'AUTH_REQUIRED',
+        message: 'Authentication required',
+      })
+    }
+
+    const session = await authService.getSession(context)
+    const actor = {
+      userId: session.user.id,
+      workspaceId: session.workspace.id,
+    }
+
+    if (request.method === 'POST' && isAssetPath(requestUrl.pathname, 'uploads')) {
+      const payload = await assetService.createUpload(
+        await readJsonBody<CreateAssetUploadRequest>(request),
+        actor,
+      )
+      sendJson(response, 201, payload, requestId)
+      return true
+    }
+
+    const completeUploadId = getAssetUploadCompleteId(requestUrl.pathname)
+    if (request.method === 'POST' && completeUploadId) {
+      const payload = await assetService.completeUpload(completeUploadId, actor)
+      sendJson(response, 200, payload, requestId)
+      return true
+    }
+
+    return false
+  } catch (error) {
+    if (error instanceof AuthServiceError) {
+      sendApiError(response, error.statusCode, createErrorResponse(requestId, error), requestId)
+      return true
+    }
+
+    throw error
+  }
+}
+
 export function createApiServer({
   config,
   logger = createJsonLogger({ level: config.logLevel, service: 'api' }),
   authService = createUnavailableAuthService(),
+  assetService = createUnavailableAssetService(),
   projectGraphService = createUnavailableProjectGraphService(),
+  projectSnapshotService = createUnavailableProjectSnapshotService(),
   projectService = createUnavailableProjectService(),
 }: ServerOptions) {
   const server = http.createServer(async (request, response) => {
@@ -525,6 +667,10 @@ export function createApiServer({
       return
     }
 
+    if (await handleAssetRoute(request, response, requestUrl, requestId, authService, assetService)) {
+      return
+    }
+
     if (await handleProjectRoute(
       request,
       response,
@@ -532,6 +678,7 @@ export function createApiServer({
       requestId,
       authService,
       projectGraphService,
+      projectSnapshotService,
       projectService,
     )) {
       return

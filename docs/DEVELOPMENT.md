@@ -4,7 +4,7 @@
 
 ## 产品边界
 
-AI Canvas Cloud 是账号制、多设备访问的 AI 画布 SaaS。首发提供个人空间、云端项目、私有媒体资产和服务端生成任务，不提供实时多人编辑、离线云项目同步或复杂商业计费。
+AI Canvas Cloud 是账号制 AI 画布 SaaS。首发提供个人空间、单活跃会话、云端项目、私有媒体资产和服务端生成任务，不提供多设备同时在线编辑、实时多人编辑、离线云项目同步或复杂商业计费。
 
 本仓库与本地版 `ai-canvas` 独立：
 
@@ -29,9 +29,9 @@ P1 第一批代码已经建立 npm workspaces monorepo：
 
 Web 平台适配层已从 P1 临时内存项目适配推进到 P3 Cloud API 适配：项目列表、创建、读取、重命名、归档/恢复、软删除和图 GET/PATCH 走 Cloud API；前端仍不直接访问 PostgreSQL、Redis、对象存储管理凭据或服务端模块。
 
-P2 第一批已经建立用户/工作区迁移、认证共享契约和最小认证 HTTP 路由骨架。当前认证实现已切到 Better Auth：API 路由通过注入的 `AuthService` 调用 Better Auth 的 `signUpEmail`、`signInEmail`、`getSession`、`signOut`、`listSessions`、`revokeSession`、`sendVerificationEmail`、`verifyEmail`、`requestPasswordReset` 和 `resetPassword`，由 Better Auth 管理邮箱密码、密码哈希、签名 HttpOnly Cookie、session 表、活跃会话列表、单设备下线、邮箱验证 token 和密码重置 token。Cloud 侧在注册、登录和会话恢复时幂等确保 personal workspace、owner 成员关系和工作区用户状态存在，并提供工作区授权模块校验 session 用户、workspace ID、成员角色和工作区状态。前端已接入认证门禁、登录/注册 UI、session 恢复、账号菜单、活跃会话展示、其他设备下线、退出登录、未验证提示、重发验证邮件、邮箱验证链接消费、忘记密码和重置密码表单，登录后再初始化画布工作区。真实邮件发送供应商、账号删除申请、浏览器级两账号隔离 E2E 和更完整限流审计待后续批次接入。
+P2 第一批已经建立用户/工作区迁移、认证共享契约和最小认证 HTTP 路由骨架。当前认证实现已切到 Better Auth：API 路由通过注入的 `AuthService` 调用 Better Auth 的 `signUpEmail`、`signInEmail`、`getSession`、`signOut`、`listSessions`、`revokeSession`、`sendVerificationEmail`、`verifyEmail`、`requestPasswordReset` 和 `resetPassword`，由 Better Auth 管理邮箱密码、密码哈希、签名 HttpOnly Cookie、session 表、活跃会话列表、会话撤销、邮箱验证 token 和密码重置 token。首发产品策略为同账号单活跃会话：新登录成功后撤销该账号其他 session，旧设备下一次交互、窗口聚焦或业务请求会静默检查 session，失败后清理前端 Cloud 会话缓存并回登录页；同一设备双标签或旧请求仍依赖版本号和冲突兜底防覆盖，但不承诺多设备同时编辑。Cloud 侧在注册、登录和会话恢复时幂等确保 personal workspace、owner 成员关系和工作区用户状态存在，并提供工作区授权模块校验 session 用户、workspace ID、成员角色和工作区状态。前端已接入认证门禁、登录/注册 UI、session 恢复、账号菜单、活跃会话展示、其他设备下线、退出登录、未验证提示、重发验证邮件、邮箱验证链接消费、忘记密码和重置密码表单，登录后再初始化画布工作区。真实邮件发送供应商、账号删除申请、浏览器级两账号隔离 E2E 和更完整限流审计待后续批次接入。
 
-P3-1 至 P3-4 已建立关系化项目图 schema、项目元数据服务、规范化图读取和增量图事务。API 只把 session 解析出的用户/当前工作区作为 `ProjectActor` 传给领域服务，领域服务再次通过 `workspace_members` 校验角色，并在所有项目 SQL 中同时限定 `project_id` 与 `workspace_id`。图批次锁定项目，按操作后节点集合校验父级、环和连线端点，支持节点/连线 upsert/软删除、关联边清理、幂等重试、version/sequence 推进和 `409 PROJECT_VERSION_CONFLICT`。Web Cloud 适配层已接入项目元数据、图读取和 ID 级 diff 自动保存；`GET /changes`、资产引用、检查点、完整冲突 UI 和服务端任务投影仍未接入。
+P3-1 至 P3-14 已建立关系化项目图 schema、项目元数据服务、规范化图读取、增量图事务、有序 changes 读取、Web 端大批量图操作拆批、服务端 manual/periodic checkpoint、Web 手动保存检查点入口、checkpoint 摘要列表、按版本读取 checkpoint record、checkpoint restore、Web 冲突处理最小闭环和非重叠冲突自动追平。API 只把 session 解析出的用户/当前工作区作为 `ProjectActor` 传给领域服务，领域服务再次通过 `workspace_members` 校验角色，并在所有项目 SQL 中同时限定 `project_id` 与 `workspace_id`。图批次锁定项目，按操作后节点集合校验父级、环和连线端点，支持节点/连线 upsert/软删除、关联边清理、幂等重试、version/sequence 推进和 `409 PROJECT_VERSION_CONFLICT`。`GET /changes` 按 `after` 返回有序变更批次，不暴露 workspace、actor 或幂等键。manual/periodic checkpoint 锁定项目、校验 expected version/sequence、从当前关系化图组装 snapshot record；manual 更新 `saved_snapshot_id`，periodic 只作为历史恢复点保留；`GET /revisions` 按 keyset 分页返回不含 `record_json` 的摘要，`GET /revisions/:version` 返回该版本最新 checkpoint 的完整 record；`POST /revisions/:version/restore` 校验 expected version/sequence 后先创建 `pre_restore` 检查点，再替换当前节点/连线关系图、追加 `source="restore"` 的 `project_changes` 并递增 version/sequence。Web Cloud 适配层已接入项目元数据、图读取、ID 级 diff 自动保存、超过 500 个操作时的顺序拆批，并在手动保存成功保存图后创建 manual checkpoint、在自动保存成功后按 sequence 增量和时间间隔尝试创建 periodic checkpoint；遇到版本冲突时会读取远端 changes，若远端和本地待提交操作未触碰同一节点/连线，则推进 baseVersion/sequence 后重试本地操作；仍冲突或触碰同一实体时保留本地工作副本并显示重新加载云端版本、另存为副本和稍后处理入口。资产引用、三方合并和服务端任务投影仍未接入。
 
 ## 目标拓扑
 
@@ -56,6 +56,7 @@ Browser
 
 - 邮箱密码、密码哈希、session token、签名 Cookie、邮箱验证和密码重置验证值优先交给 Better Auth 管理，不再维护自研密码哈希或自研 session token 表。
 - 浏览器会话使用 Better Auth 的 `better-auth.session_token` HttpOnly Cookie；生产环境必须配置稳定且足够长的 `BETTER_AUTH_SECRET`，并通过 HTTPS 使用 Secure Cookie。
+- 同账号首发只允许一个活跃登录设备。注册或登录创建新 session 后，服务端撤销该用户其他 session；旧设备不能继续保存、生成或读取资源，前端在下一次交互、键盘操作、窗口聚焦、页面重新可见、会话恢复失败或 API 返回未授权时检查 session，失败后清理 Cloud 缓存并回到登录页。
 - 邮箱验证和密码重置链接面向浏览器使用 `WEB_PUBLIC_URL` 生成；开发/测试环境可把链接打印到日志，生产环境未接入真实邮件服务时不得打印 token 或完整链接，且应让发送流程失败以暴露配置问题。
 - 本地开发可以通过 `DEV_SEED_ADMIN=true`、`DEV_SEED_ADMIN_EMAIL` 和仅写入本机 `.env` 的 `DEV_SEED_ADMIN_PASSWORD` 创建测试账号；该 seed 在 production 强制禁用，且不授予额外系统管理员权限。
 - 注册事务同时创建用户、个人工作区和 owner 成员关系。
@@ -92,11 +93,11 @@ Cloud 当前画布不以完整项目 JSON 为日常事实来源：
 5. 追加连续的 `project_changes.sequence`。
 6. 递增项目版本并提交。
 
-版本不一致返回 `409 PROJECT_VERSION_CONFLICT`。首发提供重新加载云端版本和另存为副本，不自动合并两个设备的画布。
+版本不一致返回 `409 PROJECT_VERSION_CONFLICT`。客户端收到冲突后会读取 `GET /changes`；当远端变更与本地待提交操作未触碰同一节点或连线时，客户端只推进 baseVersion/sequence 并重试本地操作，远端内容保留在服务端等待后续刷新恢复。无法安全追平时，首发冲突 UI 会保留本地工作副本，提供重新加载云端版本、另存为副本和稍后处理，不自动做三方合并。
 
 已有请求在途时，客户端只合并尚未提交的最新操作；删除操作不能被较旧 upsert 复活。页面关闭前可尝试 flush，但正确性不能依赖 `beforeunload` 请求一定成功。
 
-当前 Web Cloud 适配层维护每个项目最近确认的 version/sequence 和画布基线。刷新页面后可从 Cloud API 恢复节点和连线；换账号、登出或 session 失效时会清理项目、画布、任务、模板和临时资产 URL 缓存。任务队列与媒体资产在 P5/P4 前仍是浏览器会话内投影，手动保存尚未创建 `project_snapshots` 检查点，单次自动保存超过 500 个图操作需要后续拆批。
+当前 Web Cloud 适配层维护每个项目最近确认的 version/sequence 和画布基线。刷新页面后可从 Cloud API 恢复节点和连线；换账号、登出或 session 失效时会清理项目、画布、任务、模板和临时资产 URL 缓存。Cloud API 已能按 sequence 读取 `project_changes`，当前客户端已支持非重叠 changes 的 baseVersion 追平；三方合并和用户可视化选择仍后续接入。自动保存会把超过 500 个图操作的 diff 拆成多个 PATCH 批次，删除节点按旧层级子到父、节点 upsert 按新父级先父后子、连线 upsert 放在节点之后，避免中间批次破坏拓扑约束。手动保存会先保存当前图，再用确认后的 version/sequence 创建 manual checkpoint；自动保存成功后会按 sequence 增量和时间间隔创建 periodic checkpoint；任务队列与媒体资产在 P5/P4 前仍是浏览器会话内投影。
 
 ## 手动保存与检查点
 
@@ -118,6 +119,8 @@ workspaces/<workspace-id>/projects/<project-id>/thumbnails/<asset-id>.<ext>
 ```
 
 浏览器上传采用三步协议：创建上传会话、预签名直传、完成确认。完成接口校验对象存在、大小、MIME/魔数、哈希和工作区归属。只有 completed 资产可以进入节点或任务引用。
+
+P4-1/P4-3 当前先落数据库、领域契约、本地 MinIO 预签名上传会话和完成确认：`assets`、`asset_uploads` 和 `asset_references` 已作为资产治理事实表设计，`POST /api/v1/assets/uploads` 只允许服务端从可信 session 推导工作区和用户，写入 pending 资产与上传会话后返回短期 S3 兼容 `PUT` URL；`POST /api/v1/assets/uploads/:uploadId/complete` 会从 MinIO/S3 反查真实对象大小、MIME 和可选 SHA-256，通过后才把 asset 标记 completed。短期读取 URL、前端缓存刷新和 GC 后续按 P4 切片接入。OSS 接入时优先替换对象存储适配层，不改前端持久化契约。
 
 读取私有资产时，API 授权后返回短期签名 URL。前端可以缓存 URL，但必须处理过期刷新和退出登录清理。Provider 临时结果 URL 必须由 Worker 下载、校验并转存，不得写入节点、任务或检查点作为长期来源。
 
@@ -162,7 +165,7 @@ Cloud 以 `generation_tasks` 为任务事实来源，前端 task queue 是投影
 - PostgreSQL 集成：事务、约束、并发版本、sequence、检查点与迁移。
 - 对象存储集成：预签名上传、私有读取、跨租户拒绝和 GC。
 - API 契约：认证、分页、幂等、错误码、输入上限和字段脱敏。
-- 浏览器 E2E：两账号隔离、跨设备恢复、双标签冲突、资产上传和关闭页面后任务恢复。
+- 浏览器 E2E：两账号隔离、新登录踢旧设备、双标签冲突、资产上传和关闭页面后任务恢复。
 - 灾难恢复：数据库与对象存储恢复后校验当前图、检查点和资产引用一致。
 
 当前已验证命令：
