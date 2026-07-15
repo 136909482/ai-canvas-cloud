@@ -8,7 +8,7 @@ import {
 } from '@/features/projectManager/runtime'
 
 function createProjectId() {
-  return `project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  return crypto.randomUUID()
 }
 
 export function normalizeProjectName(name?: string) {

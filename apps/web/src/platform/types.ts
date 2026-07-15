@@ -217,6 +217,7 @@ export interface WorkflowFile {
 }
 
 export interface PlatformBridge {
+  resetSessionCache: () => void
   getWorkspaceStatus: () => Promise<WorkspaceStatus>
   pickWorkspaceDirectory: () => Promise<WorkspaceStatus>
   loadWorkspaceData: () => Promise<WorkspaceData | null>

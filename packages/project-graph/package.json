@@ -9,5 +9,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@ai-canvas-cloud/contracts": "0.1.0"
   }
 }

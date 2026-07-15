@@ -1,0 +1,25 @@
+{
+  "name": "@ai-canvas-cloud/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js",
+    "./modules/auth": "./dist/modules/auth/index.js",
+    "./modules/project-graph": "./dist/modules/project-graph/index.js",
+    "./modules/projects": "./dist/modules/projects/index.js",
+    "./modules/workspaces": "./dist/modules/workspaces/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ai-canvas-cloud/contracts": "0.1.0",
+    "@ai-canvas-cloud/shared": "0.1.0",
+    "better-auth": "^1.6.23",
+    "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0"
+  }
+}

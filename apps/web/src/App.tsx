@@ -11,6 +11,9 @@ import { TaskQueueRunner } from '@/components/TaskQueueRunner'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { Toolbar } from '@/components/Toolbar'
 import { WorkspaceSearchDialog } from '@/components/WorkspaceSearchDialog'
+import { AccountMenu } from '@/features/auth/AccountMenu'
+import { EmailVerificationBanner } from '@/features/auth/EmailVerificationBanner'
+import { AuthGate } from '@/features/auth/AuthGate'
 import { platformBridge } from '@/platform'
 import { useFeedbackStore } from '@/store/useFeedbackStore'
 import { useImageEditorStore } from '@/store/useImageEditorStore'
@@ -114,9 +117,15 @@ function AppContent() {
   return (
     <ReactFlowProvider>
       <div className={`w-screen h-screen relative ${themeClasses.canvas}`}>
-        <Toolbar rightSlot={<CanvasQuickActions includeWorkflowActions={false} />} />
+        <Toolbar rightSlot={(
+          <>
+            <CanvasQuickActions includeWorkflowActions={false} />
+            <AccountMenu />
+          </>
+        )} />
         <WorkspaceSearchDialog />
         <FloatingToolbar />
+        <EmailVerificationBanner />
         <TaskQueueRunner />
         <Canvas />
         {imageEditorSession ? (
@@ -148,9 +157,11 @@ export default function App() {
   return (
     <>
       <ThemeProvider />
-      <ProjectBootstrap />
-      <AppContent />
-      <ProjectManagerDialogHost />
+      <AuthGate>
+        <ProjectBootstrap />
+        <AppContent />
+        <ProjectManagerDialogHost />
+      </AuthGate>
       <AppFeedbackHost />
     </>
   )

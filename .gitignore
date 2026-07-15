@@ -9,3 +9,4 @@ coverage/
 !.env.example
 infra/local/data/
 test-results/
+.playwright-cli/

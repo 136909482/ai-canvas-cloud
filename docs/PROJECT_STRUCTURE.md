@@ -19,9 +19,10 @@ packages/
 server/
   db/                  PostgreSQL schema、迁移、事务与查询
   modules/
-    auth/              用户、会话、验证和密码重置（P2 建立）
-    workspaces/        工作区、成员、权限和配额（P2 建立）
-    project-graph/     云端节点、连线、变更和检查点写入入口（P3 建立）
+    auth/              Better Auth 适配、邮件服务边界、Cloud 工作区补齐、认证错误映射（P2 建立）
+    workspaces/        工作区、成员、权限和配额授权（P2 建立）
+    projects/          项目元数据、列表分页、归档/恢复和软删除（P3 建立）
+    project-graph/     云端图读取、节点/连线增量事务和后续检查点入口（P3 建立）
     assets/            上传、签名读取、引用和 GC（P4 建立）
     tasks/             任务状态机、尝试记录和用量（P5 建立）
     providers/         凭据解密、目标白名单和模型调用边界（P5 建立）
@@ -81,7 +82,11 @@ src/
 
 `platform/cloud` 维护图基线、版本、sequence、ID 级 diff 和签名 URL 生命周期。组件和 store 继续使用项目/画布领域对象，不感知 PostgreSQL 表。
 
-P1 第一批使用内存 Cloud adapter 让画布独立启动和构建，不访问本地目录、Electron、SQLite、File System Access API、数据库、Redis 或对象存储管理凭据。
+P1 第一批使用内存 Cloud adapter 让画布独立启动和构建；P3 已把项目元数据和关系图读写接入 Cloud API。Web 仍不访问本地目录、Electron、SQLite、File System Access API、数据库、Redis 或对象存储管理凭据。P2 认证 UI 位于 `features/auth`，只通过 Cloud API 调用认证、会话、邮箱验证、重发验证邮件、忘记密码和重置密码接口，不直接访问 Better Auth 数据库表或服务端密钥。
+
+## 服务端领域模块
+
+`server` 作为 npm workspace package 供 `apps/api` 和 `apps/worker` 引用，但仍保持服务端专用边界，不被 `apps/web` 依赖。API 路由只解析 HTTP、Cookie 和请求 schema，再调用 `server/modules` 中的领域服务；跨表事务、凭据解密、任务状态机和授权查询不得写在路由文件里。
 
 ## API 应用
 
@@ -93,7 +98,7 @@ P1 第一批使用内存 Cloud adapter 让画布独立启动和构建，不访�
 - 不在路由文件中编写跨表事务。
 - 不直接调用任意 Provider target URL。
 
-业务事务集中在 `server/modules`。项目节点、连线、变更、检查点和资产引用只能通过 `server/modules/project-graph` 修改。
+业务事务集中在 `server/modules`。项目节点、连线、变更、检查点和资产引用只能通过 `server/modules/project-graph` 修改。访问任何工作区资源前，领域模块必须先使用 `server/modules/workspaces` 校验 session 用户的成员关系、角色和工作区状态。
 
 ## Worker 应用
 

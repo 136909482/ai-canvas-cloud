@@ -46,7 +46,24 @@ POST   /api/v1/auth/password/reset
 DELETE /api/v1/account
 ```
 
-注册成功在同一事务创建个人工作区。登录和注册需要分层限流；忘记密码接口无论邮箱是否存在都返回一致结果，避免账号枚举。
+认证兼容接口保留在 `/api/v1/auth/*`，底层委托 Better Auth 管理邮箱密码、签名 HttpOnly Cookie、session、邮箱验证 token 和密码重置 token。注册、登录和会话恢复后，Cloud 侧会幂等确保个人工作区和 owner membership 存在。`GET /auth/sessions` 返回当前用户的活跃会话摘要，`DELETE /auth/sessions/:sessionId` 只能下线当前用户自己的会话。`POST /auth/email/resend` 从当前登录 session 解析邮箱后重发验证邮件，不接受客户端指定用户 ID；`POST /auth/email/verify` 消费 Better Auth 验证 token 并返回 `{ "ok": true }`。`POST /auth/password/forgot` 只接受邮箱并始终对存在/不存在账号返回一致成功结果；`POST /auth/password/reset` 消费一次性重置 token 并设置新密码，重置成功后撤销旧会话。登录、注册、验证和重置需要分层限流；忘记密码接口不得泄漏邮箱是否存在，避免账号枚举。
+
+邮箱验证请求：
+
+```json
+{
+  "token": "verification-token"
+}
+```
+
+密码重置请求：
+
+```json
+{
+  "token": "reset-token",
+  "password": "new-long-enough-password"
+}
+```
 
 ## 工作区
 
@@ -55,7 +72,22 @@ GET /api/v1/workspaces/current
 GET /api/v1/workspaces/current/usage
 ```
 
-首发不提供工作区切换和成员邀请，但响应保留工作区 ID、类型、用户角色和配额摘要。工作区 ID 不能单独构成授权。
+`GET /workspaces/current` 从当前 HttpOnly session 解析用户并返回当前工作区摘要：
+
+```json
+{
+  "workspace": {
+    "id": "workspace_...",
+    "type": "personal",
+    "name": "artist 的个人空间",
+    "role": "owner",
+    "status": "active",
+    "planKey": "free"
+  }
+}
+```
+
+首发不提供工作区切换和成员邀请，但响应保留工作区 ID、类型、用户角色和配额摘要。工作区 ID 不能单独构成授权；服务端领域模块必须同时校验 session 用户和 `workspace_members` 成员关系，非成员访问返回不泄漏存在性的拒绝。
 
 ## 项目元数据
 
@@ -69,7 +101,40 @@ POST   /api/v1/projects/:projectId/restore
 DELETE /api/v1/projects/:projectId
 ```
 
-项目列表只返回摘要，不包含全部节点、连线、任务或检查点。`PATCH` 只允许名称等白名单元数据，不能通过任意 JSON patch 修改租户、版本或删除状态。
+本切片已实现以上七个接口。所有接口先从 HttpOnly session 解析 `userId` 和当前 `workspaceId`，请求体、查询参数和路径均不接受客户端指定的 `user_id`/`workspace_id`。读取要求当前工作区成员身份；创建、重命名、归档、恢复和删除只允许 owner/admin/editor。项目不存在、已软删除或属于其他工作区时统一返回 `404 RESOURCE_NOT_FOUND`。
+
+列表使用 `status=active|archived`（默认 `active`）、`limit=1..100`（默认 50）和不透明 `cursor`：
+
+```json
+{
+  "projects": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "产品主视觉",
+      "version": 0,
+      "lastSequence": 0,
+      "nodeCount": 0,
+      "edgeCount": 0,
+      "taskCount": 0,
+      "archivedAt": null,
+      "createdAt": "2026-07-15T10:00:00.000Z",
+      "updatedAt": "2026-07-15T10:00:00.000Z"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+创建请求只接受可选客户端 UUID 和白名单名称字段。`id` 用于浏览器先生成项目 ID 后再幂等创建；不传时由服务端生成 UUID。重试同一 `id`、同一工作区和同一名称会返回已创建项目；同一 `id` 指向其他工作区、已删除项目或不同名称时返回 `409 VALIDATION_FAILED`。客户端仍不能提交 `user_id` 或 `workspace_id`：
+
+```json
+{
+  "id": "11111111-1111-4111-8111-111111111111",
+  "name": "产品主视觉"
+}
+```
+
+创建返回 `201`，读取和元数据变更返回 `200` 与 `{ "project": <项目摘要> }`。归档/恢复为幂等动作；`DELETE` 只设置 `deleted_at` 并清除工作区用户状态中对该项目的活动/最近打开引用，返回 `{ "ok": true }`。项目列表和读取不包含全部节点、连线、任务、检查点、工作区 ID 或操作者 ID；`PATCH` 不能修改租户、版本、计数、归档或删除状态。
 
 ## 项目图
 
@@ -79,7 +144,17 @@ PATCH /api/v1/projects/:projectId/graph
 GET   /api/v1/projects/:projectId/changes?after=<sequence>
 ```
 
-图读取响应包含项目版本、last sequence、规范化节点、连线和任务投影。内部数据库主键和其他租户信息不进入响应。
+当前已实现 `GET /graph` 和 `PATCH /graph`；`GET /changes` 尚未开放。图读取响应包含项目 ID、版本、last sequence、规范化活动节点和活动连线，不返回数据库行版本、软删除行、工作区 ID 或其他租户信息：
+
+```json
+{
+  "projectId": "11111111-1111-4111-8111-111111111111",
+  "version": 18,
+  "sequence": 41,
+  "nodes": [],
+  "edges": []
+}
+```
 
 图操作请求示例：
 
@@ -125,11 +200,12 @@ GET   /api/v1/projects/:projectId/changes?after=<sequence>
 
 - 服务端不接受客户端指定 `workspace_id` 或操作者。
 - 所有 operations 作为一个事务接受或拒绝。
-- 同一幂等键重复提交返回同一已接受结果。
-- `baseVersion` 不一致返回 `409 PROJECT_VERSION_CONFLICT`。
-- source/target 节点必须属于同一项目。
-- 删除节点必须同步处理关联边和资产引用。
-- 操作数量、单节点 JSONB、总请求字节和文本长度均有限额。
+- 同一 actor、client、batch、幂等键、baseVersion 和 operations 的重复提交返回同一已接受结果；复用幂等键或 batch ID 提交不同内容返回 `409 VALIDATION_FAILED`。
+- 非幂等重试的 `baseVersion` 不一致返回 `409 PROJECT_VERSION_CONFLICT`，`details.currentVersion` 提供重新加载依据。
+- 每批包含 1-500 个操作，同一节点或连线在一个批次中只能变更一次；实体 ID 最长 128 字符，图 PATCH 请求体上限为 2 MiB。
+- 节点父级必须是操作后仍活动的同项目节点且不能成环；source/target 必须是操作后仍活动的同项目节点。
+- 删除节点在同一事务软删除关联边；归档项目拒绝新的图修改，但已接受批次仍可幂等重试。
+- 当前尚未建立 P4 `asset_references`，因此本切片只处理节点和连线关系；资产引用校验与计数必须在 P4 接入后加入同一图事务。
 
 ## 检查点与历史
 

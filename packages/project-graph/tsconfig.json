@@ -5,8 +5,14 @@
     "declaration": true,
     "declarationMap": true,
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "paths": {
+      "@ai-canvas-cloud/contracts": ["../contracts/src/index.ts"]
+    }
   },
+  "references": [
+    { "path": "../contracts" }
+  ],
   "include": ["src"],
   "exclude": ["src/**/*.test.ts"]
 }

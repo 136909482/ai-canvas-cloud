@@ -17,16 +17,21 @@ AI Canvas Cloud 是账号制、多设备访问的 AI 画布 SaaS。首发提供�
 
 P1 第一批代码已经建立 npm workspaces monorepo：
 
-- `apps/web`：Vite + React 画布前端，一次性迁移自本地版稳定画布代码，并替换为 Cloud 内存平台适配器。
+- `apps/web`：Vite + React 画布前端，一次性迁移自本地版稳定画布代码；当前通过 Cloud 平台适配层访问认证、项目元数据和项目图 API。
 - `apps/api`：HTTP 入口、配置校验、结构化日志、request ID、`/health/live`、`/health/ready` 和优雅关闭。
 - `apps/worker`：后台 Worker 进程骨架、配置校验、结构化日志和优雅关闭。
-- `packages/contracts`：API 错误码和健康检查响应契约。
+- `packages/contracts`：API 错误码、认证/工作区和项目元数据请求响应契约。
 - `packages/project-graph`：项目图纯操作和基础测试。
 - `packages/shared`：共享环境读取、request ID 和日志工具。
+- `server`：服务端领域模块 workspace package，当前包含 P2 Better Auth 适配、Cloud 工作区授权，以及 P3 项目元数据 PostgreSQL 服务。
 - `infra/local`：PostgreSQL、Redis 和 MinIO 的 Docker Compose 基础配置。
 - `server/db/migrations`：显式迁移文件和迁移检查入口。
 
-当前 Web 适配器只用于 P1 独立启动和构建，不提供云端持久化事实来源；P3 会把它替换为版本化 Cloud API 图适配层。
+Web 平台适配层已从 P1 临时内存项目适配推进到 P3 Cloud API 适配：项目列表、创建、读取、重命名、归档/恢复、软删除和图 GET/PATCH 走 Cloud API；前端仍不直接访问 PostgreSQL、Redis、对象存储管理凭据或服务端模块。
+
+P2 第一批已经建立用户/工作区迁移、认证共享契约和最小认证 HTTP 路由骨架。当前认证实现已切到 Better Auth：API 路由通过注入的 `AuthService` 调用 Better Auth 的 `signUpEmail`、`signInEmail`、`getSession`、`signOut`、`listSessions`、`revokeSession`、`sendVerificationEmail`、`verifyEmail`、`requestPasswordReset` 和 `resetPassword`，由 Better Auth 管理邮箱密码、密码哈希、签名 HttpOnly Cookie、session 表、活跃会话列表、单设备下线、邮箱验证 token 和密码重置 token。Cloud 侧在注册、登录和会话恢复时幂等确保 personal workspace、owner 成员关系和工作区用户状态存在，并提供工作区授权模块校验 session 用户、workspace ID、成员角色和工作区状态。前端已接入认证门禁、登录/注册 UI、session 恢复、账号菜单、活跃会话展示、其他设备下线、退出登录、未验证提示、重发验证邮件、邮箱验证链接消费、忘记密码和重置密码表单，登录后再初始化画布工作区。真实邮件发送供应商、账号删除申请、浏览器级两账号隔离 E2E 和更完整限流审计待后续批次接入。
+
+P3-1 至 P3-4 已建立关系化项目图 schema、项目元数据服务、规范化图读取和增量图事务。API 只把 session 解析出的用户/当前工作区作为 `ProjectActor` 传给领域服务，领域服务再次通过 `workspace_members` 校验角色，并在所有项目 SQL 中同时限定 `project_id` 与 `workspace_id`。图批次锁定项目，按操作后节点集合校验父级、环和连线端点，支持节点/连线 upsert/软删除、关联边清理、幂等重试、version/sequence 推进和 `409 PROJECT_VERSION_CONFLICT`。Web Cloud 适配层已接入项目元数据、图读取和 ID 级 diff 自动保存；`GET /changes`、资产引用、检查点、完整冲突 UI 和服务端任务投影仍未接入。
 
 ## 目标拓扑
 
@@ -49,12 +54,15 @@ Browser
 
 首发采用邮箱、密码和服务端不透明会话：
 
-- 密码使用 Argon2id 或同等级现代哈希。
-- 数据库只保存会话 token 哈希，原始 token 只存在于 `HttpOnly`、`Secure`、`SameSite` Cookie。
+- 邮箱密码、密码哈希、session token、签名 Cookie、邮箱验证和密码重置验证值优先交给 Better Auth 管理，不再维护自研密码哈希或自研 session token 表。
+- 浏览器会话使用 Better Auth 的 `better-auth.session_token` HttpOnly Cookie；生产环境必须配置稳定且足够长的 `BETTER_AUTH_SECRET`，并通过 HTTPS 使用 Secure Cookie。
+- 邮箱验证和密码重置链接面向浏览器使用 `WEB_PUBLIC_URL` 生成；开发/测试环境可把链接打印到日志，生产环境未接入真实邮件服务时不得打印 token 或完整链接，且应让发送流程失败以暴露配置问题。
+- 本地开发可以通过 `DEV_SEED_ADMIN=true`、`DEV_SEED_ADMIN_EMAIL` 和仅写入本机 `.env` 的 `DEV_SEED_ADMIN_PASSWORD` 创建测试账号；该 seed 在 production 强制禁用，且不授予额外系统管理员权限。
 - 注册事务同时创建用户、个人工作区和 owner 成员关系。
 - 项目、节点、资产、任务、凭据和用量均以 `workspace_id` 为租户边界。
+- 服务端领域模块访问工作区资源时必须复用工作区授权服务；非成员请求返回不泄漏存在性的 `RESOURCE_NOT_FOUND`，成员角色不足返回 `ACCESS_DENIED`。
 - 每个资源查询先带入成员授权条件，不先查询资源再做权限判断，避免 ID 枚举泄漏。
-- 登录、注册、验证邮件和密码重置需要限流、一次性 token、过期控制和失败审计。
+- 登录、注册、验证邮件和密码重置需要限流、一次性验证值、过期控制和失败审计；能复用 Better Auth 的能力时优先复用，不在 Cloud 侧重复造一套。
 
 首发 UI 不展示工作区切换器，但数据模型保留 `workspace_members`，为后续团队空间提供稳定边界。
 
@@ -87,6 +95,8 @@ Cloud 当前画布不以完整项目 JSON 为日常事实来源：
 版本不一致返回 `409 PROJECT_VERSION_CONFLICT`。首发提供重新加载云端版本和另存为副本，不自动合并两个设备的画布。
 
 已有请求在途时，客户端只合并尚未提交的最新操作；删除操作不能被较旧 upsert 复活。页面关闭前可尝试 flush，但正确性不能依赖 `beforeunload` 请求一定成功。
+
+当前 Web Cloud 适配层维护每个项目最近确认的 version/sequence 和画布基线。刷新页面后可从 Cloud API 恢复节点和连线；换账号、登出或 session 失效时会清理项目、画布、任务、模板和临时资产 URL 缓存。任务队列与媒体资产在 P5/P4 前仍是浏览器会话内投影，手动保存尚未创建 `project_snapshots` 检查点，单次自动保存超过 500 个图操作需要后续拆批。
 
 ## 手动保存与检查点
 
@@ -164,12 +174,15 @@ npm run db:migrate:test
 npm run build
 ```
 
+`npm run db:migrate:test` 不写入业务 schema；它在当前 PostgreSQL 数据库创建随机隔离 schema，按顺序执行全部迁移、验证关键表/约束/索引和拒绝路径，然后回滚测试事务并删除隔离 schema。该命令需要可连接的 `DATABASE_URL`。
+
 开发入口：
 
 ```bash
 npm run dev:web
 npm run dev:api
 npm run dev:worker
+npm run db:migrate
 ```
 
 每次新增或修改真实命令时，必须同步更新 README、AGENTS 和本文件。

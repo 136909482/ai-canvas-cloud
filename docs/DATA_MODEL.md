@@ -13,25 +13,16 @@
 
 ## 用户与租户
 
-### `users`
+### Better Auth 核心表
 
-主要字段：`id`、`email_normalized`、`password_hash`、`status`、`email_verified_at`、`last_login_at`、`created_at`、`updated_at`。
+认证核心使用 Better Auth 1.6.x 的 PostgreSQL 表模型：
 
-约束：
+- `"user"`：主要字段为 `id`、`name`、`email`、`email_verified`、`image`、`status`、`created_at`、`updated_at`。其中 `status` 是 Cloud 追加字段，用于 `active`、`disabled`、`deleted` 账号状态。
+- `"session"`：主要字段为 `id`、`user_id`、`token`、`expires_at`、`ip_address`、`user_agent`、`created_at`、`updated_at`。会话 Cookie 由 Better Auth 生成签名值并写入 `better-auth.session_token`。
+- `"account"`：保存登录提供方账号，邮箱密码登录使用 `provider_id='credential'`，密码哈希由 Better Auth 管理并保存在 `password` 字段。
+- `"verification"`：保存 Better Auth 的邮箱验证、密码重置等一次性验证值。注册后发送验证邮件、重发验证邮件、验证 token 消费、忘记密码和重置密码均复用 Better Auth 能力，不维护自研 token 表。
 
-- 规范化邮箱唯一。
-- 密码只保存 Argon2id 哈希。
-- 禁用用户不能创建新会话或任务。
-
-### `sessions`
-
-主要字段：`id`、`user_id`、`token_hash`、`expires_at`、`last_used_at`、`revoked_at`、设备摘要和时间戳。
-
-原始 token 不落库。会话查询按 token 哈希索引，并检查用户状态、过期和撤销时间。
-
-### `email_verification_tokens` / `password_reset_tokens`
-
-保存用户、token 哈希、过期时间、使用时间和创建时间。一次性 token 的消费使用条件更新或行锁，确保并发提交只有一次成功。
+前端和 API 日志不得记录密码、`better-auth.session_token`、重置 token、生产验证/重置链接、Authorization 或 Provider API Key。开发/测试环境可以打印邮箱验证和密码重置链接用于本地调试；生产环境必须接入真实邮件发送服务，不能依赖日志取 token。Cloud 业务授权不信任客户端传入的 `user_id`，必须先从 Better Auth session 解析用户，再通过 `workspace_members` 校验工作区权限。
 
 ### `workspaces`
 
@@ -48,6 +39,12 @@
 ### `workspace_user_state`
 
 保存某用户在某工作区的最近项目、当前项目和非敏感 UI 游标。该状态不能放在 `workspaces` 上，否则不同设备或未来不同成员会互相覆盖。
+
+### `auth_audit_events`
+
+保存认证和账号安全相关审计事件，主要字段：`id`、`user_id`、`workspace_id`、`event_type`、`request_id`、脱敏后的 IP/UA 摘要、`result`、`metadata_json` 和 `created_at`。
+
+审计元数据只保存恢复和风控所需的非敏感摘要，不保存密码、会话 token、验证码、Cookie、Authorization 或 Provider API Key。认证失败事件可以没有 `user_id`，但不得通过错误响应泄漏邮箱是否存在。
 
 ## 项目图
 
@@ -71,7 +68,7 @@ created_at
 updated_at
 ```
 
-索引至少覆盖工作区项目列表、归档状态、更新时间和软删除过滤。`version` 用于项目级乐观并发，`last_sequence` 是变更日志的项目内连续序号。
+`id` 使用 PostgreSQL UUID。服务端可用 `gen_random_uuid()` 生成；Web 客户端也可先生成 UUID 并在创建请求中提交，服务端只在当前授权工作区内按同 ID、同名称、未删除项目幂等返回，不能让客户端指定 `workspace_id` 或所有者。项目名称去除首尾空白后长度为 1-160。活动项目和归档项目分别使用 `(workspace_id, updated_at, id)` 局部索引并排除软删除行。`version` 用于项目级乐观并发，`last_sequence` 是变更日志的项目内连续序号；版本、序列和计数均不得为负数。`workspace_user_state` 的最近打开/活动项目通过 `(workspace_id, project_id)` 复合外键保证不能指向其他工作区项目。
 
 ### `project_nodes`
 
@@ -96,6 +93,7 @@ created_at / updated_at
 约束：
 
 - `(project_id, node_id)` 唯一。
+- `node_id` 使用可容纳 UUID/ULID 的不透明文本 ID；节点 ID 和类型有显式长度上限，行版本与数据 schema 版本必须为正数。
 - 父节点必须属于同一项目，不能形成自引用；复杂环检测在领域服务完成。
 - `data_json` 保存 prompt、模型参数和节点专属业务数据。
 - `presentation_json` 只保存低频、非查询型 React Flow 展示属性。
@@ -108,7 +106,7 @@ created_at / updated_at
 约束：
 
 - `(project_id, edge_id)` 唯一。
-- source/target 必须属于同一项目且未删除。
+- source/target 通过复合外键保证属于同一项目；端点是否已软删除由领域服务在写事务中校验。
 - 删除节点时，同一事务删除或标记关联边，并写入同一变更批次。
 
 ### `project_changes`
@@ -131,8 +129,9 @@ created_at
 
 约束：
 
-- `(project_id, sequence)` 唯一且连续递增。
-- `(project_id, idempotency_key)` 唯一，同一批次重试返回原结果。
+- 数据库保证 `(project_id, sequence)` 唯一且 sequence 为正；领域事务锁定项目并保证 sequence 连续递增。
+- `(project_id, idempotency_key)` 和 `(project_id, batch_id)` 分别唯一，同一批次重试返回原结果。
+- `result_version` 必须大于非负的 `base_version`；user 来源必须记录 `actor_user_id`。
 - `operations_json` 使用版本化 schema，只保存必要操作和非敏感摘要。
 - `source` 区分 user、worker、import、restore 和 system。
 
@@ -142,7 +141,13 @@ created_at
 
 `snapshot_type` 至少包含 `manual`、`periodic`、`import`、`pre_restore`。检查点不是当前事实来源；显式恢复会产生新版本。
 
-保留策略必须同时约束检查点数量、总字节和变更日志窗口。只有有效检查点覆盖目标 sequence 且通过恢复测试后，才能裁剪更早 `project_changes`。
+`projects.saved_snapshot_id` 使用 `(project_id, snapshot_id)` 复合外键，只能指向本项目检查点。保留策略必须同时约束检查点数量、总字节和变更日志窗口。只有有效检查点覆盖目标 sequence 且通过恢复测试后，才能裁剪更早 `project_changes`。
+
+### P3 schema 迁移策略
+
+`0003_project_graph.sql` 是在 P2 用户/工作区 schema 之上的纯新增迁移，不改写既有认证数据；`0004_project_snapshot_scope.sql` 以前向修复方式把 saved snapshot 收紧为项目内复合外键。升级测试在随机隔离 schema 中依次执行全部迁移，并验证五张表、关键外键/索引、空项目名拒绝、连线端点约束、变更幂等唯一性和跨项目检查点拒绝。
+
+在尚未写入 P3 数据且需要回退到 P2 应用时，可停止新应用后删除 P3 外键和五张新增表；一旦写入真实项目，不执行破坏性回滚，应保留数据并通过新的前向修复迁移调整约束或列。P2 应用不会访问新增表，因此应用回退可以与新增表保留并存。
 
 ## 资产
 
@@ -203,7 +208,7 @@ created_at / updated_at
 
 ### 注册
 
-同一事务创建 user、personal workspace、owner membership 和默认 workspace user state。邮箱冲突或任一步失败时整体回滚。
+Better Auth 负责创建 `"user"`、`"account"` 和 `"session"`；Cloud 侧在注册、登录和会话恢复后幂等创建 personal workspace、owner membership 和默认 workspace user state。若 Better Auth 用户已存在但工作区补齐失败，后续登录或 session 恢复会再次补齐，避免重复用户或重复个人空间。
 
 ### 图操作批次
 
@@ -216,6 +221,8 @@ created_at / updated_at
 5. 更新 `asset_references` 和计数。
 6. 追加一个连续 `project_changes` 记录。
 7. 递增 project version/sequence。
+
+P3-3/P3-4 当前实现已覆盖步骤 1、2、3 中的节点/连线校验、4、6、7，并在同一事务刷新活动节点/连线计数。项目行使用 `FOR UPDATE` 串行化同项目批次；幂等键查询先于版本冲突判断，确保已接受请求在项目继续更新或归档后仍返回原结果。节点父级基于操作后的活动节点集合校验缺失引用和环，删除节点会软删除关联边。步骤 5 的资产引用更新依赖 P4 `asset_references`，尚未接入时不得宣称资产引用事务已完成。
 
 ### 手动检查点
 

@@ -4,6 +4,7 @@
     { "path": "./packages/shared" },
     { "path": "./packages/contracts" },
     { "path": "./packages/project-graph" },
+    { "path": "./server" },
     { "path": "./apps/api" },
     { "path": "./apps/worker" },
     { "path": "./apps/web" }

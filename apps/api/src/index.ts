@@ -1,10 +1,45 @@
+import {
+  createDevelopmentAuthEmailService,
+  createPostgresAuthService,
+  createPostgresPool,
+  createPostgresProjectGraphService,
+  createPostgresProjectService,
+  createWorkspaceAuthorizationService,
+  loadDotEnv,
+  seedDevelopmentAdminAccount,
+} from '@ai-canvas-cloud/server'
 import { createJsonLogger } from '@ai-canvas-cloud/shared'
 import { loadApiConfig } from './config.js'
 import { closeApiServer, createApiServer } from './server.js'
 
+loadDotEnv()
+
 const config = loadApiConfig()
 const logger = createJsonLogger({ level: config.logLevel, service: 'api' })
-const server = createApiServer({ config, logger })
+const dbPool = createPostgresPool({ connectionString: config.databaseUrl })
+const authService = createPostgresAuthService(dbPool, {
+  baseURL: config.betterAuthUrl,
+  secret: config.betterAuthSecret,
+  publicWebUrl: config.webPublicUrl,
+  emailService: createDevelopmentAuthEmailService({
+    env: config.env,
+    logger,
+  }),
+})
+const workspaceAuthorizationService = createWorkspaceAuthorizationService(dbPool)
+const projectGraphService = createPostgresProjectGraphService(dbPool, { authorizationService: workspaceAuthorizationService })
+const projectService = createPostgresProjectService(dbPool, { authorizationService: workspaceAuthorizationService })
+const server = createApiServer({ config, logger, authService, projectGraphService, projectService })
+
+void seedDevelopmentAdminAccount({
+  enabled: config.devSeedAdmin,
+  env: config.env,
+  email: config.devSeedAdminEmail,
+  password: config.devSeedAdminPassword,
+  authService,
+  pool: dbPool,
+  logger,
+})
 
 let isClosing = false
 
@@ -18,6 +53,7 @@ async function shutdown(signal: NodeJS.Signals) {
 
   try {
     await closeApiServer(server, config.shutdownTimeoutMs)
+    await dbPool.end()
     logger.info('shutdown.completed', { signal })
     process.exit(0)
   } catch (error) {

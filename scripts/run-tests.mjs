@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-const TEST_ROOTS = ['apps', 'packages', 'scripts']
+const TEST_ROOTS = ['apps', 'packages', 'server', 'scripts']
 const TEST_FILE_SUFFIXES = ['.test.ts', '.test.mjs']
 
 function collectTestFiles(directory) {
@@ -40,7 +40,7 @@ if (testFiles.length === 0) {
   process.exit(1)
 }
 
-const packageBuild = spawnSync('npm.cmd', ['run', 'build', '--workspace', '@ai-canvas-cloud/shared', '--workspace', '@ai-canvas-cloud/contracts'], {
+const packageBuild = spawnSync('npm.cmd', ['run', 'build', '--workspace', '@ai-canvas-cloud/shared', '--workspace', '@ai-canvas-cloud/contracts', '--workspace', '@ai-canvas-cloud/server', '--workspace', '@ai-canvas-cloud/api'], {
   stdio: 'inherit',
   shell: process.platform === 'win32',
 })

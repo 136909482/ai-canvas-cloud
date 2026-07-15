@@ -54,6 +54,7 @@ interface ProjectStore {
   lastThumbnailBackfillCount: number
   hasHydrated: boolean
   isReady: boolean
+  resetForSession: () => void
   ensureInitialized: () => Promise<void>
   syncActiveWorkingSnapshot: () => void
   reloadFromWorkspace: () => Promise<void>
@@ -260,6 +261,24 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
   lastThumbnailBackfillCount: 0,
   hasHydrated: false,
   isReady: false,
+
+  resetForSession: () => {
+    platformBridge.resetSessionCache()
+    resetWorkspaceToEmpty()
+    useHistoryStore.getState().clearHistory()
+    set({
+      projects: [],
+      activeProjectId: null,
+      lastOpenedProjectId: null,
+      persistedSnapshotByProjectId: {},
+      persistenceMetaByProjectId: {},
+      isPersisting: false,
+      lastPersistenceError: null,
+      lastThumbnailBackfillCount: 0,
+      hasHydrated: false,
+      isReady: false,
+    })
+  },
 
   ensureInitialized: async () => {
     if (get().hasHydrated) {

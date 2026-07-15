@@ -1,6 +1,9 @@
+import { loadDotEnv } from '@ai-canvas-cloud/server'
 import { createJsonLogger } from '@ai-canvas-cloud/shared'
 import { loadWorkerConfig } from './config.js'
 import { createWorkerRuntime } from './runtime.js'
+
+loadDotEnv()
 
 const config = loadWorkerConfig()
 const logger = createJsonLogger({ level: config.logLevel, service: 'worker' })

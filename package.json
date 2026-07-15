@@ -6,6 +6,7 @@
   "version": "0.1.0",
   "type": "module",
   "workspaces": [
+    "server",
     "apps/*",
     "packages/*"
   ],
@@ -16,6 +17,7 @@
     "test": "node scripts/run-tests.mjs",
     "lint": "eslint .",
     "build": "npm run build --workspaces --if-present",
+    "db:migrate": "node scripts/apply-migrations.mjs",
     "db:migrate:test": "node scripts/check-migrations.mjs",
     "format:check": "prettier --check ."
   },

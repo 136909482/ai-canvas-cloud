@@ -48,7 +48,7 @@
 - TypeScript、Lint、格式化、测试和生产构建基础配置。（已落地）
 - 本地 PostgreSQL、Redis、MinIO 和邮件捕获服务。（PostgreSQL、Redis、MinIO 已落地；邮件捕获待后续需要时接入）
 - API/Worker 配置校验、结构化日志、request ID 和优雅关闭。（已落地）
-- 数据库迁移工具、空库初始化、迁移状态检查。（迁移文件与迁移检查已落地；真实数据库应用迁移待 server/db 模块深化）
+- 数据库迁移工具、空库初始化、迁移状态检查。（迁移执行器、迁移文件与迁移检查已落地；真实数据库事务模块随 P2 auth 初步接入）
 - `/health/live` 与 `/health/ready`。（已落地）
 - `.env.example`，不包含真实密钥。（已落地）
 - CI 执行 lint、单测、迁移测试和构建。
@@ -57,7 +57,7 @@
 
 - `apps/web` 已从本地版一次性迁移 React/Vite 画布、节点、store、主题、模型协议和必要测试。
 - 未复制 Electron、release、dist、桌面 SQLite、本地目录持久化和 File System Access 平台实现。
-- Web 当前使用临时 Cloud 内存 adapter 独立启动和构建，P3 再接入 Cloud API 图适配层。
+- Web 第一批曾使用临时 Cloud 内存 adapter 独立启动和构建；当前项目元数据和关系图读写已接入 Cloud API 图适配层。
 - Vite 开发配置不提供任意 target URL Provider 代理。
 
 验收标准：
@@ -68,17 +68,30 @@
 - 前端 bundle 和日志中不存在服务端密钥。
 - 实际脚本落地后同步更新 README、AGENTS 和 DEVELOPMENT。
 
-## P2：用户系统与个人空间
+## P2：用户系统与个人空间（第一批基础已落地）
 
 交付物：
 
 - 注册、登录、退出和会话恢复。
-- 邮箱验证、重发、忘记密码与重置密码。
+- 邮箱验证、重发、忘记密码与重置密码。（已落地最小闭环；真实邮件供应商待后续）
 - 活跃会话列表、其他设备下线和账号删除申请。
 - 注册事务自动创建 personal workspace 和 owner membership。
-- 认证/工作区授权中间件。
+- 认证/工作区授权中间件。（基础授权服务和当前工作区 API 已落地）
 - 密码、会话和认证操作限流与审计。
-- 登录、注册、验证和重置 UI。
+- 登录、注册、验证和重置 UI。（登录、注册、邮箱验证提示、忘记密码和密码重置 UI 已落地）
+
+第一批说明：
+
+- Better Auth 核心表 `"user"`、`"session"`、`"account"`、`"verification"`，以及 Cloud 侧 `workspaces`、`workspace_members`、`workspace_user_state` 和 `auth_audit_events` 迁移已落地。
+- 认证、用户摘要、工作区摘要、会话摘要和注册/登录/验证/重置请求的共享契约已落地。
+- 认证纯逻辑已包含邮箱规范化、密码长度校验、不透明 token 生成、token 哈希、一次性 token 状态判断和个人工作区默认命名。
+- `server` 已纳入 workspace package，`apps/api` 已接入 `POST /api/v1/auth/register`、`POST /api/v1/auth/login`、`GET /api/v1/auth/session` 和 `POST /api/v1/auth/logout` 的最小路由骨架、AuthService 注入和 HttpOnly session Cookie 写入/清理。
+- PostgreSQL AuthService 已接入 API 启动入口：注册和登录委托 Better Auth 的 `signUpEmail` / `signInEmail`；会话恢复委托 `getSession`；退出登录委托 `signOut`；邮箱验证重发和 token 消费委托 `sendVerificationEmail` / `verifyEmail`；忘记密码和密码重置委托 `requestPasswordReset` / `resetPassword`；浏览器使用 Better Auth 签名 HttpOnly Cookie `better-auth.session_token`。
+- Cloud 侧在注册、登录和会话恢复时幂等确保 personal `workspaces`、owner `workspace_members` 和 `workspace_user_state` 存在，避免后续团队空间与项目授权返工。
+- `server/modules/workspaces` 已提供基础授权服务，按 session 用户、workspace ID、成员角色和工作区状态校验访问；非成员访问按不泄漏存在性的 `RESOURCE_NOT_FOUND` 处理。
+- `GET /api/v1/workspaces/current` 已接入，返回当前 session 的工作区摘要。
+- 前端已接入认证门禁、登录/注册 UI、session 恢复、账号菜单、活跃会话展示、其他设备下线、退出登录、未验证提示、重发验证邮件、邮箱验证链接消费、忘记密码和密码重置表单；登录后再初始化画布工作区。
+- 开发/测试环境已支持把邮箱验证和密码重置链接输出到日志；生产真实邮件供应商、账号删除申请、浏览器级两账号隔离 E2E 和更完整限流审计待后续批次接入。
 
 验收标准：
 
@@ -88,7 +101,7 @@
 - 退出和撤销后会话立即不可用。
 - Cookie 的 HttpOnly、Secure、SameSite、Path 和过期符合环境配置。
 
-## P3：关系化项目图与增量保存
+## P3：关系化项目图与增量保存（P3-1 至 P3-4 和 Web 图适配已落地）
 
 交付物：
 
@@ -102,6 +115,15 @@
 - `409` 冲突 UI、重新加载和另存副本。
 - 手动检查点、定期检查点、操作日志保留和历史恢复。
 - 项目/节点搜索索引的异步派生。
+
+P3-1 至 P3-4 说明：
+
+- `0003_project_graph.sql` 已建立 `projects`、`project_nodes`、`project_edges`、`project_changes` 和 `project_snapshots`，包含工作区项目索引、项目内节点/连线外键、变更 sequence/batch/幂等约束、检查点约束，以及 `workspace_user_state` 的同工作区项目外键；`0004_project_snapshot_scope.sql` 进一步保证项目只能引用自己的 saved snapshot。
+- 项目摘要 contracts、PostgreSQL 领域服务和项目元数据 HTTP API 已落地：活动/归档列表、创建、读取、重命名、归档、恢复和软删除。所有作用域从可信 session 解析，写操作要求 owner/admin/editor，跨工作区读取统一返回 `RESOURCE_NOT_FOUND`。
+- 规范化图读取和增量图 PATCH 已落地。操作批次在锁定项目的单事务内校验 `baseVersion`、节点父级/环、连线端点和幂等键，更新节点/连线软删除状态与计数，追加连续 `project_changes`，再递增 version/sequence；重复请求返回原结果，双标签同版本提交只有一个成功。
+- 已覆盖领域单测、API session 作用域测试、真实 PostgreSQL 两工作区隔离、原子回滚、幂等、父级环、关联边清理和并发版本冲突集成测试，以及从空 schema 顺序升级并校验关键约束的迁移测试。
+- Web Cloud 适配层已接入活动/归档项目列表、创建、读取、重命名、归档/恢复、软删除、图 GET/PATCH、React Flow 与关系图映射、稳定序列化、ID 级 diff、version/sequence 基线和自动保存；刷新页面后可从 Cloud API 恢复画布，换账号、登出或 session 失效会清理前端项目/画布/任务/模板和临时资产缓存。
+- 项目复制、`GET /changes`、资产引用、完整冲突 UI、检查点生成/恢复、搜索、单批超过 500 操作的拆批，以及 P4/P5 前的媒体资产和任务持久化仍属于后续切片，当前不能视为已完成。
 
 验收标准：
 

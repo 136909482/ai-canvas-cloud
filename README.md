@@ -2,7 +2,7 @@
 
 AI Canvas Cloud 是 AI Canvas 的独立网站端仓库，面向长期运营的账号制 SaaS。用户登录后进入个人空间，项目图、任务和资产元数据保存在云端，图片与视频存入私有对象存储。
 
-当前处于 P1 工程骨架阶段。仓库已经建立 npm workspaces monorepo，包含迁移后的 React/Vite 画布前端、API/Worker 进程骨架、共享 packages、本地云依赖配置和基础迁移检查。实现顺序以 `docs/ROADMAP.md` 为准。
+当前处于 P1 收口与 P2 用户系统第一批开发阶段。仓库已经建立 npm workspaces monorepo，包含迁移后的 React/Vite 画布前端、API/Worker 进程骨架、服务端领域模块、共享 packages、本地云依赖配置和基础迁移检查。实现顺序以 `docs/ROADMAP.md` 为准。
 
 ## 核心架构
 
@@ -44,12 +44,23 @@ npm install
 docker compose -f infra/local/docker-compose.yml up -d
 ```
 
+如果需要本地测试账号，可只在本机 `.env` 中启用开发 seed：
+
+```text
+DEV_SEED_ADMIN=true
+DEV_SEED_ADMIN_EMAIL=admin@example.com
+DEV_SEED_ADMIN_PASSWORD=<local password with at least 10 characters>
+```
+
+该账号只是开发测试账号，不代表系统管理员权限；生产环境会强制禁用该 seed。
+
 常用开发入口：
 
 ```bash
 npm run dev:web
 npm run dev:api
 npm run dev:worker
+npm run db:migrate
 ```
 
 当前已验证命令：
@@ -73,3 +84,5 @@ GET /api/v1/health/ready
 ## 状态
 
 P0 文档基线已完成。P1 第一批代码已落地：`apps/web` 使用临时 Cloud 内存适配器独立启动和构建；`apps/api` 和 `apps/worker` 提供配置校验、结构化日志和优雅关闭；`infra/local` 提供 PostgreSQL、Redis 和 MinIO 基础配置。
+
+P2 第一批基础已落地并已切到 Better Auth：核心认证表使用 `"user"`、`"session"`、`"account"`、`"verification"`；`PostgreSQL AuthService` 通过 Better Auth 的 `signUpEmail`、`signInEmail`、`getSession`、`signOut`、`listSessions`、`revokeSession`、`sendVerificationEmail`、`verifyEmail`、`requestPasswordReset` 和 `resetPassword` 管理邮箱密码、签名 HttpOnly Cookie、会话恢复、活跃会话列表、单设备下线、邮箱验证和密码重置。Cloud 侧继续维护 personal workspace、成员关系、工作区用户状态和认证审计表；前端认证门禁、登录/注册 UI、账号菜单、活跃会话展示、其他设备下线、退出登录、未验证提示、重发验证邮件、验证链接消费、忘记密码和重置密码已接入。开发/测试环境会把邮箱验证和密码重置链接输出到日志；生产真实邮件供应商、两账号隔离 E2E 和更完整限流审计待后续批次实现。

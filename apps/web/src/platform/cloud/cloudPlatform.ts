@@ -1,5 +1,21 @@
-import type { CanvasSnapshot, ProjectRecord, WorkflowTemplateLibrary, WorkspaceConfigFile, WorkspaceData } from '@/types'
+import type {
+  ApplyProjectGraphOperationsRequest,
+  ApplyProjectGraphOperationsResponse,
+  CurrentWorkspaceResponse,
+  ProjectGraphResponse,
+  ProjectListStatus,
+  ProjectResponse,
+  ProjectSummary,
+  ProjectsResponse,
+} from '@ai-canvas-cloud/contracts'
+import type { CanvasSnapshot, ProjectRecord, ProjectSnapshot, WorkflowTemplateLibrary, WorkspaceConfigFile, WorkspaceData } from '@/types'
+import { CloudApiError, requestCloudJson } from '@/api/cloudApiClient'
+import { CURRENT_PROJECT_SNAPSHOT_SCHEMA_VERSION } from '@/features/projectManager/migrations'
 import { extractProjectSearchDocuments, searchWorkspaceDocuments } from '@/features/workspaceSearch/runtime'
+import {
+  diffCanvasSnapshots,
+  projectGraphResponseToCanvasSnapshot,
+} from '@/platform/cloud/cloudProjectGraph'
 import type {
   CleanupWorkspaceAssetsResult,
   CommitProjectBundleImportResult,
@@ -11,13 +27,27 @@ import type {
   WorkflowImportResult,
   WorkspaceAssetDiskInspection,
   WorkspaceAssetWriteResult,
-  WorkspaceProjectIndex,
   WorkspaceProjectSummary,
   WorkspaceStatus,
 } from '@/platform/types'
 
 const memoryAssetUrls = new Map<string, string>()
 const memoryAssetBlobs = new Map<string, Blob>()
+const knownProjectSummaries = new Map<string, ProjectSummary>()
+const cloudProjectStates = new Map<string, CloudProjectState>()
+
+interface PendingGraphSave {
+  request: ApplyProjectGraphOperationsRequest
+  targetCanvas: CanvasSnapshot
+}
+
+interface CloudProjectState {
+  summary: ProjectSummary
+  version: number
+  sequence: number
+  baselineCanvas: CanvasSnapshot
+  pending?: PendingGraphSave
+}
 
 let memoryWorkspaceData: WorkspaceData = {
   projects: [],
@@ -26,51 +56,276 @@ let memoryWorkspaceData: WorkspaceData = {
 }
 let memoryConfig: WorkspaceConfigFile | null = null
 let memoryTemplates: WorkflowTemplateLibrary | null = null
+let currentWorkspaceId: string | null = null
+let cloudClientId: string | null = null
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
-function getWorkspaceStatus(): WorkspaceStatus {
+function getWorkspaceStatus(directoryName: string): WorkspaceStatus {
   return {
     supported: true,
     configured: true,
-    directoryName: 'AI Canvas Cloud Memory',
+    directoryName,
     permission: 'granted',
   }
 }
 
-function getProjectSummary(project: ProjectRecord): WorkspaceProjectSummary {
+async function loadWorkspaceStatus() {
+  const response = await requestCloudJson<CurrentWorkspaceResponse>('/workspaces/current')
+  setCurrentWorkspace(response.workspace.id)
+  return getWorkspaceStatus(response.workspace.name)
+}
+
+function getCloudClientId() {
+  cloudClientId ??= `browser_${crypto.randomUUID()}`
+  return cloudClientId
+}
+
+function setCurrentWorkspace(workspaceId: string) {
+  if (currentWorkspaceId === workspaceId) {
+    return
+  }
+
+  resetCloudSessionCache()
+  currentWorkspaceId = workspaceId
+}
+
+function resetCloudSessionCache() {
+  for (const url of memoryAssetUrls.values()) {
+    URL.revokeObjectURL(url)
+  }
+  memoryAssetUrls.clear()
+  memoryAssetBlobs.clear()
+  knownProjectSummaries.clear()
+  cloudProjectStates.clear()
+  currentWorkspaceId = null
+  cloudClientId = null
+  memoryConfig = null
+  memoryTemplates = null
+  memoryWorkspaceData = {
+    projects: [],
+    activeProjectId: null,
+    lastOpenedProjectId: null,
+  }
+}
+
+function toTimestamp(value: string) {
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : Date.now()
+}
+
+function toWorkspaceProjectSummary(project: ProjectSummary): WorkspaceProjectSummary {
   return {
     id: project.id,
     name: project.name,
-    createdAt: project.createdAt,
-    updatedAt: project.updatedAt,
-    lastOpenedAt: project.lastOpenedAt,
-    archivedAt: project.archivedAt ?? null,
+    createdAt: toTimestamp(project.createdAt),
+    updatedAt: toTimestamp(project.updatedAt),
+    lastOpenedAt: toTimestamp(project.updatedAt),
+    archivedAt: project.archivedAt ? toTimestamp(project.archivedAt) : null,
   }
 }
 
-function getProjectIndex(): WorkspaceProjectIndex {
+function emptyProjectSnapshot(canvas: CanvasSnapshot = { nodes: [], edges: [] }): ProjectSnapshot {
   return {
-    projects: memoryWorkspaceData.projects.map(getProjectSummary),
-    activeProjectId: memoryWorkspaceData.activeProjectId,
-    lastOpenedProjectId: memoryWorkspaceData.lastOpenedProjectId,
+    schemaVersion: CURRENT_PROJECT_SNAPSHOT_SCHEMA_VERSION,
+    canvas: cloneJson(canvas),
+    taskQueue: { tasks: [] },
   }
 }
 
-function upsertProject(input: SaveWorkspaceProjectInput) {
-  const project = cloneJson(input.project)
-  const existingIndex = memoryWorkspaceData.projects.findIndex((item) => item.id === project.id)
-  const projects = existingIndex >= 0
-    ? memoryWorkspaceData.projects.map((item, index) => (index === existingIndex ? project : item))
-    : [...memoryWorkspaceData.projects, project]
+function toProjectRecord(summary: ProjectSummary, graph: ProjectGraphResponse): ProjectRecord {
+  const canvas = projectGraphResponseToCanvasSnapshot(graph)
+  const snapshot = emptyProjectSnapshot(canvas)
+  const cachedTaskQueue = memoryWorkspaceData.projects.find((project) => project.id === summary.id)
+    ?.workingSnapshot.taskQueue
 
-  memoryWorkspaceData = {
-    projects,
-    activeProjectId: 'activeProjectId' in input ? input.activeProjectId ?? null : memoryWorkspaceData.activeProjectId,
-    lastOpenedProjectId: 'lastOpenedProjectId' in input ? input.lastOpenedProjectId ?? null : memoryWorkspaceData.lastOpenedProjectId,
+  if (cachedTaskQueue) {
+    snapshot.taskQueue = cloneJson(cachedTaskQueue)
   }
+
+  return {
+    id: summary.id,
+    name: summary.name,
+    savedSnapshot: snapshot,
+    workingSnapshot: cloneJson(snapshot),
+    createdAt: toTimestamp(summary.createdAt),
+    updatedAt: toTimestamp(summary.updatedAt),
+    lastOpenedAt: Date.now(),
+    archivedAt: summary.archivedAt ? toTimestamp(summary.archivedAt) : null,
+  }
+}
+
+function cacheProjectRecord(project: ProjectRecord) {
+  const cloned = cloneJson(project)
+  const existingIndex = memoryWorkspaceData.projects.findIndex((item) => item.id === project.id)
+  memoryWorkspaceData.projects = existingIndex >= 0
+    ? memoryWorkspaceData.projects.map((item, index) => index === existingIndex ? cloned : item)
+    : [...memoryWorkspaceData.projects, cloned]
+}
+
+function updateWorkspaceSelection(input: Pick<SaveWorkspaceProjectInput, 'activeProjectId' | 'lastOpenedProjectId'>) {
+  if ('activeProjectId' in input) {
+    memoryWorkspaceData.activeProjectId = input.activeProjectId ?? null
+  }
+  if ('lastOpenedProjectId' in input) {
+    memoryWorkspaceData.lastOpenedProjectId = input.lastOpenedProjectId ?? null
+  }
+}
+
+async function listProjectsByStatus(status: ProjectListStatus) {
+  const projects: ProjectSummary[] = []
+  let cursor: string | null = null
+
+  do {
+    const query = new URLSearchParams({ status, limit: '100' })
+    if (cursor) {
+      query.set('cursor', cursor)
+    }
+    const response = await requestCloudJson<ProjectsResponse>(`/projects?${query.toString()}`)
+    projects.push(...response.projects)
+    cursor = response.nextCursor
+  } while (cursor)
+
+  return projects
+}
+
+async function loadCloudProject(projectId: string) {
+  const [metadata, graph] = await Promise.all([
+    requestCloudJson<ProjectResponse>(`/projects/${encodeURIComponent(projectId)}`),
+    requestCloudJson<ProjectGraphResponse>(`/projects/${encodeURIComponent(projectId)}/graph`),
+  ])
+  const project = toProjectRecord(metadata.project, graph)
+
+  knownProjectSummaries.set(projectId, metadata.project)
+  cloudProjectStates.set(projectId, {
+    summary: metadata.project,
+    version: graph.version,
+    sequence: graph.sequence,
+    baselineCanvas: cloneJson(project.workingSnapshot.canvas),
+  })
+  cacheProjectRecord(project)
+  return project
+}
+
+async function ensureCloudProject(project: ProjectRecord) {
+  const cached = cloudProjectStates.get(project.id)
+  if (cached) {
+    return cached
+  }
+
+  if (knownProjectSummaries.has(project.id)) {
+    await loadCloudProject(project.id)
+    return cloudProjectStates.get(project.id)!
+  }
+
+  const created = await requestCloudJson<ProjectResponse>('/projects', {
+    method: 'POST',
+    body: JSON.stringify({ id: project.id, name: project.name }),
+  })
+  const state: CloudProjectState = {
+    summary: created.project,
+    version: created.project.version,
+    sequence: created.project.lastSequence,
+    baselineCanvas: { nodes: [], edges: [] },
+  }
+
+  knownProjectSummaries.set(project.id, created.project)
+  cloudProjectStates.set(project.id, state)
+  return state
+}
+
+async function updateProjectMetadata(state: CloudProjectState, response: Promise<ProjectResponse>) {
+  const result = await response
+  state.summary = result.project
+  knownProjectSummaries.set(result.project.id, result.project)
+}
+
+async function flushPendingGraphSave(projectId: string, state: CloudProjectState) {
+  const pending = state.pending
+  if (!pending) {
+    return
+  }
+
+  try {
+    const result = await requestCloudJson<ApplyProjectGraphOperationsResponse>(
+      `/projects/${encodeURIComponent(projectId)}/graph`,
+      { method: 'PATCH', body: JSON.stringify(pending.request) },
+    )
+    state.version = result.version
+    state.sequence = result.sequence
+    state.baselineCanvas = cloneJson(pending.targetCanvas)
+    state.pending = undefined
+    state.summary = {
+      ...state.summary,
+      version: result.version,
+      lastSequence: result.sequence,
+      nodeCount: pending.targetCanvas.nodes.length,
+      edgeCount: pending.targetCanvas.edges.length,
+      updatedAt: result.updatedAt,
+    }
+    knownProjectSummaries.set(projectId, state.summary)
+  } catch (error) {
+    if (error instanceof CloudApiError && error.code === 'PROJECT_VERSION_CONFLICT') {
+      throw new Error('项目已在其他位置更新，请重新加载云端版本后再处理本地修改。', { cause: error })
+    }
+    throw error
+  }
+}
+
+async function saveCloudProject(input: SaveWorkspaceProjectInput) {
+  const project = cloneJson(input.project)
+  const state = await ensureCloudProject(project)
+
+  updateWorkspaceSelection(input)
+
+  if (state.summary.archivedAt && !project.archivedAt) {
+    await updateProjectMetadata(
+      state,
+      requestCloudJson<ProjectResponse>(`/projects/${encodeURIComponent(project.id)}/restore`, { method: 'POST' }),
+    )
+  }
+  if (state.summary.name !== project.name) {
+    await updateProjectMetadata(
+      state,
+      requestCloudJson<ProjectResponse>(`/projects/${encodeURIComponent(project.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: project.name }),
+      }),
+    )
+  }
+
+  await flushPendingGraphSave(project.id, state)
+  const targetCanvas = cloneJson(project.workingSnapshot.canvas)
+  const operations = diffCanvasSnapshots(state.baselineCanvas, targetCanvas)
+
+  if (operations.length > 500) {
+    throw new Error('本次画布变化超过 500 个操作，请缩小单次修改规模后重试。')
+  }
+  if (operations.length > 0) {
+    const requestId = crypto.randomUUID()
+    state.pending = {
+      request: {
+        baseVersion: state.version,
+        clientId: getCloudClientId(),
+        batchId: `batch_${requestId}`,
+        idempotencyKey: `graph_${requestId}`,
+        operations,
+      },
+      targetCanvas,
+    }
+    await flushPendingGraphSave(project.id, state)
+  }
+
+  if (!state.summary.archivedAt && project.archivedAt) {
+    await updateProjectMetadata(
+      state,
+      requestCloudJson<ProjectResponse>(`/projects/${encodeURIComponent(project.id)}/archive`, { method: 'POST' }),
+    )
+  }
+
+  cacheProjectRecord(project)
 }
 
 function normalizeAssetPath(relativePath: string) {
@@ -172,16 +427,20 @@ function chooseWorkflowFile() {
 }
 
 function unsupportedCloudImportExport(): never {
-  throw new Error('Cloud 导入导出将在后续迁移阶段接入，当前仅启用内存画布适配器')
+  throw new Error('Cloud 导入导出将在后续迁移阶段接入')
 }
 
 export const cloudPlatformBridge: PlatformBridge = {
+  resetSessionCache() {
+    resetCloudSessionCache()
+  },
+
   async getWorkspaceStatus() {
-    return getWorkspaceStatus()
+    return loadWorkspaceStatus()
   },
 
   async pickWorkspaceDirectory() {
-    return getWorkspaceStatus()
+    return loadWorkspaceStatus()
   },
 
   async loadWorkspaceData() {
@@ -189,23 +448,45 @@ export const cloudPlatformBridge: PlatformBridge = {
   },
 
   async saveWorkspaceData(data) {
-    memoryWorkspaceData = cloneJson(data)
+    memoryWorkspaceData.activeProjectId = data.activeProjectId
+    memoryWorkspaceData.lastOpenedProjectId = data.lastOpenedProjectId
   },
 
   async listWorkspaceProjects() {
-    return getProjectIndex()
+    const projects = [
+      ...await listProjectsByStatus('active'),
+      ...await listProjectsByStatus('archived'),
+    ]
+    knownProjectSummaries.clear()
+    for (const project of projects) {
+      knownProjectSummaries.set(project.id, project)
+    }
+    const projectIds = new Set(projects.map((project) => project.id))
+    memoryWorkspaceData.projects = memoryWorkspaceData.projects.filter((project) => projectIds.has(project.id))
+
+    return {
+      projects: projects.map(toWorkspaceProjectSummary),
+      activeProjectId: memoryWorkspaceData.activeProjectId && projectIds.has(memoryWorkspaceData.activeProjectId)
+        ? memoryWorkspaceData.activeProjectId
+        : null,
+      lastOpenedProjectId: memoryWorkspaceData.lastOpenedProjectId && projectIds.has(memoryWorkspaceData.lastOpenedProjectId)
+        ? memoryWorkspaceData.lastOpenedProjectId
+        : null,
+    }
   },
 
   async loadWorkspaceProject(projectId) {
-    const project = memoryWorkspaceData.projects.find((item) => item.id === projectId)
-    return project ? cloneJson(project) : null
+    return loadCloudProject(projectId)
   },
 
   async saveWorkspaceProject(input) {
-    upsertProject(input)
+    await saveCloudProject(input)
   },
 
   async deleteWorkspaceProject(input) {
+    await requestCloudJson(`/projects/${encodeURIComponent(input.projectId)}`, { method: 'DELETE' })
+    knownProjectSummaries.delete(input.projectId)
+    cloudProjectStates.delete(input.projectId)
     memoryWorkspaceData = {
       projects: memoryWorkspaceData.projects.filter((project) => project.id !== input.projectId),
       activeProjectId: 'activeProjectId' in input ? input.activeProjectId ?? null : memoryWorkspaceData.activeProjectId,
@@ -299,7 +580,7 @@ export const cloudPlatformBridge: PlatformBridge = {
   async searchWorkspace(query) {
     const documents = memoryWorkspaceData.projects.flatMap(extractProjectSearchDocuments)
     return {
-      supported: true,
+      supported: false,
       indexedDocumentCount: documents.length,
       entries: searchWorkspaceDocuments(documents, query),
     }

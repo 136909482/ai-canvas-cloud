@@ -41,6 +41,7 @@ export default defineConfig([
       'apps/api/src/**/*.ts',
       'apps/worker/src/**/*.ts',
       'packages/**/*.ts',
+      'server/**/*.ts',
       'scripts/**/*.mjs',
     ],
     languageOptions: {

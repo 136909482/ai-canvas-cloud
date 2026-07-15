@@ -61,6 +61,7 @@
 - `npm run dev:worker`
 - `npm run test`
 - `npm run lint`
+- `npm run db:migrate`
 - `npm run db:migrate:test`
 - `npm run build`
 

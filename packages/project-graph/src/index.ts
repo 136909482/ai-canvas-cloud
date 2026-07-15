@@ -1,21 +1,14 @@
-export interface ProjectGraphNode {
-  id: string
-  nodeType: string
-  position: { x: number; y: number }
-  size?: { width: number; height: number }
-  dataSchemaVersion: number
-  data: Record<string, unknown>
-}
+import type {
+  ProjectGraphEdge,
+  ProjectGraphNode,
+  ProjectGraphOperation,
+} from '@ai-canvas-cloud/contracts'
 
-export interface ProjectGraphEdge {
-  id: string
-  source: string
-  target: string
-  sourceHandle?: string | null
-  targetHandle?: string | null
-  edgeType?: string | null
-  data?: Record<string, unknown>
-}
+export type {
+  ProjectGraphEdge,
+  ProjectGraphNode,
+  ProjectGraphOperation,
+} from '@ai-canvas-cloud/contracts'
 
 export interface ProjectGraphSnapshot {
   version: number
@@ -23,12 +16,6 @@ export interface ProjectGraphSnapshot {
   nodes: ProjectGraphNode[]
   edges: ProjectGraphEdge[]
 }
-
-export type ProjectGraphOperation =
-  | { type: 'upsertNode'; node: ProjectGraphNode }
-  | { type: 'deleteNode'; nodeId: string }
-  | { type: 'upsertEdge'; edge: ProjectGraphEdge }
-  | { type: 'deleteEdge'; edgeId: string }
 
 export function createEmptyProjectGraph(): ProjectGraphSnapshot {
   return {
