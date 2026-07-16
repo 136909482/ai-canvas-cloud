@@ -19,7 +19,7 @@ P0 至 P4 基线已经落地，当前进入 P5 服务端模型网关与任务 Wo
 本仓库独立于本地 Web/Electron 项目 `136909482/ai-canvas`：
 
 - `ai-canvas` 继续维护本地目录、Electron SQLite 和桌面交付。
-- `ai-canvas-cloud` 负责账号、个人空间、单活跃会话、云端图持久化、对象存储和服务端任务。
+- `ai-canvas-cloud` 负责账号、个人空间、单活跃会话与设备历史、云端图持久化、对象存储和服务端任务。
 - 两端通过版本化 `ProjectRecord` 与目录包迁移数据，不共享运行时数据库或隐式同步本地文件。
 
 ## 长期文档
@@ -106,7 +106,7 @@ GET /api/v1/health/ready
 
 P0 文档基线已完成。P1 第一批代码已落地：`apps/web` 使用临时 Cloud 内存适配器独立启动和构建；`apps/api` 和 `apps/worker` 提供配置校验、结构化日志和优雅关闭；`infra/local` 提供 PostgreSQL、Redis 和 MinIO 基础配置。
 
-P2 第一批基础已落地并已切到 Better Auth：核心认证表使用 `"user"`、`"session"`、`"account"`、`"verification"`；`PostgreSQL AuthService` 通过 Better Auth 的 `signUpEmail`、`signInEmail`、`getSession`、`signOut`、`listSessions`、`revokeSession`、`sendVerificationEmail`、`verifyEmail`、`requestPasswordReset` 和 `resetPassword` 管理邮箱密码、签名 HttpOnly Cookie、会话恢复、活跃会话列表、会话撤销、邮箱验证和密码重置。首发产品策略为单活跃会话：同账号新登录成功后撤销旧登录设备，前端首屏检查一次，并在页面可见时每 5 分钟心跳一次；窗口重新聚焦/可见只会在距上次检查已满 5 分钟时触发，业务请求返回未授权则立即退出，同一标签页的并发 session 检查会合并。Cloud 侧继续维护 personal workspace、成员关系、工作区用户状态和认证审计表。Web 匿名态已提供独立产品首页、顶部登录/注册入口、响应式品牌与备案信息区；认证表单以弹层承载，并保留 session 恢复、账号菜单、活跃会话展示、其他设备下线、退出登录、邮箱验证、重发验证邮件、忘记密码和重置密码闭环。开发/测试环境会把邮箱验证和密码重置链接输出到日志；生产真实邮件供应商、企业主体/协议/备案真实内容、两账号隔离 E2E 和更完整限流审计待后续批次实现。
+P2 第一批基础已落地并已切到 Better Auth：核心认证表使用 `"user"`、`"session"`、`"account"`、`"verification"`；`PostgreSQL AuthService` 通过 Better Auth 管理邮箱密码、签名 HttpOnly Cookie、会话恢复、邮箱验证和密码重置。产品策略为单活跃设备：密码验证成功后如检测到其他有效 session，接口返回 `409 ACTIVE_SESSION_EXISTS`，前端要求用户确认；确认接管后旧 session 失效，新设备成为唯一有效登录。`auth_devices` 独立保留当前与历史设备、首次登录和最近活跃时间，用户可在设备管理页删除非当前设备记录。前端首屏检查一次，并在页面可见时每 5 分钟心跳一次；业务请求返回未授权则立即退出，同一标签页的并发 session 检查会合并。Cloud 侧继续维护 personal workspace、成员关系、工作区用户状态和认证审计表。Web 匿名态已提供独立产品首页、顶部登录/注册入口、响应式品牌与备案信息区；认证表单以弹层承载，并保留 session 恢复、登录接管确认、账号菜单、设备管理、退出登录、邮箱验证、忘记密码和重置密码闭环。
 
 P3 关系化项目图、增量保存、变更读取、手动/定期检查点、历史详情与恢复已落地。P4-1 至 P4-11 已建立资产、上传会话和引用表，接入 MinIO/S3 预签名直传、完成确认、completed 资产元数据读取和短期私有读取 URL；Web Cloud 平台层已接入创建上传会话、无 Cookie 直传、完成确认、`cloud-assets/<asset-id>` 定位符以及签名 URL 缓存刷新和 session 清理。项目图事务已从节点数据提取持久化 Cloud 资产 ID，按可信工作区校验 completed 状态，并在节点替换或删除时同步更新 `asset_references`。manual、periodic 和 pre-restore checkpoint 已保存资产 manifest；restore 会校验 manifest/record 一致性、资产可用性并重建当前节点引用。历史 checkpoint 可通过默认只读、显式提交的分批维护命令安全回填 manifest 或标记失效，且保留异常手动保存点指针。每个 personal workspace 默认拥有 20 GiB 云资产配额，API 可读取已用/预留/剩余容量，上传会话在事务内预留容量并拒绝并发超卖。资产维护命令按稳定游标分批诊断缺失/孤立对象，并只在宽限期结束、当前引用和有效 checkpoint manifest 均不再保护时幂等回收 pending 已过期、failed、quarantined 或已软删除对象；completed 资产不因暂时无引用被回收。
 

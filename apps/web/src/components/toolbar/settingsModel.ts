@@ -4,9 +4,11 @@ import {
   ImageIcon,
   Layers3,
   MessageSquare,
+  MonitorCheck,
   Music2,
   Palette,
   SlidersHorizontal,
+  UserRound,
   Video,
   Wrench,
   type LucideIcon,
@@ -134,6 +136,14 @@ export const THEME_MODE_OPTIONS: Array<{ id: ThemeMode; label: string }> = [
   { id: 'system', label: '跟随系统' },
 ]
 
+export const AUTOSAVE_INTERVAL_OPTIONS = [
+  { value: 15_000, label: '15 秒' },
+  { value: 30_000, label: '30 秒' },
+  { value: 60_000, label: '1 分钟' },
+  { value: 120_000, label: '2 分钟' },
+  { value: 300_000, label: '5 分钟' },
+] as const
+
 export const MODEL_TABS: Array<{ id: CustomModelKind; label: string }> = [
   { id: 'chat', label: 'Chat' },
   { id: 'image', label: 'Image' },
@@ -156,9 +166,11 @@ export const SETTINGS_CATEGORIES: Array<{
   description: string
   Icon: LucideIcon
 }> = [
+  { id: 'account', label: '账号设置', description: '账号信息与个人空间', Icon: UserRound },
+  { id: 'devices', label: '设备管理', description: '当前设备与登录历史', Icon: MonitorCheck },
   { id: 'models', label: '模型管理', description: 'API、模型库与默认模型', Icon: SlidersHorizontal },
-  { id: 'storage', label: '存储管理', description: '工作区目录和自动保存', Icon: HardDrive },
-  { id: 'canvas', label: '画布管理', description: '性能、预览与对齐辅助', Icon: Layers3 },
+  { id: 'storage', label: '存储管理', description: '工作区目录和资产维护', Icon: HardDrive },
+  { id: 'canvas', label: '画布管理', description: '性能、预览、对齐与自动保存', Icon: Layers3 },
   { id: 'appearance', label: '外观设置', description: '主题、网格与连线样式', Icon: Palette },
   { id: 'tasks', label: '任务队列', description: '生成任务和恢复策略', Icon: Brush },
   { id: 'tools', label: '工具诊断', description: '工作区搜索和诊断记录', Icon: Wrench },

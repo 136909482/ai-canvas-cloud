@@ -1,9 +1,11 @@
 import { betterAuth, APIError } from 'better-auth'
 import { splitSetCookieHeader } from 'better-auth/cookies'
 import type {
+  AuthDevicesResponse,
   AuthSessionResponse,
   AuthSessionsResponse,
   AuthSuccessResponse,
+  DeviceSummary,
   EmailVerificationResponse,
   EmailVerifyRequest,
   LoginRequest,
@@ -11,6 +13,7 @@ import type {
   PasswordResetRequest,
   PasswordResetResponse,
   RegisterRequest,
+  RemoveDeviceResponse,
   RevokeSessionResponse,
   SessionSummary,
   UserStatus,
@@ -111,6 +114,18 @@ interface AuthRows {
   workspace_status: WorkspaceStatus
   workspace_role: WorkspaceRole
   plan_key: string
+}
+
+interface AuthDeviceRow {
+  id: string
+  user_agent: string | null
+  first_seen_at: Date | string
+  last_seen_at: Date | string
+  current: boolean
+}
+
+interface ActiveSessionRow {
+  user_agent: string | null
 }
 
 const DEFAULT_BASE_URL = 'http://localhost:8787'
@@ -242,9 +257,20 @@ function toSessionSummary(session: BetterAuthSession, currentToken: string | nul
   return {
     id: session.id,
     deviceLabel: userAgent || ipAddress || null,
+    createdAt: toIsoString(session.createdAt) ?? new Date().toISOString(),
     lastUsedAt: toIsoString(session.updatedAt) ?? toIsoString(session.createdAt) ?? new Date().toISOString(),
     expiresAt: toIsoString(session.expiresAt) ?? new Date().toISOString(),
     current: currentToken !== null && session.token === currentToken,
+  }
+}
+
+function toDeviceSummary(row: AuthDeviceRow): DeviceSummary {
+  return {
+    id: row.id,
+    deviceLabel: row.user_agent,
+    firstSeenAt: toIsoString(row.first_seen_at) ?? new Date().toISOString(),
+    lastSeenAt: toIsoString(row.last_seen_at) ?? new Date().toISOString(),
+    current: row.current,
   }
 }
 
@@ -376,22 +402,120 @@ async function getPrimaryWorkspace(client: Pick<DbClient, 'query'>, userId: stri
   return result.rows[0] ?? null
 }
 
+function resolveDeviceKey(deviceId: string | undefined, context: AuthRequestContext) {
+  const provided = deviceId?.trim()
+
+  if (provided) {
+    if (!/^[a-zA-Z0-9._:-]{1,128}$/.test(provided)) {
+      throw new AuthServiceError({
+        statusCode: 400,
+        apiCode: 'VALIDATION_FAILED',
+        message: 'Invalid device identifier',
+      })
+    }
+
+    return provided
+  }
+
+  const fallbackSource = context.userAgent || context.ipAddress || 'unknown-device'
+  return `legacy:${Buffer.from(fallbackSource).toString('base64url').slice(0, 96)}`
+}
+
+async function findOtherActiveSession(
+  client: Pick<DbClient, 'query'>,
+  userId: string,
+  currentToken: string,
+) {
+  const result = await client.query<ActiveSessionRow>(
+    `
+      SELECT user_agent
+      FROM "session"
+      WHERE user_id = $1
+        AND token <> $2
+        AND expires_at > now()
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `,
+    [userId, currentToken],
+  )
+
+  return result.rows[0] ?? null
+}
+
+async function deleteCurrentLoginAttempt(
+  client: Pick<DbClient, 'query'>,
+  userId: string,
+  currentToken: string,
+) {
+  await client.query(
+    'DELETE FROM "session" WHERE user_id = $1 AND token = $2',
+    [userId, currentToken],
+  )
+}
+
 async function revokeOtherUserSessions(
   client: Pick<DbClient, 'query'>,
   userId: string,
-  currentToken: string | null | undefined,
+  currentToken: string,
 ) {
-  if (!currentToken) {
+  await client.query(
+    'DELETE FROM "session" WHERE user_id = $1 AND token <> $2',
+    [userId, currentToken],
+  )
+}
+
+async function upsertDeviceHistory(
+  client: Pick<DbClient, 'query'>,
+  options: {
+    userId: string
+    currentToken: string | null
+    deviceKey: string
+    userAgent: string | null
+  },
+) {
+  if (!options.currentToken) {
     return
   }
 
   await client.query(
     `
-      DELETE FROM "session"
-      WHERE user_id = $1
-        AND token <> $2
+      INSERT INTO auth_devices (
+        user_id,
+        device_key,
+        user_agent,
+        first_seen_at,
+        last_seen_at,
+        last_session_id
+      )
+      SELECT $1, $2, $3, now(), now(), s.id
+      FROM "session" s
+      WHERE s.user_id = $1 AND s.token = $4
+      ON CONFLICT (user_id, device_key) DO UPDATE
+      SET user_agent = EXCLUDED.user_agent,
+          last_seen_at = now(),
+          last_session_id = EXCLUDED.last_session_id
     `,
-    [userId, currentToken],
+    [options.userId, options.deviceKey, options.userAgent?.slice(0, 2048) || null, options.currentToken],
+  )
+  await client.query(
+    `
+      DELETE FROM auth_devices
+      WHERE user_id = $1
+        AND device_key LIKE 'legacy-session:%'
+        AND device_key <> $2
+        AND user_agent IS NOT DISTINCT FROM $3
+    `,
+    [options.userId, options.deviceKey, options.userAgent?.slice(0, 2048) || null],
+  )
+}
+
+async function touchCurrentDevice(
+  client: Pick<DbClient, 'query'>,
+  sessionId: string,
+) {
+  await client.query(
+    'UPDATE auth_devices SET last_seen_at = now() WHERE last_session_id = $1',
+    [sessionId],
   )
 }
 
@@ -470,6 +594,7 @@ export function createPostgresAuthService(
     async register(input: RegisterRequest, context: AuthRequestContext) {
       try {
         const normalized = normalizeRegistrationInput(input)
+        const deviceKey = resolveDeviceKey(input.deviceId, context)
         const result = await authApi.signUpEmail({
           body: {
             email: normalized.emailNormalized,
@@ -482,7 +607,12 @@ export function createPostgresAuthService(
         })
 
         await ensurePersonalWorkspace(pool, result.response.user)
-        await revokeOtherUserSessions(pool, result.response.user.id, result.response.token)
+        await upsertDeviceHistory(pool, {
+          userId: result.response.user.id,
+          currentToken: result.response.token,
+          deviceKey,
+          userAgent: context.userAgent ?? null,
+        })
         const row = await getPrimaryWorkspace(pool, result.response.user.id)
 
         if (!row) {
@@ -501,6 +631,7 @@ export function createPostgresAuthService(
     async login(input: LoginRequest, context: AuthRequestContext) {
       try {
         const emailNormalized = input.email.trim().toLowerCase()
+        const deviceKey = resolveDeviceKey(input.deviceId, context)
         const result = await authApi.signInEmail({
           body: {
             email: emailNormalized,
@@ -511,8 +642,33 @@ export function createPostgresAuthService(
           returnHeaders: true,
         })
 
-        await ensurePersonalWorkspace(pool, result.response.user)
+        const otherActiveSession = await findOtherActiveSession(
+          pool,
+          result.response.user.id,
+          result.response.token,
+        )
+
+        if (otherActiveSession && !input.force) {
+          await deleteCurrentLoginAttempt(pool, result.response.user.id, result.response.token)
+          throw new AuthServiceError({
+            statusCode: 409,
+            apiCode: 'ACTIVE_SESSION_EXISTS',
+            message: 'This account is already signed in on another device',
+            details: {
+              activeDeviceLabel: otherActiveSession.user_agent,
+            },
+          })
+        }
+
         await revokeOtherUserSessions(pool, result.response.user.id, result.response.token)
+
+        await ensurePersonalWorkspace(pool, result.response.user)
+        await upsertDeviceHistory(pool, {
+          userId: result.response.user.id,
+          currentToken: result.response.token,
+          deviceKey,
+          userAgent: context.userAgent ?? null,
+        })
         const row = await getPrimaryWorkspace(pool, result.response.user.id)
 
         if (!row) {
@@ -550,6 +706,7 @@ export function createPostgresAuthService(
         }
 
         await ensurePersonalWorkspace(pool, session.user)
+        await touchCurrentDevice(pool, session.session.id)
         const row = await getPrimaryWorkspace(pool, session.user.id)
 
         if (!row) {
@@ -591,6 +748,47 @@ export function createPostgresAuthService(
             .map((session) => toSessionSummary(session, currentSession.session.token))
             .sort((left, right) => Number(right.current) - Number(left.current)
               || new Date(right.lastUsedAt).getTime() - new Date(left.lastUsedAt).getTime()),
+        }
+      } catch (error) {
+        throw toAuthServiceError(error)
+      }
+    },
+
+    async listDevices(context: AuthRequestContext): Promise<AuthDevicesResponse> {
+      try {
+        const currentSession = await authApi.getSession({
+          headers: createRequestHeaders(context),
+          query: {
+            disableCookieCache: true,
+          },
+        })
+
+        if (!currentSession) {
+          throw new AuthServiceError({
+            statusCode: 401,
+            apiCode: 'SESSION_EXPIRED',
+            message: 'Session expired',
+          })
+        }
+
+        await touchCurrentDevice(pool, currentSession.session.id)
+        const result = await pool.query<AuthDeviceRow>(
+          `
+            SELECT
+              id::text,
+              user_agent,
+              first_seen_at,
+              last_seen_at,
+              last_session_id = $2 AS current
+            FROM auth_devices
+            WHERE user_id = $1
+            ORDER BY current DESC, last_seen_at DESC
+          `,
+          [currentSession.user.id, currentSession.session.id],
+        )
+
+        return {
+          devices: result.rows.map(toDeviceSummary),
         }
       } catch (error) {
         throw toAuthServiceError(error)
@@ -774,6 +972,74 @@ export function createPostgresAuthService(
           response: { ok: true },
           setCookieHeaders: [],
         }
+      } catch (error) {
+        throw toAuthServiceError(error)
+      }
+    },
+
+    async removeDevice(deviceId: string, context: AuthRequestContext): Promise<RemoveDeviceResponse> {
+      try {
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceId)) {
+          throw new AuthServiceError({
+            statusCode: 400,
+            apiCode: 'VALIDATION_FAILED',
+            message: 'Invalid device identifier',
+          })
+        }
+
+        const currentSession = await authApi.getSession({
+          headers: createRequestHeaders(context),
+          query: {
+            disableCookieCache: true,
+          },
+        })
+
+        if (!currentSession) {
+          throw new AuthServiceError({
+            statusCode: 401,
+            apiCode: 'SESSION_EXPIRED',
+            message: 'Session expired',
+          })
+        }
+
+        const target = await pool.query<{ id: string; last_session_id: string | null; current: boolean }>(
+          `
+            SELECT id::text, last_session_id, last_session_id = $3 AS current
+            FROM auth_devices
+            WHERE id = $1 AND user_id = $2
+          `,
+          [deviceId, currentSession.user.id, currentSession.session.id],
+        )
+        const device = target.rows[0]
+
+        if (!device) {
+          throw new AuthServiceError({
+            statusCode: 404,
+            apiCode: 'RESOURCE_NOT_FOUND',
+            message: 'Device not found',
+          })
+        }
+
+        if (device.current) {
+          throw new AuthServiceError({
+            statusCode: 400,
+            apiCode: 'VALIDATION_FAILED',
+            message: 'Current device cannot be removed',
+          })
+        }
+
+        if (device.last_session_id) {
+          await pool.query(
+            'DELETE FROM "session" WHERE id = $1 AND user_id = $2',
+            [device.last_session_id, currentSession.user.id],
+          )
+        }
+        await pool.query(
+          'DELETE FROM auth_devices WHERE id = $1 AND user_id = $2',
+          [deviceId, currentSession.user.id],
+        )
+
+        return { ok: true }
       } catch (error) {
         throw toAuthServiceError(error)
       }

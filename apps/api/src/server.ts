@@ -4,6 +4,7 @@ import {
   createServiceUnavailableError,
   type ApiErrorResponse,
   type ApplyProjectGraphOperationsRequest,
+  type AuthDevicesResponse,
   type AuthSessionsResponse,
   type CreateAssetUploadRequest,
   type CreateProjectCheckpointRequest,
@@ -20,6 +21,7 @@ import {
   type ProjectListStatus,
   type RenameProjectRequest,
   type RegisterRequest,
+  type RemoveDeviceResponse,
   type RestoreProjectRevisionRequest,
   type RevokeSessionResponse,
   type PutProviderCredentialRequest,
@@ -159,6 +161,17 @@ function getAuthSessionIdFromPath(pathname: string) {
 
   const sessionId = pathname.slice(prefix.length)
   return sessionId ? decodeURIComponent(sessionId) : null
+}
+
+function getAuthDeviceIdFromPath(pathname: string) {
+  const prefix = `${API_V1_PREFIX}/auth/devices/`
+
+  if (!pathname.startsWith(prefix)) {
+    return null
+  }
+
+  const deviceId = pathname.slice(prefix.length)
+  return deviceId ? decodeURIComponent(deviceId) : null
 }
 
 function getProviderSettingsRoute(pathname: string) {
@@ -370,6 +383,20 @@ async function handleAuthRoute(
       return true
     }
 
+    if (request.method === 'GET' && isAuthPath(requestUrl.pathname, 'devices')) {
+      if (!context.cookieHeader) {
+        throw new AuthServiceError({
+          statusCode: 401,
+          apiCode: 'AUTH_REQUIRED',
+          message: 'Authentication required',
+        })
+      }
+
+      const payload: AuthDevicesResponse = await authService.listDevices(context)
+      sendJson(response, 200, payload, requestId)
+      return true
+    }
+
     if (request.method === 'POST' && isAuthPath(requestUrl.pathname, 'email/resend')) {
       if (!context.cookieHeader) {
         throw new AuthServiceError({
@@ -425,6 +452,22 @@ async function handleAuthRoute(
       const result = await authService.revokeSession(sessionId, context)
       setCookieHeaders(response, result.setCookieHeaders)
       const payload: RevokeSessionResponse = result.response
+      sendJson(response, 200, payload, requestId)
+      return true
+    }
+
+    const deviceId = getAuthDeviceIdFromPath(requestUrl.pathname)
+
+    if (request.method === 'DELETE' && deviceId) {
+      if (!context.cookieHeader) {
+        throw new AuthServiceError({
+          statusCode: 401,
+          apiCode: 'AUTH_REQUIRED',
+          message: 'Authentication required',
+        })
+      }
+
+      const payload: RemoveDeviceResponse = await authService.removeDevice(deviceId, context)
       sendJson(response, 200, payload, requestId)
       return true
     }

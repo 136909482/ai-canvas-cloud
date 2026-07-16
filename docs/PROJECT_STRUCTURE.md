@@ -84,7 +84,7 @@ src/
 
 `platform/cloud` 维护图基线、版本、sequence、ID 级 diff 和私有资产生命周期。Cloud 私有资产写入由平台层编排上传会话、无 Cookie 对象存储直传和完成确认，读取使用 `cloud-assets/<asset-id>` 客户端定位符并按过期时间缓存/刷新签名 URL；session 或工作区变化时统一清理。组件和 store 不感知 object key、PostgreSQL 表或对象存储凭据。
 
-P1 第一批使用内存 Cloud adapter 让画布独立启动和构建；P3 已把项目元数据和关系图读写接入 Cloud API。Web 仍不访问本地目录、Electron、SQLite、File System Access API、数据库、Redis 或对象存储管理凭据。P2 匿名首页、认证门禁和认证弹层位于 `features/auth`：`PublicHome` 负责未登录产品入口、品牌 Footer 和触发登录/注册，`AuthGate` 负责 session 恢复、认证模式及成功后的应用切换。该目录只通过 Cloud API 调用认证、会话、邮箱验证、重发验证邮件、忘记密码和重置密码接口，不直接访问 Better Auth 数据库表或服务端密钥。
+P1 第一批使用内存 Cloud adapter 让画布独立启动和构建；P3 已把项目元数据和关系图读写接入 Cloud API。Web 仍不访问本地目录、Electron、SQLite、File System Access API、数据库、Redis 或对象存储管理凭据。P2 匿名首页、认证门禁和认证弹层位于 `features/auth`：`PublicHome` 负责未登录产品入口和触发登录/注册，`AuthGate` 负责 session 恢复、登录/注册切换、单设备接管确认及成功后的应用切换，`AccountMenu` 和 `DeviceSettingsPanel` 负责账号入口与设备历史管理，`deviceIdentity` 只在浏览器本地维护非认证设备 ID。该目录只通过 Cloud API 调用认证、会话、设备历史、邮箱验证、忘记密码和重置密码接口，不直接访问 Better Auth 数据库表或服务端密钥。
 
 ## 服务端领域模块
 

@@ -24,7 +24,13 @@
 
 前端和 API 日志不得记录密码、`better-auth.session_token`、重置 token、生产验证/重置链接、Authorization 或 Provider API Key。开发/测试环境可以打印邮箱验证和密码重置链接用于本地调试；生产环境必须接入真实邮件发送服务，不能依赖日志取 token。Cloud 业务授权不信任客户端传入的 `user_id`，必须先从 Better Auth session 解析用户，再通过 `workspace_members` 校验工作区权限。
 
-首发采用单活跃会话策略。注册或登录创建新 session 后，服务端撤销同用户其他 session；旧 session 行可由 Better Auth 标记失效或删除，但无论实现细节如何，业务 API 都只能信任当前有效 session。密码重置成功后同样撤销旧 session。
+账号采用单活跃 session。登录密码验证成功后若已存在其他有效 session，未携带接管确认时返回稳定的 `409 ACTIVE_SESSION_EXISTS` 并删除本次临时 session；确认后删除同用户其他 session，只保留新 session。业务 API 只能信任未到期且未撤销的当前 session，密码重置成功后同样撤销旧 session。
+
+### `auth_devices`
+
+持久保存当前与历史登录设备，主要字段为 `id`、`user_id`、`device_key`、`user_agent`、`first_seen_at`、`last_seen_at` 和可空的 `last_session_id`。`(user_id, device_key)` 唯一；`last_session_id` 通过外键指向 Better Auth session 并在 session 删除时置空，因此踢掉旧设备不会删除历史设备记录。设备 ID 是客户端生成的非认证标识，服务端仍从可信 session 解析用户并按 `user_id` 隔离查询和删除。当前设备记录不可从设备管理页删除。
+
+`0010_auth_devices.sql` 会创建表、约束和索引，并把升级时仍有效的历史 session 前向回填为设备记录。浏览器首次携带持久设备 ID 登录后，服务端会合并相同 User Agent 的 `legacy-session` 回填记录；`0011_auth_device_legacy_dedup.sql` 负责清理升级后已经产生的这类重复记录。发布前回滚可以删除 `auth_devices` 表并停用设备历史接口；一旦生产设备历史已经写入，应采用前向修复而不是回滚迁移，避免丢失用户可见的登录历史。
 
 ### `workspaces`
 
@@ -40,7 +46,7 @@
 
 ### `workspace_user_state`
 
-保存某用户在某工作区的最近项目、当前项目和非敏感 UI 游标。首发单活跃会话避免多个设备同时更新该状态；该状态仍不能放在 `workspaces` 上，否则未来团队成员会互相覆盖。
+保存某用户在某工作区的最近项目、当前项目和非敏感 UI 游标。单活跃会话降低多设备同时写入，但旧标签和并发请求仍必须依赖版本冲突保护；该状态不能放在 `workspaces` 上，否则未来团队成员会互相覆盖。
 
 ### `auth_audit_events`
 

@@ -15,18 +15,8 @@ import { themeClasses } from '@/styles/themeClasses'
 import type { WorkspaceAssetDiskInspection } from '@/platform/types'
 import type { WorkspaceData } from '@/types'
 
-const AUTOSAVE_OPTIONS = [
-  { value: 15_000, label: '15 秒' },
-  { value: 30_000, label: '30 秒' },
-  { value: 60_000, label: '1 分钟' },
-  { value: 120_000, label: '2 分钟' },
-  { value: 300_000, label: '5 分钟' },
-]
-
 const STORAGE_SETTINGS_ROW_CLASS =
   'flex items-center justify-between gap-4 border-b border-[var(--border-subtle)] px-4 py-4 last:border-b-0'
-const STORAGE_SETTINGS_COMPACT_ROW_CLASS =
-  'flex items-center justify-between gap-4 border-b border-[var(--border-subtle)] px-4 py-3 last:border-b-0'
 const STORAGE_OPTION_BUTTON_CLASS =
   'inline-flex h-7 min-w-16 items-center justify-center rounded-[9px] px-3 text-xs font-medium leading-none transition-colors'
 const STORAGE_STAT_ITEM_CLASS =
@@ -62,12 +52,9 @@ function buildWorkspaceDataWithLiveActiveProject(
 }
 
 export function StorageSettingsPanel({ active = true }: { active?: boolean }) {
-  const storage = useSettingsStore((state) => state.config.storage)
   const runtime = useSettingsStore((state) => state.runtime)
-  const setStorageSettings = useSettingsStore((state) => state.setStorageSettings)
   const setWorkspaceRuntimeStatus = useSettingsStore((state) => state.setWorkspaceRuntimeStatus)
   const hydrateFromWorkspace = useSettingsStore((state) => state.hydrateFromWorkspace)
-  const persistWorkspaceConfig = useSettingsStore((state) => state.persistWorkspaceConfig)
   const persistWorkspaceFile = useProjectStore((state) => state.persistWorkspaceFile)
   const saveActiveProject = useProjectStore((state) => state.saveActiveProject)
   const reloadFromWorkspace = useProjectStore((state) => state.reloadFromWorkspace)
@@ -656,38 +643,6 @@ export function StorageSettingsPanel({ active = true }: { active?: boolean }) {
         </div>
       </div>
 
-      <div className={STORAGE_SETTINGS_COMPACT_ROW_CLASS}>
-        <div className="flex min-w-0 flex-1 flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0">
-            <div className={`text-sm font-medium ${themeClasses.textPrimary}`}>画布自动保存时间</div>
-            <p className={`mt-1 text-xs leading-5 ${themeClasses.textMuted}`}>自动保存会直接写入当前项目文件，但不会替代手动保存。</p>
-          </div>
-
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-            {AUTOSAVE_OPTIONS.map((option) => {
-              const isActive = option.value === storage.autosaveIntervalMs
-
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => {
-                    setStorageSettings({ autosaveIntervalMs: option.value })
-                    void persistWorkspaceConfig().catch(() => undefined)
-                  }}
-                  className={`${STORAGE_OPTION_BUTTON_CLASS} ${
-                    isActive
-                      ? 'bg-[var(--control-bg-hover)] text-[var(--text-primary)]'
-                      : 'text-[var(--text-muted)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-secondary)]'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      </div>
     </section>
   )
 }
@@ -708,7 +663,7 @@ export function StorageSettingsDialog() {
           <div>
             <div className={`text-[11px] font-medium tracking-[0.12em] ${themeClasses.textMuted}`}>STORAGE</div>
             <h2 id="storage-settings-title" className={`mt-1 text-lg font-semibold ${themeClasses.textPrimary}`}>存储设置</h2>
-            <p className={`mt-1 text-sm ${themeClasses.textMuted}`}>设置项目缓存目录和画布自动保存时间。</p>
+            <p className={`mt-1 text-sm ${themeClasses.textMuted}`}>设置项目缓存目录并管理工作区资产。</p>
           </div>
 
           <button

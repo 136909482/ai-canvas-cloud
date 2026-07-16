@@ -4,7 +4,7 @@
 
 ## 产品边界
 
-AI Canvas Cloud 是账号制 AI 画布 SaaS。首发提供个人空间、单活跃会话、云端项目、私有媒体资产和服务端生成任务，不提供多设备同时在线编辑、实时多人编辑、离线云项目同步或复杂商业计费。
+AI Canvas Cloud 是账号制 AI 画布 SaaS。首发提供个人空间、单活跃会话与设备历史、云端项目、私有媒体资产和服务端生成任务，不提供多设备同时在线编辑、实时多人编辑、离线云项目同步或复杂商业计费。
 
 本仓库与本地版 `ai-canvas` 独立：
 
@@ -29,7 +29,7 @@ P1 第一批代码已经建立 npm workspaces monorepo：
 
 Web 平台适配层已从 P1 临时内存项目适配推进到 P3 Cloud API 适配：项目列表、创建、读取、重命名、归档/恢复、软删除和图 GET/PATCH 走 Cloud API；前端仍不直接访问 PostgreSQL、Redis、对象存储管理凭据或服务端模块。
 
-P2 第一批已经建立用户/工作区迁移、认证共享契约和最小认证 HTTP 路由骨架。当前认证实现已切到 Better Auth：API 路由通过注入的 `AuthService` 调用 Better Auth 的 `signUpEmail`、`signInEmail`、`getSession`、`signOut`、`listSessions`、`revokeSession`、`sendVerificationEmail`、`verifyEmail`、`requestPasswordReset` 和 `resetPassword`，由 Better Auth 管理邮箱密码、密码哈希、签名 HttpOnly Cookie、session 表、活跃会话列表、会话撤销、邮箱验证 token 和密码重置 token。首发产品策略为同账号单活跃会话：新登录成功后撤销该账号其他 session；前端首屏恢复一次 session，可见页面每 5 分钟执行一次心跳，窗口重新聚焦或页面重新可见只在距上次检查已满 5 分钟时触发，业务 API 返回未授权时立即清理前端 Cloud 会话缓存并回登录页，同一标签页并发 session 检查只复用一个在途请求。持续鼠标和键盘操作不再触发额外 session 请求；同一设备双标签或旧请求仍依赖版本号和冲突兜底防覆盖，但不承诺多设备同时编辑。Cloud 侧在注册、登录和会话恢复时幂等确保 personal workspace、owner 成员关系和工作区用户状态存在，并提供工作区授权模块校验 session 用户、workspace ID、成员角色和工作区状态。Web 匿名态先展示独立产品首页，顶部只保留品牌及登录/注册入口；认证表单通过可关闭弹层承载，邮箱验证和密码重置链接会直接打开对应模式。登录成功后才初始化画布工作区，账号菜单、活跃会话展示、其他设备下线、退出登录、未验证提示、重发验证邮件、忘记密码和重置密码闭环保持不变。真实邮件发送供应商、账号删除申请、浏览器级两账号隔离 E2E 和更完整限流审计待后续批次接入。
+P2 第一批已经建立用户/工作区迁移、认证共享契约和最小认证 HTTP 路由骨架。当前认证实现已切到 Better Auth，由 Better Auth 管理邮箱密码、密码哈希、签名 HttpOnly Cookie、session、邮箱验证 token 和密码重置 token。同账号只允许一个有效 session：密码验证成功但检测到其他设备在线时返回 `ACTIVE_SESSION_EXISTS`，前端显示接管确认；确认后旧 session 失效。独立 `auth_devices` 设备历史不随 session 删除，设备管理页识别常见浏览器和系统，展示首次登录与最近活跃时间，并允许删除非当前设备记录。前端首屏恢复一次 session，可见页面每 5 分钟执行一次心跳，业务 API 返回未授权时立即回登录页，同一标签页并发检查复用一个在途请求。Cloud 侧在注册、登录和会话恢复时幂等确保 personal workspace、owner 成员关系和工作区用户状态存在。登录成功后才初始化画布工作区；账号菜单、登录接管确认、设备管理、退出登录、邮箱验证、忘记密码和重置密码闭环保持不变。
 
 匿名产品首页使用完整首屏画布场景、深色产品能力区和品牌 Footer；尚未落地的项目/社区页面不提前暴露空导航，帮助、协议、企业主体和备案信息在没有真实内容时不得伪造可点击链接或备案号。生产发布前必须把 Footer 中的待补充企业主体、联系方式、用户协议、隐私政策、账号注销说明及备案信息替换为经确认的真实内容。
 
@@ -58,7 +58,7 @@ Browser
 
 - 邮箱密码、密码哈希、session token、签名 Cookie、邮箱验证和密码重置验证值优先交给 Better Auth 管理，不再维护自研密码哈希或自研 session token 表。
 - 浏览器会话使用 Better Auth 的 `better-auth.session_token` HttpOnly Cookie；生产环境必须配置稳定且足够长的 `BETTER_AUTH_SECRET`，并通过 HTTPS 使用 Secure Cookie。
-- 同账号首发只允许一个活跃登录设备。注册或登录创建新 session 后，服务端撤销该用户其他 session；旧设备不能继续保存、生成或读取资源。前端首屏检查一次 session，可见页面每 5 分钟心跳一次，窗口聚焦或页面重新可见只在距上次检查已满 5 分钟时触发；API 返回未授权时立即处理，同一标签页并发检查必须合并，鼠标和键盘操作不得产生额外 session 请求。
+- 同账号只允许一个活跃登录设备。登录密码验证成功但检测到其他有效 session 时，服务端删除本次临时 session 并返回 `ACTIVE_SESSION_EXISTS`；只有用户明确确认接管后才撤销旧 session，旧设备随后不能继续保存、生成或读取资源。设备历史独立保留，不随 session 撤销删除。前端首屏检查一次 session，可见页面每 5 分钟心跳一次，窗口聚焦或页面重新可见只在距上次检查已满 5 分钟时触发；API 返回未授权时立即处理，同一标签页并发检查必须合并，鼠标和键盘操作不得产生额外 session 请求。
 - 邮箱验证和密码重置链接面向浏览器使用 `WEB_PUBLIC_URL` 生成；开发/测试环境可把链接打印到日志，生产环境未接入真实邮件服务时不得打印 token 或完整链接，且应让发送流程失败以暴露配置问题。
 - 本地开发可以通过 `DEV_SEED_ADMIN=true`、`DEV_SEED_ADMIN_EMAIL` 和仅写入本机 `.env` 的 `DEV_SEED_ADMIN_PASSWORD` 创建测试账号；该 seed 在 production 强制禁用，且不授予额外系统管理员权限。
 - 注册事务同时创建用户、个人工作区和 owner 成员关系。
@@ -184,7 +184,7 @@ Cloud 以 `generation_tasks` 为任务事实来源，前端 task queue 是投影
 - PostgreSQL 集成：事务、约束、并发版本、sequence、检查点与迁移。
 - 对象存储集成：预签名上传、私有读取、跨租户拒绝和 GC。
 - API 契约：认证、分页、幂等、错误码、输入上限和字段脱敏。
-- 浏览器 E2E：两账号隔离、新登录踢旧设备、双标签冲突、资产上传和关闭页面后任务恢复。
+- 浏览器 E2E：两账号隔离、单设备登录接管与设备历史删除、双标签冲突、资产上传和关闭页面后任务恢复。
 - 灾难恢复：数据库与对象存储恢复后校验当前图、检查点和资产引用一致。
 
 当前已验证命令：

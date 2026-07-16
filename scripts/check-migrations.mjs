@@ -835,6 +835,99 @@ async function assertProjectGraphSchema(client, schemaName) {
   )
 }
 
+async function seedAuthDeviceLegacyDedupUpgradeFixture(client) {
+  await client.query(`
+    INSERT INTO "user" (id, name, email, email_verified)
+    VALUES ('device-dedup-user', 'Device Dedup', 'device-dedup@example.com', true)
+  `)
+  await client.query(`
+    INSERT INTO auth_devices (user_id, device_key, user_agent, first_seen_at, last_seen_at)
+    VALUES
+      ('device-dedup-user', 'legacy-session:old-session', 'Same Edge Browser', now() - interval '1 day', now() - interval '1 day'),
+      ('device-dedup-user', 'persistent-device-id', 'Same Edge Browser', now(), now())
+  `)
+}
+
+async function assertAuthDeviceSchema(client, schemaName) {
+  const tableResult = await client.query(
+    `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'auth_devices'`,
+    [schemaName],
+  )
+  if (tableResult.rowCount !== 1) {
+    throw new Error('Auth device migration did not create its table')
+  }
+
+  const requiredConstraints = [
+    'auth_devices_user_device_unique',
+    'auth_devices_device_key_check',
+    'auth_devices_user_agent_check',
+    'auth_devices_seen_order_check',
+  ]
+  const constraintResult = await client.query(
+    `
+      SELECT conname FROM pg_constraint c
+      JOIN pg_namespace n ON n.oid = c.connamespace
+      WHERE n.nspname = $1 AND conname = ANY($2::text[])
+    `,
+    [schemaName, requiredConstraints],
+  )
+  if (constraintResult.rowCount !== requiredConstraints.length) {
+    throw new Error('Auth device migration is missing required constraints')
+  }
+
+  const requiredIndexes = [
+    'auth_devices_user_last_seen_idx',
+    'auth_devices_last_session_unique_idx',
+  ]
+  const indexResult = await client.query(
+    `SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND indexname = ANY($2::text[])`,
+    [schemaName, requiredIndexes],
+  )
+  if (indexResult.rowCount !== requiredIndexes.length) {
+    throw new Error('Auth device migration is missing required indexes')
+  }
+
+  await client.query(`
+    INSERT INTO "session" (id, expires_at, token, user_id, user_agent)
+    VALUES (
+      'migration-device-session',
+      now() + interval '1 day',
+      'migration-device-token',
+      'migration-user',
+      'Migration Browser'
+    )
+  `)
+  await client.query(`
+    INSERT INTO auth_devices (user_id, device_key, user_agent, last_session_id)
+    VALUES ('migration-user', 'migration-device', 'Migration Browser', 'migration-device-session')
+  `)
+  await expectRejected(
+    client,
+    `
+      INSERT INTO auth_devices (user_id, device_key)
+      VALUES ('migration-user', 'migration-device')
+    `,
+    [],
+    'Auth device migration accepted a duplicate user device key',
+  )
+  await client.query(`DELETE FROM "session" WHERE id = 'migration-device-session'`)
+  const detached = await client.query(`
+    SELECT last_session_id FROM auth_devices
+    WHERE user_id = 'migration-user' AND device_key = 'migration-device'
+  `)
+  if (detached.rows[0]?.last_session_id !== null) {
+    throw new Error('Auth device history did not survive session removal')
+  }
+
+  const deduplicated = await client.query(`
+    SELECT device_key FROM auth_devices
+    WHERE user_id = 'device-dedup-user' AND user_agent = 'Same Edge Browser'
+  `)
+  if (deduplicated.rowCount !== 1 || deduplicated.rows[0]?.device_key !== 'persistent-device-id') {
+    throw new Error('Auth device legacy dedup migration did not preserve only the persistent device')
+  }
+}
+
 readDotEnv()
 const migrations = loadMigrations()
 const databaseUrl = process.env.DATABASE_URL
@@ -859,6 +952,9 @@ try {
     if (migration.version === '0007') {
       await assertGenerationTaskLegacyReferenceGuard(client, migration.sql)
     }
+    if (migration.version === '0011') {
+      await seedAuthDeviceLegacyDedupUpgradeFixture(client)
+    }
     await client.query(migration.sql)
     await client.query(
       'INSERT INTO schema_migrations (version, name) VALUES ($1, $2)',
@@ -872,6 +968,7 @@ try {
   await assertGenerationTaskSchema(client, schemaName)
   await assertProviderCredentialSchema(client, schemaName)
   await assertTaskCommandSchema(client, schemaName)
+  await assertAuthDeviceSchema(client, schemaName)
   await client.query('SET CONSTRAINTS ALL IMMEDIATE')
   await client.query('ROLLBACK')
   console.log(`Checked and upgraded ${migrations.length} migration file(s) in an isolated PostgreSQL schema.`)

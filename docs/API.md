@@ -39,6 +39,8 @@ POST   /api/v1/auth/logout
 GET    /api/v1/auth/session
 GET    /api/v1/auth/sessions
 DELETE /api/v1/auth/sessions/:sessionId
+GET    /api/v1/auth/devices
+DELETE /api/v1/auth/devices/:deviceId
 POST   /api/v1/auth/email/verify
 POST   /api/v1/auth/email/resend
 POST   /api/v1/auth/password/forgot
@@ -46,7 +48,19 @@ POST   /api/v1/auth/password/reset
 DELETE /api/v1/account
 ```
 
-认证兼容接口保留在 `/api/v1/auth/*`，底层委托 Better Auth 管理邮箱密码、签名 HttpOnly Cookie、session、邮箱验证 token 和密码重置 token。注册、登录和会话恢复后，Cloud 侧会幂等确保个人工作区和 owner membership 存在。首发同账号只保留一个活跃登录设备：注册或登录成功创建新 session 后，服务端撤销该用户其他 session；旧设备后续调用 `/auth/session` 或业务 API 会得到未授权响应。前端首屏恢复一次 session，可见页面每 5 分钟心跳一次，窗口重新聚焦或页面重新可见只在距上次检查已满 5 分钟时触发，业务 API 返回未授权时立即清理 Cloud 会话缓存并回到登录页；持续点击和键盘输入不触发 session 探测，同一标签页并发探测复用一个请求。`GET /auth/sessions` 返回当前用户的活跃会话摘要，单活跃会话策略下通常只包含当前会话；`DELETE /auth/sessions/:sessionId` 只能下线当前用户自己的会话，用于退出当前设备或管理兜底。`POST /auth/email/resend` 从当前登录 session 解析邮箱后重发验证邮件，不接受客户端指定用户 ID；`POST /auth/email/verify` 消费 Better Auth 验证 token 并返回 `{ "ok": true }`。`POST /auth/password/forgot` 只接受邮箱并始终对存在/不存在账号返回一致成功结果；`POST /auth/password/reset` 消费一次性重置 token 并设置新密码，重置成功后撤销旧会话。登录、注册、验证和重置需要分层限流；忘记密码接口不得泄漏邮箱是否存在，避免账号枚举。
+认证兼容接口保留在 `/api/v1/auth/*`，底层委托 Better Auth 管理邮箱密码、签名 HttpOnly Cookie、session、邮箱验证 token 和密码重置 token。注册、登录和会话恢复后，Cloud 侧会幂等确保个人工作区和 owner membership 存在。
+
+### 登录与单设备接管
+
+同账号只允许一个有效登录 session。`POST /auth/login` 首次提交会先完成密码验证；如检测到其他有效 session，本次临时 session 立即删除并返回 `409 ACTIVE_SESSION_EXISTS`，不设置 Cookie。客户端明确确认后以同一凭据和 `force: true` 重试，服务端撤销旧 session 并签发新 Cookie。
+
+### 设备历史
+
+`deviceId` 是浏览器生成的非认证设备标识，只用于关联设备历史，不参与授权。`GET /auth/devices` 返回当前账号的持久设备记录，每项包含 `id`、`deviceLabel`、`firstSeenAt`、`lastSeenAt` 和 `current`；`DELETE /auth/devices/:deviceId` 只能删除当前用户自己的非当前设备记录。`GET /auth/sessions` 与 `DELETE /auth/sessions/:sessionId` 保留为活跃会话管理兼容接口。
+
+### 会话恢复与账号安全
+
+前端首屏恢复一次 session，可见页面每 5 分钟心跳一次，业务 API 返回未授权时立即清理 Cloud 会话缓存并回到登录页。密码重置成功后撤销旧会话。登录、注册、验证和重置需要分层限流；忘记密码接口不得泄漏邮箱是否存在。
 
 邮箱验证请求：
 

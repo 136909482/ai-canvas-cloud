@@ -82,13 +82,11 @@ test('register delegates credentials to Better Auth and creates workspace data',
   assert(calls.some((call) => call.text.includes('INSERT INTO workspaces')))
   assert(calls.some((call) => call.text.includes('INSERT INTO workspace_members')))
   assert(calls.some((call) => call.text.includes('INSERT INTO workspace_user_state')))
-  assert(calls.some((call) => call.text.includes('DELETE FROM "session"')
-    && call.values?.[0] === 'user-1'
-    && call.values?.[1] === 'raw-token'))
+  assert.equal(calls.some((call) => call.text.includes('DELETE FROM "session"')), false)
   assert.equal(calls.some((call) => call.text.includes('INSERT INTO sessions')), false)
 })
 
-test('login revokes previous sessions for single-active-device policy', async () => {
+test('login requires confirmation before replacing another active device', async () => {
   const authApi = {
     async signInEmail() {
       const headers = new Headers()
@@ -111,6 +109,57 @@ test('login revokes previous sessions for single-active-device policy', async ()
     },
   }
   const { pool, calls } = createMockPool(({ text }) => {
+    if (text.includes('FROM "session"') && text.includes('token <>')) {
+      return { rows: [{ user_agent: 'Edge on Windows' }] }
+    }
+
+    return { rows: [] }
+  })
+  const authService = createPostgresAuthService(pool as never, { authApi: authApi as never })
+
+  await assert.rejects(
+    () => authService.login(
+      { email: ' Artist@Example.COM ', password: 'long-enough-password', deviceId: 'device-b' },
+      { requestId: 'req_1', userAgent: 'agent', ipAddress: '127.0.0.1' },
+    ),
+    (error: unknown) => error instanceof AuthServiceError
+      && error.statusCode === 409
+      && error.apiCode === 'ACTIVE_SESSION_EXISTS',
+  )
+
+  assert(calls.some((call) => call.text.includes('DELETE FROM "session"')
+    && call.text.includes('token = $2')
+    && call.values?.[1] === 'new-token'))
+  assert.equal(calls.some((call) => call.text.includes('INSERT INTO auth_devices')), false)
+})
+
+test('confirmed login revokes the old session and records the new device', async () => {
+  const authApi = {
+    async signInEmail() {
+      const headers = new Headers()
+      headers.append('set-cookie', 'better-auth.session_token=new-signed; HttpOnly; Path=/')
+      return {
+        headers,
+        response: {
+          redirect: false,
+          token: 'new-token',
+          user: {
+            id: 'user-1',
+            email: 'artist@example.com',
+            emailVerified: true,
+            name: 'artist',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+      }
+    },
+  }
+  const { pool, calls } = createMockPool(({ text }) => {
+    if (text.includes('FROM "session"') && text.includes('token <>') && text.includes('expires_at')) {
+      return { rows: [{ user_agent: 'Edge on Windows' }] }
+    }
+
     if (text.includes('INSERT INTO workspaces')) {
       return { rows: [{ id: 'workspace-1' }] }
     }
@@ -123,15 +172,184 @@ test('login revokes previous sessions for single-active-device policy', async ()
   })
   const authService = createPostgresAuthService(pool as never, { authApi: authApi as never })
   const result = await authService.login(
-    { email: ' Artist@Example.COM ', password: 'long-enough-password' },
-    { requestId: 'req_1', userAgent: 'agent', ipAddress: '127.0.0.1' },
+    { email: ' Artist@Example.COM ', password: 'long-enough-password', deviceId: 'device-b', force: true },
+    { requestId: 'req_1', userAgent: 'Chrome on Windows', ipAddress: '127.0.0.1' },
   )
 
   assert.equal(result.response.user.email, 'artist@example.com')
   assert.match(result.setCookieHeaders.join('\n'), /better-auth\.session_token=new-signed/)
   assert(calls.some((call) => call.text.includes('DELETE FROM "session"')
-    && call.values?.[0] === 'user-1'
-    && call.values?.[1] === 'new-token'))
+    && call.text.includes('token <> $2')))
+  assert(calls.some((call) => call.text.includes('INSERT INTO auth_devices')
+    && call.values?.[1] === 'device-b'))
+  assert(calls.some((call) => call.text.includes("device_key LIKE 'legacy-session:%'")
+    && call.values?.[1] === 'device-b'))
+})
+
+test('listSessions exposes device creation time and marks the current session', async () => {
+  const currentCreatedAt = new Date('2026-07-16T12:00:00.000Z')
+  const otherCreatedAt = new Date('2026-07-15T08:00:00.000Z')
+  const authApi = {
+    async getSession() {
+      return {
+        session: {
+          id: 'session-current',
+          token: 'current-token',
+          userId: 'user-1',
+          expiresAt: new Date('2026-08-16T12:00:00.000Z'),
+          createdAt: currentCreatedAt,
+          updatedAt: new Date('2026-07-16T12:30:00.000Z'),
+        },
+        user: {
+          id: 'user-1',
+          email: 'artist@example.com',
+          emailVerified: true,
+          name: 'artist',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      }
+    },
+    async listSessions() {
+      return [
+        {
+          id: 'session-other',
+          token: 'other-token',
+          userId: 'user-1',
+          userAgent: 'Mozilla/5.0 Chrome/150.0.0.0 Safari/537.36',
+          expiresAt: new Date('2026-08-15T08:00:00.000Z'),
+          createdAt: otherCreatedAt,
+          updatedAt: new Date('2026-07-16T11:00:00.000Z'),
+        },
+        {
+          id: 'session-current',
+          token: 'current-token',
+          userId: 'user-1',
+          userAgent: 'Mozilla/5.0 Edg/150.0.0.0',
+          expiresAt: new Date('2026-08-16T12:00:00.000Z'),
+          createdAt: currentCreatedAt,
+          updatedAt: new Date('2026-07-16T12:30:00.000Z'),
+        },
+      ]
+    },
+  }
+  const { pool } = createMockPool(() => ({ rows: [] }))
+  const authService = createPostgresAuthService(pool as never, { authApi: authApi as never })
+
+  const result = await authService.listSessions({
+    requestId: 'req_1',
+    cookieHeader: 'better-auth.session_token=signed',
+  })
+
+  assert.equal(result.sessions.length, 2)
+  assert.equal(result.sessions[0]?.id, 'session-current')
+  assert.equal(result.sessions[0]?.current, true)
+  assert.equal(result.sessions[0]?.createdAt, currentCreatedAt.toISOString())
+  assert.equal(result.sessions[1]?.createdAt, otherCreatedAt.toISOString())
+})
+
+test('listDevices returns persistent device history with the current device first', async () => {
+  const authApi = {
+    async getSession() {
+      return {
+        session: {
+          id: 'session-current',
+          token: 'current-token',
+          userId: 'user-1',
+          expiresAt: new Date('2026-08-16T12:00:00.000Z'),
+          createdAt: new Date('2026-07-16T12:00:00.000Z'),
+          updatedAt: new Date('2026-07-16T12:30:00.000Z'),
+        },
+        user: {
+          id: 'user-1',
+          email: 'artist@example.com',
+          emailVerified: true,
+          name: 'artist',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      }
+    },
+  }
+  const { pool } = createMockPool(({ text }) => {
+    if (text.includes('FROM auth_devices')) {
+      return {
+        rows: [
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            user_agent: 'Mozilla/5.0 Edg/150.0.0.0',
+            first_seen_at: new Date('2026-07-15T08:00:00.000Z'),
+            last_seen_at: new Date('2026-07-16T12:30:00.000Z'),
+            current: true,
+          },
+          {
+            id: '22222222-2222-4222-8222-222222222222',
+            user_agent: 'Mozilla/5.0 Chrome/150.0.0.0',
+            first_seen_at: new Date('2026-07-14T08:00:00.000Z'),
+            last_seen_at: new Date('2026-07-15T08:00:00.000Z'),
+            current: false,
+          },
+        ],
+      }
+    }
+
+    return { rows: [] }
+  })
+  const authService = createPostgresAuthService(pool as never, { authApi: authApi as never })
+
+  const result = await authService.listDevices({
+    requestId: 'req_1',
+    cookieHeader: 'better-auth.session_token=signed',
+  })
+
+  assert.equal(result.devices.length, 2)
+  assert.equal(result.devices[0]?.current, true)
+  assert.equal(result.devices[1]?.current, false)
+  assert.equal(result.devices[1]?.firstSeenAt, '2026-07-14T08:00:00.000Z')
+})
+
+test('removeDevice deletes only a historical device owned by the current user', async () => {
+  const deviceId = '22222222-2222-4222-8222-222222222222'
+  const authApi = {
+    async getSession() {
+      return {
+        session: {
+          id: 'session-current',
+          token: 'current-token',
+          userId: 'user-1',
+          expiresAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        user: {
+          id: 'user-1',
+          email: 'artist@example.com',
+          emailVerified: true,
+          name: 'artist',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      }
+    },
+  }
+  const { pool, calls } = createMockPool(({ text }) => {
+    if (text.includes('SELECT id::text, last_session_id')) {
+      return { rows: [{ id: deviceId, last_session_id: null, current: false }] }
+    }
+
+    return { rows: [] }
+  })
+  const authService = createPostgresAuthService(pool as never, { authApi: authApi as never })
+
+  const result = await authService.removeDevice(deviceId, {
+    requestId: 'req_1',
+    cookieHeader: 'better-auth.session_token=signed',
+  })
+
+  assert.deepEqual(result, { ok: true })
+  assert(calls.some((call) => call.text.includes('DELETE FROM auth_devices')
+    && call.values?.[0] === deviceId
+    && call.values?.[1] === 'user-1'))
 })
 
 test('register maps Better Auth duplicate email errors to validation conflicts', async () => {

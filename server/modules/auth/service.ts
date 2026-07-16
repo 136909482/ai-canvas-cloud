@@ -1,5 +1,6 @@
 import type {
   ApiErrorCode,
+  AuthDevicesResponse,
   AuthSessionResponse,
   AuthSessionsResponse,
   AuthSuccessResponse,
@@ -10,6 +11,7 @@ import type {
   PasswordResetRequest,
   PasswordResetResponse,
   RegisterRequest,
+  RemoveDeviceResponse,
   RevokeSessionResponse,
 } from '@ai-canvas-cloud/contracts'
 
@@ -38,6 +40,7 @@ export interface AuthService {
   login: (input: LoginRequest, context: AuthRequestContext) => Promise<IssuedAuthSession>
   getSession: (context: AuthRequestContext) => Promise<AuthSessionResponse>
   listSessions: (context: AuthRequestContext) => Promise<AuthSessionsResponse>
+  listDevices: (context: AuthRequestContext) => Promise<AuthDevicesResponse>
   resendVerificationEmail: (context: AuthRequestContext) => Promise<EmailVerificationResponse>
   verifyEmail: (input: EmailVerifyRequest, context: AuthRequestContext) => Promise<EmailVerificationResponse>
   requestPasswordReset: (input: PasswordForgotRequest, context: AuthRequestContext) => Promise<PasswordResetResponse>
@@ -45,6 +48,7 @@ export interface AuthService {
   revokeSession: (sessionId: string, context: AuthRequestContext) => Promise<RevokedAuthSession & {
     response: RevokeSessionResponse
   }>
+  removeDevice: (deviceId: string, context: AuthRequestContext) => Promise<RemoveDeviceResponse>
   logout: (context: AuthRequestContext) => Promise<RevokedAuthSession>
 }
 
@@ -133,6 +137,9 @@ export function createUnavailableAuthService(): AuthService {
     async listSessions() {
       throw error()
     },
+    async listDevices() {
+      throw error()
+    },
     async resendVerificationEmail() {
       throw error()
     },
@@ -146,6 +153,9 @@ export function createUnavailableAuthService(): AuthService {
       throw error()
     },
     async revokeSession() {
+      throw error()
+    },
+    async removeDevice() {
       throw error()
     },
     async logout() {

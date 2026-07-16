@@ -10,7 +10,7 @@ interface AuthStore {
   session: AuthSessionResponse | null
   error: string | null
   checkSession: (options?: { silent?: boolean }) => Promise<void>
-  login: (input: { email: string; password: string }) => Promise<void>
+  login: (input: { email: string; password: string; force?: boolean }) => Promise<void>
   register: (input: { email: string; password: string }) => Promise<void>
   logout: () => Promise<void>
 }

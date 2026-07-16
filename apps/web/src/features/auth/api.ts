@@ -1,4 +1,5 @@
 import {
+  type AuthDevicesResponse,
   type AuthSessionsResponse,
   type AuthSessionResponse,
   type AuthSuccessResponse,
@@ -10,9 +11,11 @@ import {
   type PasswordResetRequest,
   type PasswordResetResponse,
   type RegisterRequest,
+  type RemoveDeviceResponse,
   type RevokeSessionResponse,
 } from '@ai-canvas-cloud/contracts'
 import { requestCloudJson } from '@/api/cloudApiClient'
+import { getOrCreateDeviceId } from './deviceIdentity'
 
 export function fetchAuthSession() {
   return requestCloudJson<AuthSessionResponse>('/auth/session', {
@@ -23,14 +26,14 @@ export function fetchAuthSession() {
 export function registerAuth(input: RegisterRequest) {
   return requestCloudJson<AuthSuccessResponse>('/auth/register', {
     method: 'POST',
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, deviceId: getOrCreateDeviceId() }),
   })
 }
 
 export function loginAuth(input: LoginRequest) {
   return requestCloudJson<AuthSuccessResponse>('/auth/login', {
     method: 'POST',
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, deviceId: getOrCreateDeviceId() }),
   })
 }
 
@@ -48,6 +51,18 @@ export function fetchAuthSessions() {
 
 export function revokeAuthSession(sessionId: string) {
   return requestCloudJson<RevokeSessionResponse>(`/auth/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function fetchAuthDevices() {
+  return requestCloudJson<AuthDevicesResponse>('/auth/devices', {
+    method: 'GET',
+  })
+}
+
+export function removeAuthDevice(deviceId: string) {
+  return requestCloudJson<RemoveDeviceResponse>(`/auth/devices/${encodeURIComponent(deviceId)}`, {
     method: 'DELETE',
   })
 }

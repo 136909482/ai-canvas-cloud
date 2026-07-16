@@ -7,6 +7,7 @@ import {
   type AssetUploadResponse,
   type AssetUrlResponse,
   type ApplyProjectGraphOperationsResponse,
+  type AuthDevicesResponse,
   type AuthSessionResponse,
   type AuthSessionsResponse,
   type CompleteAssetUploadResponse,
@@ -118,6 +119,7 @@ function createFakeAuthService(): AuthService {
           {
             id: 'session_current',
             deviceLabel: 'Test Browser',
+            createdAt: new Date(Date.now() - 5_000).toISOString(),
             lastUsedAt: new Date().toISOString(),
             expiresAt: expiresAt.toISOString(),
             current: true,
@@ -125,8 +127,29 @@ function createFakeAuthService(): AuthService {
           {
             id: 'session_other',
             deviceLabel: 'Other Browser',
+            createdAt: new Date(Date.now() - 10_000).toISOString(),
             lastUsedAt: new Date(Date.now() - 1_000).toISOString(),
             expiresAt: expiresAt.toISOString(),
+            current: false,
+          },
+        ],
+      }
+    },
+    async listDevices() {
+      return {
+        devices: [
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            deviceLabel: 'Test Browser',
+            firstSeenAt: new Date(Date.now() - 5_000).toISOString(),
+            lastSeenAt: new Date().toISOString(),
+            current: true,
+          },
+          {
+            id: '22222222-2222-4222-8222-222222222222',
+            deviceLabel: 'Other Browser',
+            firstSeenAt: new Date(Date.now() - 10_000).toISOString(),
+            lastSeenAt: new Date(Date.now() - 1_000).toISOString(),
             current: false,
           },
         ],
@@ -157,6 +180,17 @@ function createFakeAuthService(): AuthService {
         response: { ok: true },
         setCookieHeaders: [],
       }
+    },
+    async removeDevice(deviceId: string) {
+      if (deviceId !== '22222222-2222-4222-8222-222222222222') {
+        throw new AuthServiceError({
+          statusCode: 404,
+          apiCode: 'RESOURCE_NOT_FOUND',
+          message: 'Device not found',
+        })
+      }
+
+      return { ok: true }
     },
     async logout() {
       return {
@@ -728,6 +762,45 @@ test('register route issues a HttpOnly session cookie and auth response', async 
   }
 })
 
+test('login route preserves takeover conflicts until the client confirms', async () => {
+  const baseAuthService = createFakeAuthService()
+  const authService: AuthService = {
+    ...baseAuthService,
+    async login(input) {
+      if (!input.force) {
+        throw new AuthServiceError({
+          statusCode: 409,
+          apiCode: 'ACTIVE_SESSION_EXISTS',
+          message: 'This account is already signed in on another device',
+        })
+      }
+
+      return baseAuthService.login(input, { requestId: 'forced-login' })
+    },
+  }
+  const server = createApiServer({ config, authService })
+  const port = await listen(server)
+
+  try {
+    const conflict = await requestJson(port, {
+      method: 'POST',
+      path: `${API_V1_PREFIX}/auth/login`,
+      body: { email: 'artist@example.com', password: 'long-enough-password', deviceId: 'device-b' },
+    })
+    assert.equal(conflict.statusCode, 409)
+    assert.equal((conflict.body as { error: { code: string } }).error.code, 'ACTIVE_SESSION_EXISTS')
+
+    const confirmed = await requestJson(port, {
+      method: 'POST',
+      path: `${API_V1_PREFIX}/auth/login`,
+      body: { email: 'artist@example.com', password: 'long-enough-password', deviceId: 'device-b', force: true },
+    })
+    assert.equal(confirmed.statusCode, 200)
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
 test('password reset routes request and consume reset tokens', async () => {
   const server = createApiServer({ config, authService: createFakeAuthService() })
   const port = await listen(server)
@@ -878,6 +951,36 @@ test('session management routes list and revoke active sessions', async () => {
 
     assert.equal(missing.statusCode, 404)
     assert.equal((missing.body as { error: { code: string } }).error.code, 'RESOURCE_NOT_FOUND')
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('device management routes list history and remove an old device', async () => {
+  const server = createApiServer({ config, authService: createFakeAuthService() })
+  const port = await listen(server)
+  const cookie = `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`
+
+  try {
+    const list = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/auth/devices`,
+      cookie,
+    })
+
+    assert.equal(list.statusCode, 200)
+    const devices = list.body as AuthDevicesResponse
+    assert.equal(devices.devices.length, 2)
+    assert.equal(devices.devices[0]?.current, true)
+
+    const removed = await requestJson(port, {
+      method: 'DELETE',
+      path: `${API_V1_PREFIX}/auth/devices/22222222-2222-4222-8222-222222222222`,
+      cookie,
+    })
+
+    assert.equal(removed.statusCode, 200)
+    assert.deepEqual(removed.body, { ok: true })
   } finally {
     await closeApiServer(server, 1_000)
   }

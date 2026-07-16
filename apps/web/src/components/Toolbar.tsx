@@ -8,7 +8,6 @@ import {
   Loader2,
   Plus,
   Search,
-  Settings,
   Trash2,
   X,
 } from 'lucide-react'
@@ -35,11 +34,14 @@ import { useSettingsDialogStore } from '@/store/useSettingsDialogStore'
 import { useWorkspaceSearchStore } from '@/store/useWorkspaceSearchStore'
 import { useDialogFocus } from '@/hooks/useDialogFocus'
 import { StorageSettingsPanel } from '@/components/StorageSettingsDialog'
+import { AccountSettingsPanel } from '@/features/auth/AccountMenu'
+import { DeviceSettingsPanel } from '@/features/auth/DeviceSettingsPanel'
 import { TaskQueueButton } from '@/components/TaskQueueButton'
 import { themeClasses } from '@/styles/themeClasses'
 import type { CanvasPerformanceMode, CustomModelKind, EdgeStyle, ThemeMode } from '@/types'
 import {
   API_URL_HELP_TEXT,
+  AUTOSAVE_INTERVAL_OPTIONS,
   CANVAS_EXPERIENCE_TEXT,
   CANVAS_OPTION_BUTTON_CLASS,
   CANVAS_OPTION_GROUP_CLASS,
@@ -72,7 +74,7 @@ import {
   toDraftModel,
   toDraftProviderProfile,
 } from '@/components/toolbar/settingsModel'
-import { CanvasSettingsSwitch, DetailRow, TopChromeIconButton } from '@/components/toolbar/settingsComponents'
+import { CanvasSettingsSwitch, DetailRow } from '@/components/toolbar/settingsComponents'
 
 interface ToolbarProps {
   leftSlot?: ReactNode
@@ -108,7 +110,6 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
   const openWorkspaceSearch = useWorkspaceSearchStore((state) => state.open)
   const showSettings = useSettingsDialogStore((state) => state.isOpen)
   const activeCategory = useSettingsDialogStore((state) => state.activeCategory)
-  const openSettings = useSettingsDialogStore((state) => state.open)
   const closeSettings = useSettingsDialogStore((state) => state.close)
   const setActiveCategory = useSettingsDialogStore((state) => state.setActiveCategory)
   const [draftModels, setDraftModels] = useState<DraftModelCard[]>([])
@@ -199,10 +200,6 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
     ?? visibleProviderProfiles.find((profile) => profile.id === config.activeProviderProfileIds[activeTab])
     ?? visibleProviderProfiles[0]
     ?? null
-
-  const openSettingsPanel = () => {
-    openSettings('models')
-  }
 
   const closeSettingsPanel = () => {
     closeSettings()
@@ -540,11 +537,6 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
       <div role="toolbar" aria-label="应用工具" className={`absolute right-4 top-4 z-10 flex items-center gap-0.5 p-1 ${themeClasses.compactFloatingPanel}`}>
         <TaskQueueButton />
         {rightSlot}
-        <TopChromeIconButton
-          label={UI_TEXT.settingsTitle}
-          onClick={openSettingsPanel}
-          icon={<Settings className="h-3.5 w-3.5" />}
-        />
       </div>
 
       {showSettings && (
@@ -1000,6 +992,8 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                   </header>
 
                   <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--border-subtle)] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5">
+                    {activeCategory === 'account' ? <AccountSettingsPanel onSignedOut={closeSettingsPanel} /> : null}
+                    {activeCategory === 'devices' ? <DeviceSettingsPanel /> : null}
                     {activeCategory === 'storage' ? <StorageSettingsPanel active={showSettings && activeCategory === 'storage'} /> : null}
                     {activeCategory === 'canvas' ? (
                       <section className="overflow-hidden rounded-[14px] border border-[var(--border-subtle)] bg-[var(--control-bg)]">
@@ -1060,6 +1054,38 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                               void handleToggleAlignmentGuides()
                             }}
                           />
+                        </div>
+
+                        <div className={CANVAS_SETTINGS_ROW_CLASS}>
+                          <div className="min-w-0">
+                            <div className={`truncate text-sm font-medium ${themeClasses.textPrimary}`}>画布自动保存时间</div>
+                            <p className={`mt-1 max-w-2xl truncate text-xs ${themeClasses.textMuted}`}>自动保存会直接写入当前项目文件，但不会替代手动保存。</p>
+                          </div>
+                          <div className={CANVAS_OPTION_GROUP_CLASS}>
+                            {AUTOSAVE_INTERVAL_OPTIONS.map((option) => {
+                              const active = option.value === config.storage.autosaveIntervalMs
+
+                              return (
+                                <button
+                                  key={option.value}
+                                  type="button"
+                                  onClick={() => {
+                                    setStorageSettings({ autosaveIntervalMs: option.value })
+                                    void persistWorkspaceConfig().catch(() => undefined)
+                                  }}
+                                  className={cx(
+                                    CANVAS_OPTION_BUTTON_CLASS,
+                                    active
+                                      ? 'bg-[var(--control-bg-hover)] text-[var(--text-primary)]'
+                                      : 'text-[var(--text-muted)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-secondary)]',
+                                  )}
+                                  aria-pressed={active}
+                                >
+                                  {option.label}
+                                </button>
+                              )
+                            })}
+                          </div>
                         </div>
 
                       </section>

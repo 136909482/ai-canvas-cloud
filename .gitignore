@@ -10,3 +10,4 @@ coverage/
 infra/local/data/
 test-results/
 .playwright-cli/
+.codex-run/

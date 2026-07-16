@@ -26,7 +26,6 @@ function Brand() {
         height="36"
       />
       <span className="home-brand__name">AI Canvas</span>
-      <span className="home-brand__edition">Cloud</span>
     </a>
   )
 }
@@ -108,7 +107,7 @@ export function PublicHome({ onLogin, onRegister }: PublicHomeProps) {
             把灵感、素材与 AI 生成工作流放进同一张画布，随时回来，继续创作。
           </p>
           <div className="home-hero__actions">
-            <button type="button" className="home-primary-action" onClick={onRegister}>
+            <button type="button" className="home-primary-action" onClick={onLogin}>
               <WandSparkles aria-hidden="true" />
               开始创作
               <ArrowRight aria-hidden="true" />
@@ -164,7 +163,7 @@ export function PublicHome({ onLogin, onRegister }: PublicHomeProps) {
           <div className="home-footer__links">
             <div>
               <h3>产品</h3>
-              <button type="button" onClick={onRegister}>开始创作</button>
+              <button type="button" onClick={onLogin}>开始创作</button>
             </div>
             <div>
               <h3>支持</h3>

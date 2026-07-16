@@ -3,6 +3,7 @@ export const API_V1_PREFIX = '/api/v1'
 export const apiErrorCodes = [
   'AUTH_REQUIRED',
   'SESSION_EXPIRED',
+  'ACTIVE_SESSION_EXISTS',
   'EMAIL_NOT_VERIFIED',
   'ACCESS_DENIED',
   'RESOURCE_NOT_FOUND',
@@ -90,6 +91,7 @@ export interface WorkspaceUsageResponse {
 export interface SessionSummary {
   id: string
   deviceLabel: string | null
+  createdAt: string
   lastUsedAt: string
   expiresAt: string
   current: boolean
@@ -103,6 +105,22 @@ export interface RevokeSessionResponse {
   ok: true
 }
 
+export interface DeviceSummary {
+  id: string
+  deviceLabel: string | null
+  firstSeenAt: string
+  lastSeenAt: string
+  current: boolean
+}
+
+export interface AuthDevicesResponse {
+  devices: DeviceSummary[]
+}
+
+export interface RemoveDeviceResponse {
+  ok: true
+}
+
 export interface AuthSessionResponse {
   user: UserSummary
   workspace: WorkspaceSummary
@@ -111,11 +129,14 @@ export interface AuthSessionResponse {
 export interface RegisterRequest {
   email: string
   password: string
+  deviceId?: string
 }
 
 export interface LoginRequest {
   email: string
   password: string
+  deviceId?: string
+  force?: boolean
 }
 
 export interface AuthSuccessResponse {
