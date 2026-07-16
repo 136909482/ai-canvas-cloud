@@ -16,6 +16,16 @@ import { randomUUID } from 'node:crypto'
 import { withTransaction, type DbClient, type DbPool } from '../../db/postgres.js'
 import { AuthServiceError } from '../auth/service.js'
 import {
+  collectAssetIdsFromNodeReferenceChanges,
+  collectNodeAssetReferenceChangesForNodes,
+  normalizeAssetManifest,
+  type NodeAssetReferenceChange,
+} from '../project-graph/assetReferences.js'
+import {
+  replaceProjectNodeAssetReferences,
+  requireCompletedAssetReferences,
+} from '../project-graph/postgresAssetReferences.js'
+import {
   createWorkspaceAuthorizationService,
   type WorkspaceAuthorizationService,
 } from '../workspaces/authorization.js'
@@ -63,6 +73,7 @@ interface SnapshotRow {
 
 interface SnapshotDetailRow extends SnapshotRow {
   record_json: ProjectRevisionRecord
+  asset_manifest_json: unknown
 }
 
 interface RevisionCursor {
@@ -221,6 +232,46 @@ function createSnapshotRecord(project: LockedProjectRow, graph: SnapshotGraphRow
   }
 }
 
+function collectSnapshotAssetReferenceChanges(nodes: ProjectGraphNode[]) {
+  try {
+    return collectNodeAssetReferenceChangesForNodes(nodes)
+  } catch (error) {
+    throw new AuthServiceError({
+      statusCode: 409,
+      apiCode: 'VALIDATION_FAILED',
+      message: error instanceof Error ? error.message : 'Checkpoint contains invalid asset references',
+    })
+  }
+}
+
+function validateSnapshotAssetManifest(
+  value: unknown,
+  changes: NodeAssetReferenceChange[],
+) {
+  let storedAssetIds: string[]
+  try {
+    storedAssetIds = normalizeAssetManifest(value)
+  } catch (error) {
+    throw new AuthServiceError({
+      statusCode: 409,
+      apiCode: 'VALIDATION_FAILED',
+      message: error instanceof Error ? error.message : 'Checkpoint asset manifest is invalid',
+    })
+  }
+
+  const derivedAssetIds = collectAssetIdsFromNodeReferenceChanges(changes)
+  if (
+    storedAssetIds.length !== derivedAssetIds.length
+    || storedAssetIds.some((assetId, index) => assetId !== derivedAssetIds[index])
+  ) {
+    throw new AuthServiceError({
+      statusCode: 409,
+      apiCode: 'VALIDATION_FAILED',
+      message: 'Checkpoint asset manifest does not match its graph record',
+    })
+  }
+}
+
 async function insertSnapshot(
   client: DbClient,
   projectId: string,
@@ -228,6 +279,7 @@ async function insertSnapshot(
   lastSequence: number,
   snapshotType: ProjectCheckpointType,
   record: ProjectRevisionRecord,
+  assetManifest: string[],
 ) {
   const recordJson = JSON.stringify(record)
   const byteSize = Buffer.byteLength(recordJson, 'utf8')
@@ -243,7 +295,7 @@ async function insertSnapshot(
         byte_size,
         asset_manifest_json,
         is_valid
-      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, '[]'::jsonb, true)
+      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, true)
       RETURNING
         id::text,
         project_id::text,
@@ -263,10 +315,46 @@ async function insertSnapshot(
       PROJECT_SNAPSHOT_RECORD_SCHEMA_VERSION,
       recordJson,
       byteSize,
+      JSON.stringify(assetManifest),
     ],
   )
 
   return snapshotResult.rows[0]!
+}
+
+async function findReusableManualSnapshot(
+  client: DbClient,
+  projectId: string,
+  projectVersion: number,
+  lastSequence: number,
+  assetManifest: string[],
+) {
+  const result = await client.query<SnapshotRow>(
+    `
+      SELECT
+        id::text,
+        project_id::text,
+        project_version,
+        last_sequence,
+        snapshot_type,
+        schema_version,
+        byte_size,
+        is_valid,
+        created_at
+      FROM project_snapshots
+      WHERE project_id = $1
+        AND project_version = $2
+        AND last_sequence = $3
+        AND snapshot_type = 'manual'
+        AND is_valid
+        AND asset_manifest_json = $4::jsonb
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    `,
+    [projectId, projectVersion, lastSequence, JSON.stringify(assetManifest)],
+  )
+
+  return result.rows[0] ?? null
 }
 
 function validateRevisionRecord(record: ProjectRevisionRecord, projectId: string) {
@@ -494,7 +582,8 @@ export function createPostgresProjectSnapshotService(
             s.byte_size,
             s.is_valid,
             s.created_at,
-            s.record_json
+            s.record_json,
+            s.asset_manifest_json
           FROM project_snapshots s
           JOIN projects p ON p.id = s.project_id
           WHERE s.project_id = $1
@@ -567,6 +656,26 @@ export function createPostgresProjectSnapshotService(
         }
 
         const graph = await readCurrentGraph(client, projectId)
+        const assetReferenceChanges = collectSnapshotAssetReferenceChanges(graph.nodes_json)
+        const assetManifest = collectAssetIdsFromNodeReferenceChanges(assetReferenceChanges)
+
+        if (input.checkpointType === 'manual') {
+          const existing = await findReusableManualSnapshot(
+            client,
+            projectId,
+            currentVersion,
+            currentSequence,
+            assetManifest,
+          )
+          if (existing) {
+            return {
+              checkpoint: toCheckpointSummary(existing),
+              project: toProjectSummary(project),
+            } satisfies ProjectCheckpointResponse
+          }
+        }
+
+        await requireCompletedAssetReferences(client, actor.workspaceId, assetReferenceChanges)
         const snapshot = await insertSnapshot(
           client,
           projectId,
@@ -574,6 +683,7 @@ export function createPostgresProjectSnapshotService(
           currentSequence,
           input.checkpointType,
           createSnapshotRecord(project, graph),
+          assetManifest,
         )
         const updatedProject = input.checkpointType === 'manual'
           ? (await client.query<LockedProjectRow>(
@@ -672,7 +782,8 @@ export function createPostgresProjectSnapshotService(
               byte_size,
               is_valid,
               created_at,
-              record_json
+              record_json,
+              asset_manifest_json
             FROM project_snapshots
             WHERE project_id = $1
               AND project_version = $2
@@ -684,8 +795,19 @@ export function createPostgresProjectSnapshotService(
         )
         const targetSnapshot = targetResult.rows[0] ?? revisionNotFound()
         validateRevisionRecord(targetSnapshot.record_json, projectId)
+        const targetAssetReferenceChanges = collectSnapshotAssetReferenceChanges(
+          targetSnapshot.record_json.canvas.nodes,
+        )
+        validateSnapshotAssetManifest(targetSnapshot.asset_manifest_json, targetAssetReferenceChanges)
+        await requireCompletedAssetReferences(client, actor.workspaceId, targetAssetReferenceChanges)
 
         const currentGraph = await readCurrentGraph(client, projectId)
+        const currentAssetReferenceChanges = collectSnapshotAssetReferenceChanges(currentGraph.nodes_json)
+        const currentAssetManifest = await requireCompletedAssetReferences(
+          client,
+          actor.workspaceId,
+          currentAssetReferenceChanges,
+        )
         const preRestoreSnapshot = await insertSnapshot(
           client,
           projectId,
@@ -693,10 +815,17 @@ export function createPostgresProjectSnapshotService(
           currentSequence,
           'pre_restore',
           createSnapshotRecord(project, currentGraph),
+          currentAssetManifest,
         )
         const operations = buildRestoreOperations(currentGraph, targetSnapshot.record_json)
 
         await replaceCurrentGraph(client, projectId, targetSnapshot.record_json)
+        await replaceProjectNodeAssetReferences(
+          client,
+          actor.workspaceId,
+          projectId,
+          targetAssetReferenceChanges,
+        )
 
         const countsResult = await client.query<{ node_count: number; edge_count: number }>(
           `

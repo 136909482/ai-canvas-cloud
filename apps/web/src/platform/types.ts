@@ -1,3 +1,4 @@
+import type { AssetKind, AssetReferenceRole } from '@ai-canvas-cloud/contracts'
 import type { CanvasSnapshot, ProjectRecord, WorkflowTemplateLibrary, WorkspaceConfigFile, WorkspaceData } from '@/types'
 
 export type ProjectCheckpointRequestType = 'manual' | 'periodic'
@@ -6,14 +7,24 @@ export interface WriteWorkspaceAssetInput {
   pathSegments: string[]
   fileName: string
   blob: Blob
+  projectId?: string | null
+  assetKind?: AssetKind
+  referenceRole?: AssetReferenceRole
+  width?: number
+  height?: number
 }
 
 export interface WriteWorkspaceAssetAtPathInput {
   relativePath: string
   blob: Blob
+  width?: number
+  height?: number
 }
 
 export interface WorkspaceAssetWriteResult {
+  assetId?: string
+  projectId?: string | null
+  assetKind?: AssetKind
   relativePath: string
   fileName: string
   mimeType: string

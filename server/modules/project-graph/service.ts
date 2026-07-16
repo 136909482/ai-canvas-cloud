@@ -60,7 +60,7 @@ function requireFiniteNumber(value: unknown, field: string) {
   return value
 }
 
-function validateNode(value: unknown): ProjectGraphNode {
+export function validateProjectGraphNode(value: unknown): ProjectGraphNode {
   if (!isRecord(value) || !isRecord(value.position) || !isRecord(value.data)) {
     return validationError('Invalid upsertNode payload')
   }
@@ -112,7 +112,7 @@ function validateNode(value: unknown): ProjectGraphNode {
   }
 }
 
-function validateEdge(value: unknown): ProjectGraphEdge {
+export function validateProjectGraphEdge(value: unknown): ProjectGraphEdge {
   if (!isRecord(value)) {
     return validationError('Invalid upsertEdge payload')
   }
@@ -138,13 +138,13 @@ function validateOperation(value: unknown): ProjectGraphOperation {
   }
 
   if (value.type === 'upsertNode') {
-    return { type: 'upsertNode', node: validateNode(value.node) }
+    return { type: 'upsertNode', node: validateProjectGraphNode(value.node) }
   }
   if (value.type === 'deleteNode') {
     return { type: 'deleteNode', nodeId: requireString(value.nodeId, 'nodeId', ENTITY_ID_MAX_LENGTH) }
   }
   if (value.type === 'upsertEdge') {
-    return { type: 'upsertEdge', edge: validateEdge(value.edge) }
+    return { type: 'upsertEdge', edge: validateProjectGraphEdge(value.edge) }
   }
   if (value.type === 'deleteEdge') {
     return { type: 'deleteEdge', edgeId: requireString(value.edgeId, 'edgeId', ENTITY_ID_MAX_LENGTH) }

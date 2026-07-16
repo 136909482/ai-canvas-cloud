@@ -8,6 +8,11 @@ import {
   createPostgresProjectService,
   createS3ObjectStorage,
   createWorkspaceAuthorizationService,
+  createPostgresWorkspaceUsageService,
+  createPostgresProviderCredentialService,
+  createProviderCredentialCipher,
+  parseProviderCredentialKeyring,
+  createPostgresGenerationTaskService,
   loadDotEnv,
   seedDevelopmentAdminAccount,
 } from '@ai-canvas-cloud/server'
@@ -45,6 +50,17 @@ const assetService = createPostgresAssetService(dbPool, {
 const projectGraphService = createPostgresProjectGraphService(dbPool, { authorizationService: workspaceAuthorizationService })
 const projectSnapshotService = createPostgresProjectSnapshotService(dbPool, { authorizationService: workspaceAuthorizationService })
 const projectService = createPostgresProjectService(dbPool, { authorizationService: workspaceAuthorizationService })
+const workspaceUsageService = createPostgresWorkspaceUsageService(dbPool, { authorizationService: workspaceAuthorizationService })
+const providerCredentialService = createPostgresProviderCredentialService(dbPool, {
+  authorizationService: workspaceAuthorizationService,
+  cipher: createProviderCredentialCipher(parseProviderCredentialKeyring(
+    config.providerCredentialKeys,
+    config.providerCredentialActiveKeyVersion,
+  )),
+})
+const generationTaskService = createPostgresGenerationTaskService(dbPool, {
+  authorizationService: workspaceAuthorizationService,
+})
 const server = createApiServer({
   config,
   logger,
@@ -53,6 +69,9 @@ const server = createApiServer({
   projectGraphService,
   projectSnapshotService,
   projectService,
+  workspaceUsageService,
+  providerCredentialService,
+  generationTaskService,
 })
 
 void seedDevelopmentAdminAccount({

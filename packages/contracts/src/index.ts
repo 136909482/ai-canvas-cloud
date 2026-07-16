@@ -74,6 +74,19 @@ export interface CurrentWorkspaceResponse {
   workspace: WorkspaceSummary
 }
 
+export interface WorkspaceStorageUsageSummary {
+  usedBytes: number
+  reservedBytes: number
+  totalBytes: number
+  quotaBytes: number
+  availableBytes: number
+}
+
+export interface WorkspaceUsageResponse {
+  workspaceId: string
+  storage: WorkspaceStorageUsageSummary
+}
+
 export interface SessionSummary {
   id: string
   deviceLabel: string | null
@@ -369,6 +382,87 @@ export interface AssetUrlResponse {
   assetId: string
   url: string
   expiresAt: string
+}
+
+export type GenerationTaskKind = 'image' | 'video'
+export type GenerationTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
+export type GenerationTaskBillingMode = 'workspace_key' | 'platform'
+
+export interface CreateGenerationTaskRequest {
+  projectId: string
+  sourceNodeId: string
+  previewNodeId?: string | null
+  kind: GenerationTaskKind
+  providerId: string
+  model: string
+  billingMode?: GenerationTaskBillingMode
+  parameters: Record<string, unknown>
+  idempotencyKey: string
+}
+
+export interface GenerationTaskSummary {
+  id: string
+  projectId: string
+  sourceNodeId: string
+  previewNodeId: string | null
+  kind: GenerationTaskKind
+  providerId: string
+  model: string
+  billingMode: GenerationTaskBillingMode
+  status: GenerationTaskStatus
+  progress: number
+  attemptCount: number
+  maxAttempts: number
+  errorCode: string | null
+  errorMessage: string | null
+  cancelRequestedAt: string | null
+  startedAt: string | null
+  finishedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface GenerationTaskResponse {
+  task: GenerationTaskSummary
+}
+
+export interface GenerationTasksResponse {
+  tasks: GenerationTaskSummary[]
+  nextCursor: string | null
+}
+
+export interface GenerationTaskCommandRequest {
+  idempotencyKey: string
+}
+
+export type CloudProviderId = 'openai' | 'aliyun'
+export type ProviderCredentialStatus = 'active' | 'disabled'
+
+export interface ProviderSettingSummary {
+  providerId: CloudProviderId
+  label: string
+  baseUrl: string
+  configured: boolean
+  status: ProviderCredentialStatus | 'not_configured'
+  secretLastFour: string | null
+  updatedAt: string | null
+}
+
+export interface ProviderSettingsResponse {
+  providers: ProviderSettingSummary[]
+}
+
+export interface PutProviderCredentialRequest {
+  apiKey: string
+  baseUrl?: string
+}
+
+export interface ProviderSettingResponse {
+  provider: ProviderSettingSummary
+}
+
+export interface DeleteProviderCredentialResponse {
+  ok: true
 }
 
 export interface ApplyProjectGraphOperationsRequest {

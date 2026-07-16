@@ -18,7 +18,7 @@ import { recordComponentRender } from '@/utils/performanceDiagnostics'
 type CanvasImagePreviewProps = {
   src: string
   alt: string
-  imageAsset?: Partial<Pick<WorkspaceImageAsset, 'relativePath' | 'fileName' | 'thumbnailRelativePath' | 'originalWidth' | 'originalHeight'>> | null
+  imageAsset?: Partial<Pick<WorkspaceImageAsset, 'relativePath' | 'fileName' | 'thumbnailRelativePath' | 'originalWidth' | 'originalHeight' | 'projectId'>> | null
   className?: string
   draggable?: boolean
   forceLowQualityPreview?: boolean
@@ -139,6 +139,7 @@ function CanvasImagePreviewInner({
                 thumbnailRelativePath: persistentThumbnailRelativePath,
                 originalWidth: imageAsset.originalWidth,
                 originalHeight: imageAsset.originalHeight,
+                projectId: imageAsset.projectId,
               },
               imageUrl: src,
             })
@@ -172,7 +173,7 @@ function CanvasImagePreviewInner({
     return () => {
       cancelled = true
     }
-  }, [imageAsset?.fileName, imageAsset?.originalHeight, imageAsset?.originalWidth, imageAsset?.relativePath, persistentThumbnailRelativePath, src])
+  }, [imageAsset?.fileName, imageAsset?.originalHeight, imageAsset?.originalWidth, imageAsset?.projectId, imageAsset?.relativePath, persistentThumbnailRelativePath, src])
 
   useEffect(() => {
     if (

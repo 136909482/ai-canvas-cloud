@@ -106,6 +106,7 @@ export function CanvasQuickActions({ includeWorkflowActions = true, tooltipAlign
   const openSettings = useSettingsDialogStore((state) => state.open)
   const activeProject = useProjectStore((state) => state.getActiveProject())
   const saveActiveProject = useProjectStore((state) => state.saveActiveProject)
+  const isPersisting = useProjectStore((state) => state.isPersisting)
   const syncActiveWorkingSnapshot = useProjectStore((state) => state.syncActiveWorkingSnapshot)
   const getSnapshot = useCanvasStore((state) => state.getSnapshot)
   const replaceSnapshot = useCanvasStore((state) => state.replaceSnapshot)
@@ -190,6 +191,7 @@ export function CanvasQuickActions({ includeWorkflowActions = true, tooltipAlign
           void handleSaveProject()
         }}
         testId="save-project-button"
+        disabled={isPersisting}
         tooltipAlign={tooltipAlign}
         className={iconButtonClass}
         icon={<Save className="h-3.5 w-3.5" />}

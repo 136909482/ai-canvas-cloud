@@ -16,6 +16,14 @@ import {
   type WorkspaceAuthorizationService,
 } from '../workspaces/authorization.js'
 import {
+  collectNodeAssetReferenceChanges,
+  type NodeAssetReferenceChange,
+} from './assetReferences.js'
+import {
+  replaceNodeAssetReferences,
+  requireCompletedAssetReferences,
+} from './postgresAssetReferences.js'
+import {
   PROJECT_GRAPH_CHANGES_PAGE_SIZE,
   validateApplyProjectGraphOperationsRequest,
   validateProjectGraphChangesAfter,
@@ -499,11 +507,25 @@ export function createPostgresProjectGraphService(
         )
         const activeNodes = validateNodeTopology(nodeResult.rows, input.operations)
         validateEdgeEndpoints(activeNodes, input.operations)
+        let assetReferenceChanges: NodeAssetReferenceChange[]
+        try {
+          assetReferenceChanges = collectNodeAssetReferenceChanges(input.operations)
+        } catch (error) {
+          throw new AuthServiceError({
+            statusCode: 400,
+            apiCode: 'VALIDATION_FAILED',
+            message: error instanceof Error ? error.message : 'Invalid node asset reference',
+          })
+        }
+        await requireCompletedAssetReferences(client, actor.workspaceId, assetReferenceChanges)
 
         for (const operation of input.operations) {
           if (operation.type === 'upsertNode' || operation.type === 'deleteNode') {
             await applyNodeOperation(client, projectId, operation)
           }
+        }
+        for (const change of assetReferenceChanges) {
+          await replaceNodeAssetReferences(client, actor.workspaceId, projectId, change)
         }
         for (const operation of input.operations) {
           if (operation.type === 'upsertEdge' || operation.type === 'deleteEdge') {

@@ -20,13 +20,13 @@ server/
   db/                  PostgreSQL schema、迁移、事务与查询
   modules/
     auth/              Better Auth 适配、邮件服务边界、Cloud 工作区补齐、认证错误映射（P2 建立）
-    workspaces/        工作区、成员、权限和配额授权（P2 建立）
+    workspaces/        工作区、成员、权限、存储用量和配额授权（P2/P4 建立）
     projects/          项目元数据、列表分页、归档/恢复和软删除（P3 建立）
     project-graph/     云端图读取、节点/连线增量事务和变更日志读取（P3 建立）
-    project-snapshots/ 手动/定期检查点、历史摘要/详情和 checkpoint restore（P3 建立）
-    assets/            资产上传会话、MinIO/S3 预签名上传、元数据、引用和后续签名读取/GC（P4 建立）
-    tasks/             任务状态机、尝试记录和用量（P5 建立）
-    providers/         凭据解密、目标白名单和模型调用边界（P5 建立）
+    project-snapshots/ 手动/定期检查点、历史摘要/详情、restore 与历史 manifest 修复（P3/P4 建立）
+    assets/            资产上传/读取、MinIO/S3 适配、配额协作、对象诊断和受控 GC（P4 建立）
+    tasks/             任务状态机、任务 HTTP 领域服务与任务/尝试/命令持久化边界（P5-1/P5-3 建立）
+    providers/         Provider 注册表、BYOK 加解密、配置持久化与调用边界（P5-2 建立）
   shared/              仅服务端使用的配置、日志和基础设施适配（后续按需建立）
 
 infra/
@@ -34,6 +34,7 @@ infra/
   deploy/              staging/production 部署定义（P7 建立）
 
 docs/                  长期架构、数据、API 和路线文档
+scripts/               迁移、测试及默认只读的受控数据库维护入口
 test-fixtures/          历史 ProjectRecord、目录包和 API 兼容样本
 ```
 
@@ -81,9 +82,9 @@ src/
   styles/               主题与全局样式
 ```
 
-`platform/cloud` 维护图基线、版本、sequence、ID 级 diff 和签名 URL 生命周期。组件和 store 继续使用项目/画布领域对象，不感知 PostgreSQL 表。
+`platform/cloud` 维护图基线、版本、sequence、ID 级 diff 和私有资产生命周期。Cloud 私有资产写入由平台层编排上传会话、无 Cookie 对象存储直传和完成确认，读取使用 `cloud-assets/<asset-id>` 客户端定位符并按过期时间缓存/刷新签名 URL；session 或工作区变化时统一清理。组件和 store 不感知 object key、PostgreSQL 表或对象存储凭据。
 
-P1 第一批使用内存 Cloud adapter 让画布独立启动和构建；P3 已把项目元数据和关系图读写接入 Cloud API。Web 仍不访问本地目录、Electron、SQLite、File System Access API、数据库、Redis 或对象存储管理凭据。P2 认证 UI 位于 `features/auth`，只通过 Cloud API 调用认证、会话、邮箱验证、重发验证邮件、忘记密码和重置密码接口，不直接访问 Better Auth 数据库表或服务端密钥。
+P1 第一批使用内存 Cloud adapter 让画布独立启动和构建；P3 已把项目元数据和关系图读写接入 Cloud API。Web 仍不访问本地目录、Electron、SQLite、File System Access API、数据库、Redis 或对象存储管理凭据。P2 匿名首页、认证门禁和认证弹层位于 `features/auth`：`PublicHome` 负责未登录产品入口、品牌 Footer 和触发登录/注册，`AuthGate` 负责 session 恢复、认证模式及成功后的应用切换。该目录只通过 Cloud API 调用认证、会话、邮箱验证、重发验证邮件、忘记密码和重置密码接口，不直接访问 Better Auth 数据库表或服务端密钥。
 
 ## 服务端领域模块
 
@@ -99,7 +100,9 @@ P1 第一批使用内存 Cloud adapter 让画布独立启动和构建；P3 已�
 - 不在路由文件中编写跨表事务。
 - 不直接调用任意 Provider target URL。
 
-业务事务集中在 `server/modules`。项目节点、连线和变更只能通过 `server/modules/project-graph` 修改；检查点只能通过 `server/modules/project-snapshots` 创建、列出和恢复；资产引用只能通过后续资产领域模块治理。访问任何工作区资源前，领域模块必须先使用 `server/modules/workspaces` 校验 session 用户的成员关系、角色和工作区状态。
+业务事务集中在 `server/modules`。项目节点、连线、变更和当前节点资产引用只能通过 `server/modules/project-graph` 的同一套领域规则修改；该模块提供纯资产引用提取和 PostgreSQL 引用同步能力，但不接触对象存储凭据。检查点只能通过 `server/modules/project-snapshots` 创建、列出和恢复；该模块复用项目图资产规则生成 manifest、在 restore 事务中重建引用，并为历史 manifest 提供只读预检与逐 checkpoint 短事务修复服务。`scripts/repair-checkpoint-asset-manifests.mjs` 只编排该领域服务和输出脱敏 JSONL 审计，不另写字段扫描或资产授权规则。`server/modules/workspaces` 统一负责成员授权、用量统计和 workspace 配额锁；`server/modules/assets` 在创建上传会话的同一事务调用该能力，并集中治理上传、读取、受控对象 key 解析、缺失/孤立对象诊断与 GC。`scripts/maintain-assets.mjs` 默认只读，只编排资产维护领域服务；显式 apply 仍按单资产短事务和稳定对象 key 游标执行。P5-1 起，`server/modules/tasks` 是任务状态转换规则入口；P5-2 起，`server/modules/providers` 独占白名单、BYOK 加解密和凭据持久化，API/Worker 不得自行拼接 Provider URL 或直接读取密文字段。访问任何工作区资源前，领域模块必须先校验 session 用户的成员关系、角色和工作区状态。
+
+P5-3 的任务 HTTP 路由只解析 session、路径、query 和 JSON，再把创建、分页、取消/重试幂等及 workspace 并发上限交给 `server/modules/tasks`；`apps/api` 不得直接写 `generation_tasks` 或 `task_commands`。Provider 配置存在性由 tasks 调用 providers 的共享锁校验，API 创建路径不解密 BYOK；实际解密和调用只属于后续 Worker 内部路径。
 
 ## Worker 应用
 

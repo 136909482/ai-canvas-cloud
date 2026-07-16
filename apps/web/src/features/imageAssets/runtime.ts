@@ -23,7 +23,7 @@ type WorkspaceImageAssetInput = {
 type WorkspaceImageThumbnailInput = WorkspaceImageAssetInput
 
 type RestoreWorkspaceImageThumbnailInput = {
-  asset: Pick<WorkspaceImageAsset, 'relativePath' | 'fileName' | 'thumbnailRelativePath' | 'originalWidth' | 'originalHeight'>
+  asset: Pick<WorkspaceImageAsset, 'relativePath' | 'fileName' | 'thumbnailRelativePath' | 'originalWidth' | 'originalHeight' | 'projectId'>
   imageUrl: string
 }
 
@@ -127,6 +127,8 @@ export async function writeWorkspaceImageAsset(input: WorkspaceImageAssetInput):
     pathSegments: input.pathSegments,
     fileName: input.fileName,
     blob: input.blob,
+    width: original.width || undefined,
+    height: original.height || undefined,
   })
 
   const enrichedAsset: WorkspaceImageAsset = {
@@ -174,6 +176,10 @@ export async function writeWorkspaceImageThumbnailAsset(input: WorkspaceImageThu
     pathSegments: buildWorkspaceThumbnailPath(input.pathSegments),
     fileName: buildThumbnailFileName(input.fileName),
     blob: thumbnail.blob,
+    assetKind: 'thumbnail',
+    referenceRole: 'thumbnail',
+    width: thumbnail.width,
+    height: thumbnail.height,
   })
 
   return {
@@ -216,6 +222,8 @@ export async function restoreWorkspaceImageThumbnailAsset(input: RestoreWorkspac
     const restoredAsset = await platformBridge.writeWorkspaceAssetAtPath({
       relativePath: input.asset.thumbnailRelativePath,
       blob: thumbnail.blob,
+      width: thumbnail.width,
+      height: thumbnail.height,
     })
 
     return {
@@ -227,11 +235,18 @@ export async function restoreWorkspaceImageThumbnailAsset(input: RestoreWorkspac
     }
   }
 
-  const pathParts = getWorkspaceAssetPathParts(input.asset.relativePath, input.asset.fileName)
+  const pathParts = input.asset.projectId
+    ? { pathSegments: ['projects', input.asset.projectId], fileName: input.asset.fileName }
+    : getWorkspaceAssetPathParts(input.asset.relativePath, input.asset.fileName)
   const thumbnailAsset = await platformBridge.writeWorkspaceAsset({
     pathSegments: buildWorkspaceThumbnailPath(pathParts.pathSegments),
     fileName: buildThumbnailFileName(pathParts.fileName),
     blob: thumbnail.blob,
+    projectId: input.asset.projectId,
+    assetKind: 'thumbnail',
+    referenceRole: 'thumbnail',
+    width: thumbnail.width,
+    height: thumbnail.height,
   })
 
   return {

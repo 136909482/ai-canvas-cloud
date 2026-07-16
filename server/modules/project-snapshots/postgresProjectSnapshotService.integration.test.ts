@@ -81,10 +81,21 @@ test('PostgreSQL checkpoints save the current graph and remain tenant scoped', {
       }],
     }, actorA)
 
-    const checkpoint = await snapshots.createCheckpoint(projectA.id, {
-      expectedVersion: 1,
-      expectedSequence: 1,
-    }, actorA)
+    const [checkpoint, repeatedCheckpoint] = await Promise.all([
+      snapshots.createCheckpoint(projectA.id, {
+        expectedVersion: 1,
+        expectedSequence: 1,
+      }, actorA),
+      snapshots.createCheckpoint(projectA.id, {
+        expectedVersion: 1,
+        expectedSequence: 1,
+      }, actorA),
+    ])
+    assert.equal(repeatedCheckpoint.checkpoint.id, checkpoint.checkpoint.id)
+    assert.equal((await pool.query(
+      `SELECT 1 FROM project_snapshots WHERE project_id = $1 AND project_version = 1 AND snapshot_type = 'manual'`,
+      [projectA.id],
+    )).rowCount, 1)
     assert.equal(checkpoint.checkpoint.snapshotType, 'manual')
     assert.equal(checkpoint.checkpoint.projectVersion, 1)
     assert.equal(checkpoint.checkpoint.lastSequence, 1)

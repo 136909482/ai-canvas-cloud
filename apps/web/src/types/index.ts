@@ -1,4 +1,5 @@
 import type { Edge, Node, NodeProps } from '@xyflow/react'
+import type { AssetKind } from '@ai-canvas-cloud/contracts'
 import type { ProviderId } from '@/config/modelCatalog'
 import type { RichPromptDocument } from '@/features/richPrompt/types'
 
@@ -118,6 +119,9 @@ export interface StorageConfig {
 }
 
 export interface WorkspaceImageAsset {
+  assetId?: string
+  projectId?: string | null
+  assetKind?: AssetKind
   relativePath: string
   mimeType: string
   fileName: string

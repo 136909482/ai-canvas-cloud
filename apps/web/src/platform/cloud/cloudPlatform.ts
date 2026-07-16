@@ -1,6 +1,10 @@
 import type {
   ApplyProjectGraphOperationsRequest,
   ApplyProjectGraphOperationsResponse,
+  AssetResponse,
+  AssetUploadResponse,
+  AssetUrlResponse,
+  CompleteAssetUploadResponse,
   CurrentWorkspaceResponse,
   ProjectCheckpointResponse,
   ProjectGraphChange,
@@ -23,6 +27,11 @@ import {
   doProjectGraphChangesOverlap,
   projectGraphResponseToCanvasSnapshot,
 } from '@/platform/cloud/cloudProjectGraph'
+import {
+  createCloudAssetUrlCache,
+  getCloudAssetIdFromRelativePath,
+} from '@/platform/cloud/cloudAssetUrlCache'
+import { createCloudAssetUploader } from '@/platform/cloud/cloudAssetUpload'
 import type {
   CleanupWorkspaceAssetsResult,
   CommitProjectBundleImportResult,
@@ -34,7 +43,6 @@ import type {
   WorkflowFile,
   WorkflowImportResult,
   WorkspaceAssetDiskInspection,
-  WorkspaceAssetWriteResult,
   WorkspaceProjectSummary,
   WorkspaceStatus,
 } from '@/platform/types'
@@ -42,8 +50,21 @@ import type {
 const PERIODIC_CHECKPOINT_MIN_SEQUENCE_DELTA = 25
 const PERIODIC_CHECKPOINT_MIN_INTERVAL_MS = 10 * 60_000
 
-const memoryAssetUrls = new Map<string, string>()
-const memoryAssetBlobs = new Map<string, Blob>()
+const cloudAssetUrlCache = createCloudAssetUrlCache({
+  loadAssetUrl: (assetId) => requestCloudJson<AssetUrlResponse>(
+    `/assets/${encodeURIComponent(assetId)}/url`,
+  ),
+})
+const cloudAssetUploader = createCloudAssetUploader({
+  createUpload: (input) => requestCloudJson<AssetUploadResponse>('/assets/uploads', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }),
+  completeUpload: (uploadId) => requestCloudJson<CompleteAssetUploadResponse>(
+    `/assets/uploads/${encodeURIComponent(uploadId)}/complete`,
+    { method: 'POST', body: JSON.stringify({}) },
+  ),
+})
 const knownProjectSummaries = new Map<string, ProjectSummary>()
 const cloudProjectStates = new Map<string, CloudProjectState>()
 
@@ -58,6 +79,7 @@ interface CloudProjectState {
   sequence: number
   baselineCanvas: CanvasSnapshot
   pending?: PendingGraphSave
+  lastManualCheckpointSequence: number
   lastPeriodicCheckpointSequence: number
   lastPeriodicCheckpointAt: number
 }
@@ -106,11 +128,7 @@ function setCurrentWorkspace(workspaceId: string) {
 }
 
 function resetCloudSessionCache() {
-  for (const url of memoryAssetUrls.values()) {
-    URL.revokeObjectURL(url)
-  }
-  memoryAssetUrls.clear()
-  memoryAssetBlobs.clear()
+  clearWorkspaceAssetUrlCache()
   knownProjectSummaries.clear()
   cloudProjectStates.clear()
   currentWorkspaceId = null
@@ -122,6 +140,10 @@ function resetCloudSessionCache() {
     activeProjectId: null,
     lastOpenedProjectId: null,
   }
+}
+
+function clearWorkspaceAssetUrlCache() {
+  cloudAssetUrlCache.clear()
 }
 
 function toTimestamp(value: string) {
@@ -231,6 +253,7 @@ async function loadCloudProject(projectId: string) {
     version: graph.version,
     sequence: graph.sequence,
     baselineCanvas: cloneJson(project.workingSnapshot.canvas),
+    lastManualCheckpointSequence: -1,
     lastPeriodicCheckpointSequence: graph.sequence,
     lastPeriodicCheckpointAt: Date.now(),
   })
@@ -258,6 +281,7 @@ async function ensureCloudProject(project: ProjectRecord) {
     version: created.project.version,
     sequence: created.project.lastSequence,
     baselineCanvas: { nodes: [], edges: [] },
+    lastManualCheckpointSequence: -1,
     lastPeriodicCheckpointSequence: created.project.lastSequence,
     lastPeriodicCheckpointAt: Date.now(),
   }
@@ -454,6 +478,10 @@ async function createCloudProjectCheckpoint(projectId: string, input: CreateProj
   await flushPendingGraphSave(projectId, currentState)
   const checkpointType = input.checkpointType ?? 'manual'
 
+  if (checkpointType === 'manual' && currentState.lastManualCheckpointSequence === currentState.sequence) {
+    return
+  }
+
   if (checkpointType === 'periodic' && shouldSkipPeriodicCheckpoint(currentState, input)) {
     return
   }
@@ -478,7 +506,9 @@ async function createCloudProjectCheckpoint(projectId: string, input: CreateProj
     throw error
   }
   currentState.summary = response.project
-  if (checkpointType === 'periodic') {
+  if (checkpointType === 'manual') {
+    currentState.lastManualCheckpointSequence = currentState.sequence
+  } else {
     currentState.lastPeriodicCheckpointSequence = currentState.sequence
     currentState.lastPeriodicCheckpointAt = Date.now()
   }
@@ -487,24 +517,6 @@ async function createCloudProjectCheckpoint(projectId: string, input: CreateProj
 
 function normalizeAssetPath(relativePath: string) {
   return relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
-}
-
-function createAssetResult(relativePath: string, fileName: string, blob: Blob): WorkspaceAssetWriteResult {
-  const normalizedPath = normalizeAssetPath(relativePath)
-  const previousUrl = memoryAssetUrls.get(normalizedPath)
-
-  if (previousUrl) {
-    URL.revokeObjectURL(previousUrl)
-  }
-
-  memoryAssetBlobs.set(normalizedPath, blob)
-  memoryAssetUrls.set(normalizedPath, URL.createObjectURL(blob))
-
-  return {
-    relativePath: normalizedPath,
-    fileName,
-    mimeType: blob.type || 'application/octet-stream',
-  }
 }
 
 function triggerDownload(content: string, fileName: string) {
@@ -672,54 +684,58 @@ export const cloudPlatformBridge: PlatformBridge = {
   },
 
   async writeWorkspaceAsset(input) {
-    const extension = input.fileName.split('.').pop() || 'bin'
-    const fileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`
-    return createAssetResult(
-      ['cloud-memory', ...input.pathSegments, fileName].join('/'),
-      fileName,
-      input.blob,
-    )
+    return cloudAssetUploader.upload(input)
   },
 
   async writeWorkspaceAssetAtPath(input) {
     const relativePath = normalizeAssetPath(input.relativePath)
-    const fileName = relativePath.split('/').pop() || 'asset'
-    return createAssetResult(relativePath, fileName, input.blob)
+    const cloudAssetId = getCloudAssetIdFromRelativePath(relativePath)
+
+    if (cloudAssetId) {
+      const metadata = await requestCloudJson<AssetResponse>(`/assets/${encodeURIComponent(cloudAssetId)}`)
+      return cloudAssetUploader.upload({
+        pathSegments: [],
+        fileName: metadata.asset.originalFileName ?? 'asset',
+        blob: input.blob,
+        projectId: metadata.asset.projectId,
+        assetKind: metadata.asset.assetKind,
+        width: input.width,
+        height: input.height,
+      })
+    }
+
+    const segments = relativePath.split('/').filter(Boolean)
+    const fileName = segments.pop() || 'asset'
+    return cloudAssetUploader.upload({
+      pathSegments: segments,
+      fileName,
+      blob: input.blob,
+      width: input.width,
+      height: input.height,
+    })
   },
 
   async resolveWorkspaceAssetUrl(relativePath) {
     const normalizedPath = normalizeAssetPath(relativePath)
-    const url = memoryAssetUrls.get(normalizedPath)
-
-    if (!url) {
-      throw new Error('内存资源不存在，请重新导入或生成该资源')
+    const cloudAssetId = getCloudAssetIdFromRelativePath(normalizedPath)
+    if (cloudAssetId) {
+      return cloudAssetUrlCache.resolve(cloudAssetId)
     }
 
-    return url
+    throw new Error('Cloud 资源定位符无效')
   },
 
   clearWorkspaceAssetUrlCache() {
-    for (const url of memoryAssetUrls.values()) {
-      URL.revokeObjectURL(url)
-    }
-
-    memoryAssetUrls.clear()
-    memoryAssetBlobs.clear()
+    clearWorkspaceAssetUrlCache()
   },
 
   async inspectWorkspaceAssets(): Promise<WorkspaceAssetDiskInspection> {
-    const entries = [...memoryAssetBlobs.entries()].map(([relativePath, blob]) => ({
-      relativePath,
-      byteSize: blob.size,
-    }))
-    const totalByteSize = entries.reduce((total, entry) => total + entry.byteSize, 0)
-
     return {
       scannedAt: Date.now(),
-      totalFileCount: entries.length,
-      totalByteSize,
-      referencedFileCount: entries.length,
-      referencedByteSize: totalByteSize,
+      totalFileCount: 0,
+      totalByteSize: 0,
+      referencedFileCount: 0,
+      referencedByteSize: 0,
       orphanedFileCount: 0,
       orphanedByteSize: 0,
       orphanedFiles: [],

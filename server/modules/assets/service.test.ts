@@ -27,6 +27,16 @@ test('asset upload request validation normalizes safe metadata', () => {
   assert.equal(request.mimeType, 'image/png')
   assert.equal(request.sha256, 'a'.repeat(64))
   assert.equal(request.idempotencyKey, 'asset_upload_1')
+
+  const quickTimeVideo = validateCreateAssetUploadRequest({
+    projectId: '11111111-1111-4111-8111-111111111111',
+    originalFileName: 'reference.mov',
+    mimeType: 'video/quicktime',
+    byteSize: 2048,
+    assetKind: 'video',
+    idempotencyKey: 'asset_upload_mov',
+  })
+  assert.equal(quickTimeVideo.mimeType, 'video/quicktime')
 })
 
 test('asset upload request validation rejects unsafe or oversized inputs', () => {
@@ -108,6 +118,20 @@ test('unavailable asset service reports service unavailable', async () => {
       return true
     },
   )
+
+  for (const read of [service.getAsset, service.getAssetUrl]) {
+    await assert.rejects(
+      () => read('66666666-6666-4666-8666-666666666666', {
+        userId: 'user-1',
+        workspaceId: 'workspace-1',
+      }),
+      (error: unknown) => {
+        assert(error instanceof AuthServiceError)
+        assert.equal(error.apiCode, 'SERVICE_UNAVAILABLE')
+        return true
+      },
+    )
+  }
 })
 
 test('S3 object storage creates MinIO-compatible presigned PUT URLs without exposing secrets', async () => {
@@ -132,4 +156,28 @@ test('S3 object storage creates MinIO-compatible presigned PUT URLs without expo
   assert.match(upload.url, /^http:\/\/localhost:9000\/ai-canvas-cloud\//)
   assert.match(upload.url, /X-Amz-Signature=/)
   assert.equal(upload.url.includes('local-secret-key'), false)
+})
+
+test('S3 object storage creates expiring MinIO-compatible GET URLs without exposing secrets', async () => {
+  const storage = createS3ObjectStorage({
+    endpoint: 'http://localhost:9000',
+    bucket: 'ai-canvas-cloud',
+    region: 'local',
+    accessKeyId: 'local-access-key',
+    secretAccessKey: 'local-secret-key',
+    forcePathStyle: true,
+  })
+
+  const before = Date.now()
+  const read = await storage.createPresignedDownload({
+    objectKey: 'workspaces/workspace-1/projects/project-1/uploads/asset-1.png',
+    expiresInSeconds: 300,
+  })
+
+  assert.match(read.url, /^http:\/\/localhost:9000\/ai-canvas-cloud\//)
+  assert.match(read.url, /X-Amz-Signature=/)
+  assert.match(read.url, /X-Amz-Expires=300/)
+  assert.equal(read.url.includes('local-secret-key'), false)
+  assert(new Date(read.expiresAt).getTime() >= before + 299_000)
+  assert(new Date(read.expiresAt).getTime() <= Date.now() + 301_000)
 })

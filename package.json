@@ -19,6 +19,8 @@
     "build": "npm run build --workspaces --if-present",
     "db:migrate": "node scripts/apply-migrations.mjs",
     "db:migrate:test": "node scripts/check-migrations.mjs",
+    "db:repair:checkpoint-assets": "npm run build --workspace @ai-canvas-cloud/server && node scripts/repair-checkpoint-asset-manifests.mjs",
+    "db:maintain:assets": "npm run build --workspace @ai-canvas-cloud/server && node scripts/maintain-assets.mjs",
     "format:check": "prettier --check ."
   },
   "devDependencies": {

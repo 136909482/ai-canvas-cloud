@@ -22,31 +22,47 @@ function toSession(response: AuthSuccessResponse): AuthSessionResponse {
   }
 }
 
+let sessionCheckInFlight: Promise<void> | null = null
+
 export const useAuthStore = create<AuthStore>()((set) => ({
   status: 'checking',
   session: null,
   error: null,
 
-  checkSession: async (options) => {
+  checkSession: (options) => {
+    if (sessionCheckInFlight) {
+      return sessionCheckInFlight
+    }
+
     const silent = options?.silent ?? false
 
-    if (!silent) {
-      set({ status: 'checking', error: null })
-    } else {
-      set({ error: null })
-    }
+    const check = (async () => {
+      if (!silent) {
+        set({ status: 'checking', error: null })
+      } else {
+        set({ error: null })
+      }
 
-    try {
-      const session = await fetchAuthSession()
-      set({ status: 'authenticated', session, error: null })
-    } catch (error) {
-      useProjectStore.getState().resetForSession()
-      set({
-        status: 'anonymous',
-        session: null,
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
+      try {
+        const session = await fetchAuthSession()
+        set({ status: 'authenticated', session, error: null })
+      } catch (error) {
+        useProjectStore.getState().resetForSession()
+        set({
+          status: 'anonymous',
+          session: null,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    })()
+
+    sessionCheckInFlight = check
+    void check.finally(() => {
+      if (sessionCheckInFlight === check) {
+        sessionCheckInFlight = null
+      }
+    })
+    return check
   },
 
   login: async (input) => {

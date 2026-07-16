@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto'
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import type { AssetMaintenanceObjectStorage } from './assetMaintenance.js'
 import type { AssetObjectStorage } from './service.js'
 
 export interface S3ObjectStorageOptions {
@@ -12,7 +20,19 @@ export interface S3ObjectStorageOptions {
   forcePathStyle?: boolean
 }
 
-export function createS3ObjectStorage(options: S3ObjectStorageOptions): AssetObjectStorage {
+function isObjectNotFound(error: unknown) {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+  const name = 'name' in error ? error.name : null
+  const metadata = '$metadata' in error && error.$metadata && typeof error.$metadata === 'object'
+    ? error.$metadata
+    : null
+  const statusCode = metadata && 'httpStatusCode' in metadata ? metadata.httpStatusCode : null
+  return name === 'NotFound' || name === 'NoSuchKey' || statusCode === 404
+}
+
+export function createS3ObjectStorage(options: S3ObjectStorageOptions): AssetObjectStorage & AssetMaintenanceObjectStorage {
   const client = new S3Client({
     endpoint: options.endpoint,
     region: options.region,
@@ -39,6 +59,19 @@ export function createS3ObjectStorage(options: S3ObjectStorageOptions): AssetObj
         headers: {
           'content-type': input.mimeType,
         },
+        expiresAt: expiresAt.toISOString(),
+      }
+    },
+
+    async createPresignedDownload(input) {
+      const expiresAt = new Date(Date.now() + input.expiresInSeconds * 1000)
+      const command = new GetObjectCommand({
+        Bucket: options.bucket,
+        Key: input.objectKey,
+      })
+
+      return {
+        url: await getSignedUrl(client, command, { expiresIn: input.expiresInSeconds }),
         expiresAt: expiresAt.toISOString(),
       }
     },
@@ -71,6 +104,44 @@ export function createS3ObjectStorage(options: S3ObjectStorageOptions): AssetObj
       }
 
       return hash.digest('hex')
+    },
+
+    async objectExists(objectKey) {
+      try {
+        await client.send(new HeadObjectCommand({ Bucket: options.bucket, Key: objectKey }))
+        return true
+      } catch (error) {
+        if (isObjectNotFound(error)) {
+          return false
+        }
+        throw error
+      }
+    },
+
+    async listObjectsPage(input) {
+      const result = await client.send(new ListObjectsV2Command({
+        Bucket: options.bucket,
+        Prefix: input.prefix,
+        StartAfter: input.startAfter ?? undefined,
+        MaxKeys: input.maxKeys,
+      }))
+      const objects = (result.Contents ?? []).flatMap((object) => object.Key
+        ? [{
+            objectKey: object.Key,
+            byteSize: object.Size ?? 0,
+            lastModified: object.LastModified?.toISOString() ?? null,
+          }]
+        : [])
+      return {
+        objects,
+        nextStartAfter: result.IsTruncated
+          ? (objects.at(-1)?.objectKey ?? null)
+          : null,
+      }
+    },
+
+    async deleteObject(objectKey) {
+      await client.send(new DeleteObjectCommand({ Bucket: options.bucket, Key: objectKey }))
     },
   }
 }

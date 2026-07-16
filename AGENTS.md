@@ -63,6 +63,8 @@
 - `npm run lint`
 - `npm run db:migrate`
 - `npm run db:migrate:test`
+- `npm run db:repair:checkpoint-assets`
+- `npm run db:maintain:assets`
 - `npm run build`
 
 代码落地后，常规改动至少验证：

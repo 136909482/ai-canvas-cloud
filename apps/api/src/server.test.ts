@@ -3,13 +3,16 @@ import http from 'node:http'
 import test from 'node:test'
 import {
   API_V1_PREFIX,
+  type AssetResponse,
   type AssetUploadResponse,
+  type AssetUrlResponse,
   type ApplyProjectGraphOperationsResponse,
   type AuthSessionResponse,
   type AuthSessionsResponse,
   type CompleteAssetUploadResponse,
   type AuthSuccessResponse,
   type CurrentWorkspaceResponse,
+  type WorkspaceUsageResponse,
   type ProjectCheckpointResponse,
   type ProjectGraphChangesResponse,
   type ProjectGraphResponse,
@@ -19,6 +22,9 @@ import {
   type ProjectResponse,
   type ProjectsResponse,
   type RevokeSessionResponse,
+  type ProviderSettingsResponse,
+  type GenerationTaskResponse,
+  type GenerationTasksResponse,
 } from '@ai-canvas-cloud/contracts'
 import type { AssetService } from '@ai-canvas-cloud/server/modules/assets'
 import {
@@ -30,6 +36,9 @@ import {
 import type { ProjectGraphService } from '@ai-canvas-cloud/server/modules/project-graph'
 import type { ProjectSnapshotService } from '@ai-canvas-cloud/server/modules/project-snapshots'
 import type { ProjectActor, ProjectService } from '@ai-canvas-cloud/server/modules/projects'
+import type { ProviderCredentialService } from '@ai-canvas-cloud/server/modules/providers'
+import type { GenerationTaskService } from '@ai-canvas-cloud/server/modules/tasks'
+import type { WorkspaceUsageService } from '@ai-canvas-cloud/server/modules/workspaces'
 import { closeApiServer, createApiServer } from '../dist/server.js'
 import type { ApiConfig } from './config.ts'
 
@@ -49,6 +58,8 @@ const config: ApiConfig = {
   s3Region: 'local',
   s3AccessKeyId: 'test',
   s3SecretAccessKey: 'test',
+  providerCredentialKeys: `1:${Buffer.alloc(32, 1).toString('base64')}`,
+  providerCredentialActiveKeyVersion: 1,
 }
 
 function createAuthResponse(expiresAt: Date): AuthSuccessResponse {
@@ -246,6 +257,18 @@ function createFakeProjectGraphService() {
     },
     async applyOperations(_projectId, input, actor): Promise<ApplyProjectGraphOperationsResponse> {
       actors.push(actor)
+      const referencesPendingAsset = input.operations.some((operation) =>
+        operation.type === 'upsertNode'
+        && (operation.node.data.imageAsset as { assetId?: unknown } | undefined)?.assetId
+          === '44444444-4444-4444-8444-444444444444',
+      )
+      if (referencesPendingAsset) {
+        throw new AuthServiceError({
+          statusCode: 409,
+          apiCode: 'ASSET_NOT_READY',
+          message: 'Referenced asset is not ready',
+        })
+      }
       if (input.baseVersion !== 0) {
         throw new AuthServiceError({
           statusCode: 409,
@@ -351,6 +374,13 @@ function createFakeProjectSnapshotService() {
     },
     async restoreRevision(_projectId, version, input, actor): Promise<ProjectRevisionRestoreResponse> {
       actors.push(actor)
+      if (version === 3) {
+        throw new AuthServiceError({
+          statusCode: 409,
+          apiCode: 'ASSET_NOT_READY',
+          message: 'Referenced asset is not ready',
+        })
+      }
       if (version !== 1) {
         throw new AuthServiceError({
           statusCode: 404,
@@ -473,9 +503,155 @@ function createFakeAssetService() {
         },
       }
     },
+    async getAsset(assetId, actor): Promise<AssetResponse> {
+      actors.push(actor)
+      return {
+        asset: {
+          id: assetId,
+          projectId: '11111111-1111-4111-8111-111111111111',
+          originalFileName: 'reference.png',
+          mimeType: 'image/png',
+          byteSize: 2048,
+          sha256: null,
+          width: null,
+          height: null,
+          assetKind: 'upload',
+          status: 'completed',
+          createdAt: '2026-07-15T00:00:00.000Z',
+          updatedAt: '2026-07-15T00:10:00.000Z',
+        },
+      }
+    },
+    async getAssetUrl(assetId, actor): Promise<AssetUrlResponse> {
+      actors.push(actor)
+      return {
+        assetId,
+        url: 'http://localhost:9000/ai-canvas-cloud/presigned-read',
+        expiresAt: '2026-07-15T00:15:00.000Z',
+      }
+    },
   }
 
   return { actors, service }
+}
+
+function createFakeWorkspaceUsageService() {
+  const actors: ProjectActor[] = []
+  const service: WorkspaceUsageService = {
+    async getCurrentUsage(actor): Promise<WorkspaceUsageResponse> {
+      actors.push(actor)
+      return {
+        workspaceId: actor.workspaceId,
+        storage: {
+          usedBytes: 1024,
+          reservedBytes: 512,
+          totalBytes: 1536,
+          quotaBytes: 20 * 1024 * 1024 * 1024,
+          availableBytes: 20 * 1024 * 1024 * 1024 - 1536,
+        },
+      }
+    },
+  }
+  return { actors, service }
+}
+
+function createFakeProviderCredentialService() {
+  const actors: ProjectActor[] = []
+  const calls: string[] = []
+  const service: ProviderCredentialService = {
+    async listProviders(actor) {
+      actors.push(actor)
+      calls.push('list')
+      return {
+        providers: [{
+          providerId: 'openai',
+          label: 'OpenAI',
+          baseUrl: 'https://api.openai.com',
+          configured: false,
+          status: 'not_configured',
+          secretLastFour: null,
+          updatedAt: null,
+        }],
+      }
+    },
+    async putProvider(providerId, input, actor) {
+      actors.push(actor)
+      calls.push(`put:${providerId}`)
+      return {
+        provider: {
+          providerId: 'openai',
+          label: 'OpenAI',
+          baseUrl: 'https://api.openai.com',
+          configured: true,
+          status: 'active',
+          secretLastFour: input.apiKey.slice(-4),
+          updatedAt: '2026-07-16T00:00:00.000Z',
+        },
+      }
+    },
+    async deleteProvider(providerId, actor) {
+      actors.push(actor)
+      calls.push(`delete:${providerId}`)
+      return { ok: true }
+    },
+    async getExecutionCredential() {
+      throw new Error('Execution credential is not expected in an API route test')
+    },
+  }
+  return { actors, calls, service }
+}
+
+function createFakeGenerationTaskService() {
+  const actors: ProjectActor[] = []
+  const calls: string[] = []
+  const task: GenerationTaskResponse['task'] = {
+    id: '33333333-3333-4333-8333-333333333333',
+    projectId: '11111111-1111-4111-8111-111111111111',
+    sourceNodeId: 'source-node',
+    previewNodeId: 'preview-node',
+    kind: 'image',
+    providerId: 'openai',
+    model: 'gpt-image-2',
+    billingMode: 'workspace_key',
+    status: 'queued',
+    progress: 0,
+    attemptCount: 0,
+    maxAttempts: 3,
+    errorCode: null,
+    errorMessage: null,
+    cancelRequestedAt: null,
+    startedAt: null,
+    finishedAt: null,
+    createdAt: '2026-07-16T00:00:00.000Z',
+    updatedAt: '2026-07-16T00:00:00.000Z',
+  }
+  const capture = (actor: ProjectActor, call: string) => {
+    actors.push(actor)
+    calls.push(call)
+  }
+  const service: GenerationTaskService = {
+    async createTask(input, actor) {
+      capture(actor, `create:${input.idempotencyKey}`)
+      return { task }
+    },
+    async listTasks(input, actor): Promise<GenerationTasksResponse> {
+      capture(actor, `list:${input.status ?? ''}:${input.limit ?? ''}`)
+      return { tasks: [task], nextCursor: 'next-task-cursor' }
+    },
+    async getTask(taskId, actor) {
+      capture(actor, `get:${taskId}`)
+      return { task }
+    },
+    async cancelTask(taskId, input, actor) {
+      capture(actor, `cancel:${taskId}:${input.idempotencyKey}`)
+      return { task: { ...task, status: 'canceled', finishedAt: task.updatedAt } }
+    },
+    async retryTask(taskId, input, actor) {
+      capture(actor, `retry:${taskId}:${input.idempotencyKey}`)
+      return { task }
+    },
+  }
+  return { actors, calls, service }
 }
 
 function listen(server: http.Server) {
@@ -829,6 +1005,314 @@ test('asset upload route uses the session actor and returns presigned upload met
       { userId: 'user_1', workspaceId: 'workspace_1' },
       { userId: 'user_1', workspaceId: 'workspace_1' },
     ])
+
+    const assetId = '66666666-6666-4666-8666-666666666666'
+    const metadata = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/assets/${assetId}?workspaceId=forged-workspace`,
+      cookie,
+    })
+    assert.equal(metadata.statusCode, 200)
+    assert.equal((metadata.body as AssetResponse).asset.id, assetId)
+    assert.equal('objectKey' in (metadata.body as AssetResponse).asset, false)
+
+    const readUrl = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/assets/${assetId}/url?userId=forged-user`,
+      cookie,
+    })
+    assert.equal(readUrl.statusCode, 200)
+    assert.equal((readUrl.body as AssetUrlResponse).assetId, assetId)
+    assert.equal('headers' in (readUrl.body as AssetUrlResponse), false)
+    assert(assets.actors.every((actor) => actor.userId === 'user_1' && actor.workspaceId === 'workspace_1'))
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('current workspace usage route uses only the trusted session actor', async () => {
+  const usage = createFakeWorkspaceUsageService()
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+    workspaceUsageService: usage.service,
+  })
+  const port = await listen(server)
+
+  try {
+    const missingCookie = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/workspaces/current/usage`,
+    })
+    assert.equal(missingCookie.statusCode, 401)
+
+    const response = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/workspaces/current/usage?workspaceId=forged&userId=forged`,
+      cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`,
+    })
+    assert.equal(response.statusCode, 200)
+    assert.equal((response.body as WorkspaceUsageResponse).workspaceId, 'workspace_1')
+    assert.equal((response.body as WorkspaceUsageResponse).storage.quotaBytes, 20 * 1024 * 1024 * 1024)
+    assert.deepEqual(usage.actors, [{ userId: 'user_1', workspaceId: 'workspace_1' }])
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('provider settings routes use the session actor and never return the API key', async () => {
+  const providers = createFakeProviderCredentialService()
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+    providerCredentialService: providers.service,
+  })
+  const port = await listen(server)
+
+  try {
+    const missingCookie = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/settings/providers`,
+    })
+    assert.equal(missingCookie.statusCode, 401)
+
+    const updated = await requestJson(port, {
+      method: 'PUT',
+      path: `${API_V1_PREFIX}/settings/providers/openai`,
+      cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`,
+      body: { apiKey: 'test-provider-secret-1234', baseUrl: 'https://api.openai.com' },
+    })
+    assert.equal(updated.statusCode, 200)
+    assert.equal((updated.body as { provider: { secretLastFour: string } }).provider.secretLastFour, '1234')
+    assert.equal(JSON.stringify(updated.body).includes('test-provider-secret'), false)
+
+    const listed = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/settings/providers?workspaceId=forged`,
+      cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`,
+    })
+    assert.equal(listed.statusCode, 200)
+    assert.equal((listed.body as ProviderSettingsResponse).providers[0]?.providerId, 'openai')
+
+    const deleted = await requestJson(port, {
+      method: 'DELETE',
+      path: `${API_V1_PREFIX}/settings/providers/openai`,
+      cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`,
+    })
+    assert.equal(deleted.statusCode, 200)
+    assert.deepEqual(deleted.body, { ok: true })
+    assert(providers.actors.every((actor) => actor.userId === 'user_1' && actor.workspaceId === 'workspace_1'))
+    assert.deepEqual(providers.calls, [
+      'put:openai',
+      'list',
+      'delete:openai',
+    ])
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('generation task routes use the trusted session actor and expose only resumable task state', async () => {
+  const tasks = createFakeGenerationTaskService()
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+    generationTaskService: tasks.service,
+  })
+  const port = await listen(server)
+  const cookie = `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`
+  const taskId = '33333333-3333-4333-8333-333333333333'
+  try {
+    const missingSession = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/tasks`,
+    })
+    assert.equal(missingSession.statusCode, 401)
+
+    const created = await requestJson(port, {
+      method: 'POST',
+      path: `${API_V1_PREFIX}/tasks`,
+      cookie,
+      body: {
+        projectId: '11111111-1111-4111-8111-111111111111',
+        sourceNodeId: 'source-node',
+        kind: 'image',
+        providerId: 'openai',
+        model: 'gpt-image-2',
+        parameters: { prompt: 'cloud' },
+        idempotencyKey: 'api-create',
+        workspaceId: 'forged-workspace',
+        userId: 'forged-user',
+      },
+    })
+    assert.equal(created.statusCode, 201)
+    assert.equal((created.body as GenerationTaskResponse).task.id, taskId)
+    assert.equal('workspaceId' in (created.body as GenerationTaskResponse).task, false)
+    assert.equal('requestJson' in (created.body as GenerationTaskResponse).task, false)
+
+    const listed = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/tasks?status=queued&limit=1&workspaceId=forged`,
+      cookie,
+    })
+    assert.equal(listed.statusCode, 200)
+    assert.equal((listed.body as GenerationTasksResponse).nextCursor, 'next-task-cursor')
+    assert.equal((await requestJson(port, { method: 'GET', path: `${API_V1_PREFIX}/tasks/${taskId}`, cookie })).statusCode, 200)
+    assert.equal((await requestJson(port, {
+      method: 'POST', path: `${API_V1_PREFIX}/tasks/${taskId}/cancel`, cookie,
+      body: { idempotencyKey: 'api-cancel' },
+    })).statusCode, 200)
+    assert.equal((await requestJson(port, {
+      method: 'POST', path: `${API_V1_PREFIX}/tasks/${taskId}/retry`, cookie,
+      body: { idempotencyKey: 'api-retry' },
+    })).statusCode, 200)
+
+    assert(tasks.actors.every((actor) => actor.userId === 'user_1' && actor.workspaceId === 'workspace_1'))
+    assert.deepEqual(tasks.calls, [
+      'create:api-create',
+      'list:queued:1',
+      `get:${taskId}`,
+      `cancel:${taskId}:api-cancel`,
+      `retry:${taskId}:api-retry`,
+    ])
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('asset upload route preserves workspace quota error details', async () => {
+  const baseAssetService = createFakeAssetService().service
+  const assetService: AssetService = {
+    ...baseAssetService,
+    async createUpload() {
+      throw new AuthServiceError({
+        statusCode: 409,
+        apiCode: 'QUOTA_EXCEEDED',
+        message: 'Workspace storage quota exceeded',
+        details: {
+          quotaBytes: 100,
+          usedBytes: 60,
+          reservedBytes: 40,
+          availableBytes: 0,
+          requestedBytes: 1,
+        },
+      })
+    },
+  }
+  const server = createApiServer({ config, authService: createFakeAuthService(), assetService })
+  const port = await listen(server)
+
+  try {
+    const response = await requestJson(port, {
+      method: 'POST',
+      path: `${API_V1_PREFIX}/assets/uploads`,
+      cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`,
+      body: {
+        originalFileName: 'over-quota.png',
+        mimeType: 'image/png',
+        byteSize: 1,
+        assetKind: 'upload',
+        idempotencyKey: 'quota-error',
+      },
+    })
+    assert.equal(response.statusCode, 409)
+    const error = (response.body as { error: { code: string; details: Record<string, unknown> } }).error
+    assert.equal(error.code, 'QUOTA_EXCEEDED')
+    assert.equal(error.details.availableBytes, 0)
+    assert.equal('workspaceId' in error.details, false)
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('asset read routes preserve non-disclosing two-account isolation', async () => {
+  const baseAuthService = createFakeAuthService()
+  const authService: AuthService = {
+    ...baseAuthService,
+    async getSession(context) {
+      if (context.cookieHeader?.includes('session_b')) {
+        return {
+          user: { id: 'asset_user_b', email: 'asset-b@example.com', status: 'active', emailVerified: true },
+          workspace: {
+            id: 'asset_workspace_b',
+            type: 'personal',
+            name: 'Asset B workspace',
+            role: 'owner',
+            status: 'active',
+            planKey: 'free',
+          },
+        }
+      }
+
+      if (context.cookieHeader?.includes('session_a')) {
+        return {
+          user: { id: 'asset_user_a', email: 'asset-a@example.com', status: 'active', emailVerified: true },
+          workspace: {
+            id: 'asset_workspace_a',
+            type: 'personal',
+            name: 'Asset A workspace',
+            role: 'owner',
+            status: 'active',
+            planKey: 'free',
+          },
+        }
+      }
+
+      throw new AuthServiceError({
+        statusCode: 401,
+        apiCode: 'SESSION_EXPIRED',
+        message: 'Session expired',
+      })
+    },
+  }
+  const baseAssetService = createFakeAssetService().service
+  const requireOwner = (workspaceId: string) => {
+    if (workspaceId !== 'asset_workspace_b') {
+      throw new AuthServiceError({
+        statusCode: 404,
+        apiCode: 'RESOURCE_NOT_FOUND',
+        message: 'Asset not found',
+      })
+    }
+  }
+  const assetService: AssetService = {
+    ...baseAssetService,
+    async getAsset(assetId, actor) {
+      requireOwner(actor.workspaceId)
+      return baseAssetService.getAsset(assetId, actor)
+    },
+    async getAssetUrl(assetId, actor) {
+      requireOwner(actor.workspaceId)
+      return baseAssetService.getAssetUrl(assetId, actor)
+    },
+  }
+  const server = createApiServer({ config, authService, assetService })
+  const port = await listen(server)
+  const assetId = '66666666-6666-4666-8666-666666666666'
+  const path = `${API_V1_PREFIX}/assets/${assetId}`
+
+  try {
+    assert.equal((await requestJson(port, { method: 'GET', path })).statusCode, 401)
+
+    for (const suffix of ['', '/url']) {
+      const crossAccount = await requestJson(port, {
+        method: 'GET',
+        path: `${path}${suffix}`,
+        cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=session_a`,
+      })
+      assert.equal(crossAccount.statusCode, 404)
+      assert.equal(
+        (crossAccount.body as { error: { code: string } }).error.code,
+        'RESOURCE_NOT_FOUND',
+      )
+
+      const ownerRead = await requestJson(port, {
+        method: 'GET',
+        path: `${path}${suffix}`,
+        cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=session_b`,
+      })
+      assert.equal(ownerRead.statusCode, 200)
+    }
   } finally {
     await closeApiServer(server, 1_000)
   }
@@ -974,6 +1458,29 @@ test('project graph routes use the session actor and preserve conflict details',
     assert.equal(conflict.statusCode, 409)
     assert.equal((conflict.body as { error: { code: string } }).error.code, 'PROJECT_VERSION_CONFLICT')
     assert.equal((conflict.body as { error: { details: { currentVersion: number } } }).error.details.currentVersion, 1)
+
+    const pendingAsset = await requestJson(port, {
+      method: 'PATCH',
+      path,
+      cookie,
+      body: {
+        ...operationBody,
+        batchId: 'batch_asset_pending',
+        idempotencyKey: 'graph_asset_pending',
+        operations: [{
+          type: 'upsertNode',
+          node: {
+            id: 'node_asset',
+            nodeType: 'imageNode',
+            position: { x: 0, y: 0 },
+            dataSchemaVersion: 1,
+            data: { imageAsset: { assetId: '44444444-4444-4444-8444-444444444444' } },
+          },
+        }],
+      },
+    })
+    assert.equal(pendingAsset.statusCode, 409)
+    assert.equal((pendingAsset.body as { error: { code: string } }).error.code, 'ASSET_NOT_READY')
   } finally {
     await closeApiServer(server, 1_000)
   }
@@ -1140,6 +1647,15 @@ test('project revision restore route uses the session actor and preserves confli
     assert.equal(conflict.statusCode, 409)
     assert.equal((conflict.body as { error: { code: string } }).error.code, 'PROJECT_VERSION_CONFLICT')
     assert.equal((conflict.body as { error: { details: { currentSequence: number } } }).error.details.currentSequence, 2)
+
+    const unavailableAsset = await requestJson(port, {
+      method: 'POST',
+      path: `${API_V1_PREFIX}/projects/11111111-1111-4111-8111-111111111111/revisions/3/restore`,
+      cookie,
+      body: { expectedVersion: 2, expectedSequence: 2 },
+    })
+    assert.equal(unavailableAsset.statusCode, 409)
+    assert.equal((unavailableAsset.body as { error: { code: string } }).error.code, 'ASSET_NOT_READY')
   } finally {
     await closeApiServer(server, 1_000)
   }

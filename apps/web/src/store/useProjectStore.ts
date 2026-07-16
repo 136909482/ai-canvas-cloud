@@ -44,6 +44,8 @@ import type { ProjectRecord, ProjectSnapshot } from '@/types'
 
 type SaveProjectResult = 'saved' | 'storage-required' | 'no-project'
 
+let manualSaveInFlight: Promise<SaveProjectResult> | null = null
+
 export interface ProjectPersistenceConflict {
   projectId: string
   message: string
@@ -441,88 +443,103 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
     }
   },
 
-  saveActiveProject: async () => {
-    const state = get()
-    const activeProject = state.projects.find((project) => project.id === state.activeProjectId)
-
-    if (!state.activeProjectId || !activeProject) {
-      return 'no-project'
+  saveActiveProject: () => {
+    if (manualSaveInFlight) {
+      return manualSaveInFlight
     }
 
-    if (!isStorageConfigured()) {
-      return 'storage-required'
-    }
+    const save = (async () => {
+      const state = get()
+      const activeProject = state.projects.find((project) => project.id === state.activeProjectId)
 
-    const now = Date.now()
-    set({ isPersisting: true, lastPersistenceError: null })
-
-    try {
-      const stats = { thumbnailBackfillCount: 0 }
-      const snapshot = sanitizeProjectSnapshotForPersistence(
-        await migrateSnapshotEmbeddedImageAssets(takeWorkspaceSnapshot(), { projectId: state.activeProjectId, updateLiveCanvas: true, stats }),
-      )
-      const nextActiveProject = {
-        ...activeProject,
-        savedSnapshot: cloneProjectSnapshot(snapshot),
-        workingSnapshot: cloneProjectSnapshot(snapshot),
-        updatedAt: now,
-        lastOpenedAt: now,
-      }
-      const nextProjects = state.projects.map((project) => (
-        project.id === state.activeProjectId
-          ? nextActiveProject
-          : project
-      ))
-
-      const nextState = {
-        projects: nextProjects,
-        activeProjectId: state.activeProjectId,
-        lastOpenedProjectId: state.activeProjectId,
+      if (!state.activeProjectId || !activeProject) {
+        return 'no-project'
       }
 
-      await platformBridge.saveWorkspaceProject({
-        project: sanitizeProjectRecordForPersistence(nextActiveProject),
-        activeProjectId: nextState.activeProjectId,
-        lastOpenedProjectId: nextState.lastOpenedProjectId,
-      })
-      await platformBridge.createProjectCheckpoint(state.activeProjectId)
+      if (!isStorageConfigured()) {
+        return 'storage-required'
+      }
 
-      const serializedSnapshot = serializeProjectSnapshot(snapshot)
+      const now = Date.now()
+      set({ isPersisting: true, lastPersistenceError: null })
 
-      set((currentState) => ({
-        ...nextState,
-        persistedSnapshotByProjectId: currentState.activeProjectId
-          ? {
-              ...currentState.persistedSnapshotByProjectId,
-              [currentState.activeProjectId]: serializedSnapshot,
-            }
-          : currentState.persistedSnapshotByProjectId,
-        persistenceMetaByProjectId: currentState.activeProjectId
-          ? {
-              ...currentState.persistenceMetaByProjectId,
-              [currentState.activeProjectId]: {
-                at: now,
-                mode: 'manual',
-              },
-            }
-          : currentState.persistenceMetaByProjectId,
-        isPersisting: false,
-        lastPersistenceError: null,
-        persistenceConflictByProjectId: withoutProjectConflict(
-          currentState.persistenceConflictByProjectId,
-          currentState.activeProjectId,
-        ),
-        lastThumbnailBackfillCount: stats.thumbnailBackfillCount,
-      }))
-      return 'saved'
-    } catch (error) {
-      set({
-        isPersisting: false,
-        lastThumbnailBackfillCount: 0,
-      })
-      setProjectPersistenceError(error, 'manual-save')
-      throw error
+      try {
+        const stats = { thumbnailBackfillCount: 0 }
+        const snapshot = sanitizeProjectSnapshotForPersistence(
+          await migrateSnapshotEmbeddedImageAssets(takeWorkspaceSnapshot(), { projectId: state.activeProjectId, updateLiveCanvas: true, stats }),
+        )
+        const nextActiveProject = {
+          ...activeProject,
+          savedSnapshot: cloneProjectSnapshot(snapshot),
+          workingSnapshot: cloneProjectSnapshot(snapshot),
+          updatedAt: now,
+          lastOpenedAt: now,
+        }
+        const nextProjects = state.projects.map((project) => (
+          project.id === state.activeProjectId
+            ? nextActiveProject
+            : project
+        ))
+
+        const nextState = {
+          projects: nextProjects,
+          activeProjectId: state.activeProjectId,
+          lastOpenedProjectId: state.activeProjectId,
+        }
+
+        await platformBridge.saveWorkspaceProject({
+          project: sanitizeProjectRecordForPersistence(nextActiveProject),
+          activeProjectId: nextState.activeProjectId,
+          lastOpenedProjectId: nextState.lastOpenedProjectId,
+        })
+        await platformBridge.createProjectCheckpoint(state.activeProjectId)
+
+        const serializedSnapshot = serializeProjectSnapshot(snapshot)
+
+        set((currentState) => ({
+          ...nextState,
+          persistedSnapshotByProjectId: currentState.activeProjectId
+            ? {
+                ...currentState.persistedSnapshotByProjectId,
+                [currentState.activeProjectId]: serializedSnapshot,
+              }
+            : currentState.persistedSnapshotByProjectId,
+          persistenceMetaByProjectId: currentState.activeProjectId
+            ? {
+                ...currentState.persistenceMetaByProjectId,
+                [currentState.activeProjectId]: {
+                  at: now,
+                  mode: 'manual',
+                },
+              }
+            : currentState.persistenceMetaByProjectId,
+          isPersisting: false,
+          lastPersistenceError: null,
+          persistenceConflictByProjectId: withoutProjectConflict(
+            currentState.persistenceConflictByProjectId,
+            currentState.activeProjectId,
+          ),
+          lastThumbnailBackfillCount: stats.thumbnailBackfillCount,
+        }))
+        return 'saved'
+      } catch (error) {
+        set({
+          isPersisting: false,
+          lastThumbnailBackfillCount: 0,
+        })
+        setProjectPersistenceError(error, 'manual-save')
+        throw error
+      }
+    })()
+
+    manualSaveInFlight = save
+    const clearManualSave = () => {
+      if (manualSaveInFlight === save) {
+        manualSaveInFlight = null
+      }
     }
+    void save.then(clearManualSave, clearManualSave)
+    return save
   },
 
   createProject: async (name) => {

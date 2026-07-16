@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Eye, EyeOff, Loader2, LockKeyhole, LogIn, Sparkles, UserPlus } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Eye, EyeOff, Loader2, LockKeyhole, LogIn, UserPlus, X } from 'lucide-react'
 import { AUTH_SESSION_EXPIRED_EVENT } from '@/api/cloudApiClient'
 import { requestAuthPasswordReset, resetAuthPassword, verifyAuthEmail } from './api'
+import { PublicHome } from './PublicHome'
+import { SESSION_HEARTBEAT_INTERVAL_MS, shouldProbeSession } from './sessionProbe'
 import { useAuthStore } from './useAuthStore'
 import { themeClasses } from '@/styles/themeClasses'
 
@@ -10,8 +12,6 @@ interface AuthGateProps {
 }
 
 type AuthMode = 'login' | 'register' | 'forgot' | 'reset'
-
-const SESSION_INTERACTION_PROBE_MIN_INTERVAL_MS = 2500
 
 function getSubmitLabel(mode: AuthMode, pending: boolean) {
   if (pending) {
@@ -53,6 +53,7 @@ export function AuthGate({ children }: AuthGateProps) {
   const login = useAuthStore((state) => state.login)
   const register = useAuthStore((state) => state.register)
   const [mode, setMode] = useState<AuthMode>('login')
+  const [isAuthOpen, setIsAuthOpen] = useState(() => window.location.pathname.startsWith('/auth/'))
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -66,6 +67,25 @@ export function AuthGate({ children }: AuthGateProps) {
   const verificationConsumedRef = useRef(false)
   const sessionProbeInFlightRef = useRef(false)
   const lastSessionProbeAtRef = useRef(0)
+
+  const openAuth = (nextMode: Extract<AuthMode, 'login' | 'register'>) => {
+    setMode(nextMode)
+    setSubmitError(null)
+    setSubmitMessage(null)
+    setIsAuthOpen(true)
+  }
+
+  const closeAuth = useCallback(() => {
+    if (window.location.pathname.startsWith('/auth/')) {
+      window.history.replaceState(null, '', '/')
+    }
+
+    setIsAuthOpen(false)
+    setMode('login')
+    setResetToken(null)
+    setSubmitError(null)
+    setSubmitMessage(null)
+  }, [])
 
   useEffect(() => {
     void checkSession()
@@ -84,17 +104,41 @@ export function AuthGate({ children }: AuthGateProps) {
   }, [checkSession])
 
   useEffect(() => {
+    if (!isAuthOpen) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !isSubmitting) {
+        closeAuth()
+      }
+    }
+
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [closeAuth, isAuthOpen, isSubmitting])
+
+  useEffect(() => {
     if (status !== 'authenticated' || !session || mode === 'reset') {
       return
     }
 
+    lastSessionProbeAtRef.current = Date.now()
+
     const probeSession = () => {
       const now = Date.now()
 
-      if (
-        sessionProbeInFlightRef.current
-        || now - lastSessionProbeAtRef.current < SESSION_INTERACTION_PROBE_MIN_INTERVAL_MS
-      ) {
+      if (!shouldProbeSession({
+        now,
+        lastProbeAt: lastSessionProbeAtRef.current,
+        inFlight: sessionProbeInFlightRef.current,
+      })) {
         return
       }
 
@@ -106,22 +150,20 @@ export function AuthGate({ children }: AuthGateProps) {
       })
     }
 
-    const handleVisibilityChange = () => {
+    const probeVisibleSession = () => {
       if (document.visibilityState === 'visible') {
         probeSession()
       }
     }
 
-    window.addEventListener('pointerdown', probeSession, { capture: true })
-    window.addEventListener('keydown', probeSession, { capture: true })
-    window.addEventListener('focus', probeSession)
-    document.addEventListener('visibilitychange', handleVisibilityChange)
+    const heartbeatId = window.setInterval(probeVisibleSession, SESSION_HEARTBEAT_INTERVAL_MS)
+    window.addEventListener('focus', probeVisibleSession)
+    document.addEventListener('visibilitychange', probeVisibleSession)
 
     return () => {
-      window.removeEventListener('pointerdown', probeSession, { capture: true })
-      window.removeEventListener('keydown', probeSession, { capture: true })
-      window.removeEventListener('focus', probeSession)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.clearInterval(heartbeatId)
+      window.removeEventListener('focus', probeVisibleSession)
+      document.removeEventListener('visibilitychange', probeVisibleSession)
     }
   }, [checkSession, mode, session, status])
 
@@ -241,45 +283,74 @@ export function AuthGate({ children }: AuthGateProps) {
   }
 
   return (
-    <main className={`relative min-h-screen overflow-hidden ${themeClasses.canvas}`}>
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_18%,rgba(45,212,191,0.14),transparent_28%),radial-gradient(circle_at_80%_22%,rgba(244,114,182,0.12),transparent_28%),linear-gradient(135deg,rgba(9,9,11,1),rgba(15,15,18,1)_52%,rgba(7,13,18,1))]" />
-      <div className="pointer-events-none absolute inset-0 opacity-[0.16] [background-image:linear-gradient(rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:42px_42px]" />
+    <>
+      <PublicHome
+        onLogin={() => openAuth('login')}
+        onRegister={() => openAuth('register')}
+      />
 
-      <section className="relative z-10 grid min-h-screen grid-cols-1 lg:grid-cols-[minmax(0,1fr)_28rem]">
-        <div className="flex min-h-[38vh] items-end px-6 pb-8 pt-10 lg:min-h-screen lg:items-center lg:px-12 lg:py-12">
-          <div className="max-w-2xl">
-            <div className="mb-5 inline-flex h-10 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 text-xs font-medium text-[var(--text-secondary)] shadow-[var(--shadow-panel)] backdrop-blur-xl">
-              <Sparkles className="h-4 w-4 text-[var(--accent-violet-strong)]" />
-              AI Canvas Cloud
-            </div>
-            <h1 className="max-w-[15ch] text-[clamp(2.3rem,7vw,5.8rem)] font-semibold leading-[0.92] tracking-normal text-[var(--text-primary)]">
-              把画布带到你的账号里
-            </h1>
-            <p className={`mt-5 max-w-xl text-sm leading-6 md:text-base ${themeClasses.textSecondary}`}>
-              项目、任务和资产会进入云端个人空间；Provider 密钥和媒体资产继续按工作区边界隔离。
-            </p>
-          </div>
-        </div>
+      {isAuthOpen ? (
+        <div
+          className="auth-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !isSubmitting) {
+              closeAuth()
+            }
+          }}
+        >
+          <section
+            className={`auth-modal ${themeClasses.strongPanel}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="auth-modal-title"
+          >
+            <button
+              type="button"
+              className="auth-modal__close"
+              onClick={closeAuth}
+              disabled={isSubmitting}
+              aria-label="关闭"
+            >
+              <X aria-hidden="true" />
+            </button>
 
-        <div className="flex items-center px-4 pb-8 lg:px-8 lg:py-10">
-          <div className={`w-full overflow-hidden rounded-[18px] ${themeClasses.strongPanel}`}>
-            <div className="border-b border-[var(--border-subtle)] px-5 py-5">
-              <div className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[var(--accent-violet-muted)] bg-[var(--accent-violet-soft)] text-[var(--accent-violet-strong)]">
-                <LockKeyhole className="h-5 w-5" />
+            <div className="auth-modal__header">
+              <img src="/brand/ai-canvas-mark.png" alt="" width="42" height="42" />
+              <div>
+                <h2 id="auth-modal-title">
+                  {mode === 'login'
+                    ? '欢迎回来'
+                    : mode === 'register'
+                      ? '创建 Cloud 账号'
+                      : mode === 'forgot'
+                        ? '找回密码'
+                        : '重置密码'}
+                </h2>
+                <p>{helperText}</p>
               </div>
-              <h2 className={`mt-4 text-xl font-semibold ${themeClasses.textPrimary}`}>
-                {mode === 'login'
-                  ? '登录 AI Canvas'
-                  : mode === 'register'
-                    ? '创建 Cloud 账号'
-                    : mode === 'forgot'
-                      ? '找回密码'
-                      : '重置密码'}
-              </h2>
-              <p className={`mt-1 text-sm ${themeClasses.textMuted}`}>{helperText}</p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4 px-5 py-5">
+            {mode === 'login' || mode === 'register' ? (
+              <div className="auth-mode-switch" aria-label="认证方式">
+                <button
+                  type="button"
+                  data-active={mode === 'login'}
+                  onClick={() => openAuth('login')}
+                >
+                  登录
+                </button>
+                <button
+                  type="button"
+                  data-active={mode === 'register'}
+                  onClick={() => openAuth('register')}
+                >
+                  注册
+                </button>
+              </div>
+            ) : null}
+
+            <form onSubmit={handleSubmit} className="auth-modal__form">
               {mode !== 'reset' ? (
                 <label className="block">
                   <span className={`mb-1.5 block text-xs font-medium ${themeClasses.textSecondary}`}>邮箱</span>
@@ -288,6 +359,7 @@ export function AuthGate({ children }: AuthGateProps) {
                     onChange={(event) => setEmail(event.target.value)}
                     type="email"
                     autoComplete="email"
+                    autoFocus
                     required
                     className={`h-11 w-full px-3 text-sm ${themeClasses.input}`}
                     placeholder="you@example.com"
@@ -306,6 +378,7 @@ export function AuthGate({ children }: AuthGateProps) {
                       onChange={(event) => setPassword(event.target.value)}
                       type={showPassword ? 'text' : 'password'}
                       autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                      autoFocus={mode === 'reset'}
                       required
                       minLength={10}
                       className={`h-11 w-full px-3 pr-11 text-sm ${themeClasses.input}`}
@@ -340,22 +413,22 @@ export function AuthGate({ children }: AuthGateProps) {
               ) : null}
 
               {submitError || error ? (
-                <div className="rounded-[10px] border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-500 dark:text-red-200">
+                <div className="rounded-[8px] border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-200">
                   {submitError || error}
                 </div>
               ) : null}
 
               {submitMessage ? (
-                <div className="rounded-[10px] border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-xs leading-5 text-emerald-600 dark:text-emerald-200">
+                <div className="rounded-[8px] border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-xs leading-5 text-emerald-200">
                   {submitMessage}
                 </div>
               ) : null}
 
               {emailVerificationStatus !== 'idle' && emailVerificationMessage ? (
-                <div className={`rounded-[10px] border px-3 py-2 text-xs leading-5 ${
+                <div className={`rounded-[8px] border px-3 py-2 text-xs leading-5 ${
                   emailVerificationStatus === 'error'
-                    ? 'border-red-400/20 bg-red-500/10 text-red-500 dark:text-red-200'
-                    : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-200'
+                    ? 'border-red-400/20 bg-red-500/10 text-red-200'
+                    : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-200'
                 }`}
                 >
                   {emailVerificationStatus === 'pending' ? (
@@ -365,11 +438,7 @@ export function AuthGate({ children }: AuthGateProps) {
                 </div>
               ) : null}
 
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[12px] bg-[var(--text-primary)] px-4 text-sm font-semibold text-[var(--canvas-bg)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
+              <button type="submit" disabled={isSubmitting} className="auth-modal__submit">
                 {isSubmitting
                   ? <Loader2 className="h-4 w-4 animate-spin" />
                   : mode === 'login'
@@ -381,56 +450,36 @@ export function AuthGate({ children }: AuthGateProps) {
               </button>
             </form>
 
-            <div className="border-t border-[var(--border-subtle)] bg-[var(--control-bg)] px-5 py-4 text-center text-xs text-[var(--text-muted)]">
+            <div className="auth-modal__footer">
               {mode === 'login' ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode('forgot')
-                      setSubmitError(null)
-                      setSubmitMessage(null)
-                    }}
-                    className="font-semibold text-[var(--accent-violet-strong)] hover:underline"
-                  >
-                    忘记密码？
-                  </button>
-                  <span className="mx-2">·</span>
-                  还没有账号？
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode('register')
-                      setSubmitError(null)
-                      setSubmitMessage(null)
-                    }}
-                    className="ml-1 font-semibold text-[var(--accent-violet-strong)] hover:underline"
-                  >
-                    创建一个
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('forgot')
+                    setSubmitError(null)
+                    setSubmitMessage(null)
+                  }}
+                >
+                  忘记密码？
+                </button>
+              ) : mode === 'forgot' || mode === 'reset' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.history.replaceState(null, '', '/')
+                    openAuth('login')
+                    setResetToken(null)
+                  }}
+                >
+                  返回登录
+                </button>
               ) : (
-                <>
-                  {mode === 'register' ? '已经有账号？' : '想起来了？'}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      window.history.replaceState(null, '', '/')
-                      setMode('login')
-                      setResetToken(null)
-                      setSubmitError(null)
-                      setSubmitMessage(null)
-                    }}
-                    className="ml-1 font-semibold text-[var(--accent-violet-strong)] hover:underline"
-                  >
-                    去登录
-                  </button>
-                </>
+                <span>注册即创建你的个人云端空间</span>
               )}
             </div>
-          </div>
+          </section>
         </div>
-      </section>
-    </main>
+      ) : null}
+    </>
   )
 }

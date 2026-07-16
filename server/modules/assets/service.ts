@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type {
   AssetKind,
+  AssetResponse,
   AssetSummary,
   AssetUploadResponse,
   AssetUploadSummary,
+  AssetUrlResponse,
   CompleteAssetUploadResponse,
   CreateAssetUploadRequest,
   WorkspaceRole,
@@ -15,6 +17,11 @@ import {
   createWorkspaceAuthorizationService,
   type WorkspaceAuthorizationService,
 } from '../workspaces/authorization.js'
+import {
+  assertWorkspaceStorageCapacity,
+  lockWorkspaceStorageQuota,
+  readWorkspaceStorageUsage,
+} from '../workspaces/usage.js'
 
 export const ASSET_UPLOAD_MAX_BYTES = 50 * 1024 * 1024
 const FILE_NAME_MAX_LENGTH = 255
@@ -28,11 +35,13 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/webp',
   'video/mp4',
   'video/webm',
+  'video/quicktime',
 ])
 const ALLOWED_ASSET_KINDS = new Set(['upload', 'generated', 'edit', 'crop', 'thumbnail', 'preview', 'video'])
 const ALLOWED_REFERENCE_ROLES = new Set(['source', 'result', 'thumbnail', 'preview', 'mask', 'attachment'])
 const ASSET_WRITE_ROLES: readonly WorkspaceRole[] = ['owner', 'admin', 'editor']
 const UPLOAD_URL_TTL_SECONDS = 15 * 60
+const READ_URL_TTL_SECONDS = 5 * 60
 
 export interface AssetService {
   createUpload: (
@@ -43,6 +52,14 @@ export interface AssetService {
     uploadId: string,
     actor: ProjectActor,
   ) => Promise<CompleteAssetUploadResponse>
+  getAsset: (
+    assetId: string,
+    actor: ProjectActor,
+  ) => Promise<AssetResponse>
+  getAssetUrl: (
+    assetId: string,
+    actor: ProjectActor,
+  ) => Promise<AssetUrlResponse>
 }
 
 export interface AssetObjectStorage {
@@ -52,6 +69,10 @@ export interface AssetObjectStorage {
     byteSize: number
     expiresInSeconds: number
   }) => Promise<AssetUploadResponse['directUpload']>
+  createPresignedDownload: (input: {
+    objectKey: string
+    expiresInSeconds: number
+  }) => Promise<Pick<AssetUrlResponse, 'url' | 'expiresAt'>>
   getObjectMetadata: (objectKey: string) => Promise<{
     byteSize: number
     mimeType: string | null
@@ -59,10 +80,24 @@ export interface AssetObjectStorage {
   calculateObjectSha256: (objectKey: string) => Promise<string>
 }
 
-interface AssetUploadRow {
-  upload_id: string
+interface AssetRow {
   asset_id: string
   project_id: string | null
+  original_file_name: string | null
+  asset_mime_type: string
+  asset_byte_size: string | number
+  asset_sha256: string | null
+  width: number | null
+  height: number | null
+  asset_kind: AssetKind
+  asset_status: AssetSummary['status']
+  asset_created_at: Date | string
+  asset_updated_at: Date | string
+  object_key: string
+}
+
+interface AssetUploadRow extends AssetRow {
+  upload_id: string
   original_file_name: string
   expected_mime_type: string
   expected_byte_size: string | number
@@ -71,15 +106,6 @@ interface AssetUploadRow {
   upload_status: AssetUploadSummary['status']
   expires_at: Date | string
   upload_created_at: Date | string
-  asset_mime_type: string
-  asset_byte_size: string | number
-  asset_sha256: string | null
-  width: number | null
-  height: number | null
-  asset_status: AssetSummary['status']
-  asset_created_at: Date | string
-  asset_updated_at: Date | string
-  object_key: string
 }
 
 function validationError(message: string): never {
@@ -207,11 +233,20 @@ function validateUploadId(uploadId: unknown) {
   return normalized.toLowerCase()
 }
 
+function validateAssetId(assetId: unknown) {
+  const normalized = requireTrimmedString(assetId, 'assetId', 64)
+  if (!UUID_PATTERN.test(normalized)) {
+    return validationError('assetId must be a valid UUID')
+  }
+
+  return normalized.toLowerCase()
+}
+
 function toIso(value: Date | string) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
 }
 
-function toAssetSummary(row: AssetUploadRow): AssetSummary {
+function toAssetSummary(row: AssetRow): AssetSummary {
   return {
     id: row.asset_id,
     projectId: row.project_id,
@@ -225,6 +260,16 @@ function toAssetSummary(row: AssetUploadRow): AssetSummary {
     status: row.asset_status,
     createdAt: toIso(row.asset_created_at),
     updatedAt: toIso(row.asset_updated_at),
+  }
+}
+
+function assertAssetReadable(row: AssetRow) {
+  if (row.asset_status !== 'completed') {
+    throw new AuthServiceError({
+      statusCode: 409,
+      apiCode: 'ASSET_NOT_READY',
+      message: 'Asset is not ready for reading',
+    })
   }
 }
 
@@ -367,6 +412,9 @@ function getExtension(mimeType: string) {
   if (mimeType === 'video/webm') {
     return 'webm'
   }
+  if (mimeType === 'video/quicktime') {
+    return 'mov'
+  }
   return 'mp4'
 }
 
@@ -378,7 +426,19 @@ function createObjectKey(input: {
   assetKind: string
 }) {
   const projectSegment = input.projectId ? `projects/${input.projectId}` : 'workspace'
-  const kindSegment = input.assetKind === 'video' ? 'videos' : 'uploads'
+  const kindSegment = input.assetKind === 'generated'
+    ? `generated/${new Date().toISOString().slice(0, 10)}`
+    : input.assetKind === 'edit'
+      ? 'edits'
+      : input.assetKind === 'crop'
+        ? 'crops'
+        : input.assetKind === 'thumbnail'
+          ? 'thumbnails'
+          : input.assetKind === 'preview'
+            ? 'previews'
+            : input.assetKind === 'video'
+              ? 'videos'
+              : 'uploads'
   return `workspaces/${input.workspaceId}/${projectSegment}/${kindSegment}/${input.assetId}.${getExtension(input.mimeType)}`
 }
 
@@ -457,6 +517,40 @@ async function findUploadById(
       LIMIT 1
     `,
     [workspaceId, uploadId],
+  )
+
+  return result.rows[0] ?? null
+}
+
+async function findAssetById(
+  client: Pick<DbClient, 'query'>,
+  workspaceId: string,
+  assetId: string,
+) {
+  const result = await client.query<AssetRow>(
+    `
+      SELECT
+        a.id::text AS asset_id,
+        a.origin_project_id::text AS project_id,
+        a.original_file_name,
+        a.mime_type AS asset_mime_type,
+        a.byte_size AS asset_byte_size,
+        a.sha256 AS asset_sha256,
+        a.width,
+        a.height,
+        a.asset_kind,
+        a.status AS asset_status,
+        a.created_at AS asset_created_at,
+        a.updated_at AS asset_updated_at,
+        a.object_key
+      FROM assets a
+      WHERE a.workspace_id = $1
+        AND a.id = $2
+        AND a.deleted_at IS NULL
+        AND a.status <> 'deleted'
+      LIMIT 1
+    `,
+    [workspaceId, assetId],
   )
 
   return result.rows[0] ?? null
@@ -564,10 +658,12 @@ export function createPostgresAssetService(
     authorizationService?: WorkspaceAuthorizationService
     objectStorage: AssetObjectStorage
     uploadUrlTtlSeconds?: number
+    readUrlTtlSeconds?: number
   },
 ): AssetService {
   const authorizationService = options.authorizationService ?? createWorkspaceAuthorizationService(pool)
   const uploadUrlTtlSeconds = options.uploadUrlTtlSeconds ?? UPLOAD_URL_TTL_SECONDS
+  const readUrlTtlSeconds = options.readUrlTtlSeconds ?? READ_URL_TTL_SECONDS
 
   async function createDirectUpload(row: AssetUploadRow) {
     return options.objectStorage.createPresignedUpload({
@@ -576,6 +672,22 @@ export function createPostgresAssetService(
       byteSize: Number(row.expected_byte_size),
       expiresInSeconds: uploadUrlTtlSeconds,
     })
+  }
+
+  async function requireReadableAsset(assetId: string, actor: ProjectActor) {
+    const normalizedAssetId = validateAssetId(assetId)
+    await authorizationService.requireWorkspaceAccess({
+      userId: actor.userId,
+      workspaceId: actor.workspaceId,
+    })
+
+    const row = await findAssetById(pool, actor.workspaceId, normalizedAssetId)
+    if (!row) {
+      return resourceNotFound('Asset not found')
+    }
+
+    assertAssetReadable(row)
+    return row
   }
 
   return {
@@ -591,6 +703,7 @@ export function createPostgresAssetService(
 
       try {
         await client.query('BEGIN')
+        await lockWorkspaceStorageQuota(client, actor.workspaceId)
 
         const existing = await findUploadByIdempotencyKey(client, actor.workspaceId, request.idempotencyKey)
         if (existing) {
@@ -604,6 +717,10 @@ export function createPostgresAssetService(
         }
 
         const projectId = await assertProjectCanReceiveAsset(client, request.projectId, actor.workspaceId)
+        assertWorkspaceStorageCapacity(
+          await readWorkspaceStorageUsage(client, actor.workspaceId),
+          request.byteSize,
+        )
         const assetId = randomUUID()
         const uploadId = randomUUID()
         const objectKey = createObjectKey({
@@ -762,6 +879,24 @@ export function createPostgresAssetService(
         client.release()
       }
     },
+
+    async getAsset(assetId, actor) {
+      const row = await requireReadableAsset(assetId, actor)
+      return { asset: toAssetSummary(row) }
+    },
+
+    async getAssetUrl(assetId, actor) {
+      const row = await requireReadableAsset(assetId, actor)
+      const signed = await options.objectStorage.createPresignedDownload({
+        objectKey: row.object_key,
+        expiresInSeconds: readUrlTtlSeconds,
+      })
+
+      return {
+        assetId: row.asset_id,
+        ...signed,
+      }
+    },
   }
 }
 
@@ -776,6 +911,22 @@ export function createUnavailableAssetService(): AssetService {
       })
     },
     async completeUpload() {
+      throw new AuthServiceError({
+        statusCode: 503,
+        apiCode: 'SERVICE_UNAVAILABLE',
+        message: 'Asset service is not configured',
+        retryable: true,
+      })
+    },
+    async getAsset() {
+      throw new AuthServiceError({
+        statusCode: 503,
+        apiCode: 'SERVICE_UNAVAILABLE',
+        message: 'Asset service is not configured',
+        retryable: true,
+      })
+    },
+    async getAssetUrl() {
       throw new AuthServiceError({
         statusCode: 503,
         apiCode: 'SERVICE_UNAVAILABLE',

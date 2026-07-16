@@ -22,6 +22,9 @@ import {
   type RegisterRequest,
   type RestoreProjectRevisionRequest,
   type RevokeSessionResponse,
+  type PutProviderCredentialRequest,
+  type CreateGenerationTaskRequest,
+  type GenerationTaskCommandRequest,
 } from '@ai-canvas-cloud/contracts'
 import {
   createUnavailableAssetService,
@@ -46,6 +49,18 @@ import {
   createUnavailableProjectService,
   type ProjectService,
 } from '@ai-canvas-cloud/server/modules/projects'
+import {
+  createUnavailableProviderCredentialService,
+  type ProviderCredentialService,
+} from '@ai-canvas-cloud/server/modules/providers'
+import {
+  createUnavailableGenerationTaskService,
+  type GenerationTaskService,
+} from '@ai-canvas-cloud/server/modules/tasks'
+import {
+  createUnavailableWorkspaceUsageService,
+  type WorkspaceUsageService,
+} from '@ai-canvas-cloud/server/modules/workspaces'
 import { createJsonLogger, createRequestId, type Logger } from '@ai-canvas-cloud/shared'
 import type { ApiConfig } from './config.js'
 import { checkReadinessDependencies } from './dependencies.js'
@@ -58,6 +73,9 @@ interface ServerOptions {
   projectGraphService?: ProjectGraphService
   projectSnapshotService?: ProjectSnapshotService
   projectService?: ProjectService
+  workspaceUsageService?: WorkspaceUsageService
+  providerCredentialService?: ProviderCredentialService
+  generationTaskService?: GenerationTaskService
 }
 
 function sendJson(response: http.ServerResponse, statusCode: number, payload: unknown, requestId: string) {
@@ -102,6 +120,36 @@ function getAssetUploadCompleteId(pathname: string) {
   return uploadId ? decodeURIComponent(uploadId) : null
 }
 
+function getAssetReadRoute(pathname: string) {
+  const prefix = `${API_V1_PREFIX}/assets/`
+
+  if (!pathname.startsWith(prefix)) {
+    return null
+  }
+
+  const segments = pathname.slice(prefix.length).split('/')
+  if (!segments[0] || segments[0] === 'uploads' || segments.length > 2) {
+    return null
+  }
+
+  if (segments.length === 2 && segments[1] !== 'url') {
+    return null
+  }
+
+  try {
+    return {
+      assetId: decodeURIComponent(segments[0]),
+      action: segments[1] ?? null,
+    }
+  } catch {
+    throw new AuthServiceError({
+      statusCode: 400,
+      apiCode: 'VALIDATION_FAILED',
+      message: 'Invalid asset path',
+    })
+  }
+}
+
 function getAuthSessionIdFromPath(pathname: string) {
   const prefix = `${API_V1_PREFIX}/auth/sessions/`
 
@@ -111,6 +159,57 @@ function getAuthSessionIdFromPath(pathname: string) {
 
   const sessionId = pathname.slice(prefix.length)
   return sessionId ? decodeURIComponent(sessionId) : null
+}
+
+function getProviderSettingsRoute(pathname: string) {
+  const collectionPath = `${API_V1_PREFIX}/settings/providers`
+  if (pathname === collectionPath) {
+    return { providerId: null }
+  }
+  const prefix = `${collectionPath}/`
+  if (!pathname.startsWith(prefix)) {
+    return null
+  }
+  const providerId = pathname.slice(prefix.length)
+  if (!providerId || providerId.includes('/')) {
+    return null
+  }
+  try {
+    return { providerId: decodeURIComponent(providerId) }
+  } catch {
+    throw new AuthServiceError({
+      statusCode: 400,
+      apiCode: 'VALIDATION_FAILED',
+      message: 'Invalid provider path',
+    })
+  }
+}
+
+function getGenerationTaskRoute(pathname: string): { taskId: string | null; action: 'cancel' | 'retry' | null } | null {
+  const collectionPath = `${API_V1_PREFIX}/tasks`
+  if (pathname === collectionPath) {
+    return { taskId: null, action: null }
+  }
+  const prefix = `${collectionPath}/`
+  if (!pathname.startsWith(prefix)) {
+    return null
+  }
+  const segments = pathname.slice(prefix.length).split('/')
+  if (!segments[0] || segments.length > 2 || (segments[1] && !['cancel', 'retry'].includes(segments[1]))) {
+    return null
+  }
+  try {
+    return {
+      taskId: decodeURIComponent(segments[0]),
+      action: (segments[1] as 'cancel' | 'retry' | undefined) ?? null,
+    }
+  } catch {
+    throw new AuthServiceError({
+      statusCode: 400,
+      apiCode: 'VALIDATION_FAILED',
+      message: 'Invalid task path',
+    })
+  }
 }
 
 function getProjectRoute(pathname: string) {
@@ -347,6 +446,7 @@ async function handleWorkspaceRoute(
   requestUrl: URL,
   requestId: string,
   authService: AuthService,
+  workspaceUsageService: WorkspaceUsageService,
 ) {
   const context = getAuthContext(request, requestId)
 
@@ -364,6 +464,24 @@ async function handleWorkspaceRoute(
       const payload: CurrentWorkspaceResponse = {
         workspace: session.workspace,
       }
+      sendJson(response, 200, payload, requestId)
+      return true
+    }
+
+    if (request.method === 'GET' && isWorkspacePath(requestUrl.pathname, 'current/usage')) {
+      if (!context.cookieHeader) {
+        throw new AuthServiceError({
+          statusCode: 401,
+          apiCode: 'AUTH_REQUIRED',
+          message: 'Authentication required',
+        })
+      }
+
+      const session = await authService.getSession(context)
+      const payload = await workspaceUsageService.getCurrentUsage({
+        userId: session.user.id,
+        workspaceId: session.workspace.id,
+      })
       sendJson(response, 200, payload, requestId)
       return true
     }
@@ -592,6 +710,17 @@ async function handleAssetRoute(
       return true
     }
 
+    const assetReadRoute = getAssetReadRoute(requestUrl.pathname)
+    if (request.method === 'GET' && assetReadRoute?.action === null) {
+      sendJson(response, 200, await assetService.getAsset(assetReadRoute.assetId, actor), requestId)
+      return true
+    }
+
+    if (request.method === 'GET' && assetReadRoute?.action === 'url') {
+      sendJson(response, 200, await assetService.getAssetUrl(assetReadRoute.assetId, actor), requestId)
+      return true
+    }
+
     return false
   } catch (error) {
     if (error instanceof AuthServiceError) {
@@ -599,6 +728,122 @@ async function handleAssetRoute(
       return true
     }
 
+    throw error
+  }
+}
+
+async function handleProviderSettingsRoute(
+  request: http.IncomingMessage,
+  response: http.ServerResponse,
+  requestUrl: URL,
+  requestId: string,
+  authService: AuthService,
+  providerCredentialService: ProviderCredentialService,
+) {
+  const route = getProviderSettingsRoute(requestUrl.pathname)
+  if (!route) {
+    return false
+  }
+  const context = getAuthContext(request, requestId)
+  try {
+    if (!context.cookieHeader) {
+      throw new AuthServiceError({
+        statusCode: 401,
+        apiCode: 'AUTH_REQUIRED',
+        message: 'Authentication required',
+      })
+    }
+    const session = await authService.getSession(context)
+    const actor = { userId: session.user.id, workspaceId: session.workspace.id }
+
+    if (request.method === 'GET' && route.providerId === null) {
+      sendJson(response, 200, await providerCredentialService.listProviders(actor), requestId)
+      return true
+    }
+    if (request.method === 'PUT' && route.providerId) {
+      const payload = await providerCredentialService.putProvider(
+        route.providerId,
+        await readJsonBody<PutProviderCredentialRequest>(request),
+        actor,
+      )
+      sendJson(response, 200, payload, requestId)
+      return true
+    }
+    if (request.method === 'DELETE' && route.providerId) {
+      sendJson(response, 200, await providerCredentialService.deleteProvider(route.providerId, actor), requestId)
+      return true
+    }
+    return false
+  } catch (error) {
+    if (error instanceof AuthServiceError) {
+      sendApiError(response, error.statusCode, createErrorResponse(requestId, error), requestId)
+      return true
+    }
+    throw error
+  }
+}
+
+async function handleGenerationTaskRoute(
+  request: http.IncomingMessage,
+  response: http.ServerResponse,
+  requestUrl: URL,
+  requestId: string,
+  authService: AuthService,
+  generationTaskService: GenerationTaskService,
+) {
+  const route = getGenerationTaskRoute(requestUrl.pathname)
+  if (!route) {
+    return false
+  }
+  const context = getAuthContext(request, requestId)
+  try {
+    if (!context.cookieHeader) {
+      throw new AuthServiceError({
+        statusCode: 401,
+        apiCode: 'AUTH_REQUIRED',
+        message: 'Authentication required',
+      })
+    }
+    const session = await authService.getSession(context)
+    const actor = { userId: session.user.id, workspaceId: session.workspace.id }
+
+    if (request.method === 'POST' && route.taskId === null) {
+      const payload = await generationTaskService.createTask(
+        await readJsonBody<CreateGenerationTaskRequest>(request, 320 * 1024),
+        actor,
+      )
+      sendJson(response, 201, payload, requestId)
+      return true
+    }
+    if (request.method === 'GET' && route.taskId === null) {
+      const rawLimit = requestUrl.searchParams.get('limit')
+      const limit = rawLimit === null ? undefined : Number(rawLimit)
+      sendJson(response, 200, await generationTaskService.listTasks({
+        projectId: requestUrl.searchParams.get('projectId'),
+        status: requestUrl.searchParams.get('status'),
+        cursor: requestUrl.searchParams.get('cursor'),
+        ...(limit === undefined ? {} : { limit }),
+      }, actor), requestId)
+      return true
+    }
+    if (request.method === 'GET' && route.taskId && route.action === null) {
+      sendJson(response, 200, await generationTaskService.getTask(route.taskId, actor), requestId)
+      return true
+    }
+    if (request.method === 'POST' && route.taskId && route.action) {
+      const input = await readJsonBody<GenerationTaskCommandRequest>(request)
+      const payload = route.action === 'cancel'
+        ? await generationTaskService.cancelTask(route.taskId, input, actor)
+        : await generationTaskService.retryTask(route.taskId, input, actor)
+      sendJson(response, 200, payload, requestId)
+      return true
+    }
+    return false
+  } catch (error) {
+    if (error instanceof AuthServiceError) {
+      sendApiError(response, error.statusCode, createErrorResponse(requestId, error), requestId)
+      return true
+    }
     throw error
   }
 }
@@ -611,6 +856,9 @@ export function createApiServer({
   projectGraphService = createUnavailableProjectGraphService(),
   projectSnapshotService = createUnavailableProjectSnapshotService(),
   projectService = createUnavailableProjectService(),
+  workspaceUsageService = createUnavailableWorkspaceUsageService(),
+  providerCredentialService = createUnavailableProviderCredentialService(),
+  generationTaskService = createUnavailableGenerationTaskService(),
 }: ServerOptions) {
   const server = http.createServer(async (request, response) => {
     const requestId = createRequestId()
@@ -663,11 +911,40 @@ export function createApiServer({
       return
     }
 
-    if (await handleWorkspaceRoute(request, response, requestUrl, requestId, authService)) {
+    if (await handleWorkspaceRoute(
+      request,
+      response,
+      requestUrl,
+      requestId,
+      authService,
+      workspaceUsageService,
+    )) {
       return
     }
 
     if (await handleAssetRoute(request, response, requestUrl, requestId, authService, assetService)) {
+      return
+    }
+
+    if (await handleProviderSettingsRoute(
+      request,
+      response,
+      requestUrl,
+      requestId,
+      authService,
+      providerCredentialService,
+    )) {
+      return
+    }
+
+    if (await handleGenerationTaskRoute(
+      request,
+      response,
+      requestUrl,
+      requestId,
+      authService,
+      generationTaskService,
+    )) {
       return
     }
 

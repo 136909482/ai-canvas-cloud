@@ -46,7 +46,7 @@ POST   /api/v1/auth/password/reset
 DELETE /api/v1/account
 ```
 
-认证兼容接口保留在 `/api/v1/auth/*`，底层委托 Better Auth 管理邮箱密码、签名 HttpOnly Cookie、session、邮箱验证 token 和密码重置 token。注册、登录和会话恢复后，Cloud 侧会幂等确保个人工作区和 owner membership 存在。首发同账号只保留一个活跃登录设备：注册或登录成功创建新 session 后，服务端撤销该用户其他 session；旧设备后续调用 `/auth/session` 或业务 API 会得到未授权响应，前端也会在用户下一次交互、键盘操作、窗口重新聚焦或页面重新可见时静默检查 session，失败后必须清理 Cloud 会话缓存并回到登录页。`GET /auth/sessions` 返回当前用户的活跃会话摘要，单活跃会话策略下通常只包含当前会话；`DELETE /auth/sessions/:sessionId` 只能下线当前用户自己的会话，用于退出当前设备或管理兜底。`POST /auth/email/resend` 从当前登录 session 解析邮箱后重发验证邮件，不接受客户端指定用户 ID；`POST /auth/email/verify` 消费 Better Auth 验证 token 并返回 `{ "ok": true }`。`POST /auth/password/forgot` 只接受邮箱并始终对存在/不存在账号返回一致成功结果；`POST /auth/password/reset` 消费一次性重置 token 并设置新密码，重置成功后撤销旧会话。登录、注册、验证和重置需要分层限流；忘记密码接口不得泄漏邮箱是否存在，避免账号枚举。
+认证兼容接口保留在 `/api/v1/auth/*`，底层委托 Better Auth 管理邮箱密码、签名 HttpOnly Cookie、session、邮箱验证 token 和密码重置 token。注册、登录和会话恢复后，Cloud 侧会幂等确保个人工作区和 owner membership 存在。首发同账号只保留一个活跃登录设备：注册或登录成功创建新 session 后，服务端撤销该用户其他 session；旧设备后续调用 `/auth/session` 或业务 API 会得到未授权响应。前端首屏恢复一次 session，可见页面每 5 分钟心跳一次，窗口重新聚焦或页面重新可见只在距上次检查已满 5 分钟时触发，业务 API 返回未授权时立即清理 Cloud 会话缓存并回到登录页；持续点击和键盘输入不触发 session 探测，同一标签页并发探测复用一个请求。`GET /auth/sessions` 返回当前用户的活跃会话摘要，单活跃会话策略下通常只包含当前会话；`DELETE /auth/sessions/:sessionId` 只能下线当前用户自己的会话，用于退出当前设备或管理兜底。`POST /auth/email/resend` 从当前登录 session 解析邮箱后重发验证邮件，不接受客户端指定用户 ID；`POST /auth/email/verify` 消费 Better Auth 验证 token 并返回 `{ "ok": true }`。`POST /auth/password/forgot` 只接受邮箱并始终对存在/不存在账号返回一致成功结果；`POST /auth/password/reset` 消费一次性重置 token 并设置新密码，重置成功后撤销旧会话。登录、注册、验证和重置需要分层限流；忘记密码接口不得泄漏邮箱是否存在，避免账号枚举。
 
 邮箱验证请求：
 
@@ -87,7 +87,24 @@ GET /api/v1/workspaces/current/usage
 }
 ```
 
-首发不提供工作区切换和成员邀请，但响应保留工作区 ID、类型、用户角色和配额摘要。工作区 ID 不能单独构成授权；服务端领域模块必须同时校验 session 用户和 `workspace_members` 成员关系，非成员访问返回不泄漏存在性的拒绝。
+首发不提供工作区切换和成员邀请，但响应保留工作区 ID、类型和用户角色；用量与配额由独立 `/usage` 响应提供。工作区 ID 不能单独构成授权；服务端领域模块必须同时校验 session 用户和 `workspace_members` 成员关系，非成员访问返回不泄漏存在性的拒绝。
+
+`GET /workspaces/current/usage` 同样只使用当前 session 的用户和 workspace，不接受查询参数或请求体指定租户。首发 personal workspace 的云资产配额为 20 GiB：
+
+```json
+{
+  "workspaceId": "workspace_...",
+  "storage": {
+    "usedBytes": 1073741824,
+    "reservedBytes": 52428800,
+    "totalBytes": 1126170624,
+    "quotaBytes": 21474836480,
+    "availableBytes": 20348665856
+  }
+}
+```
+
+`usedBytes` 包含 completed、failed 和 quarantined 资产，`reservedBytes` 包含 pending 上传，`totalBytes` 为两者之和；软删除资产退出逻辑用量。响应不包含对象 key、资产 ID、用户 ID 或其他工作区统计。
 
 ## 项目元数据
 
@@ -235,7 +252,9 @@ GET   /api/v1/projects/:projectId/changes?after=<sequence>
 - 每批包含 1-500 个操作，同一节点或连线在一个批次中只能变更一次；实体 ID 最长 128 字符，图 PATCH 请求体上限为 2 MiB。
 - 节点父级必须是操作后仍活动的同项目节点且不能成环；source/target 必须是操作后仍活动的同项目节点。
 - 删除节点在同一事务软删除关联边；归档项目拒绝新的图修改，但已接受批次仍可幂等重试。
-- 当前尚未建立 P4 `asset_references`，因此本切片只处理节点和连线关系；资产引用校验与计数必须在 P4 接入后加入同一图事务。
+- `upsertNode` 只把规范化 UUID/`cloud-assets/<asset-id>` 识别为持久化资产引用；签名 URL、object key、第三方 URL 和 data/blob URL 不构成资产身份。被引用资产必须属于可信 session 的当前工作区、未删除且状态为 completed。
+- 节点 upsert 会在同一事务替换该节点旧 `asset_references`，节点 delete 会删除该节点引用；任一资产校验失败时节点、连线、项目 version/sequence、`project_changes` 和引用全部不提交。
+- 当前工作区 pending、failed 或 quarantined 资产返回 `409 ASSET_NOT_READY`；跨工作区、已删除或不存在资产统一返回 `404 RESOURCE_NOT_FOUND`，不泄漏其他租户资产是否存在。
 
 ## 检查点与历史
 
@@ -250,7 +269,7 @@ POST /api/v1/projects/:projectId/revisions/:version/restore
 
 成功响应包含 `restoredCheckpoint`、`preRestoreCheckpoint`、更新后的 `project` 摘要，以及新的 `version` 和 `sequence`。版本不一致返回 `409 PROJECT_VERSION_CONFLICT` 并带 `details.currentVersion/currentSequence`；归档项目返回 `403 ACCESS_DENIED`；目标 checkpoint 不存在、跨工作区或项目已软删除返回 `404 RESOURCE_NOT_FOUND`。
 
-当前已实现 `POST /checkpoints` 创建 `manual` 或 `periodic` checkpoint。请求必须携带客户端最近确认的项目版本和 sequence，服务端从 session 解析用户和工作区，锁定项目后确认当前版本完全一致，再读取当前关系化节点/连线生成 `project_snapshots`。`checkpointType` 省略时按 `manual` 处理；`manual` 会把 `projects.saved_snapshot_id` 指向新检查点，`periodic` 只写入历史检查点，不改变手动保存点。请求体不接受 `workspace_id`、`user_id`、操作者或任意 `record_json`：
+当前已实现 `POST /checkpoints` 创建 `manual` 或 `periodic` checkpoint。请求必须携带客户端最近确认的项目版本和 sequence，服务端从 session 解析用户和工作区，锁定项目后确认当前版本完全一致，再读取当前关系化节点/连线生成 `project_snapshots`。P4-8 起，服务端同时从节点 record 提取 Cloud asset UUID 集合，校验当前工作区 completed 状态并写入内部 `asset_manifest_json`；客户端不能提交或覆盖 manifest。`checkpointType` 省略时按 `manual` 处理；`manual` 会把 `projects.saved_snapshot_id` 指向新检查点，`periodic` 只写入历史检查点，不改变手动保存点。请求体不接受 `workspace_id`、`user_id`、操作者或任意 `record_json`：
 
 ```json
 {
@@ -313,7 +332,7 @@ POST /api/v1/projects/:projectId/revisions/:version/restore
 }
 ```
 
-当前已实现 `GET /revisions/:version`，按项目版本读取该版本最新创建的 checkpoint，并返回完整 `record`。同一版本存在多个 checkpoint 时，返回 `createdAt DESC, id DESC` 的第一条；不存在、跨工作区或项目已软删除时返回 `404 RESOURCE_NOT_FOUND`：
+当前已实现 `GET /revisions/:version`，按项目版本读取该版本最新创建的 checkpoint，并返回完整 `record`。同一版本存在多个 checkpoint 时，返回 `createdAt DESC, id DESC` 的第一条；不存在、跨工作区或项目已软删除时返回 `404 RESOURCE_NOT_FOUND`。`asset_manifest_json` 保持服务端内部 GC/恢复校验字段，不随摘要或详情响应暴露：
 
 ```json
 {
@@ -347,7 +366,9 @@ POST /api/v1/projects/:projectId/revisions/:version/restore
 }
 ```
 
-恢复会创建新版本，不覆盖旧检查点；restore 已开放，当前恢复范围覆盖 P3 关系化节点和连线，任务队列与资产引用随 P4/P5 接入后扩展。
+恢复会创建新版本，不覆盖旧检查点。P4-8 起，目标 checkpoint 的 `asset_manifest_json` 必须与 `record.canvas.nodes` 提取出的 Cloud 资产集合一致；服务端按可信 session 工作区重新校验所有目标资产仍未删除且为 completed，再创建带当前资产 manifest 的 `pre_restore` 检查点、替换节点/连线并重建 `asset_references`。manifest 损坏或与 record 不一致返回 `409 VALIDATION_FAILED`；当前工作区非 completed 资产返回 `409 ASSET_NOT_READY`；跨工作区、已删除或缺失资产统一返回 `404 RESOURCE_NOT_FOUND`。任一失败不会提交 pre-restore、节点/连线、引用、change 或 version/sequence。任务队列恢复仍随 P5 接入。
+
+P4-9 的历史 manifest 前向修复不是浏览器 HTTP API，不接受用户传入 workspace、asset ID 或 record。运维入口 `npm run db:repair:checkpoint-assets` 默认只读预检，显式 `--apply` 后才按 checkpoint 短事务提交；输出只包含 checkpoint/project ID、动作、非泄漏原因分类和计数，不返回 manifest、资产 ID、workspace ID 或具体资产状态。修复不会改写 checkpoint record、当前图、version/sequence、changes 或当前引用，也不会清空或改指 `saved_snapshot_id`。
 
 ## 资产
 
@@ -420,6 +441,10 @@ DELETE /api/v1/assets/:assetId
 
 同一工作区复用同一 `idempotencyKey` 且元数据一致时返回同一 upload/asset 并重新生成短期上传 URL；复用幂等键但文件元数据不同返回 `409 VALIDATION_FAILED`；上传会话已过期或不再 pending 返回 `409 ASSET_UPLOAD_EXPIRED`。
 
+创建新上传会话会在 workspace 行锁内把 `byteSize` 作为 pending 容量预留，并以最新已用量和预留量校验 20 GiB 配额。同一幂等请求不重复预留；不同并发请求不能共同超限。超过配额返回 `409 QUOTA_EXCEEDED`，`details` 只包含 `quotaBytes`、`usedBytes`、`reservedBytes`、`availableBytes` 和 `requestedBytes`，不会创建 asset/upload 行或签发上传 URL。
+
+Web Cloud 平台层已接入完整调用顺序：从项目资产路径推导 `projectId`、`assetKind` 和引用用途，创建上传会话后直接以响应中的 method/headers/body 请求对象存储 URL。对象存储直传使用 `credentials: omit`，不得携带站点 Cookie、Authorization 或对象存储永久凭据；直传非 2xx 时不得调用完成确认。成功完成后前端只保存 `cloud-assets/<asset-id>`、文件名、MIME 和必要显示元数据。图片导入、视频上传、生成结果、编辑、裁切和缩略图均复用该流程。
+
 当前已实现 `POST /assets/uploads/:uploadId/complete`。请求体为空；服务端从 session 解析用户和工作区，按当前工作区查找上传会话，不接受客户端提交 `workspace_id`、`user_id` 或对象 key。完成接口从对象存储读取实际元数据并验证；浏览器声明不能作为事实。成功返回 completed upload 和 asset 摘要：
 
 ```json
@@ -454,7 +479,25 @@ DELETE /api/v1/assets/:assetId
 }
 ```
 
-对象尚未直传完成返回 `409 ASSET_NOT_READY`；上传会话过期返回 `409 ASSET_UPLOAD_EXPIRED`；对象真实大小、MIME 或 SHA-256 与上传会话不一致返回 `422 ASSET_VALIDATION_FAILED`。读取 URL 在签发前检查成员资格和资产状态，返回短 TTL 与过期时间；该读取接口尚未开放。
+对象尚未直传完成返回 `409 ASSET_NOT_READY`；上传会话过期返回 `409 ASSET_UPLOAD_EXPIRED`；对象真实大小、MIME 或 SHA-256 与上传会话不一致返回 `422 ASSET_VALIDATION_FAILED`。
+
+`GET /assets/:assetId` 已实现，只返回当前 session 工作区内 completed 资产的 `AssetSummary`。`GET /assets/:assetId/url` 在同样授权和状态校验后返回 5 分钟短期读取地址：
+
+```json
+{
+  "assetId": "66666666-6666-4666-8666-666666666666",
+  "url": "http://localhost:9000/ai-canvas-cloud-local/...X-Amz-Signature=...",
+  "expiresAt": "2026-07-15T00:15:00.000Z"
+}
+```
+
+任意有效工作区成员可以读取本工作区 completed 资产。跨工作区、已删除或不存在返回 `404 RESOURCE_NOT_FOUND`，不泄漏资产是否存在；pending、failed 和 quarantined 返回 `409 ASSET_NOT_READY`，且不会调用对象存储签名。响应不包含 object key、workspace ID 或对象存储凭据。
+
+Web Cloud 平台层把上传完成后得到的 `cloud-assets/<asset-id>` 作为客户端资产定位符，按 asset ID 缓存本接口返回的 URL；当剩余有效期不足 30 秒时重新请求 `/url`，同一资产的并发刷新只发送一个请求。换账号、退出登录、session 失效或工作区切换必须清空缓存；旧 session 发出的在途签名请求在清理后不得重新写回缓存。签名 URL 只作为运行时解析结果，不作为节点、任务或检查点的长期资产来源。
+
+项目图 `PATCH /projects/:projectId/graph` 已把当前节点资产引用接入 `asset_references`。客户端不提交 workspace、object key 或签名 URL 作为授权依据；服务端从节点持久化数据提取 Cloud asset ID，以 session 工作区校验 completed 状态，并在节点替换/删除时原子更新引用。该接口不新增请求字段，保持既有 baseVersion、幂等键、version/sequence 和 changes 契约。
+
+P4-11 资产维护不是浏览器 HTTP API，不接受用户传入 workspace、asset ID 或 object key。运维入口 `npm run db:maintain:assets` 默认只读，分批诊断数据库 completed 资产缺失对象和 bucket `workspaces/` 受控前缀中的孤立对象；显式 `--apply` 后才按默认 168 小时宽限期执行 GC。数据库侧只回收 pending 已过期、failed、quarantined 或已软删除资产，completed 资产不因暂时无引用被回收。删除前会锁定资产并重新验证当前引用和同工作区有效 checkpoint manifest；缺失对象本身不会使仍受保护的数据库资产变为 deleted。JSONL 输出用于内部审计，不会通过用户 API 暴露其他工作区状态。该命令不改变项目图、version/sequence、changes 或手动保存点。
 
 ## 任务
 
@@ -464,10 +507,14 @@ GET  /api/v1/tasks
 GET  /api/v1/tasks/:taskId
 POST /api/v1/tasks/:taskId/cancel
 POST /api/v1/tasks/:taskId/retry
-GET  /api/v1/tasks/events
+GET  /api/v1/tasks/events # 尚未实现
 ```
 
-创建任务携带项目、source node、preview node、模型参数引用和幂等键。服务端解析工作区 Provider 配置、额度和并发限制，客户端不能指定任意 Provider URL。
+P5-3 已实现除 events 外的任务 HTTP 路由。所有作用域来自可信 session；读取允许当前工作区成员，创建、取消和重试要求 owner/admin/editor。创建返回 `201`，其余成功返回 `200`。跨工作区任务、项目或节点统一按不存在处理，响应不包含 workspace/user、请求参数、Worker 租约、远端任务 ID 或 Provider 凭据。
+
+创建请求携带项目、source node、可选 preview node、image/video kind、Provider/model、参数对象和幂等键。当前只接受 `billingMode="workspace_key"`，且对应 Provider 必须已配置并为 active；服务端只锁定并确认配置，不在 API 路径解密密钥。`parameters` 最大 256 KiB、嵌套深度最大 12，不接受非 JSON 值，也拒绝任何层级的 apiKey、Authorization、base/api/target URL 或 endpoint 字段。客户端不能指定任意 Provider URL。创建幂等键在同一 workspace 唯一；同键同输入返回原任务，不同输入返回 `409 VALIDATION_FAILED`。同一 workspace 最多 5 个 queued/running 任务，超限返回 `409 TASK_CONCURRENCY_LIMIT` 和 `details.activeLimit=5`。
+
+列表支持 `projectId`、`status`、`cursor` 和 `limit`；status 只允许 queued/running/succeeded/failed/canceled，limit 默认为 50、最大 100，按 `(created_at, id)` 倒序 keyset 分页。取消/重试请求均为 `{ "idempotencyKey": "..." }`。queued 取消立即进入 canceled；running 取消只写 `cancelRequestedAt`，由后续 Worker 收敛；只有 failed 且未达到 max attempts 的任务可重排为 queued。命令幂等键在同一 workspace 全局唯一，同键重放返回当前任务状态，同键用于其他任务或命令返回冲突。取消和重试不会修改项目图 version/sequence 或 `project_changes`。
 
 任务事件首发可以使用 SSE 或轮询。无论传输方式，数据库任务状态是事实来源；事件丢失后客户端必须能通过查询恢复。
 
@@ -480,7 +527,20 @@ DELETE /api/v1/settings/providers/:providerId
 POST   /api/v1/settings/providers/:providerId/test
 ```
 
-写入接口接收密钥但响应不回显。读取只返回末四位、状态和更新时间。服务端测试使用白名单适配器并返回脱敏错误。
+P5-2 已实现 `GET /settings/providers`、`PUT /settings/providers/:providerId` 和 `DELETE /settings/providers/:providerId`。GET 允许当前工作区成员读取固定 Provider 列表，只返回 Provider ID、显示名称、固定 base URL、是否已配置、active/disabled、末四位和更新时间；不返回明文、密文、key version、workspace 或更新用户。PUT/DELETE 要求 owner/admin，workspace/user 只从 session 解析。
+
+PUT 请求只接受 API Key 和可选 base URL：
+
+```json
+{
+  "apiKey": "<provider-api-key>",
+  "baseUrl": "https://api.openai.com"
+}
+```
+
+当前注册表只允许 OpenAI `https://api.openai.com` 和阿里百炼 `https://dashscope.aliyuncs.com/compatible-mode/v1`，不接受任意 URL、HTTP、非标准端口、URL 用户名/密码、query、fragment、相似子域或内网地址。成功响应只返回脱敏 `ProviderSettingSummary`。DELETE 幂等删除当前工作区凭据，不影响其他工作区；删除后新任务不能使用该 Provider。
+
+`POST /settings/providers/:providerId/test` 尚未实现，后续必须通过服务端白名单适配器发起并使用 `redirect: error`，不得接受客户端 target URL，也不得把 Authorization、正文或完整 Provider 响应写入日志。
 
 ## 搜索与审计
 

@@ -11,6 +11,8 @@ const baseEnv = {
   S3_REGION: 'us-east-1',
   S3_ACCESS_KEY_ID: 'access',
   S3_SECRET_ACCESS_KEY: 'secret',
+  PROVIDER_CREDENTIAL_KEYS: `1:${Buffer.alloc(32, 1).toString('base64')}`,
+  PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION: '1',
 }
 
 test('API config validates required cloud dependencies', () => {
@@ -23,11 +25,13 @@ test('API config validates required cloud dependencies', () => {
   assert.equal(config.devSeedAdmin, false)
   assert.equal(config.devSeedAdminEmail, 'admin@example.com')
   assert.equal(config.s3Bucket, 'bucket')
+  assert.equal(config.providerCredentialActiveKeyVersion, 1)
 })
 
 test('API config rejects missing secrets and invalid log level', () => {
   assert.throws(() => loadApiConfig({ ...baseEnv, DATABASE_URL: '' }), /DATABASE_URL/)
   assert.throws(() => loadApiConfig({ ...baseEnv, LOG_LEVEL: 'trace' }), /LOG_LEVEL/)
+  assert.throws(() => loadApiConfig({ ...baseEnv, PROVIDER_CREDENTIAL_KEYS: '' }), /PROVIDER_CREDENTIAL_KEYS/)
 })
 
 test('API config reads development admin seed options outside production', () => {
