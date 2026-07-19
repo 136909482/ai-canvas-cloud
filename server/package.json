@@ -7,6 +7,7 @@
     ".": "./dist/index.js",
     "./modules/assets": "./dist/modules/assets/index.js",
     "./modules/auth": "./dist/modules/auth/index.js",
+    "./modules/migrations": "./dist/modules/migrations/index.js",
     "./modules/project-graph": "./dist/modules/project-graph/index.js",
     "./modules/project-snapshots": "./dist/modules/project-snapshots/index.js",
     "./modules/projects": "./dist/modules/projects/index.js",
@@ -23,9 +24,11 @@
     "@aws-sdk/client-s3": "^3.1087.0",
     "@aws-sdk/s3-request-presigner": "^3.1087.0",
     "better-auth": "^1.6.23",
+    "nodemailer": "^7.0.11",
     "pg": "^8.22.0"
   },
   "devDependencies": {
+    "@types/nodemailer": "^6.4.17",
     "@types/pg": "^8.20.0"
   }
 }

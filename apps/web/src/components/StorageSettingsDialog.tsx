@@ -1,94 +1,38 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Download, History, Loader2, ScanSearch, Trash2, Upload, X } from 'lucide-react'
-import { analyzeHistorySize } from '@/features/history/historyDiagnostics'
-import { summarizeWorkspaceAssetReferences } from '@/features/projectManager/assetInventory'
-import { cloneProjectSnapshot, takeWorkspaceSnapshot } from '@/features/projectManager/runtime'
-import { analyzeProjectSnapshotSize, formatSnapshotByteSize } from '@/features/projectManager/snapshotSize'
-import { platformBridge, platformRuntime } from '@/platform'
-import { useFeedbackStore } from '@/store/useFeedbackStore'
-import { useHistoryStore } from '@/store/useHistoryStore'
-import { useProjectStore } from '@/store/useProjectStore'
-import { useSettingsStore } from '@/store/useSettingsStore'
-import { useStorageDialogStore } from '@/store/useStorageDialogStore'
+import { useEffect, useState } from 'react'
+import type { WorkspaceUsageResponse } from '@ai-canvas-cloud/contracts'
+import { AlertTriangle, Archive, Cloud, FileIcon, FolderOpen, Loader2, RefreshCw, X } from 'lucide-react'
+import { requestCloudJson } from '@/api/cloudApiClient'
+import { useAuthStore } from '@/features/auth/useAuthStore'
+import { formatStorageBytes, getStorageUsagePercentage } from '@/features/storage/storageOverview'
 import { useDialogFocus } from '@/hooks/useDialogFocus'
+import { useStorageDialogStore } from '@/store/useStorageDialogStore'
 import { themeClasses } from '@/styles/themeClasses'
-import type { WorkspaceAssetDiskInspection } from '@/platform/types'
-import type { WorkspaceData } from '@/types'
 
-const STORAGE_SETTINGS_ROW_CLASS =
-  'flex items-center justify-between gap-4 border-b border-[var(--border-subtle)] px-4 py-4 last:border-b-0'
-const STORAGE_OPTION_BUTTON_CLASS =
-  'inline-flex h-7 min-w-16 items-center justify-center rounded-[9px] px-3 text-xs font-medium leading-none transition-colors'
-const STORAGE_STAT_ITEM_CLASS =
-  'min-w-0 rounded-[9px] bg-[var(--control-bg-hover)] px-3 py-2'
-
-function getWorkspaceDisplayPath(status: { directoryName: string; directoryPath?: string }) {
-  return status.directoryPath || status.directoryName
-}
-
-function isPickerCancellation(error: unknown) {
-  return error instanceof DOMException && error.name === 'AbortError'
-}
-
-function buildWorkspaceDataWithLiveActiveProject(
-  projects: WorkspaceData['projects'],
-  activeProjectId: WorkspaceData['activeProjectId'],
-  lastOpenedProjectId: WorkspaceData['lastOpenedProjectId'],
-): WorkspaceData {
-  const activeSnapshot = takeWorkspaceSnapshot()
-
-  return {
-    projects: projects.map((project) => (
-      project.id === activeProjectId
-        ? {
-            ...project,
-            workingSnapshot: cloneProjectSnapshot(activeSnapshot),
-          }
-        : project
-    )),
-    activeProjectId,
-    lastOpenedProjectId,
+function getProgressTone(percentage: number) {
+  if (percentage >= 100) {
+    return 'bg-red-500'
   }
+  if (percentage >= 85) {
+    return 'bg-amber-400'
+  }
+  return 'bg-emerald-500'
+}
+
+function StorageOverviewSkeleton() {
+  return (
+    <div className="space-y-4" aria-label="正在加载存储用量">
+      <div className="h-32 animate-pulse rounded-lg border border-[var(--border-subtle)] bg-[var(--control-bg)]" />
+      <div className="h-64 animate-pulse rounded-lg border border-[var(--border-subtle)] bg-[var(--control-bg)]" />
+    </div>
+  )
 }
 
 export function StorageSettingsPanel({ active = true }: { active?: boolean }) {
-  const runtime = useSettingsStore((state) => state.runtime)
-  const setWorkspaceRuntimeStatus = useSettingsStore((state) => state.setWorkspaceRuntimeStatus)
-  const hydrateFromWorkspace = useSettingsStore((state) => state.hydrateFromWorkspace)
-  const persistWorkspaceFile = useProjectStore((state) => state.persistWorkspaceFile)
-  const saveActiveProject = useProjectStore((state) => state.saveActiveProject)
-  const reloadFromWorkspace = useProjectStore((state) => state.reloadFromWorkspace)
-  const projects = useProjectStore((state) => state.projects)
-  const activeProjectId = useProjectStore((state) => state.activeProjectId)
-  const lastOpenedProjectId = useProjectStore((state) => state.lastOpenedProjectId)
-  const historyPast = useHistoryStore((state) => state.past)
-  const historyFuture = useHistoryStore((state) => state.future)
-  const pendingHistoryBaseline = useHistoryStore((state) => state.pendingBaseline)
-  const clearHistory = useHistoryStore((state) => state.clearHistory)
-  const [isChecking, setIsChecking] = useState(false)
-  const [isPicking, setIsPicking] = useState(false)
-  const [isCleaning, setIsCleaning] = useState(false)
-  const [isScanning, setIsScanning] = useState(false)
-  const [isExporting, setIsExporting] = useState(false)
-  const [isImporting, setIsImporting] = useState(false)
-  const [statusMessage, setStatusMessage] = useState('')
-  const [workspaceSupported, setWorkspaceSupported] = useState(true)
-  const [diskInspection, setDiskInspection] = useState<WorkspaceAssetDiskInspection | null>(null)
-  const confirm = useFeedbackStore((state) => state.confirm)
-  const notify = useFeedbackStore((state) => state.notify)
-  const workspaceDataWithLiveActiveProject = buildWorkspaceDataWithLiveActiveProject(projects, activeProjectId, lastOpenedProjectId)
-  const assetSummary = summarizeWorkspaceAssetReferences(workspaceDataWithLiveActiveProject)
-  const activeAssetCount = assetSummary.activeProjectSummary?.uniquePathCount ?? 0
-  const activeProject = workspaceDataWithLiveActiveProject.projects.find((project) => project.id === activeProjectId)
-  const activeSnapshotSizeReport = activeProject
-    ? analyzeProjectSnapshotSize(activeProject.workingSnapshot)
-    : null
-  const historySizeReport = useMemo(() => analyzeHistorySize({
-    past: historyPast,
-    future: historyFuture,
-    pendingBaseline: pendingHistoryBaseline,
-  }), [historyFuture, historyPast, pendingHistoryBaseline])
-  const isStorageBusy = isPicking || isCleaning || isScanning || isExporting || isImporting
+  const workspace = useAuthStore((state) => state.session?.workspace)
+  const [usage, setUsage] = useState<WorkspaceUsageResponse | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     if (!active) {
@@ -96,554 +40,176 @@ export function StorageSettingsPanel({ active = true }: { active?: boolean }) {
     }
 
     let cancelled = false
+    setIsLoading(true)
+    setError(null)
 
-    const syncStatus = async () => {
-      setIsChecking(true)
-
-      try {
-        const status = await platformBridge.getWorkspaceStatus()
-
-        if (cancelled) {
-          return
-        }
-
-        setWorkspaceSupported(status.supported)
-        setWorkspaceRuntimeStatus({
-          configured: status.configured,
-          directoryName: status.directoryName,
-          permission: status.permission,
-        })
-
-        if (!status.supported) {
-          setStatusMessage('当前浏览器不支持目录授权，Web 端暂时无法保存到本地工作区。')
-          return
-        }
-
-        if (!status.configured) {
-          setStatusMessage('还没有设置缓存目录。')
-          return
-        }
-
-        if (status.permission === 'denied') {
-          setStatusMessage('缓存目录权限已失效，请重新选择目录。')
-          return
-        }
-
-        setStatusMessage(`当前工作区：${getWorkspaceDisplayPath(status)}`)
-      } catch (error) {
+    void requestCloudJson<WorkspaceUsageResponse>('/workspaces/current/usage')
+      .then((response) => {
         if (!cancelled) {
-          setStatusMessage(error instanceof Error ? error.message : String(error))
+          setUsage(response)
         }
-      } finally {
+      })
+      .catch((requestError: unknown) => {
         if (!cancelled) {
-          setIsChecking(false)
+          setError(requestError instanceof Error ? requestError.message : String(requestError))
         }
-      }
-    }
-
-    void syncStatus()
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      })
 
     return () => {
       cancelled = true
     }
-  }, [active, setWorkspaceRuntimeStatus])
+  }, [active, refreshKey])
 
-  const handleChooseDirectory = async () => {
-    setIsPicking(true)
-
-    try {
-      const status = await platformBridge.pickWorkspaceDirectory()
-      setWorkspaceSupported(status.supported)
-      setWorkspaceRuntimeStatus({
-        configured: status.configured,
-        directoryName: status.directoryName,
-        permission: status.permission,
-      })
-      await hydrateFromWorkspace()
-      await reloadFromWorkspace()
-      setDiskInspection(null)
-      setStatusMessage(`当前工作区：${getWorkspaceDisplayPath(status)}`)
-    } catch (error) {
-      if (isPickerCancellation(error)) {
-        return
-      }
-
-      setStatusMessage(error instanceof Error ? error.message : String(error))
-    } finally {
-      setIsPicking(false)
-    }
+  if (isLoading && !usage) {
+    return <StorageOverviewSkeleton />
   }
 
-  const inspectWorkspaceDiskAssets = async (options?: { commitActiveProject?: boolean }) => {
-    const saveResult = options?.commitActiveProject
-      ? await saveActiveProject()
-      : await persistWorkspaceFile()
-    if (saveResult === 'no-project') {
-      throw new Error('当前没有可扫描的项目。')
-    }
-    if (saveResult === 'storage-required') {
-      throw new Error('请先设置缓存目录。')
-    }
-
-    const persistedWorkspaceData = await platformBridge.loadWorkspaceData()
-    if (!persistedWorkspaceData) {
-      throw new Error('当前工作区没有可扫描的项目数据。')
-    }
-    const workspaceData = buildWorkspaceDataWithLiveActiveProject(
-      persistedWorkspaceData.projects,
-      persistedWorkspaceData.activeProjectId,
-      persistedWorkspaceData.lastOpenedProjectId,
+  if (error && !usage) {
+    return (
+      <section className="flex min-h-52 flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--control-bg)] px-6 text-center">
+        <Cloud className="h-6 w-6 text-[var(--text-muted)]" />
+        <h3 className={`mt-3 text-sm font-medium ${themeClasses.textPrimary}`}>暂时无法读取存储用量</h3>
+        <p className={`mt-1 max-w-md text-xs leading-5 ${themeClasses.textMuted}`}>{error}</p>
+        <button
+          type="button"
+          onClick={() => setRefreshKey((value) => value + 1)}
+          className={`${themeClasses.secondaryButton} mt-4 h-8 gap-1.5 rounded-lg px-3 text-xs font-medium`}
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          重新加载
+        </button>
+      </section>
     )
-    const inspection = await platformBridge.inspectWorkspaceAssets(workspaceData)
-    setDiskInspection(inspection)
-    return { inspection, workspaceData }
   }
 
-  const handleInspectWorkspaceAssets = async () => {
-    if (!runtime.workspaceConfigured) {
-      setStatusMessage('请先设置缓存目录。')
-      return
-    }
-
-    setIsScanning(true)
-    try {
-      const { inspection } = await inspectWorkspaceDiskAssets()
-      setStatusMessage(
-        inspection.orphanedFileCount > 0
-          ? `扫描完成：发现 ${inspection.orphanedFileCount} 个未引用文件，可回收 ${formatSnapshotByteSize(inspection.orphanedByteSize)}。`
-          : '扫描完成：没有发现未引用文件。',
-      )
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      setStatusMessage(message)
-      notify({ tone: 'error', title: '磁盘扫描失败', message })
-    } finally {
-      setIsScanning(false)
-    }
+  if (!usage) {
+    return null
   }
 
-  const handleCleanupUnusedImages = async () => {
-    if (!runtime.workspaceConfigured) {
-      setStatusMessage('请先设置缓存目录。')
-      return
-    }
-
-    setIsCleaning(true)
-
-    try {
-      const { inspection, workspaceData } = await inspectWorkspaceDiskAssets({ commitActiveProject: true })
-      if (inspection.orphanedFileCount === 0) {
-        const protectedMessage = inspection.referencedFileCount > 0
-          ? `${inspection.referencedFileCount} 个文件仍被项目快照或任务队列引用。`
-          : '磁盘扫描没有发现未引用文件。'
-        setStatusMessage(`没有可清理的未引用资产。${protectedMessage}`)
-        notify({ tone: 'success', title: '无需清理', message: protectedMessage })
-        return
-      }
-
-      const pathPreview = inspection.orphanedFiles
-        .slice(0, 3)
-        .map((file) => file.relativePath)
-        .join('、')
-      const remainingCount = Math.max(0, inspection.orphanedFileCount - 3)
-      const confirmed = await confirm({
-        title: '清理未引用文件',
-        message: `将删除 ${inspection.orphanedFileCount} 个未引用文件，释放 ${formatSnapshotByteSize(inspection.orphanedByteSize)}。${pathPreview}${remainingCount > 0 ? `，另有 ${remainingCount} 个文件` : ''}。项目正在引用的文件不会删除。是否继续？`,
-        confirmLabel: '清理',
-        tone: 'danger',
-      })
-      if (!confirmed) {
-        return
-      }
-
-      const result = await platformBridge.cleanupUnusedWorkspaceAssets(workspaceData)
-      const nextInspection = await platformBridge.inspectWorkspaceAssets(workspaceData)
-      setDiskInspection(nextInspection)
-      setStatusMessage(
-        result.deletedCount > 0
-          ? `已清理 ${result.deletedCount} 个未引用文件，释放 ${formatSnapshotByteSize(result.deletedByteSize)}。`
-          : '没有可清理的未引用图片缓存。',
-      )
-      notify({
-        tone: 'success',
-        title: '资产清理完成',
-        message: result.deletedCount > 0
-          ? `已清理 ${result.deletedCount} 个未引用文件，释放 ${formatSnapshotByteSize(result.deletedByteSize)}。`
-          : '没有可清理的未引用图片缓存。',
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      setStatusMessage(message)
-      notify({ tone: 'error', title: '资产清理失败', message })
-    } finally {
-      setIsCleaning(false)
-    }
-  }
-
-  const handleExportWorkspaceBundle = async () => {
-    if (!runtime.workspaceConfigured) {
-      setStatusMessage('请先设置工作区目录。')
-      return
-    }
-
-    setIsExporting(true)
-
-    try {
-      await persistWorkspaceFile()
-      const [data, config] = await Promise.all([
-        platformBridge.loadWorkspaceData(),
-        platformBridge.loadWorkspaceConfig(),
-      ])
-
-      if (!data) {
-        throw new Error('当前工作区没有可导出的项目数据。')
-      }
-
-      await platformBridge.exportWorkspaceBundle({
-        data,
-        config,
-        suggestedName: `ai-canvas-workspace-${new Date().toISOString().slice(0, 10)}`,
-      })
-
-      const message = `已导出 ${data.projects.length} 个项目，Provider API Key 未包含在目录包中。`
-      setStatusMessage(message)
-      notify({ tone: 'success', title: '工作区导出完成', message })
-    } catch (error) {
-      if (isPickerCancellation(error)) {
-        return
-      }
-
-      const message = error instanceof Error ? error.message : String(error)
-      setStatusMessage(message)
-      notify({ tone: 'error', title: '工作区导出失败', message })
-    } finally {
-      setIsExporting(false)
-    }
-  }
-
-  const handleImportWorkspaceBundle = async () => {
-    if (!runtime.workspaceConfigured) {
-      setStatusMessage('请先设置工作区目录。')
-      return
-    }
-
-    const confirmed = await confirm({
-      title: '导入工作区目录包',
-      message: '导入会替换当前工作区目录中的项目、设置和图片资产。Provider API Key 不包含在目录包中，导入后需要重新填写。是否继续？',
-      confirmLabel: '导入并替换',
-      tone: 'danger',
-    })
-    if (!confirmed) {
-      return
-    }
-
-    setIsImporting(true)
-
-    try {
-      const result = await platformBridge.importWorkspaceBundle()
-      await hydrateFromWorkspace()
-      await reloadFromWorkspace()
-
-      const message = `已导入 ${result.data.projects.length} 个项目和 ${result.importedAssetCount} 个资产。`
-      setStatusMessage(message)
-      notify({ tone: 'success', title: '工作区导入完成', message })
-    } catch (error) {
-      if (isPickerCancellation(error)) {
-        return
-      }
-
-      const message = error instanceof Error ? error.message : String(error)
-      setStatusMessage(message)
-      notify({ tone: 'error', title: '工作区导入失败', message })
-    } finally {
-      setIsImporting(false)
-    }
-  }
-
-  const handleClearHistory = async () => {
-    const confirmed = await confirm({
-      title: '清空撤销记录',
-      message: `将清空当前项目的 ${historySizeReport.totalEntryCount} 条撤销、重做和待提交记录，预计释放 ${formatSnapshotByteSize(historySizeReport.totalByteSize)} 内存。当前画布和已保存项目内容不会改变。是否继续？`,
-      confirmLabel: '清空记录',
-      tone: 'danger',
-    })
-    if (!confirmed) {
-      return
-    }
-
-    clearHistory()
-    notify({ tone: 'success', title: '撤销记录已清空', message: '当前画布和项目正文未改变。' })
-  }
+  const percentage = getStorageUsagePercentage(usage.storage.totalBytes, usage.storage.quotaBytes)
+  const isNearlyFull = percentage >= 90
+  const workspaceLabel = workspace?.type === 'team' ? '团队云空间' : '个人云空间'
 
   return (
-    <section className="overflow-hidden rounded-[14px] border border-[var(--border-subtle)] bg-[var(--control-bg)]">
-      <div className={STORAGE_SETTINGS_ROW_CLASS}>
-        <div className="flex min-w-0 flex-1 flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0">
-            <div className="min-w-0">
-              <div className={`text-sm font-medium ${themeClasses.textPrimary}`}>缓存目录</div>
-              <div className={`mt-1 text-xs leading-5 ${themeClasses.textMuted}`}>
-                {isChecking ? '正在检查目录状态...' : statusMessage || '选择一个本地目录作为项目工作区。'}
-              </div>
-              {runtime.workspaceConfigured && platformRuntime === 'web' ? (
-                <div className={`mt-0.5 text-[11px] leading-4 ${themeClasses.textMuted}`}>
-                  浏览器模式仅能读取授权目录名；接入桌面目录桥后会显示完整路径。
-                </div>
-              ) : null}
+    <div className="flex flex-col gap-4" aria-busy={isLoading}>
+      <section className="overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--control-bg)]">
+        <div className="px-4 py-4 sm:px-5">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-2">
+              <Cloud className="h-4 w-4 shrink-0 text-emerald-500 dark:text-emerald-300" />
+              <h3 className={`truncate text-sm font-medium ${themeClasses.textPrimary}`}>存储概况</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-muted)]" /> : null}
+              <span className="rounded-full bg-[var(--control-bg-hover)] px-2.5 py-1 text-[11px] text-[var(--text-muted)]">
+                {workspaceLabel}
+              </span>
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                void handleChooseDirectory()
-              }}
-              disabled={!workspaceSupported || isStorageBusy}
-              className={`${STORAGE_OPTION_BUTTON_CLASS} bg-[var(--control-bg-hover)] text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50`}
-            >
-              {isPicking ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-              选择目录
-            </button>
-
-            <button
-              type="button"
-              data-testid="workspace-bundle-export"
-              onClick={() => {
-                void handleExportWorkspaceBundle()
-              }}
-              disabled={!workspaceSupported || !runtime.workspaceConfigured || isStorageBusy}
-              className={`${STORAGE_OPTION_BUTTON_CLASS} gap-1.5 bg-[var(--control-bg-hover)] text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50`}
-              title="导出工作区目录包"
-            >
-              {isExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-              导出
-            </button>
-
-            <button
-              type="button"
-              data-testid="workspace-bundle-import"
-              onClick={() => {
-                void handleImportWorkspaceBundle()
-              }}
-              disabled={!workspaceSupported || !runtime.workspaceConfigured || isStorageBusy}
-              className={`${STORAGE_OPTION_BUTTON_CLASS} gap-1.5 bg-violet-600 text-white hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50`}
-              title="导入并替换当前工作区"
-            >
-              {isImporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-              导入
-            </button>
-
-            <button
-              type="button"
-              data-testid="workspace-asset-cleanup"
-              onClick={() => {
-                void handleCleanupUnusedImages()
-              }}
-              disabled={!workspaceSupported || !runtime.workspaceConfigured || isStorageBusy}
-              className={`${STORAGE_OPTION_BUTTON_CLASS} text-red-600 hover:bg-red-500/10 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-200`}
-            >
-              {isCleaning ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-              清理未引用文件
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div
-        className={STORAGE_SETTINGS_ROW_CLASS}
-        data-testid="workspace-asset-summary"
-      >
-        <div className="flex min-w-0 flex-1 flex-col gap-4">
-          <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="mt-5 flex items-end justify-between gap-4">
             <div className="min-w-0">
-            <div className="min-w-0">
-              <div className={`text-sm font-medium ${themeClasses.textPrimary}`}>图片资产引用</div>
-              <div className={`mt-1 text-xs leading-5 ${themeClasses.textMuted}`}>
-                清理会保留所有项目保存快照、工作快照和任务结果正在引用的 images/ 文件。
+              <div className={`text-[22px] font-semibold leading-none ${themeClasses.textPrimary}`}>
+                {formatStorageBytes(usage.storage.totalBytes)}
+                <span className={`ml-1.5 text-sm font-normal ${themeClasses.textMuted}`}>
+                  / {formatStorageBytes(usage.storage.quotaBytes)}
+                </span>
               </div>
-            </div>
-            </div>
-
-            <div className="grid w-full shrink-0 grid-cols-2 gap-2 text-xs md:w-[28rem] md:grid-cols-3">
-            <div className={STORAGE_STAT_ITEM_CLASS}>
-              <div className={`text-sm font-semibold leading-none ${themeClasses.textPrimary}`}>{assetSummary.totalUniquePathCount}</div>
-              <div className={`mt-1 truncate text-[11px] leading-none ${themeClasses.textMuted}`}>工作区引用</div>
-            </div>
-            <div className={STORAGE_STAT_ITEM_CLASS}>
-              <div className={`text-sm font-semibold leading-none ${themeClasses.textPrimary}`}>{activeAssetCount}</div>
-              <div className={`mt-1 truncate text-[11px] leading-none ${themeClasses.textMuted}`}>当前项目</div>
-            </div>
-            <div className={STORAGE_STAT_ITEM_CLASS}>
-              <div className={`text-sm font-semibold leading-none ${themeClasses.textPrimary}`}>{assetSummary.originalCount}</div>
-              <div className={`mt-1 truncate text-[11px] leading-none ${themeClasses.textMuted}`}>原图/视频</div>
-            </div>
-            <div className={STORAGE_STAT_ITEM_CLASS}>
-              <div className={`text-sm font-semibold leading-none ${themeClasses.textPrimary}`}>
-                {assetSummary.thumbnailCount}/{assetSummary.previewCount}
-              </div>
-              <div className={`mt-1 truncate text-[11px] leading-none ${themeClasses.textMuted}`}>缩略/预览</div>
-            </div>
-            <div className={STORAGE_STAT_ITEM_CLASS}>
-              <div className={`text-sm font-semibold leading-none ${activeSnapshotSizeReport?.status === 'danger'
-                ? 'text-red-500 dark:text-red-200'
-                : activeSnapshotSizeReport?.status === 'warning'
-                  ? 'text-amber-600 dark:text-amber-200'
-                  : themeClasses.textPrimary}`}
-              >
-                {activeSnapshotSizeReport ? formatSnapshotByteSize(activeSnapshotSizeReport.serializedByteSize) : '-'}
-              </div>
-              <div className={`mt-1 truncate text-[11px] leading-none ${themeClasses.textMuted}`}>当前快照</div>
-            </div>
-            <div className={STORAGE_STAT_ITEM_CLASS}>
-              <div className={`text-sm font-semibold leading-none ${themeClasses.textPrimary}`}>
-                {activeSnapshotSizeReport?.embeddedMediaCount ?? 0}
-              </div>
-              <div className={`mt-1 truncate text-[11px] leading-none ${themeClasses.textMuted}`}>嵌入媒体</div>
-            </div>
-            </div>
-          </div>
-
-          <div className="border-t border-[var(--border-subtle)] pt-3" data-testid="workspace-disk-inspection">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div className="min-w-0">
-                <div className={`text-sm font-medium ${themeClasses.textPrimary}`}>磁盘资产扫描</div>
-                <p className={`mt-1 text-xs leading-5 ${themeClasses.textMuted}`}>
-                  读取 images/ 实际文件大小，并与全部项目快照引用逐项比对。
-                </p>
-              </div>
-              <button
-                type="button"
-                data-testid="workspace-asset-scan"
-                onClick={() => {
-                  void handleInspectWorkspaceAssets()
-                }}
-                disabled={!workspaceSupported || !runtime.workspaceConfigured || isStorageBusy}
-                className={`${STORAGE_OPTION_BUTTON_CLASS} shrink-0 gap-1.5 bg-[var(--control-bg-hover)] text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50`}
-              >
-                {isScanning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ScanSearch className="h-3.5 w-3.5" />}
-                扫描磁盘
-              </button>
-            </div>
-
-            {diskInspection ? (
-              <div className="mt-3" data-testid="workspace-disk-inspection-result">
-                <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
-                  <div className={STORAGE_STAT_ITEM_CLASS}>
-                    <div className={`text-sm font-semibold leading-none ${themeClasses.textPrimary}`}>{formatSnapshotByteSize(diskInspection.totalByteSize)}</div>
-                    <div className={`mt-1 truncate text-[11px] leading-none ${themeClasses.textMuted}`}>{diskInspection.totalFileCount} 个磁盘文件</div>
-                  </div>
-                  <div className={STORAGE_STAT_ITEM_CLASS}>
-                    <div className={`text-sm font-semibold leading-none ${themeClasses.textPrimary}`}>{formatSnapshotByteSize(diskInspection.referencedByteSize)}</div>
-                    <div className={`mt-1 truncate text-[11px] leading-none ${themeClasses.textMuted}`}>{diskInspection.referencedFileCount} 个受保护</div>
-                  </div>
-                  <div className={STORAGE_STAT_ITEM_CLASS}>
-                    <div className={`text-sm font-semibold leading-none ${diskInspection.orphanedFileCount > 0 ? 'text-amber-600 dark:text-amber-200' : themeClasses.textPrimary}`}>
-                      {formatSnapshotByteSize(diskInspection.orphanedByteSize)}
-                    </div>
-                    <div className={`mt-1 truncate text-[11px] leading-none ${themeClasses.textMuted}`}>{diskInspection.orphanedFileCount} 个可清理</div>
-                  </div>
-                  <div className={STORAGE_STAT_ITEM_CLASS}>
-                    <div className={`text-sm font-semibold leading-none ${diskInspection.missingReferencedPaths.length > 0 ? 'text-red-500 dark:text-red-200' : themeClasses.textPrimary}`}>
-                      {diskInspection.missingReferencedPaths.length}
-                    </div>
-                    <div className={`mt-1 truncate text-[11px] leading-none ${themeClasses.textMuted}`}>缺失引用</div>
-                  </div>
-                </div>
-
-                {diskInspection.orphanedFiles.length > 0 ? (
-                  <div className="mt-2 max-h-28 overflow-y-auto border-t border-[var(--border-subtle)] pt-1">
-                    {diskInspection.orphanedFiles.slice(0, 20).map((file) => (
-                      <div key={file.relativePath} className="flex h-7 min-w-0 items-center justify-between gap-3 border-b border-[color-mix(in_srgb,var(--border-subtle)_60%,transparent)] px-1 text-[11px] last:border-b-0">
-                        <span className={`min-w-0 truncate ${themeClasses.textSecondary}`} title={file.relativePath}>{file.relativePath}</span>
-                        <span className={`shrink-0 tabular-nums ${themeClasses.textMuted}`}>{formatSnapshotByteSize(file.byteSize)}</span>
-                      </div>
-                    ))}
-                    {diskInspection.orphanedFiles.length > 20 ? (
-                      <div className={`px-1 py-1.5 text-[11px] ${themeClasses.textMuted}`}>另有 {diskInspection.orphanedFiles.length - 20} 个未引用文件未展开</div>
-                    ) : null}
-                  </div>
+              <div className={`mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] ${themeClasses.textMuted}`}>
+                <span>已存储 {formatStorageBytes(usage.storage.usedBytes)}</span>
+                {usage.storage.reservedBytes > 0 ? (
+                  <span>处理中 {formatStorageBytes(usage.storage.reservedBytes)}</span>
                 ) : null}
-
-                {diskInspection.missingReferencedPaths.length > 0 ? (
-                  <div className="mt-2 border-t border-red-500/20 pt-2 text-[11px] leading-5 text-red-500 dark:text-red-200">
-                    缺失：{diskInspection.missingReferencedPaths.slice(0, 3).join('、')}
-                    {diskInspection.missingReferencedPaths.length > 3 ? `，另有 ${diskInspection.missingReferencedPaths.length - 3} 项` : ''}
-                  </div>
-                ) : null}
+                <span>剩余 {formatStorageBytes(usage.storage.availableBytes)}</span>
               </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
-      <div className={STORAGE_SETTINGS_ROW_CLASS} data-testid="history-text-governance">
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div className="min-w-0">
-              <div className={`flex items-center gap-2 text-sm font-medium ${themeClasses.textPrimary}`}>
-                <History className="h-4 w-4 text-[var(--accent-violet-strong)]" aria-hidden="true" />
-                历史与大文本
-              </div>
-              <p className={`mt-1 text-xs leading-5 ${themeClasses.textMuted}`}>
-                正文、提示词、LLM 输出和附件会完整保留；体积治理只提供诊断和显式操作。
-              </p>
             </div>
-
-            <button
-              type="button"
-              data-testid="clear-canvas-history"
-              onClick={() => void handleClearHistory()}
-              disabled={historySizeReport.totalEntryCount === 0}
-              className={`${STORAGE_OPTION_BUTTON_CLASS} shrink-0 gap-1.5 text-red-600 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-200`}
+            <span
+              className={`shrink-0 text-sm font-medium ${isNearlyFull ? 'text-amber-500 dark:text-amber-300' : themeClasses.textSecondary}`}
             >
-              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-              清空撤销记录
-            </button>
+              {percentage}%
+            </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
-            <div className={STORAGE_STAT_ITEM_CLASS}>
-              <div className={`text-sm font-semibold leading-none ${themeClasses.textPrimary}`}>{historySizeReport.totalEntryCount}</div>
-              <div className={`mt-1 truncate text-[11px] leading-none ${themeClasses.textMuted}`}>历史记录</div>
-            </div>
-            <div className={STORAGE_STAT_ITEM_CLASS}>
-              <div className={`text-sm font-semibold leading-none ${historySizeReport.status === 'danger'
-                ? 'text-red-500 dark:text-red-200'
-                : historySizeReport.status === 'warning'
-                  ? 'text-amber-600 dark:text-amber-200'
-                  : themeClasses.textPrimary}`}
-              >
-                {formatSnapshotByteSize(historySizeReport.totalByteSize)}
-              </div>
-              <div className={`mt-1 truncate text-[11px] leading-none ${themeClasses.textMuted}`}>历史内存估算</div>
-            </div>
-            <div className={STORAGE_STAT_ITEM_CLASS}>
-              <div className={`text-sm font-semibold leading-none ${themeClasses.textPrimary}`}>{activeSnapshotSizeReport?.largeStringCount ?? 0}</div>
-              <div className={`mt-1 truncate text-[11px] leading-none ${themeClasses.textMuted}`}>大文本条目</div>
-            </div>
-            <div className={STORAGE_STAT_ITEM_CLASS}>
-              <div className={`text-sm font-semibold leading-none ${themeClasses.textPrimary}`}>
-                {historySizeReport.largestSnapshot ? formatSnapshotByteSize(historySizeReport.largestSnapshot.byteSize) : '-'}
-              </div>
-              <div className={`mt-1 truncate text-[11px] leading-none ${themeClasses.textMuted}`}>最大历史快照</div>
-            </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--control-bg-hover)]" aria-hidden="true">
+            <div
+              className={`h-full rounded-full transition-[width] duration-500 ${getProgressTone(percentage)}`}
+              style={{ width: `${percentage}%` }}
+            />
           </div>
-
-          {activeSnapshotSizeReport?.largestStrings.length ? (
-            <div className="border-t border-[var(--border-subtle)] pt-1" aria-label="当前项目大文本条目">
-              {activeSnapshotSizeReport.largestStrings.map((entry) => (
-                <div key={entry.path} className="flex min-h-8 min-w-0 items-center justify-between gap-3 border-b border-[color-mix(in_srgb,var(--border-subtle)_60%,transparent)] px-1 py-1 text-[11px] last:border-b-0">
-                  <span className={`min-w-0 truncate ${themeClasses.textSecondary}`} title={entry.path}>{entry.label}</span>
-                  <span className={`shrink-0 tabular-nums ${themeClasses.textMuted}`}>{formatSnapshotByteSize(entry.byteSize)}</span>
-                </div>
-              ))}
-            </div>
-          ) : null}
         </div>
-      </div>
 
-    </section>
+        {isNearlyFull ? (
+          <div className="flex items-start gap-2 border-t border-amber-400/20 bg-amber-400/8 px-4 py-3 text-xs leading-5 text-amber-700 dark:text-amber-200 sm:px-5">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>存储空间即将用满。删除不再需要的项目或文件后，空间会在资产回收完成后释放。</span>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--control-bg)]">
+        <header className="flex items-center justify-between gap-4 border-b border-[var(--border-subtle)] px-4 py-3.5 sm:px-5">
+          <div className="flex min-w-0 items-center gap-2">
+            <FolderOpen className="h-4 w-4 shrink-0 text-sky-500 dark:text-sky-300" />
+            <h3 className={`truncate text-sm font-medium ${themeClasses.textPrimary}`}>项目存储明细</h3>
+          </div>
+          <span className={`shrink-0 text-xs ${themeClasses.textMuted}`}>{usage.projects.length} 个项目</span>
+        </header>
+
+        {usage.projects.length > 0 ? (
+          <div>
+            {usage.projects.map((project) => {
+              const projectShare =
+                usage.storage.totalBytes > 0 ? Math.round((project.storageBytes / usage.storage.totalBytes) * 100) : 0
+
+              return (
+                <div
+                  key={project.projectId}
+                  className="grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-[var(--border-subtle)] px-4 py-3 last:border-b-0 hover:bg-[var(--control-bg-hover)] sm:px-5"
+                >
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className={`truncate text-sm font-medium ${themeClasses.textPrimary}`}>{project.name}</span>
+                      {project.archivedAt ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--control-bg-hover)] px-2 py-0.5 text-[10px] text-[var(--text-muted)]">
+                          <Archive className="h-2.5 w-2.5" />
+                          已归档
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className={`mt-1 flex flex-wrap items-center gap-x-2 text-[11px] ${themeClasses.textMuted}`}>
+                      <span className="inline-flex items-center gap-1">
+                        <FileIcon className="h-3 w-3" />
+                        {project.fileCount} 个文件
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span>{project.nodeCount} 个节点</span>
+                    </div>
+                  </div>
+
+                  <div className="min-w-20 text-right">
+                    <div className={`text-sm font-medium tabular-nums ${themeClasses.textSecondary}`}>
+                      {formatStorageBytes(project.storageBytes)}
+                    </div>
+                    <div className={`mt-1 text-[11px] tabular-nums ${themeClasses.textMuted}`}>{projectShare}%</div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="flex min-h-40 flex-col items-center justify-center px-6 text-center">
+            <FolderOpen className="h-6 w-6 text-[var(--text-muted)]" />
+            <h4 className={`mt-3 text-sm font-medium ${themeClasses.textPrimary}`}>还没有项目</h4>
+            <p className={`mt-1 text-xs ${themeClasses.textMuted}`}>创建项目后，文件和节点用量会显示在这里。</p>
+          </div>
+        )}
+      </section>
+    </div>
   )
 }
 
@@ -657,26 +223,29 @@ export function StorageSettingsDialog() {
   }
 
   return (
-    <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/30 px-4 py-6 backdrop-blur-sm">
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="storage-settings-title" tabIndex={-1} className={`w-full max-w-xl overflow-hidden rounded-[24px] ${themeClasses.strongPanel}`}>
-        <div className="flex items-start justify-between gap-4 border-b border-[var(--border-subtle)] px-5 py-4">
-          <div>
-            <div className={`text-[11px] font-medium tracking-[0.12em] ${themeClasses.textMuted}`}>STORAGE</div>
-            <h2 id="storage-settings-title" className={`mt-1 text-lg font-semibold ${themeClasses.textPrimary}`}>存储设置</h2>
-            <p className={`mt-1 text-sm ${themeClasses.textMuted}`}>设置项目缓存目录并管理工作区资产。</p>
-          </div>
-
+    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="storage-settings-title"
+        tabIndex={-1}
+        className={`max-h-[min(760px,calc(100vh-2rem))] w-full max-w-3xl overflow-hidden rounded-xl ${themeClasses.strongPanel}`}
+      >
+        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-5 py-4">
+          <h2 id="storage-settings-title" className={`text-lg font-semibold ${themeClasses.textPrimary}`}>
+            存储管理
+          </h2>
           <button
             type="button"
             onClick={close}
-            className={`${themeClasses.iconButton} h-8 w-8 rounded-xl`}
-            aria-label="关闭存储设置"
+            aria-label="关闭存储管理"
+            className={`${themeClasses.iconButton} h-8 w-8 rounded-lg`}
           >
             <X className="h-4 w-4" />
           </button>
         </div>
-
-        <div className="px-5 py-5">
+        <div className="max-h-[calc(100vh-7rem)] overflow-y-auto p-5">
           <StorageSettingsPanel active={isOpen} />
         </div>
       </div>

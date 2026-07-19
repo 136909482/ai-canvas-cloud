@@ -194,7 +194,7 @@ deleted_at
 created_at / updated_at
 ```
 
-`object_key` 唯一，不含邮箱和项目名称。`status` 至少包含 pending、completed、failed、quarantined、deleted。P4-1 迁移已建立 `assets` 表，`workspace_id` 是所有查询和配额统计的租户边界；`origin_project_id` 通过 `(workspace_id, project_id)` 复合外键保证不能指向其他工作区项目。`object_key` 按工作区、项目或用途分段，但必须由服务端 ID 组成，不保存用户邮箱、项目名称或原始完整本地路径。P4-4 读取始终先校验当前 session 的工作区成员关系，再以 `(workspace_id, asset_id)` 查询未软删除资产；只有 completed 状态可以取得短期对象存储读取 URL，其他工作区或已删除资产按不存在处理。
+`object_key` 唯一，不含邮箱和项目名称。`status` 至少包含 pending、completed、failed、quarantined、deleted。P4-1 迁移已建立 `assets` 表，`workspace_id` 是所有查询和配额统计的租户边界；`origin_project_id` 通过 `(workspace_id, project_id)` 复合外键保证不能指向其他工作区项目。`object_key` 按工作区、项目或用途分段，但必须由服务端 ID 组成，不保存用户邮箱、项目名称或原始完整本地路径。P4-4 读取始终先校验当前 session 的工作区成员关系，再以 `(workspace_id, asset_id)` 查询未软删除资产；只有 completed 状态可以取得短期对象存储读取 URL，其他工作区或已删除资产按不存在处理。工作区存储明细按 `assets.origin_project_id` 归属项目，统计未软删除且状态为 pending、completed、failed 或 quarantined 的文件数与字节数，口径与配额总用量一致；查询只返回同一可信 `workspace_id` 下未软删除的项目，归档项目仍保留在明细中。
 
 ### `asset_uploads`
 
@@ -232,6 +232,24 @@ P5-1 已建表，按 `(workspace_id, task_id)` 外键绑定任务，并以 `(tas
 
 P5-3 已由 `0009_task_commands.sql` 建表，持久化 cancel/retry 命令的 `workspace_id`、`task_id`、命令类型、幂等键、可信 session 用户和创建时间。`(workspace_id, idempotency_key)` 唯一，`(workspace_id, task_id)` 复合外键绑定同租户任务并随任务级联删除；命令只允许 cancel/retry。命令记录用于区分“请求重放”和“在相同任务状态下发出的新命令”，不能用当前状态代替持久化幂等事实。
 
+### `task_queue_outbox`
+
+P5-4 已由 `0012_task_queue_outbox.sql` 建表。每行保存 workspace、任务、固定 `run` 派发类型、稳定派发键、可派发时间、发布时间、尝试次数、短期 claim owner/token/expiry、脱敏失败摘要和时间戳。`(workspace_id, dispatch_key)` 唯一，`(workspace_id, task_id)` 复合外键绑定同租户任务并随任务级联删除；claim 三元组必须同时为空或同时存在。
+
+创建任务在原事务中写入 attempt 1 的派发事实，显式 retry 在任务重新进入 queued 的事务中写入下一 attempt 派发事实。dispatcher 只领取 `published_at IS NULL`、已到 `available_at` 且未被有效 claim 的行，使用 `FOR UPDATE SKIP LOCKED` 支持多 Worker；发布成功后按 claim token 标记 published，失败则清除 claim、保存脱敏错误并推进退避时间。BullMQ 消息只包含 outbox/task ID，job ID 使用 outbox ID；PostgreSQL 仍是任务状态事实来源。
+
+### P5-5 Worker 租约语义
+
+领取任务使用带 `status='queued'`、`available_at<=now()` 和 attempt 上限的条件 UPDATE；成功时同事务将状态改为 running、递增 `attempt_count`、生成 lease token、设置 owner/expiry、保留首次 `started_at` 并插入对应 attempt_number 的 running `task_attempts`。重复 BullMQ 作业、陈旧 outbox 或多 Worker 竞争只允许一个 claim 成功。
+
+续租和进度更新必须同时匹配 task ID、running 状态、lease owner、lease token，并要求原租约尚未过期。进度只允许单调增加。取消或失败收敛先锁定同一 lease 的任务并结束当前 running attempt；取消进入 canceled，可重试失败在还有 attempt 时进入 queued，并让任务和下一 outbox 使用一致退避窗口；不可重试或达到上限进入 failed。过期租约恢复按 `lease_expires_at` 扫描并使用 `FOR UPDATE SKIP LOCKED`，复用同一收敛事务，不能直接清空 lease 后遗留无 attempt 或无派发的 queued 任务。
+
+### P5-7 Provider 提交语义
+
+`0013_provider_submission_fencing.sql` 向 `task_attempts` 增加非空 `submission_key`、`submission_stage` 和可空 `remote_task_id`。stage 仅允许 ready、submitting、submitted、polling、uncertain；submitted/polling 必须有远端 ID，其他阶段不得伪造远端 ID。每个 task 的所有 attempt 保存同一由 task ID 派生的稳定 key，用于 Provider 明确支持的幂等提交；该 key 不包含 API Key、prompt、附件或用户身份。恢复索引仅覆盖 submitting/submitted/polling/uncertain，避免扫描全部历史 attempt。
+
+持有当前 Worker/lease token 的事务才能读取或更新当前 attempt。提交前将 stage 写为 submitting；远端确认后在同一事务把 attempt 写为 submitted 和远端 ID，并更新任务的 `remote_task_id`。新 attempt 发现任务已有远端 ID 时写为 polling 并优先轮询；发现无 ID 的不确定提交时，只有 adapter 显式支持幂等才允许重用同一 key，否则写 uncertain，后续应以非重试失败结束，不得盲目重排。迁移对既有 attempt 回填稳定 key；若当前 attempt 已有任务远端 ID，则迁为 submitted 以保留轮询能力。迁移是加字段/约束/索引，旧应用可读取但不能创建新 attempt，因此回退时必须停止 Worker claim、Consumer 和 lease recovery；重新升级无需数据修复，由新 Worker 接续已有 remote ID 或确定不确定提交。
+
 ### P5-1 schema 迁移策略
 
 `0007_generation_tasks.sql` 新增任务/尝试表和索引，并把 P4 预留的 `asset_references.task_id` 从 text 转为 UUID、增加同工作区任务外键。P4 应用尚未写入任务引用；若升级时发现任何遗留 task 引用，迁移会在单个事务中显式失败，运维必须先核对来源并以前向修复方式创建可信任务或移除错误数据，不能由迁移猜测 workspace 或静默丢弃引用。应用回退到 P4 时可保留新增表；P4 不读取任务表，但已转换的 UUID 列不能再接受任意文本任务 ID。
@@ -242,6 +260,8 @@ P5-2 已由 `0008_provider_credentials.sql` 建表。保存 `workspace_id`、Pro
 
 加密 AAD 绑定 workspace ID 和 Provider ID，因此跨租户或跨 Provider 复制 ciphertext 无法通过认证解密。写入使用当前 active key version，读取可使用 keyring 中的历史版本；轮换采用“部署新旧 keyring -> 切换 active -> 后台重加密 -> 移除旧密钥”的前向流程。回退旧应用时保留表即可；旧应用不读取 Provider 凭据。base URL 的精确 allowlist 属于服务端注册表约束，数据库额外拒绝非 HTTPS 和含空白的值。
 
+P5-6 连接测试不新增持久化表，也不写入 `provider_credentials`。请求在授权成功后读取同工作区 active 行并短期解密 envelope；测试结果、Provider 响应正文、Authorization、完整 URL query 和 API Key 均不进入表、任务错误或日志。失败只通过稳定的脱敏分类映射为 `PROVIDER_CONFIG_INVALID` 或 `PROVIDER_UNAVAILABLE`。
+
 ### P5-2 schema 迁移策略
 
 `0008_provider_credentials.sql` 是纯新增表迁移，不改写用户、项目、任务或资产数据。应用回退可保留该表；若回退版本无法解密新 key version，必须停止 Provider 执行而不是清空或降级密文。迁移测试验证 envelope 完整性、key version 一致性、HTTPS base URL、workspace/provider 唯一性和随机隔离 schema 升级。
@@ -250,9 +270,59 @@ P5-2 已由 `0008_provider_credentials.sql` 建表。保存 `workspace_id`、Pro
 
 `0009_task_commands.sql` 是纯新增审计/幂等表迁移，不改写既有任务、项目图、版本、change 或资产引用。应用回退可保留该表；旧应用不会读取命令记录，但回退期间不得同时开放旧的非持久化 cancel/retry 写入口。迁移测试验证表、租户复合外键、workspace 幂等唯一约束、命令类型约束和历史索引。
 
+### P5-4 schema 迁移策略
+
+`0012_task_queue_outbox.sql` 新增 outbox 表，并把升级时已有 queued 任务按 `attempt_count + 1` 回填为待发布 `run` 事实；running、failed、succeeded 和 canceled 不回填。回填不修改任务状态、attempt、项目图或资产。应用回退可保留 outbox 表，但 P5-3 应用不会继续创建派发事实，因此回退期间必须停止 Worker dispatcher；重新升级后应通过受控前向修复补齐回退窗口产生的 queued 任务，不能依赖 Redis 中的偶然残留作业。
+
 ### `usage_ledger`
 
-保存工作区、任务、计量类型、数量、计费单位、幂等键和时间。`(workspace_id, idempotency_key)` 唯一，Provider 回调重试不得重复记账。
+P5-8 已由 `0014_task_results_usage_ledger.sql` 建表。保存 `workspace_id`、任务、成功 attempt、Provider/model、计费模式、受限数值 `usage_json` 和时间；同一 `task_id` 唯一，复合 workspace/task 外键和 task/attempt 外键保证账本不能跨租户、跨任务或归属不存在的 attempt。账本不保存 Provider 响应、结果 URL、prompt、附件、Authorization 或 API Key。任务成功重放返回既有结果，不重复插入账本。
+
+### P5-8 结果资产与成功收敛
+
+Provider 临时结果先在事务外下载、大小/MIME/魔数/SHA-256 校验并写入私有对象存储；下载、校验或对象写入失败时，不插入 `assets`，也不得将任务写为 succeeded。成功转存的 asset ID 和对象 key 由 task ID 与结果序号稳定派生，崩溃重试仍指向同一结果定位符；事务提交前的孤立对象交给既有对象维护流程诊断，不得伪造 completed 数据库资产。
+
+持有当前 `worker_id` 与 `lease_token` 的成功事务锁定任务和 workspace 配额，写入 completed `assets`、task result `asset_references`，并仅在活动 preview node 仍存在且项目未归档时写 node result `asset_references`、合并 `project_nodes.data_json.generationResults.<taskId>`、追加 source=`worker` 的单个 `project_changes`、递增项目 version/sequence。该 JSONB 子树保存 task ID 与标准 `{ assetId, assetKind }` 对象，现有图/检查点资产提取器可以继续生成 manifest；它不改位置、尺寸、presentation 或其他用户数据。删除 preview node 或归档项目不会被 Worker 重建。随后事务结束 attempt、写入账本、更新 `generation_tasks.result_json` 为 asset IDs 并清理 lease。取消请求优先收敛 canceled；租约 fencing 失败、配额拒绝或任一写入失败都会回滚资产引用、账本、图变更和任务成功状态。
+
+P5-9 图片/视频能力不新增表或迁移。Worker 在当前 lease 内先把 attempt 置为 `submitting`，因此进程在网络调用前后中断时仍由 P5-7 防重复提交规则处理；OpenAI `gpt-image-2` 同步调用没有远端 task ID，未确认调用不会被自动重发。当前同时允许阿里百炼 `wanx2.1-t2i-turbo` 异步文生图和 `wan2.7-t2v` 异步文生视频，其提交返回的受限远端 ID 必须在同一有效 lease 内写入 attempt 与 task；后续 attempt 一律转为 polling 并复用该 ID。OpenAI 编辑任务在同一有效 lease 下，从该 task source node 的 completed `asset_references` 解析私有对象 key 与 MIME，不接受客户端 URL 或对象 key；租约失效、跨工作区、已删除或未完成的资产都不会被读取。异步轮询和同步结果最后均进入 P5-8 成功事务，视频结果资产使用既有 `asset_kind='video'` 与 `generationResults.<taskId>.assets[].assetKind='video'`，不新增媒体 blob 列。
+
+P5-10 首个 Web 投影不新增表或迁移。浏览器把服务端 `generation_tasks` 摘要映射为临时 UI task，并只持久化 server task ID、项目/node/model、0-100 progress、状态和脱敏错误；该投影不保存 request JSON、Provider 密钥、远端 ID、结果 URL、对象 key、账本或 attempt 字段。跨项目缓存只是会话内的 queued/running 摘要副本，按 `projectId` 隔离，不写入 `TaskQueueSnapshot`、项目图或 checkpoint，终态立即从该缓存移除。Cloud 服务商设置的新 API Key 也只是组件临时输入，不属于 `ProviderProfileConfig`、Zustand 配置、任务投影、项目图或快照；持久化凭据仍唯一存在于服务端 `provider_credentials` 加密 envelope。结果仍以 `project_nodes.data_json.generationResults.<taskId>.assets` 中的 `{ assetId, assetKind }` 为事实，浏览器只用 asset ID 请求既有短期签名 URL。服务端任务状态、结果资产和 worker graph change 的关系不因 UI 投影而改变。
+
+P5-11 新增 `generation_task_events`，由 `generation_tasks` 的同事务触发器写入创建、状态、进度和终态事件；迁移会为已有任务回填一条当前状态事件。事件以数据库 identity `sequence` 作为工作区轮询游标，以 UUID `id` 作为稳定通知幂等键，保存 `workspace_id`、`task_id`、`project_id`、事件类型、状态、0-100 进度、脱敏错误码/消息和创建时间。事件表通过 `(workspace_id, task_id)` 与 `(workspace_id, project_id)` 复合外键约束租户边界，并提供工作区/项目/任务游标索引；不保存 request JSON、Provider 密钥、lease/attempt、远端任务 ID、结果 URL、对象 key 或媒体 blob。错误消息在数据库触发器中再次截断并替换常见凭据模式。事件日志只用于恢复和通知，不能替代 `generation_tasks`、结果资产或项目图事实；删除任务/项目时事件随外键级联清理。
+
+## 迁移导入
+
+### `migration_imports`
+
+P6-2 由 `0016_migration_imports.sql` 建表。每行保存 import UUID、可信 `workspace_id`/创建成员、package schema/ID/source platform、来源项目 ID/version/sequence/name、workspace 幂等键与请求指纹、内容 SHA-256、状态、项目冲突快照、文件/资产/字节计数、估算占用、重试/脱敏错误、validated manifest/ProjectRecord/graph/asset manifest/可选 checkpoint JSONB、取消/完成/过期时间和时间戳。
+
+状态枚举预留 `prepared`、`uploading`、`validating`、`ready`、`committing`、`completed`、`failed`、`canceled`、`expired`。计数和字节必须非负且 completed 不超过 total；failed/canceled/completed 与各自错误或终态时间保持一致。JSON payload 必须为对象，checkpoint 可空。`(workspace_id, idempotency_key)` 唯一，同键不同请求指纹不能覆盖原行；创建者通过 `(workspace_id, created_by_user_id)` 外键绑定当前成员。只有 `project_exists` 可以保存同 workspace target project 及 expected version/sequence，其他冲突类型不得携带目标详情。
+
+prepare 保存 validated package JSON 是为了 API/Worker 重启后继续后续上传与 commit，不是当前项目事实来源。表不保存媒体 blob、对象 key、签名 URL、Provider URL、API Key、Authorization 或配额 reservation。P6-2 只产生 prepared/canceled/expired 状态，不写 `projects`、`project_nodes`、`project_edges`、`project_changes`、`project_snapshots`、`assets`、`asset_uploads` 或 `asset_references`。
+
+### `migration_import_asset_uploads`
+
+P6-3 为每个 `logical_asset_id` 建立独立上传行，保存服务端 staging object key、multipart provider upload ID、上传模式、分片计划、已确认分片 ETag/字节数、期望 MIME/大小/SHA-256、状态、重试次数和过期/终态时间。对象 key 和 provider upload ID 只存在服务端，API 只返回短期签名 URL。workspace/import/logical asset 唯一约束防止重复会话，复合外键保证上传不能跨 workspace 绑定 import。
+
+`pending`、`uploading`、`validating` 和已完成但尚未 commit 的暂存字节计入 workspace `reserved_bytes`；failed/canceled/expired 行不再占用 reservation。上传完成只把父 import 推进到 `ready`，不创建正式 asset 或引用；P6-4 commit 必须在同一事务中重新校验并转移这些暂存对象。
+
+### Commit 幂等映射
+
+`0018_migration_import_commit.sql` 为 `migration_imports` 增加 commit request 指纹、策略、目标 project、完成时间，并为上传行增加 `committed_asset_id`。commit 在同一事务内锁定 import、workspace quota 和 replace 目标项目，完成资产 UUID 映射、图/引用/change/checkpoint 写入后才将 import 标记 completed；重复请求必须使用同一 idempotency key 和指纹，否则返回 `IMPORT_CONFLICT`。失败回滚所有数据库写入，staging 对象仍由后续重试或 GC 处理。
+
+P6-5 copy 在事务内为节点和连线生成新 UUID，并用同一映射重写 `parent_node_id`、edge source/target、`project_changes.operations_json` 和 import checkpoint；replace 不重映射图实体 ID。正式资产映射先以可信 `workspace_id`、`status=completed`、未软删除、SHA-256、字节数和 MIME 查询既有资产并持有共享锁，完全匹配时允许多个同 workspace 项目引用同一 asset UUID，否则从当前 import 的 staging 对象创建新资产。查询条件和 `committed_asset_id` 复合外键共同禁止跨 workspace 复用；无论复用还是新建，上传行写入 `committed_asset_id` 后都退出 reservation 统计。
+
+### `migration_exports`
+
+P6-6 的 `0019_migration_exports.sql` 为每次单项目导出保存可信 workspace/creator/project、幂等键与请求指纹、冻结的 project version/sequence、规范化 `manifest_json`/`project_record_json`/`graph_json`/`asset_manifest_json`/可选 checkpoint、服务端资产对象映射、状态与进度、归档 object key/大小/SHA-256、脱敏错误、取消/完成/过期时间。`archive_object_key` 只存在服务端数据库和对象存储边界，API 不返回；表通过 `(workspace_id, project_id)` 与 `(workspace_id, created_by_user_id)` 复合外键保持租户边界。
+
+`0020_migration_lifecycle_retry.sql` 增加 `retry_count` 与 retryable 索引。failed/canceled 导出只有在未超过 3 次时才能原子重置为 prepared，清空上一轮进度/错误/归档映射后重新生成；retry 不改变冻结的项目 version/sequence 或 payload。
+
+导出状态为 `prepared`、`generating`、`completed`、`failed`、`canceled`、`expired`。prepare 事务锁定项目并一次性保存当前关系图和检查点快照，后续后台生成只能读取该快照，不能拼接新的 project version。completed 必须同时有归档 key/大小/hash 和完成时间；失败、取消或过期不写项目图、资产引用或 checkpoint。对象生成完成后若检测到取消请求会删除归档并收敛为 canceled；API/进程重启由 PostgreSQL 中的 prepared/generating 行恢复。
+
+### P6-2 schema 迁移策略
+
+`0016_migration_imports.sql`、`0017_migration_import_asset_uploads.sql`、`0018_migration_import_commit.sql`、`0019_migration_exports.sql` 与 `0020_migration_lifecycle_retry.sql` 都是新增字段/表、约束和索引迁移，不改写 P0-P5 的认证、项目、资产或任务数据。升级测试验证随机隔离 schema 的 20 个顺序迁移、workspace creator/target project 外键、上传复合外键、commit 映射外键、导出租户/生命周期/retry/进度/JSON 约束、幂等唯一键和拒绝路径。尚未写入真实 import/export 时可停用新 API 后删除这些表回退；一旦产生迁移会话或归档，旧应用可以忽略新表，数据库应保留数据并通过前向迁移修复，避免丢失可恢复上下文。
 
 ## 核心事务
 
@@ -274,6 +344,10 @@ Better Auth 负责创建 `"user"`、`"account"` 和 `"session"`；Cloud 侧在�
 
 P3-3/P3-4 与 P4-7 当前实现已覆盖上述当前图步骤。项目行使用 `FOR UPDATE` 串行化同项目批次；幂等键查询先于版本冲突和资产重新校验，确保已接受请求在项目继续更新或归档后仍返回原结果。节点父级基于操作后的活动节点集合校验缺失引用和环，删除节点会软删除关联边并删除节点引用。资产校验只按可信 actor 的 `workspace_id` 查询 UUID，并对命中的资产行使用共享锁保持 completed 判定到图事务提交；服务端不相信节点中的 workspace、user、object key、签名 URL 或临时 URL。缺失或跨工作区引用在任何写入前拒绝，事务异常也会回滚节点、连线、计数、change、version/sequence 和引用。
 
+### 迁移导入预检
+
+prepare 在进入事务前完成目录包纯校验和规范 JSON/逐文件/内容 SHA-256 校验。事务先锁定可信 workspace，再读取 `(workspace_id, idempotency_key)`；同指纹返回原行，不同指纹拒绝。新请求读取同一 workspace 最新已用和 pending 预留容量，以 package 资产总字节执行保守配额检查，再查询项目 ID 冲突并插入一行 prepared import。配额检查只是估算，不建立 reservation；任一失败回滚 import，且事务始终不修改正式图、资产、引用、change 或 checkpoint。P6-3 上传和 P6-4 commit 必须重新锁定并复查配额、状态和目标版本。
+
 ### 上传配额预留
 
 创建新上传会话时，事务先锁定可信 `workspace_id` 对应的 workspace 行，再读取同工作区幂等键。已存在且元数据一致的 pending 会话直接复用，不重复预留；新请求汇总所有未软删除资产，其中 pending 为预留量，completed/failed/quarantined 为已用量。只有 `已用 + 预留 + 本次 byte_size <= storage_quota_bytes` 才能同时插入 pending `assets` 和 `asset_uploads`。workspace 行锁保证同一工作区并发请求依次看到前一笔已提交预留；超限返回 `QUOTA_EXCEEDED`，不插入资产、不签发对象存储 URL。配额事务不依赖浏览器声明的 workspace/user，也不读取其他工作区资产。
@@ -284,13 +358,13 @@ P3-3/P3-4 与 P4-7 当前实现已覆盖上述当前图步骤。项目行使用 
 
 ### 任务完成
 
-同一事务更新任务状态、结果资产、用量账本和必要节点，通过任务幂等键追加项目变更。对象转存未完成时不能把任务标记为 succeeded。
+对象转存完成后，持有当前 lease 的 Worker 在同一事务校验配额并更新任务状态、结果资产、任务/节点引用、用量账本和必要 preview node；活动 preview node 通过任务 ID 稳定的 worker change 追加结果字段，项目版本/sequence 只在实际节点变更时递增。任务已 succeeded 的重放只读取既有任务结果，不重复创建资产、节点、账本或 change。对象转存未完成、取消优先、配额不足、lease fencing 失败或任一数据库错误时不能把任务标记为 succeeded。
 
 ### 任务创建与命令
 
-创建任务先校验可信 session 成员和写角色，再在短事务中锁定 workspace 行。事务先读取同 workspace 创建幂等键；同键同输入返回原任务，同键异输入拒绝。新任务必须验证活动项目及 source/preview node 归属、对 active Provider 配置加共享锁，并在 workspace 行锁保护下统计 queued/running 数量；只有少于 5 个时才插入任务并递增项目 `task_count`。任一失败均不插入任务或修改计数，也不改变图 version/sequence/change。
+创建任务先校验可信 session 成员和写角色，再在短事务中锁定 workspace 行。事务先读取同 workspace 创建幂等键；同键同输入返回原任务，同键异输入拒绝。新任务必须验证活动项目及 source/preview node 归属、对 active Provider 配置加共享锁，并在 workspace 行锁保护下统计 queued/running 数量；只有少于 5 个时才插入任务、写入下一 attempt 的 `task_queue_outbox` 派发事实并递增项目 `task_count`。任一失败均不插入任务、outbox 或修改计数，也不改变图 version/sequence/change。
 
-cancel/retry 同样先锁 workspace，再锁同 workspace 任务行并读取持久化命令幂等键。queued cancel 原子进入 canceled，running cancel 只设置取消请求；retry 只把未达尝试上限的 failed 任务重排为 queued 并清理旧错误和租约字段。状态更新与 `task_commands` 插入共享一个事务；唯一键竞争由 workspace 锁串行化。命令不修改当前图、项目 version/sequence 或 `project_changes`。
+cancel/retry 同样先锁 workspace，再锁同 workspace 任务行并读取持久化命令幂等键。queued cancel 原子进入 canceled，running cancel 只设置取消请求，由持有有效 lease 的 Worker 或过期恢复事务结束 attempt 并收敛为 canceled；retry 只把未达尝试上限的 failed 任务重排为 queued、清理旧错误和租约字段并写入下一 attempt 的 outbox。状态更新、outbox 与 `task_commands` 插入共享一个事务；唯一键竞争由 workspace 锁串行化。命令不修改当前图、项目 version/sequence 或 `project_changes`。
 
 ### 历史恢复
 
@@ -308,4 +382,3 @@ cancel/retry 同样先锁 workspace，再锁同 workspace 任务行并读取持�
 - saved/working snapshot -> import/manual 检查点和当前关系状态
 
 导出反向组装 `savedSnapshot` 与 `workingSnapshot`，保持 schema 版本和本地目录包契约。往返测试必须比较语义归一化结果，而不是依赖 JSON 属性顺序。
-

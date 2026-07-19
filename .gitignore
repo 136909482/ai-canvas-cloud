@@ -8,6 +8,7 @@ coverage/
 .env.*
 !.env.example
 infra/local/data/
+infra/deploy/staging/staging.env
 test-results/
 .playwright-cli/
 .codex-run/

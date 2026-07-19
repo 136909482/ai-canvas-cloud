@@ -1,6 +1,6 @@
-import type { CloudProviderId } from '@ai-canvas-cloud/contracts'
+import type { CloudProviderId, GenerationTaskKind } from '@ai-canvas-cloud/contracts'
 
-export type ProviderEndpointKind = 'chat' | 'image_generation' | 'image_edit'
+export type ProviderEndpointKind = 'chat' | 'image_generation' | 'image_edit' | 'image_async_submission' | 'video_async_submission'
 
 export interface CloudProviderDefinition {
   id: CloudProviderId
@@ -8,6 +8,9 @@ export interface CloudProviderDefinition {
   defaultBaseUrl: string
   allowedBaseUrls: readonly string[]
   endpoints: Partial<Record<ProviderEndpointKind, string>>
+  testEndpoint: string
+  allowedResultHosts: readonly string[]
+  supportsIdempotentSubmission: boolean
 }
 
 const PROVIDER_DEFINITIONS: readonly CloudProviderDefinition[] = [
@@ -21,6 +24,9 @@ const PROVIDER_DEFINITIONS: readonly CloudProviderDefinition[] = [
       image_generation: '/v1/images/generations',
       image_edit: '/v1/images/edits',
     },
+    testEndpoint: '/v1/models',
+    allowedResultHosts: ['api.openai.com'],
+    supportsIdempotentSubmission: false,
   },
   {
     id: 'aliyun',
@@ -30,7 +36,12 @@ const PROVIDER_DEFINITIONS: readonly CloudProviderDefinition[] = [
     endpoints: {
       chat: '/compatible-mode/v1/chat/completions',
       image_generation: '/api/v1/services/aigc/multimodal-generation/generation',
+      image_async_submission: '/api/v1/services/aigc/text2image/image-synthesis',
+      video_async_submission: '/api/v1/services/aigc/video-generation/video-synthesis',
     },
+    testEndpoint: '/compatible-mode/v1/models',
+    allowedResultHosts: ['dashscope.aliyuncs.com'],
+    supportsIdempotentSubmission: false,
   },
 ] as const
 
@@ -89,4 +100,54 @@ export function resolveProviderEndpoint(providerId: string, endpointKind: Provid
   const baseUrl = normalizeProviderBaseUrl(providerId)
   const base = new URL(baseUrl)
   return `${base.origin}${endpointPath}`
+}
+
+export function resolveProviderTestEndpoint(providerId: string) {
+  const definition = getCloudProviderDefinition(providerId)
+  if (!definition) {
+    throw new Error('Provider is not supported')
+  }
+  const baseUrl = normalizeProviderBaseUrl(providerId)
+  return `${new URL(baseUrl).origin}${definition.testEndpoint}`
+}
+
+export function resolveProviderTaskEndpoint(providerId: string, remoteTaskId: string) {
+  if (providerId !== 'aliyun' || !/^[a-z0-9][a-z0-9_-]{0,199}$/i.test(remoteTaskId)) {
+    throw new Error('Provider task endpoint is not supported')
+  }
+  const baseUrl = normalizeProviderBaseUrl(providerId)
+  return `${new URL(baseUrl).origin}/api/v1/tasks/${encodeURIComponent(remoteTaskId)}`
+}
+
+export function isAllowedProviderResultUrl(providerId: string, value: string) {
+  const definition = getCloudProviderDefinition(providerId)
+  if (!definition) {
+    return false
+  }
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:'
+      && !url.username
+      && !url.password
+      && (!url.port || url.port === '443')
+      && definition.allowedResultHosts.includes(url.hostname)
+  } catch {
+    return false
+  }
+}
+
+export function isProviderGenerationTaskEnabled(input: {
+  providerId: string
+  kind: GenerationTaskKind
+  model: string
+}) {
+  return input.providerId === 'openai'
+    && input.kind === 'image'
+    && input.model === 'gpt-image-2'
+    || input.providerId === 'aliyun'
+      && input.kind === 'image'
+      && input.model === 'wanx2.1-t2i-turbo'
+    || input.providerId === 'aliyun'
+      && input.kind === 'video'
+      && input.model === 'wan2.7-t2v'
 }

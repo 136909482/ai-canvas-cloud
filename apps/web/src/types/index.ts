@@ -382,6 +382,8 @@ export interface GenerateTask {
   resultVideoAsset?: WorkspaceImageAsset | null
   status: GenerateTaskStatus
   errorMsg: string
+  serverTaskId?: string | null
+  serverProgress?: number | null
   remoteTaskId: string | null
   remoteStatus: GenerateTaskRemoteStatus | null
   createdAt: number

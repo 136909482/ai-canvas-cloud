@@ -1,4 +1,5 @@
 import http from 'node:http'
+import { isIP } from 'node:net'
 import {
   API_V1_PREFIX,
   createServiceUnavailableError,
@@ -25,6 +26,7 @@ import {
   type RestoreProjectRevisionRequest,
   type RevokeSessionResponse,
   type PutProviderCredentialRequest,
+  type ProviderConnectionTestResponse,
   type CreateGenerationTaskRequest,
   type GenerationTaskCommandRequest,
 } from '@ai-canvas-cloud/contracts'
@@ -43,6 +45,14 @@ import {
   validateProjectGraphChangesAfter,
   type ProjectGraphService,
 } from '@ai-canvas-cloud/server/modules/project-graph'
+import {
+  createUnavailableMigrationImportService,
+  createUnavailableMigrationAssetUploadService,
+  createUnavailableMigrationExportService,
+  type MigrationAssetUploadService,
+  type MigrationExportService,
+  type MigrationImportService,
+} from '@ai-canvas-cloud/server/modules/migrations'
 import {
   createUnavailableProjectSnapshotService,
   type ProjectSnapshotService,
@@ -63,9 +73,18 @@ import {
   createUnavailableWorkspaceUsageService,
   type WorkspaceUsageService,
 } from '@ai-canvas-cloud/server/modules/workspaces'
-import { createJsonLogger, createRequestId, type Logger } from '@ai-canvas-cloud/shared'
+import {
+  createJsonLogger,
+  createMetricsRegistry,
+  createRequestId,
+  hasDuplicateJsonObjectKeys,
+  type Logger,
+  type MetricsRegistry,
+} from '@ai-canvas-cloud/shared'
 import type { ApiConfig } from './config.js'
 import { checkReadinessDependencies } from './dependencies.js'
+import type { RateLimitBucket, RateLimiter, RateLimitDecision } from './rateLimit.js'
+import { handleSecurityBoundary } from './security.js'
 
 interface ServerOptions {
   config: ApiConfig
@@ -78,6 +97,17 @@ interface ServerOptions {
   workspaceUsageService?: WorkspaceUsageService
   providerCredentialService?: ProviderCredentialService
   generationTaskService?: GenerationTaskService
+  migrationImportService?: MigrationImportService
+  migrationAssetUploadService?: MigrationAssetUploadService
+  migrationExportService?: MigrationExportService
+  metrics?: MetricsRegistry
+  postgresPoolStats?: () => { total: number; idle: number; waiting: number }
+  readinessChecks?: {
+    postgres?: () => Promise<void>
+    objectStorage?: () => Promise<void>
+    redis?: () => Promise<void>
+  }
+  rateLimiter?: RateLimiter
 }
 
 function sendJson(response: http.ServerResponse, statusCode: number, payload: unknown, requestId: string) {
@@ -87,8 +117,18 @@ function sendJson(response: http.ServerResponse, statusCode: number, payload: un
   response.end(JSON.stringify(payload))
 }
 
+const API_ERROR_CODE = Symbol('apiErrorCode')
+
 function sendApiError(response: http.ServerResponse, statusCode: number, error: ApiErrorResponse, requestId: string) {
+  Object.defineProperty(response, API_ERROR_CODE, { configurable: true, value: error.error.code })
   sendJson(response, statusCode, error, requestId)
+}
+
+function sendMetrics(response: http.ServerResponse, body: string, requestId: string) {
+  response.statusCode = 200
+  response.setHeader('content-type', 'text/plain; version=0.0.4; charset=utf-8')
+  response.setHeader('x-request-id', requestId)
+  response.end(body)
 }
 
 function isLivePath(pathname: string) {
@@ -97,6 +137,34 @@ function isLivePath(pathname: string) {
 
 function isReadyPath(pathname: string) {
   return pathname === '/health/ready' || pathname === `${API_V1_PREFIX}/health/ready`
+}
+
+const API_ROUTE_GROUPS = new Set(['account', 'assets', 'auth', 'migrations', 'projects', 'settings', 'tasks', 'workspaces'])
+const HTTP_METHODS = new Set(['DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT'])
+
+function requestMethodGroup(method: string | undefined) {
+  return method && HTTP_METHODS.has(method) ? method : 'OTHER'
+}
+
+function requestPathGroup(pathname: string) {
+  if (pathname === '/metrics') return '/metrics'
+  if (isLivePath(pathname)) return '/health/live'
+  if (isReadyPath(pathname)) return '/health/ready'
+  const match = pathname.match(/^\/api\/v1\/([a-z-]+)(?:\/|$)/)
+  return match?.[1] && API_ROUTE_GROUPS.has(match[1]) ? `/api/v1/${match[1]}` : '/unmatched'
+}
+
+function migrationPhase(pathname: string) {
+  const isImport = pathname.startsWith(`${API_V1_PREFIX}/migrations/`)
+  const isExport = /^\/api\/v1\/projects\/[^/]+\/exports(?:\/|$)/.test(pathname)
+  if (!isImport && !isExport) return null
+  if (pathname.endsWith('/prepare')) return isExport ? 'export_prepare' : 'import_prepare'
+  if (pathname.endsWith('/commit')) return 'import_commit'
+  if (pathname.endsWith('/download')) return 'export_download'
+  if (pathname.endsWith('/retry')) return 'export_retry'
+  if (pathname.endsWith('/cancel')) return 'cancel'
+  if (pathname.includes('/assets/')) return 'asset_upload'
+  return isExport ? 'export_status' : 'import_status'
 }
 
 function isAuthPath(pathname: string, route: string) {
@@ -174,21 +242,27 @@ function getAuthDeviceIdFromPath(pathname: string) {
   return deviceId ? decodeURIComponent(deviceId) : null
 }
 
-function getProviderSettingsRoute(pathname: string) {
+function getProviderSettingsRoute(pathname: string): {
+  providerId: string | null
+  action: 'test' | null
+} | null {
   const collectionPath = `${API_V1_PREFIX}/settings/providers`
   if (pathname === collectionPath) {
-    return { providerId: null }
+    return { providerId: null, action: null }
   }
   const prefix = `${collectionPath}/`
   if (!pathname.startsWith(prefix)) {
     return null
   }
-  const providerId = pathname.slice(prefix.length)
-  if (!providerId || providerId.includes('/')) {
+  const segments = pathname.slice(prefix.length).split('/')
+  if (!segments[0] || segments.length > 2 || (segments[1] && segments[1] !== 'test')) {
     return null
   }
   try {
-    return { providerId: decodeURIComponent(providerId) }
+    return {
+      providerId: decodeURIComponent(segments[0]),
+      action: segments[1] === 'test' ? 'test' : null,
+    }
   } catch {
     throw new AuthServiceError({
       statusCode: 400,
@@ -198,7 +272,7 @@ function getProviderSettingsRoute(pathname: string) {
   }
 }
 
-function getGenerationTaskRoute(pathname: string): { taskId: string | null; action: 'cancel' | 'retry' | null } | null {
+function getGenerationTaskRoute(pathname: string): { taskId: string | null; action: 'cancel' | 'retry' | 'events' | null } | null {
   const collectionPath = `${API_V1_PREFIX}/tasks`
   if (pathname === collectionPath) {
     return { taskId: null, action: null }
@@ -208,6 +282,9 @@ function getGenerationTaskRoute(pathname: string): { taskId: string | null; acti
     return null
   }
   const segments = pathname.slice(prefix.length).split('/')
+  if (segments[0] === 'events' && segments.length === 1) {
+    return { taskId: null, action: 'events' }
+  }
   if (!segments[0] || segments.length > 2 || (segments[1] && !['cancel', 'retry'].includes(segments[1]))) {
     return null
   }
@@ -222,6 +299,98 @@ function getGenerationTaskRoute(pathname: string): { taskId: string | null; acti
       apiCode: 'VALIDATION_FAILED',
       message: 'Invalid task path',
     })
+  }
+}
+
+function getMigrationImportRoute(pathname: string): {
+  importId: string | null
+  logicalAssetId: string | null
+  partNumber: number | null
+  action: 'prepare' | 'cancel' | 'commit' | 'asset_upload' | 'asset_complete' | 'asset_cancel' | 'asset_part_complete' | null
+} | null {
+  const collectionPath = `${API_V1_PREFIX}/migrations/imports`
+  if (pathname === `${collectionPath}/prepare`) {
+    return { importId: null, logicalAssetId: null, partNumber: null, action: 'prepare' }
+  }
+  const prefix = `${collectionPath}/`
+  if (!pathname.startsWith(prefix)) {
+    return null
+  }
+  const segments = pathname.slice(prefix.length).split('/')
+  if (!segments[0] || segments[0] === 'prepare' || segments.length > 6) {
+    return null
+  }
+  try {
+    if (segments.length === 1) {
+      return { importId: decodeURIComponent(segments[0]), logicalAssetId: null, partNumber: null, action: null }
+    }
+    if (segments.length === 2 && segments[1] === 'cancel') {
+      return { importId: decodeURIComponent(segments[0]), logicalAssetId: null, partNumber: null, action: 'cancel' }
+    }
+    if (segments.length === 2 && segments[1] === 'commit') {
+      return { importId: decodeURIComponent(segments[0]), logicalAssetId: null, partNumber: null, action: 'commit' }
+    }
+    if (segments.length < 4 || segments[1] !== 'assets') {
+      return null
+    }
+    const importId = decodeURIComponent(segments[0])
+    const logicalAssetId = decodeURIComponent(segments[2] ?? '')
+    if (segments[3] === 'upload' && segments.length === 4) {
+      return { importId, logicalAssetId, partNumber: null, action: 'asset_upload' }
+    }
+    if (segments[3] === 'complete' && segments.length === 4) {
+      return { importId, logicalAssetId, partNumber: null, action: 'asset_complete' }
+    }
+    if (segments[3] === 'cancel' && segments.length === 4) {
+      return { importId, logicalAssetId, partNumber: null, action: 'asset_cancel' }
+    }
+    if (segments[3] === 'parts' && segments.length === 6 && segments[5] === 'complete') {
+      const partNumber = Number(segments[4])
+      if (!Number.isSafeInteger(partNumber) || partNumber < 1) {
+        throw new AuthServiceError({ statusCode: 400, apiCode: 'VALIDATION_FAILED', message: 'Invalid migration asset part path' })
+      }
+      return { importId, logicalAssetId, partNumber, action: 'asset_part_complete' }
+    }
+    return null
+  } catch {
+    throw new AuthServiceError({
+      statusCode: 400,
+      apiCode: 'VALIDATION_FAILED',
+      message: 'Invalid migration import path',
+    })
+  }
+}
+
+function getMigrationExportRoute(pathname: string): {
+  projectId: string
+  exportId: string | null
+  action: 'prepare' | 'download' | 'cancel' | 'retry' | null
+} | null {
+  const prefix = `${API_V1_PREFIX}/projects/`
+  if (!pathname.startsWith(prefix)) {
+    return null
+  }
+  const segments = pathname.slice(prefix.length).split('/')
+  if (!segments[0] || segments.length < 3 || segments[1] !== 'exports' || segments.length > 4) {
+    return null
+  }
+  try {
+    const projectId = decodeURIComponent(segments[0])
+    if (segments[2] === 'prepare' && segments.length === 3) {
+      return { projectId, exportId: null, action: 'prepare' }
+    }
+    if (!segments[2] || segments.length > 4) {
+      return null
+    }
+    if (segments.length === 3) {
+      return { projectId, exportId: decodeURIComponent(segments[2]), action: null }
+    }
+    if (segments.length === 4 && ['download', 'cancel', 'retry'].includes(segments[3])) {
+      return { projectId, exportId: decodeURIComponent(segments[2]), action: segments[3] as 'download' | 'cancel' | 'retry' }
+    }
+    return null
+  } catch {
+    throw new AuthServiceError({ statusCode: 400, apiCode: 'VALIDATION_FAILED', message: 'Invalid migration export path' })
   }
 }
 
@@ -266,6 +435,64 @@ function createErrorResponse(requestId: string, error: AuthServiceError): ApiErr
   }
 }
 
+function isWellFormedUnicode(value: string) {
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index)
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1)
+      if (!Number.isInteger(next) || next < 0xdc00 || next > 0xdfff) return false
+      index += 1
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      return false
+    }
+  }
+  return true
+}
+
+function assertJsonBodyShape(root: unknown) {
+  const stack: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 0 }]
+  let entries = 0
+  while (stack.length > 0) {
+    const current = stack.pop()!
+    entries += 1
+    if (entries > 100_000 || current.depth > 64) {
+      throw new AuthServiceError({
+        statusCode: 400,
+        apiCode: 'VALIDATION_FAILED',
+        message: 'Request JSON exceeds structural limits',
+      })
+    }
+    if (typeof current.value === 'string') {
+      if (!isWellFormedUnicode(current.value)) {
+        throw new AuthServiceError({
+          statusCode: 400,
+          apiCode: 'VALIDATION_FAILED',
+          message: 'Request JSON contains invalid Unicode',
+        })
+      }
+      continue
+    }
+    if (typeof current.value === 'number' && !Number.isFinite(current.value)) {
+      throw new AuthServiceError({
+        statusCode: 400,
+        apiCode: 'VALIDATION_FAILED',
+        message: 'Request JSON contains a non-finite number',
+      })
+    }
+    if (!current.value || typeof current.value !== 'object') continue
+    for (const [key, value] of Object.entries(current.value)) {
+      if (!isWellFormedUnicode(key)) {
+        throw new AuthServiceError({
+          statusCode: 400,
+          apiCode: 'VALIDATION_FAILED',
+          message: 'Request JSON contains invalid Unicode',
+        })
+      }
+      stack.push({ value, depth: current.depth + 1 })
+    }
+  }
+}
+
 async function readJsonBody<T>(request: http.IncomingMessage, maxBytes = 64 * 1024): Promise<T> {
   const chunks: Buffer[] = []
   let totalBytes = 0
@@ -285,7 +512,16 @@ async function readJsonBody<T>(request: http.IncomingMessage, maxBytes = 64 * 10
     chunks.push(buffer)
   }
 
-  const text = Buffer.concat(chunks).toString('utf8')
+  let text: string
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks))
+  } catch {
+    throw new AuthServiceError({
+      statusCode: 400,
+      apiCode: 'VALIDATION_FAILED',
+      message: 'Request body must use valid UTF-8 JSON',
+    })
+  }
 
   if (!text.trim()) {
     throw new AuthServiceError({
@@ -296,12 +532,39 @@ async function readJsonBody<T>(request: http.IncomingMessage, maxBytes = 64 * 10
   }
 
   try {
-    return JSON.parse(text) as T
+    if (hasDuplicateJsonObjectKeys(text)) {
+      throw new Error('duplicate JSON object key')
+    }
+    const parsed = JSON.parse(text) as T
+    assertJsonBodyShape(parsed)
+    return parsed
   } catch {
     throw new AuthServiceError({
       statusCode: 400,
       apiCode: 'VALIDATION_FAILED',
       message: 'Request body must be valid JSON',
+    })
+  }
+}
+
+async function readOptionalJsonBody<T>(request: http.IncomingMessage, maxBytes = 64 * 1024): Promise<T | undefined> {
+  const hasBody = request.headers['transfer-encoding'] !== undefined
+    || Number(request.headers['content-length'] ?? 0) > 0
+  return hasBody ? readJsonBody<T>(request, maxBytes) : undefined
+}
+
+async function assertOptionalEmptyBody(request: http.IncomingMessage) {
+  const hasBody = request.headers['transfer-encoding'] !== undefined
+    || Number(request.headers['content-length'] ?? 0) > 0
+  if (!hasBody) {
+    return
+  }
+  const body = await readJsonBody<unknown>(request)
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length > 0) {
+    throw new AuthServiceError({
+      statusCode: 400,
+      apiCode: 'VALIDATION_FAILED',
+      message: 'Migration cancel body must be an empty object',
     })
   }
 }
@@ -803,7 +1066,7 @@ async function handleProviderSettingsRoute(
       sendJson(response, 200, await providerCredentialService.listProviders(actor), requestId)
       return true
     }
-    if (request.method === 'PUT' && route.providerId) {
+    if (request.method === 'PUT' && route.providerId && route.action === null) {
       const payload = await providerCredentialService.putProvider(
         route.providerId,
         await readJsonBody<PutProviderCredentialRequest>(request),
@@ -812,8 +1075,21 @@ async function handleProviderSettingsRoute(
       sendJson(response, 200, payload, requestId)
       return true
     }
-    if (request.method === 'DELETE' && route.providerId) {
+    if (request.method === 'DELETE' && route.providerId && route.action === null) {
       sendJson(response, 200, await providerCredentialService.deleteProvider(route.providerId, actor), requestId)
+      return true
+    }
+    if (request.method === 'POST' && route.providerId && route.action === 'test') {
+      const input = await readJsonBody<unknown>(request)
+      if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length > 0) {
+        throw new AuthServiceError({
+          statusCode: 400,
+          apiCode: 'VALIDATION_FAILED',
+          message: 'Provider connection test does not accept request fields',
+        })
+      }
+      const payload: ProviderConnectionTestResponse = await providerCredentialService.testConnection(route.providerId, actor)
+      sendJson(response, 200, payload, requestId)
       return true
     }
     return false
@@ -850,7 +1126,7 @@ async function handleGenerationTaskRoute(
     const session = await authService.getSession(context)
     const actor = { userId: session.user.id, workspaceId: session.workspace.id }
 
-    if (request.method === 'POST' && route.taskId === null) {
+    if (request.method === 'POST' && route.taskId === null && route.action === null) {
       const payload = await generationTaskService.createTask(
         await readJsonBody<CreateGenerationTaskRequest>(request, 320 * 1024),
         actor,
@@ -859,6 +1135,25 @@ async function handleGenerationTaskRoute(
       return true
     }
     if (request.method === 'GET' && route.taskId === null) {
+      if (route.action === 'events') {
+        if (!generationTaskService.listEvents) {
+          throw new AuthServiceError({
+            statusCode: 503,
+            apiCode: 'SERVICE_UNAVAILABLE',
+            message: 'Generation task event service is not configured',
+            retryable: true,
+          })
+        }
+        sendJson(response, 200, await generationTaskService.listEvents({
+          projectId: requestUrl.searchParams.get('projectId'),
+          taskId: requestUrl.searchParams.get('taskId'),
+          after: requestUrl.searchParams.get('after'),
+          limit: requestUrl.searchParams.has('limit')
+            ? Number(requestUrl.searchParams.get('limit'))
+            : undefined,
+        }, actor), requestId)
+        return true
+      }
       const rawLimit = requestUrl.searchParams.get('limit')
       const limit = rawLimit === null ? undefined : Number(rawLimit)
       sendJson(response, 200, await generationTaskService.listTasks({
@@ -891,6 +1186,261 @@ async function handleGenerationTaskRoute(
   }
 }
 
+function getRateLimitBucket(request: http.IncomingMessage, pathname: string): RateLimitBucket | null {
+  const method = request.method ?? 'GET'
+  if (pathname === '/metrics' || isLivePath(pathname) || isReadyPath(pathname) || method === 'OPTIONS') {
+    return null
+  }
+  if (pathname === `${API_V1_PREFIX}/auth/login` || pathname === `${API_V1_PREFIX}/auth/register`) {
+    return 'auth_attempt'
+  }
+  if (pathname.startsWith(`${API_V1_PREFIX}/auth/password/`) || pathname === `${API_V1_PREFIX}/auth/email/verify` || pathname === `${API_V1_PREFIX}/auth/email/resend`) {
+    return 'password_email'
+  }
+  if (pathname.includes('/settings/providers/') && pathname.endsWith('/test')) {
+    return 'provider_test'
+  }
+  if (pathname === `${API_V1_PREFIX}/tasks` && method === 'POST') {
+    return 'task_create'
+  }
+  if (pathname === `${API_V1_PREFIX}/migrations/imports/prepare` || pathname.endsWith('/exports/prepare')) {
+    return 'migration_prepare'
+  }
+  if (pathname.startsWith(`${API_V1_PREFIX}/assets/uploads`) && method === 'POST') {
+    return 'asset_prepare'
+  }
+  return method === 'GET' || method === 'HEAD' ? 'read' : 'write'
+}
+
+function getControlledNetworkIdentity(request: http.IncomingMessage, trustProxy: boolean) {
+  if (trustProxy) {
+    const forwarded = request.headers['x-forwarded-for']
+    const raw = Array.isArray(forwarded) ? forwarded.at(-1) : forwarded
+    const candidate = raw?.split(',').at(-1)?.trim()
+    if (candidate && isIP(candidate)) {
+      return candidate
+    }
+  }
+  const remoteAddress = request.socket.remoteAddress?.trim()
+  return remoteAddress && isIP(remoteAddress) ? remoteAddress : 'unknown-network'
+}
+
+function createRequestAuthService(authService: AuthService, requestId: string): AuthService {
+  let sessionPromise: ReturnType<AuthService['getSession']> | undefined
+  return {
+    ...authService,
+    getSession(context) {
+      if (context.requestId !== requestId) {
+        return authService.getSession(context)
+      }
+      sessionPromise ??= authService.getSession(context)
+      return sessionPromise
+    },
+  }
+}
+
+async function getTrustedRateLimitScopes(
+  request: http.IncomingMessage,
+  requestId: string,
+  authService: AuthService,
+) {
+  if (!request.headers.cookie?.trim()) {
+    return []
+  }
+  try {
+    const session = await authService.getSession(getAuthContext(request, requestId))
+    return [`user:${session.user.id}`, `workspace:${session.workspace.id}`]
+  } catch {
+    return []
+  }
+}
+
+function sendRateLimitResponse(response: http.ServerResponse, decision: RateLimitDecision, requestId: string) {
+  const retryAfterSeconds = Math.max(1, decision.retryAfterSeconds)
+  response.setHeader('retry-after', String(retryAfterSeconds))
+  if (!decision.available) {
+    sendJson(response, 503, {
+      error: {
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Rate limiting service is unavailable',
+        retryable: true,
+        requestId,
+        details: { dependency: 'redis', failureMode: 'closed', bucket: decision.bucket },
+      },
+    }, requestId)
+    return
+  }
+  sendJson(response, 429, {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'Too many requests',
+      retryable: true,
+      requestId,
+      details: { retryAfterSeconds },
+    },
+  }, requestId)
+}
+
+async function handleMigrationImportRoute(
+  request: http.IncomingMessage,
+  response: http.ServerResponse,
+  requestUrl: URL,
+  requestId: string,
+  authService: AuthService,
+  migrationImportService: MigrationImportService,
+  migrationAssetUploadService: MigrationAssetUploadService,
+) {
+  const route = getMigrationImportRoute(requestUrl.pathname)
+  if (!route) {
+    return false
+  }
+  const context = getAuthContext(request, requestId)
+  try {
+    if (!context.cookieHeader) {
+      throw new AuthServiceError({
+        statusCode: 401,
+        apiCode: 'AUTH_REQUIRED',
+        message: 'Authentication required',
+      })
+    }
+    const session = await authService.getSession(context)
+    const actor = { userId: session.user.id, workspaceId: session.workspace.id }
+
+    if (request.method === 'POST' && route.action === 'prepare' && route.importId === null) {
+      const payload = await migrationImportService.prepareImport(
+        await readJsonBody<unknown>(request, 8 * 1024 * 1024),
+        actor,
+      )
+      sendJson(response, 201, payload, requestId)
+      return true
+    }
+    if (request.method === 'GET' && route.importId && route.action === null) {
+      sendJson(response, 200, await migrationImportService.getImport(route.importId, actor), requestId)
+      return true
+    }
+    if (request.method === 'POST' && route.importId && route.action === 'cancel') {
+      await assertOptionalEmptyBody(request)
+      sendJson(response, 200, await migrationImportService.cancelImport(route.importId, actor), requestId)
+      return true
+    }
+    if (request.method === 'POST' && route.importId && route.action === 'commit') {
+      sendJson(response, 200, await migrationImportService.commitImport(
+        route.importId,
+        await readJsonBody<unknown>(request, 64 * 1024),
+        actor,
+      ), requestId)
+      return true
+    }
+    if (route.importId && route.logicalAssetId && route.action === 'asset_upload') {
+      if (request.method === 'GET') {
+        sendJson(response, 200, await migrationAssetUploadService.getAssetUpload(
+          route.importId,
+          route.logicalAssetId,
+          actor,
+        ), requestId)
+        return true
+      }
+      if (request.method === 'POST') {
+        await assertOptionalEmptyBody(request)
+        sendJson(response, 201, await migrationAssetUploadService.prepareAssetUpload(
+          route.importId,
+          route.logicalAssetId,
+          actor,
+        ), requestId)
+        return true
+      }
+    }
+    if (request.method === 'POST' && route.importId && route.logicalAssetId && route.action === 'asset_part_complete') {
+      sendJson(response, 200, await migrationAssetUploadService.completeAssetPart(
+        route.importId,
+        route.logicalAssetId,
+        route.partNumber!,
+        await readJsonBody<unknown>(request, 32 * 1024),
+        actor,
+      ), requestId)
+      return true
+    }
+    if (request.method === 'POST' && route.importId && route.logicalAssetId && route.action === 'asset_complete') {
+      sendJson(response, 200, await migrationAssetUploadService.completeAssetUpload(
+        route.importId,
+        route.logicalAssetId,
+        await readOptionalJsonBody<unknown>(request, 128 * 1024),
+        actor,
+      ), requestId)
+      return true
+    }
+    if (request.method === 'POST' && route.importId && route.logicalAssetId && route.action === 'asset_cancel') {
+      await assertOptionalEmptyBody(request)
+      sendJson(response, 200, await migrationAssetUploadService.cancelAssetUpload(
+        route.importId,
+        route.logicalAssetId,
+        actor,
+      ), requestId)
+      return true
+    }
+    return false
+  } catch (error) {
+    if (error instanceof AuthServiceError) {
+      sendApiError(response, error.statusCode, createErrorResponse(requestId, error), requestId)
+      return true
+    }
+    throw error
+  }
+}
+
+async function handleMigrationExportRoute(
+  request: http.IncomingMessage,
+  response: http.ServerResponse,
+  requestUrl: URL,
+  requestId: string,
+  authService: AuthService,
+  migrationExportService: MigrationExportService,
+) {
+  const route = getMigrationExportRoute(requestUrl.pathname)
+  if (!route) {
+    return false
+  }
+  const context = getAuthContext(request, requestId)
+  try {
+    if (request.method === 'POST' && route.action === 'prepare' && route.exportId === null) {
+      const session = await authService.getSession(context)
+      sendJson(response, 201, await migrationExportService.prepareExport(
+        route.projectId,
+        await readJsonBody<unknown>(request, 64 * 1024),
+        { userId: session.user.id, workspaceId: session.workspace.id },
+      ), requestId)
+      return true
+    }
+    const session = await authService.getSession(context)
+    const actor = { userId: session.user.id, workspaceId: session.workspace.id }
+    if (route.exportId && route.action === null && request.method === 'GET') {
+      sendJson(response, 200, await migrationExportService.getExport(route.projectId, route.exportId, actor), requestId)
+      return true
+    }
+    if (route.exportId && route.action === 'download' && request.method === 'GET') {
+      sendJson(response, 200, await migrationExportService.downloadExport(route.projectId, route.exportId, actor), requestId)
+      return true
+    }
+    if (route.exportId && route.action === 'cancel' && request.method === 'POST') {
+      await assertOptionalEmptyBody(request)
+      sendJson(response, 200, await migrationExportService.cancelExport(route.projectId, route.exportId, actor), requestId)
+      return true
+    }
+    if (route.exportId && route.action === 'retry' && request.method === 'POST') {
+      await assertOptionalEmptyBody(request)
+      sendJson(response, 200, await migrationExportService.retryExport(route.projectId, route.exportId, actor), requestId)
+      return true
+    }
+    throw new AuthServiceError({ statusCode: 404, apiCode: 'RESOURCE_NOT_FOUND', message: 'Route not found' })
+  } catch (error) {
+    const serviceError = error instanceof AuthServiceError
+      ? error
+      : new AuthServiceError({ statusCode: 500, apiCode: 'SERVICE_UNAVAILABLE', message: 'Migration export request failed' })
+    sendApiError(response, serviceError.statusCode, createErrorResponse(requestId, serviceError), requestId)
+    return true
+  }
+}
+
 export function createApiServer({
   config,
   logger = createJsonLogger({ level: config.logLevel, service: 'api' }),
@@ -902,16 +1452,85 @@ export function createApiServer({
   workspaceUsageService = createUnavailableWorkspaceUsageService(),
   providerCredentialService = createUnavailableProviderCredentialService(),
   generationTaskService = createUnavailableGenerationTaskService(),
+  migrationImportService = createUnavailableMigrationImportService(),
+  migrationAssetUploadService = createUnavailableMigrationAssetUploadService(),
+  migrationExportService = createUnavailableMigrationExportService(),
+  metrics = createMetricsRegistry(),
+  postgresPoolStats,
+  readinessChecks,
+  rateLimiter,
 }: ServerOptions) {
   const server = http.createServer(async (request, response) => {
     const requestId = createRequestId()
+    const startedAt = performance.now()
     const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
+    const requestAuthService = createRequestAuthService(authService, requestId)
+
+    response.once('finish', () => {
+      const statusClass = `${Math.floor(response.statusCode / 100)}xx`
+      const route = requestPathGroup(requestUrl.pathname)
+      metrics.increment('api_requests_total', 1, {
+        method: requestMethodGroup(request.method),
+        route,
+        status_class: statusClass,
+      })
+      metrics.observe('api_request_duration_seconds', (performance.now() - startedAt) / 1_000, { route })
+      if (response.statusCode >= 400) {
+        metrics.increment('api_errors_total', 1, { route, status_class: statusClass })
+      }
+      if (response.statusCode === 401 || response.statusCode === 403) {
+        metrics.increment('api_auth_failures_total', 1, { route, status_class: statusClass })
+      }
+      if (response.statusCode === 429) {
+        metrics.increment('api_rate_limited_total', 1, { route })
+      }
+      const errorCode = (response as http.ServerResponse & { [API_ERROR_CODE]?: string })[API_ERROR_CODE]
+      if (errorCode === 'PROJECT_VERSION_CONFLICT') metrics.increment('project_version_conflicts_total', 1)
+      if (errorCode === 'QUOTA_EXCEEDED') metrics.increment('storage_quota_exceeded_total', 1)
+      const phase = migrationPhase(requestUrl.pathname)
+      if (phase) {
+        metrics.increment('migration_operations_total', 1, {
+          phase,
+          outcome: response.statusCode < 400 ? 'success' : 'failure',
+        })
+      }
+    })
 
     logger.info('request.received', {
       requestId,
       method: request.method,
-      path: requestUrl.pathname,
+      pathGroup: requestPathGroup(requestUrl.pathname),
     })
+
+    if (handleSecurityBoundary(request, response, config, requestId)) {
+      return
+    }
+
+    if (requestUrl.pathname === '/metrics') {
+      if (request.method !== 'GET') {
+        sendJson(response, 404, createServiceUnavailableError(requestId, 'Route not found'), requestId)
+        return
+      }
+      if (generationTaskService.getOperationalMetrics) {
+        try {
+          const snapshot = await generationTaskService.getOperationalMetrics()
+          metrics.setGauge('task_queue_backlog', snapshot.queueBacklog)
+          metrics.setGauge('task_running', snapshot.runningTasks)
+          metrics.setGauge('task_expired_leases', snapshot.expiredLeases)
+          metrics.setGauge('task_retryable_failures', snapshot.retryableFailures)
+        } catch {
+          metrics.increment('metrics_collection_errors_total', 1, { source: 'task_service' })
+        }
+      }
+      if (postgresPoolStats) {
+        const pool = postgresPoolStats()
+        metrics.setGauge('postgres_pool_connections', pool.total, { state: 'total' })
+        metrics.setGauge('postgres_pool_connections', pool.idle, { state: 'idle' })
+        metrics.setGauge('postgres_pool_connections', pool.waiting, { state: 'waiting' })
+      }
+      sendMetrics(response, metrics.renderPrometheus(), requestId)
+      return
+    }
 
     if (isLivePath(requestUrl.pathname)) {
       if (request.method !== 'GET') {
@@ -936,7 +1555,10 @@ export function createApiServer({
         return
       }
 
-      const dependencies = await checkReadinessDependencies(config)
+      const dependencies = await checkReadinessDependencies(config, readinessChecks)
+      for (const [dependency, status] of Object.entries(dependencies)) {
+        metrics.setGauge('dependency_up', status.ok ? 1 : 0, { dependency })
+      }
       const ok = Object.values(dependencies).every((dependency) => dependency.ok)
       const payload: HealthResponse = {
         status: ok ? 'ok' : 'degraded',
@@ -950,7 +1572,30 @@ export function createApiServer({
       return
     }
 
-    if (await handleAuthRoute(request, response, requestUrl, requestId, authService)) {
+    if (rateLimiter) {
+      const bucket = getRateLimitBucket(request, requestUrl.pathname)
+      if (bucket) {
+        const networkDecision = await rateLimiter.consume(bucket, [
+          `ip:${getControlledNetworkIdentity(request, config.trustProxy)}`,
+        ])
+        if (!networkDecision.allowed) {
+          sendRateLimitResponse(response, networkDecision, requestId)
+          return
+        }
+        if (bucket !== 'auth_attempt') {
+          const trustedScopes = await getTrustedRateLimitScopes(request, requestId, requestAuthService)
+          if (trustedScopes.length > 0) {
+            const identityDecision = await rateLimiter.consume(bucket, trustedScopes)
+            if (!identityDecision.allowed) {
+              sendRateLimitResponse(response, identityDecision, requestId)
+              return
+            }
+          }
+        }
+      }
+    }
+
+    if (await handleAuthRoute(request, response, requestUrl, requestId, requestAuthService)) {
       return
     }
 
@@ -959,13 +1604,13 @@ export function createApiServer({
       response,
       requestUrl,
       requestId,
-      authService,
+      requestAuthService,
       workspaceUsageService,
     )) {
       return
     }
 
-    if (await handleAssetRoute(request, response, requestUrl, requestId, authService, assetService)) {
+    if (await handleAssetRoute(request, response, requestUrl, requestId, requestAuthService, assetService)) {
       return
     }
 
@@ -974,7 +1619,7 @@ export function createApiServer({
       response,
       requestUrl,
       requestId,
-      authService,
+      requestAuthService,
       providerCredentialService,
     )) {
       return
@@ -985,8 +1630,31 @@ export function createApiServer({
       response,
       requestUrl,
       requestId,
-      authService,
+      requestAuthService,
       generationTaskService,
+    )) {
+      return
+    }
+
+    if (await handleMigrationImportRoute(
+      request,
+      response,
+      requestUrl,
+      requestId,
+      requestAuthService,
+      migrationImportService,
+      migrationAssetUploadService,
+    )) {
+      return
+    }
+
+    if (await handleMigrationExportRoute(
+      request,
+      response,
+      requestUrl,
+      requestId,
+      requestAuthService,
+      migrationExportService,
     )) {
       return
     }
@@ -996,7 +1664,7 @@ export function createApiServer({
       response,
       requestUrl,
       requestId,
-      authService,
+      requestAuthService,
       projectGraphService,
       projectSnapshotService,
       projectService,

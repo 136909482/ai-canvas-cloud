@@ -18,7 +18,7 @@ async function measure(check: () => Promise<void>): Promise<HealthDependencyStat
     return {
       ok: false,
       latencyMs: Math.round(performance.now() - startedAt),
-      error: error instanceof Error ? error.message : String(error),
+      error: error instanceof Error ? error.name : 'UnknownError',
     }
   }
 }
@@ -64,11 +64,15 @@ async function checkHttp(urlValue: string) {
   }
 }
 
-export async function checkReadinessDependencies(config: ApiConfig) {
+export async function checkReadinessDependencies(config: ApiConfig, checks?: {
+  postgres?: () => Promise<void>
+  objectStorage?: () => Promise<void>
+  redis?: () => Promise<void>
+}) {
   const [postgres, redis, objectStorage] = await Promise.all([
-    measure(() => checkTcp(config.databaseUrl, 5432)),
-    measure(() => checkTcp(config.redisUrl, 6379)),
-    measure(() => checkHttp(config.s3Endpoint)),
+    measure(() => checks?.postgres?.() ?? checkTcp(config.databaseUrl, 5432)),
+    measure(() => checks?.redis?.() ?? checkTcp(config.redisUrl, 6379)),
+    measure(() => checks?.objectStorage?.() ?? checkHttp(config.s3Endpoint)),
   ])
 
   return {

@@ -14,6 +14,7 @@
   "dependencies": {
     "@ai-canvas-cloud/contracts": "0.1.0",
     "@ai-canvas-cloud/server": "0.1.0",
-    "@ai-canvas-cloud/shared": "0.1.0"
+    "@ai-canvas-cloud/shared": "0.1.0",
+    "ioredis": "^5.11.1"
   }
 }

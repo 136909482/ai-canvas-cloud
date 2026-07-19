@@ -109,6 +109,23 @@ test('PostgreSQL asset reads require completed state and isolate two workspaces'
     }, actorA)
     assert.match(decodeURIComponent(generated.directUpload.url), /\/generated\/\d{4}-\d{2}-\d{2}\//)
 
+    const missingMime = await assets.createUpload({
+      projectId: projectA.id,
+      originalFileName: 'missing-mime.png',
+      mimeType: 'image/png',
+      byteSize: 4,
+      assetKind: 'upload',
+      idempotencyKey: 'asset_missing_mime_test',
+    }, actorA)
+    objectStorage.getObjectMetadata = async () => ({ byteSize: 4, mimeType: null })
+    await assert.rejects(
+      () => assets.completeUpload(missingMime.upload.id, actorA),
+      (error: unknown) => error instanceof AuthServiceError
+        && error.statusCode === 422
+        && error.apiCode === 'ASSET_VALIDATION_FAILED',
+    )
+    objectStorage.getObjectMetadata = async () => ({ byteSize: 4, mimeType: 'image/png' })
+
     await assert.rejects(
       () => assets.getAssetUrl(created.asset.id, actorA),
       (error: unknown) => error instanceof AuthServiceError

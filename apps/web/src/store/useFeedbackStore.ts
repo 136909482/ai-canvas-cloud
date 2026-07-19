@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useNotificationStore } from './useNotificationStore.ts'
 
 export type FeedbackToastTone = 'info' | 'success' | 'warning' | 'error'
 export type FeedbackConfirmTone = 'default' | 'danger'
@@ -69,6 +70,16 @@ export const useFeedbackStore = create<FeedbackStore>()((set, get) => ({
     set((state) => ({
       toasts: [...state.toasts, toast].slice(-4),
     }))
+
+    if (tone === 'error' || tone === 'warning') {
+      useNotificationStore.getState().push({
+        kind: tone === 'error' ? 'error' : 'system',
+        level: tone,
+        title,
+        message,
+        diagnosticId,
+      })
+    }
 
     return id
   },

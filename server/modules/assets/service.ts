@@ -8,6 +8,7 @@ import type {
   AssetUrlResponse,
   CompleteAssetUploadResponse,
   CreateAssetUploadRequest,
+  MigrationPackageAsset,
   WorkspaceRole,
 } from '@ai-canvas-cloud/contracts'
 import type { DbPool, DbClient } from '../../db/postgres.js'
@@ -78,6 +79,80 @@ export interface AssetObjectStorage {
     mimeType: string | null
   }>
   calculateObjectSha256: (objectKey: string) => Promise<string>
+}
+
+export interface MaterializeMigrationAssetInput {
+  workspaceId: string
+  projectId: string
+  createdByUserId: string
+  objectKey: string
+  asset: MigrationPackageAsset
+  assetId?: string
+}
+
+export interface ReusableMigrationAssetInput {
+  workspaceId: string
+  sha256: string
+  byteSize: number
+  mimeType: string
+}
+
+export async function findReusableCompletedMigrationAsset(
+  client: Pick<DbClient, 'query'>,
+  input: ReusableMigrationAssetInput,
+) {
+  const result = await client.query<{ id: string }>(
+    `
+      SELECT id::text
+      FROM assets
+      WHERE workspace_id = $1
+        AND sha256 = $2
+        AND byte_size = $3
+        AND mime_type = $4
+        AND status = 'completed'
+        AND deleted_at IS NULL
+      ORDER BY created_at, id
+      LIMIT 1
+      FOR SHARE
+    `,
+    [input.workspaceId, input.sha256, input.byteSize, input.mimeType],
+  )
+  return result.rows[0]?.id ?? null
+}
+
+export async function materializeMigrationAsset(
+  client: Pick<DbClient, 'query'>,
+  input: MaterializeMigrationAssetInput,
+) {
+  const result = await client.query<{ id: string }>(
+    `
+      INSERT INTO assets (
+        id, workspace_id, origin_project_id, created_by_user_id, object_key,
+        original_file_name, mime_type, byte_size, sha256, width, height, asset_kind, status
+      ) VALUES (
+        COALESCE($1::uuid, gen_random_uuid()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'completed'
+      )
+      RETURNING id::text
+    `,
+    [
+      input.assetId ?? null,
+      input.workspaceId,
+      input.projectId,
+      input.createdByUserId,
+      input.objectKey,
+      input.asset.originalFileName,
+      input.asset.mimeType,
+      input.asset.byteSize,
+      input.asset.sha256,
+      input.asset.width,
+      input.asset.height,
+      input.asset.assetKind,
+    ],
+  )
+  if (!result.rows[0]) {
+    throw new Error('Migration asset was not materialized')
+  }
+  return result.rows[0].id
 }
 
 interface AssetRow {
@@ -350,14 +425,11 @@ async function assertUploadedObjectMatches(
 
   try {
     metadata = await objectStorage.getObjectMetadata(row.object_key)
-  } catch (error) {
+  } catch {
     throw new AuthServiceError({
       statusCode: 409,
       apiCode: 'ASSET_NOT_READY',
       message: 'Uploaded object is not available',
-      details: {
-        reason: error instanceof Error ? error.message : String(error),
-      },
     })
   }
 
@@ -374,7 +446,7 @@ async function assertUploadedObjectMatches(
   }
 
   const actualMimeType = normalizeMimeType(metadata.mimeType)
-  if (actualMimeType && actualMimeType !== row.expected_mime_type) {
+  if (actualMimeType !== row.expected_mime_type) {
     throw new AuthServiceError({
       statusCode: 422,
       apiCode: 'ASSET_VALIDATION_FAILED',

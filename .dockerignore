@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+infra/deploy/staging/staging.env
+**/node_modules
+**/dist
+**/coverage
+**/.tmp
+.git
+.gitignore
+.codex-run
+.playwright-cli
+infra/local/data
+test-results
+*.tsbuildinfo

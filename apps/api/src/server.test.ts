@@ -24,8 +24,13 @@ import {
   type ProjectsResponse,
   type RevokeSessionResponse,
   type ProviderSettingsResponse,
+  type ProviderConnectionTestResponse,
   type GenerationTaskResponse,
+  type GenerationTaskEventsResponse,
   type GenerationTasksResponse,
+  type MigrationImportResponse,
+  type MigrationImportAssetUploadResponse,
+  type MigrationExportResponse,
 } from '@ai-canvas-cloud/contracts'
 import type { AssetService } from '@ai-canvas-cloud/server/modules/assets'
 import {
@@ -35,26 +40,32 @@ import {
   type IssuedAuthSession,
 } from '@ai-canvas-cloud/server/modules/auth'
 import type { ProjectGraphService } from '@ai-canvas-cloud/server/modules/project-graph'
+import type { MigrationAssetUploadService, MigrationExportService, MigrationImportService } from '@ai-canvas-cloud/server/modules/migrations'
 import type { ProjectSnapshotService } from '@ai-canvas-cloud/server/modules/project-snapshots'
 import type { ProjectActor, ProjectService } from '@ai-canvas-cloud/server/modules/projects'
 import type { ProviderCredentialService } from '@ai-canvas-cloud/server/modules/providers'
 import type { GenerationTaskService } from '@ai-canvas-cloud/server/modules/tasks'
 import type { WorkspaceUsageService } from '@ai-canvas-cloud/server/modules/workspaces'
+import { createMetricsRegistry, type Logger } from '@ai-canvas-cloud/shared'
 import { closeApiServer, createApiServer } from '../dist/server.js'
 import type { ApiConfig } from './config.ts'
+import type { RateLimiter } from './rateLimit.ts'
 
 const config: ApiConfig = {
   env: 'test',
   logLevel: 'error',
   host: '127.0.0.1',
   port: 0,
+  trustProxy: false,
   shutdownTimeoutMs: 1_000,
   betterAuthUrl: 'http://127.0.0.1:8787',
   betterAuthSecret: 'test-better-auth-secret-that-is-long-enough',
   webPublicUrl: 'http://localhost:5173',
+  webAllowedOrigins: ['http://localhost:5173'],
   databaseUrl: 'postgres://localhost:5432/ai_canvas_cloud',
   redisUrl: 'redis://localhost:6379',
   s3Endpoint: 'http://localhost:9000',
+  s3PublicEndpoint: 'http://localhost:9000',
   s3Bucket: 'ai-canvas-cloud',
   s3Region: 'local',
   s3AccessKeyId: 'test',
@@ -583,6 +594,15 @@ function createFakeWorkspaceUsageService() {
           quotaBytes: 20 * 1024 * 1024 * 1024,
           availableBytes: 20 * 1024 * 1024 * 1024 - 1536,
         },
+        projects: [{
+          projectId: '11111111-1111-4111-8111-111111111111',
+          name: 'Project A',
+          fileCount: 2,
+          nodeCount: 4,
+          storageBytes: 1024,
+          archivedAt: null,
+          updatedAt: '2026-07-15T00:00:00.000Z',
+        }],
       }
     },
   }
@@ -628,6 +648,11 @@ function createFakeProviderCredentialService() {
       calls.push(`delete:${providerId}`)
       return { ok: true }
     },
+    async testConnection(providerId, actor): Promise<ProviderConnectionTestResponse> {
+      actors.push(actor)
+      calls.push(`test:${providerId}`)
+      return { providerId: 'openai', ok: true, checkedAt: '2026-07-16T00:00:00.000Z' }
+    },
     async getExecutionCredential() {
       throw new Error('Execution credential is not expected in an API route test')
     },
@@ -672,6 +697,27 @@ function createFakeGenerationTaskService() {
       capture(actor, `list:${input.status ?? ''}:${input.limit ?? ''}`)
       return { tasks: [task], nextCursor: 'next-task-cursor' }
     },
+    async listEvents(input, actor): Promise<GenerationTaskEventsResponse> {
+      capture(actor, `events:${input.projectId ?? ''}:${input.after ?? ''}:${input.limit ?? ''}`)
+      return {
+        events: [{
+          id: '88888888-8888-4888-8888-888888888888',
+          taskId: task.id,
+          projectId: task.projectId,
+          type: 'terminal',
+          status: 'succeeded',
+          progress: 100,
+          errorCode: null,
+          errorMessage: null,
+          createdAt: task.updatedAt,
+        }],
+        nextCursor: '42',
+        hasMore: false,
+      }
+    },
+    async getOperationalMetrics() {
+      return { queueBacklog: 3, runningTasks: 2, expiredLeases: 1, retryableFailures: 1 }
+    },
     async getTask(taskId, actor) {
       capture(actor, `get:${taskId}`)
       return { task }
@@ -684,6 +730,125 @@ function createFakeGenerationTaskService() {
       capture(actor, `retry:${taskId}:${input.idempotencyKey}`)
       return { task }
     },
+  }
+  return { actors, calls, service }
+}
+
+function createFakeMigrationImportService() {
+  const actors: ProjectActor[] = []
+  const calls: string[] = []
+  let status: MigrationImportResponse['import']['status'] = 'prepared'
+  const summary = (): MigrationImportResponse => ({
+    import: {
+      id: '99999999-9999-4999-8999-999999999999',
+      status,
+      packageId: 'package-1',
+      sourcePlatform: 'electron',
+      project: {
+        sourceId: '11111111-1111-4111-8111-111111111111',
+        name: 'Imported project',
+        version: 2,
+        sequence: 3,
+      },
+      conflict: { type: 'none', requiresResolution: false, targetProject: null },
+      allowedStrategies: [],
+      estimates: {
+        assetCount: 0,
+        fileCount: 3,
+        totalBytes: 128,
+        estimatedStorageBytes: 0,
+        availableBytesAtPrepare: 1024,
+      },
+      progress: { completedFileCount: 0, completedBytes: 0, retryCount: 0 },
+      uploads: [],
+      error: null,
+      cancelRequestedAt: null,
+      expiresAt: '2026-07-19T00:00:00.000Z',
+      createdAt: '2026-07-18T00:00:00.000Z',
+      updatedAt: '2026-07-18T00:00:00.000Z',
+    },
+  })
+  const capture = (actor: ProjectActor, call: string) => {
+    actors.push(actor)
+    calls.push(call)
+  }
+  const service: MigrationImportService = {
+    async prepareImport(input, actor) {
+      capture(actor, `prepare:${(input as { idempotencyKey?: string }).idempotencyKey ?? ''}`)
+      return summary()
+    },
+    async getImport(importId, actor) {
+      capture(actor, `get:${importId}`)
+      return summary()
+    },
+    async cancelImport(importId, actor) {
+      capture(actor, `cancel:${importId}`)
+      status = 'canceled'
+      return summary()
+    },
+    async commitImport(importId, _input, actor) {
+      capture(actor, `commit:${importId}`)
+      return {
+        importId,
+        status: 'completed',
+        strategy: 'copy',
+        project: { id: '11111111-1111-4111-8111-111111111111', name: 'Imported project', version: 1, sequence: 1 },
+        assetCount: 0,
+        checkpoint: null,
+      }
+    },
+  }
+  return { actors, calls, service }
+}
+
+function createFakeMigrationExportService() {
+  const actors: ProjectActor[] = []
+  const calls: string[] = []
+  let status: MigrationExportResponse['export']['status'] = 'prepared'
+  const summary = (): MigrationExportResponse => ({
+    export: {
+      id: '88888888-8888-4888-8888-888888888888',
+      status,
+      project: { id: '11111111-1111-4111-8111-111111111111', name: 'Export project', version: 2, sequence: 3 },
+      progress: { fileCount: 4, completedFileCount: status === 'completed' ? 4 : 0, totalBytes: 512, completedBytes: status === 'completed' ? 512 : 0 },
+      archive: status === 'completed' ? { byteSize: 400, sha256: 'a'.repeat(64) } : null,
+      error: null,
+      cancelRequestedAt: null,
+      expiresAt: '2026-07-19T00:00:00.000Z',
+      createdAt: '2026-07-18T00:00:00.000Z',
+      updatedAt: '2026-07-18T00:00:00.000Z',
+    },
+  })
+  const capture = (actor: ProjectActor, call: string) => {
+    actors.push(actor)
+    calls.push(call)
+  }
+  const service: MigrationExportService = {
+    async prepareExport(projectId, input, actor) {
+      capture(actor, `prepare:${projectId}:${(input as { idempotencyKey?: string }).idempotencyKey ?? ''}`)
+      return summary()
+    },
+    async getExport(projectId, exportId, actor) {
+      capture(actor, `get:${projectId}:${exportId}`)
+      return summary()
+    },
+    async cancelExport(projectId, exportId, actor) {
+      capture(actor, `cancel:${projectId}:${exportId}`)
+      status = 'canceled'
+      return summary()
+    },
+    async retryExport(projectId, exportId, actor) {
+      capture(actor, `retry:${projectId}:${exportId}`)
+      status = 'prepared'
+      return summary()
+    },
+    async downloadExport(projectId, exportId, actor) {
+      capture(actor, `download:${projectId}:${exportId}`)
+      return { exportId, url: 'https://storage.test/signed-export', expiresAt: '2026-07-18T00:05:00.000Z' }
+    },
+    async processExport() {},
+    async recoverExports() {},
+    async maintainExports() { return 0 },
   }
   return { actors, calls, service }
 }
@@ -702,14 +867,16 @@ function requestJson(port: number, options: {
   method: string
   path: string
   body?: unknown
+  rawBody?: string | Buffer
   cookie?: string
+  headers?: Record<string, string>
 }) {
   return new Promise<{
     statusCode: number
     headers: http.IncomingHttpHeaders
     body: unknown
   }>((resolve, reject) => {
-    const bodyText = options.body === undefined ? undefined : JSON.stringify(options.body)
+    const bodyText = options.rawBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body))
     const request = http.request({
       host: '127.0.0.1',
       port,
@@ -718,6 +885,7 @@ function requestJson(port: number, options: {
       headers: {
         ...(bodyText ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(bodyText) } : {}),
         ...(options.cookie ? { cookie: options.cookie } : {}),
+        ...options.headers,
       },
     }, (response) => {
       const chunks: Buffer[] = []
@@ -741,6 +909,225 @@ function requestJson(port: number, options: {
     request.end()
   })
 }
+
+function requestText(port: number, path: string) {
+  return new Promise<{ statusCode: number; headers: http.IncomingHttpHeaders; body: string }>((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port, path }, (response) => {
+      const chunks: Buffer[] = []
+      response.on('data', (chunk: Buffer) => chunks.push(chunk))
+      response.on('end', () => resolve({
+        statusCode: response.statusCode ?? 0,
+        headers: response.headers,
+        body: Buffer.concat(chunks).toString('utf8'),
+      }))
+    }).on('error', reject)
+  })
+}
+
+test('API enforces the web origin allowlist and emits security headers', async () => {
+  const stagingConfig: ApiConfig = {
+    ...config,
+    env: 'staging',
+    webPublicUrl: 'https://cloud.example.com',
+    webAllowedOrigins: ['https://cloud.example.com'],
+  }
+  const server = createApiServer({ config: stagingConfig, authService: createFakeAuthService() })
+  const port = await listen(server)
+
+  try {
+    const preflight = await requestJson(port, {
+      method: 'OPTIONS',
+      path: `${API_V1_PREFIX}/projects`,
+      headers: { origin: 'https://cloud.example.com' },
+    })
+    assert.equal(preflight.statusCode, 204)
+    assert.equal(preflight.headers['access-control-allow-origin'], 'https://cloud.example.com')
+    assert.equal(preflight.headers['access-control-allow-credentials'], 'true')
+    assert.match(String(preflight.headers['access-control-allow-methods']), /PATCH/)
+    assert.equal(preflight.headers['strict-transport-security'], 'max-age=31536000; includeSubDomains')
+    assert.equal(preflight.headers['x-content-type-options'], 'nosniff')
+    assert.equal(preflight.headers['x-frame-options'], 'DENY')
+    assert.equal(preflight.headers['content-security-policy'], "default-src 'none'; frame-ancestors 'none'; base-uri 'none'")
+
+    const denied = await requestJson(port, {
+      method: 'POST',
+      path: `${API_V1_PREFIX}/auth/login`,
+      headers: { origin: 'https://evil.example.com' },
+      body: { email: 'artist@example.com', password: 'long-enough-password' },
+    })
+    assert.equal(denied.statusCode, 403)
+    assert.equal((denied.body as { error: { code: string } }).error.code, 'ACCESS_DENIED')
+    assert.equal(denied.headers['access-control-allow-origin'], undefined)
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('API rejects duplicate keys, invalid encoding, deep JSON and oversized bodies before auth services', async () => {
+  const authService = createFakeAuthService()
+  let loginCalls = 0
+  const originalLogin = authService.login
+  authService.login = async (...args) => {
+    loginCalls += 1
+    return originalLogin(...args)
+  }
+  const server = createApiServer({ config, authService })
+  const port = await listen(server)
+  let deepJson = '"leaf"'
+  for (let index = 0; index < 66; index += 1) deepJson = `{"nested":${deepJson}}`
+  const cases: Array<{ name: string; rawBody: string | Buffer; statusCode: number }> = [
+    { name: 'duplicate key', rawBody: '{"email":"a@example.com","email":"b@example.com","password":"long-enough-password"}', statusCode: 400 },
+    { name: 'escaped duplicate key', rawBody: '{"email":"a@example.com","\\u0065mail":"b@example.com","password":"long-enough-password"}', statusCode: 400 },
+    { name: 'invalid UTF-8', rawBody: Buffer.from([0xc3, 0x28]), statusCode: 400 },
+    { name: 'invalid Unicode surrogate', rawBody: '{"email":"\\ud800","password":"long-enough-password"}', statusCode: 400 },
+    { name: 'deep object', rawBody: deepJson, statusCode: 400 },
+    { name: 'oversized body', rawBody: `{"email":"${'x'.repeat(70 * 1024)}"}`, statusCode: 413 },
+  ]
+
+  try {
+    for (const scenario of cases) {
+      const response = await requestJson(port, {
+        method: 'POST',
+        path: `${API_V1_PREFIX}/auth/login`,
+        rawBody: scenario.rawBody,
+      })
+      assert.equal(response.statusCode, scenario.statusCode, scenario.name)
+      assert.equal((response.body as { error: { code: string } }).error.code, 'VALIDATION_FAILED', scenario.name)
+    }
+    assert.equal(loginCalls, 0)
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('API logs and diagnostics exclude credentials, dynamic IDs, query values and request bodies', async () => {
+  const entries: Array<{ message: string; context?: Record<string, unknown> }> = []
+  const logger: Logger = {
+    debug() {},
+    info(message, context) { entries.push({ message, context }) },
+    warn(message, context) { entries.push({ message, context }) },
+    error(message, context) { entries.push({ message, context }) },
+  }
+  const server = createApiServer({ config, logger, authService: createFakeAuthService() })
+  const port = await listen(server)
+  const secret = 'security-fixture-secret'
+
+  try {
+    const response = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/assets/${secret}/url?token=${secret}`,
+      cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=${secret}`,
+      headers: { authorization: `Bearer ${secret}` },
+    })
+    assert(response.statusCode >= 400)
+    const metrics = await requestText(port, `/metrics?apiKey=${secret}`)
+    assert.equal(metrics.statusCode, 200)
+
+    const logs = JSON.stringify(entries)
+    assert.equal(logs.includes(secret), false)
+    assert.equal(logs.includes('authorization'), false)
+    assert.equal(metrics.body.includes(secret), false)
+    assert.equal(JSON.stringify(response.body).includes(secret), false)
+    assert(entries.some((entry) => entry.context?.pathGroup === '/api/v1/assets'))
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('API returns stable rate limit errors before reading request bodies or calling services', async () => {
+  const authService = createFakeAuthService()
+  let loginCalls = 0
+  authService.login = async (...args) => {
+    loginCalls += 1
+    return createFakeAuthService().login(...args)
+  }
+  const rateLimiter: RateLimiter = {
+    async consume(bucket) {
+      return { allowed: false, available: true, retryAfterSeconds: 17, bucket }
+    },
+    async ping() {},
+    async close() {},
+  }
+  const server = createApiServer({ config, authService, rateLimiter })
+  const port = await listen(server)
+
+  try {
+    const response = await requestJson(port, {
+      method: 'POST',
+      path: `${API_V1_PREFIX}/auth/login`,
+      body: { email: 'artist@example.com', password: 'long-enough-password' },
+    })
+    assert.equal(response.statusCode, 429)
+    assert.equal(response.headers['retry-after'], '17')
+    assert.equal((response.body as { error: { code: string; retryable: boolean } }).error.code, 'RATE_LIMITED')
+    assert.equal((response.body as { error: { retryable: boolean } }).error.retryable, true)
+    assert.equal(loginCalls, 0)
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('API explicitly fails closed when Redis is unavailable for high-risk routes', async () => {
+  const rateLimiter: RateLimiter = {
+    async consume(bucket) {
+      return { allowed: false, available: false, retryAfterSeconds: 1, bucket }
+    },
+    async ping() { throw new Error('unavailable') },
+    async close() {},
+  }
+  const server = createApiServer({ config, authService: createFakeAuthService(), rateLimiter })
+  const port = await listen(server)
+
+  try {
+    const response = await requestJson(port, {
+      method: 'POST',
+      path: `${API_V1_PREFIX}/tasks`,
+      cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`,
+      body: {},
+    })
+    assert.equal(response.statusCode, 503)
+    assert.equal(response.headers['retry-after'], '1')
+    assert.equal((response.body as { error: { code: string } }).error.code, 'SERVICE_UNAVAILABLE')
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('API rate limit scopes use trusted session identities and reuse the session lookup', async () => {
+  const authService = createFakeAuthService()
+  const getSession = authService.getSession
+  let sessionLookups = 0
+  authService.getSession = async (context) => {
+    sessionLookups += 1
+    return getSession(context)
+  }
+  const consumedScopes: string[][] = []
+  const rateLimiter: RateLimiter = {
+    async consume(bucket, scopes) {
+      consumedScopes.push(scopes)
+      return { allowed: true, available: true, retryAfterSeconds: 0, bucket }
+    },
+    async ping() {},
+    async close() {},
+  }
+  const server = createApiServer({ config, authService, rateLimiter })
+  const port = await listen(server)
+
+  try {
+    const response = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/auth/session`,
+      cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`,
+    })
+    assert.equal(response.statusCode, 200)
+    assert.equal(sessionLookups, 1)
+    assert.equal(consumedScopes.length, 2)
+    assert.deepEqual(consumedScopes[1], ['user:user_1', 'workspace:workspace_1'])
+    assert.equal(consumedScopes.flat().some((scope) => scope.includes('signed_session')), false)
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
 
 test('register route issues a HttpOnly session cookie and auth response', async () => {
   const server = createApiServer({ config, authService: createFakeAuthService() })
@@ -1157,6 +1544,7 @@ test('current workspace usage route uses only the trusted session actor', async 
     assert.equal(response.statusCode, 200)
     assert.equal((response.body as WorkspaceUsageResponse).workspaceId, 'workspace_1')
     assert.equal((response.body as WorkspaceUsageResponse).storage.quotaBytes, 20 * 1024 * 1024 * 1024)
+    assert.equal((response.body as WorkspaceUsageResponse).projects[0]?.storageBytes, 1024)
     assert.deepEqual(usage.actors, [{ userId: 'user_1', workspaceId: 'workspace_1' }])
   } finally {
     await closeApiServer(server, 1_000)
@@ -1204,11 +1592,30 @@ test('provider settings routes use the session actor and never return the API ke
     })
     assert.equal(deleted.statusCode, 200)
     assert.deepEqual(deleted.body, { ok: true })
+    const rejectedTarget = await requestJson(port, {
+      method: 'POST',
+      path: `${API_V1_PREFIX}/settings/providers/openai/test?targetUrl=http://127.0.0.1`,
+      cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`,
+      body: { targetUrl: 'https://attacker.example' },
+    })
+    assert.equal(rejectedTarget.statusCode, 400)
+
+    const tested = await requestJson(port, {
+      method: 'POST',
+      path: `${API_V1_PREFIX}/settings/providers/openai/test?targetUrl=http://127.0.0.1`,
+      cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`,
+      body: {},
+    })
+    assert.equal(tested.statusCode, 200)
+    assert.deepEqual(tested.body, {
+      providerId: 'openai', ok: true, checkedAt: '2026-07-16T00:00:00.000Z',
+    })
     assert(providers.actors.every((actor) => actor.userId === 'user_1' && actor.workspaceId === 'workspace_1'))
     assert.deepEqual(providers.calls, [
       'put:openai',
       'list',
       'delete:openai',
+      'test:openai',
     ])
   } finally {
     await closeApiServer(server, 1_000)
@@ -1260,6 +1667,14 @@ test('generation task routes use the trusted session actor and expose only resum
     })
     assert.equal(listed.statusCode, 200)
     assert.equal((listed.body as GenerationTasksResponse).nextCursor, 'next-task-cursor')
+    const events = await requestJson(port, {
+      method: 'GET',
+      path: `${API_V1_PREFIX}/tasks/events?projectId=11111111-1111-4111-8111-111111111111&after=40&limit=2&workspaceId=forged`,
+      cookie,
+    })
+    assert.equal(events.statusCode, 200)
+    assert.equal((events.body as GenerationTaskEventsResponse).events[0]?.id, '88888888-8888-4888-8888-888888888888')
+    assert.equal('workspaceId' in (events.body as GenerationTaskEventsResponse).events[0]!, false)
     assert.equal((await requestJson(port, { method: 'GET', path: `${API_V1_PREFIX}/tasks/${taskId}`, cookie })).statusCode, 200)
     assert.equal((await requestJson(port, {
       method: 'POST', path: `${API_V1_PREFIX}/tasks/${taskId}/cancel`, cookie,
@@ -1274,10 +1689,128 @@ test('generation task routes use the trusted session actor and expose only resum
     assert.deepEqual(tasks.calls, [
       'create:api-create',
       'list:queued:1',
+      'events:11111111-1111-4111-8111-111111111111:40:2',
       `get:${taskId}`,
       `cancel:${taskId}:api-cancel`,
       `retry:${taskId}:api-retry`,
     ])
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('metrics route exposes aggregate task metrics without authentication or tenant labels', async () => {
+  const tasks = createFakeGenerationTaskService()
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+    generationTaskService: tasks.service,
+  })
+  const port = await listen(server)
+  try {
+    const response = await requestText(port, '/metrics')
+    assert.equal(response.statusCode, 200)
+    assert.match(String(response.headers['content-type']), /text\/plain/)
+    assert.match(response.body, /ai_canvas_task_queue_backlog 3/)
+    assert.match(response.body, /ai_canvas_task_running 2/)
+    assert.doesNotMatch(response.body, /workspace|taskId|userId/i)
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('generation task routes preserve non-disclosing two-account isolation for recovery and commands', async () => {
+  const baseAuthService = createFakeAuthService()
+  const authService: AuthService = {
+    ...baseAuthService,
+    async getSession(context) {
+      if (context.cookieHeader?.includes('session_a')) {
+        return {
+          user: { id: 'task_user_a', email: 'task-a@example.com', status: 'active', emailVerified: true },
+          workspace: {
+            id: 'task_workspace_a', type: 'personal', name: 'Task A workspace', role: 'owner',
+            status: 'active', planKey: 'free',
+          },
+        }
+      }
+      if (context.cookieHeader?.includes('session_b')) {
+        return {
+          user: { id: 'task_user_b', email: 'task-b@example.com', status: 'active', emailVerified: true },
+          workspace: {
+            id: 'task_workspace_b', type: 'personal', name: 'Task B workspace', role: 'owner',
+            status: 'active', planKey: 'free',
+          },
+        }
+      }
+      throw new AuthServiceError({ statusCode: 401, apiCode: 'SESSION_EXPIRED', message: 'Session expired' })
+    },
+  }
+  const baseTasks = createFakeGenerationTaskService().service
+  const requireTaskOwner = (actor: ProjectActor) => {
+    if (actor.workspaceId !== 'task_workspace_b') {
+      throw new AuthServiceError({ statusCode: 404, apiCode: 'RESOURCE_NOT_FOUND', message: 'Task not found' })
+    }
+  }
+  const taskService: GenerationTaskService = {
+    ...baseTasks,
+    async listTasks(input, actor) {
+      if (actor.workspaceId !== 'task_workspace_b') {
+        return { tasks: [], nextCursor: null }
+      }
+      return baseTasks.listTasks(input, actor)
+    },
+    async listEvents(input, actor) {
+      if (actor.workspaceId !== 'task_workspace_b') {
+        return { events: [], nextCursor: null, hasMore: false }
+      }
+      return baseTasks.listEvents!(input, actor)
+    },
+    async getTask(taskId, actor) {
+      requireTaskOwner(actor)
+      return baseTasks.getTask(taskId, actor)
+    },
+    async cancelTask(taskId, input, actor) {
+      requireTaskOwner(actor)
+      return baseTasks.cancelTask(taskId, input, actor)
+    },
+    async retryTask(taskId, input, actor) {
+      requireTaskOwner(actor)
+      return baseTasks.retryTask(taskId, input, actor)
+    },
+  }
+  const server = createApiServer({ config, authService, generationTaskService: taskService })
+  const port = await listen(server)
+  const taskId = '33333333-3333-4333-8333-333333333333'
+  const path = `${API_V1_PREFIX}/tasks/${taskId}`
+
+  try {
+    const accountA = `${BETTER_AUTH_SESSION_COOKIE_NAME}=session_a`
+    const accountB = `${BETTER_AUTH_SESSION_COOKIE_NAME}=session_b`
+    const accountAList = await requestJson(port, { method: 'GET', path: `${API_V1_PREFIX}/tasks`, cookie: accountA })
+    assert.deepEqual(accountAList.body, { tasks: [], nextCursor: null })
+    const accountAEvents = await requestJson(port, {
+      method: 'GET', path: `${API_V1_PREFIX}/tasks/events`, cookie: accountA,
+    })
+    assert.deepEqual(accountAEvents.body, { events: [], nextCursor: null, hasMore: false })
+
+    for (const suffix of ['', '/cancel', '/retry']) {
+      const crossAccount = await requestJson(port, {
+        method: suffix ? 'POST' : 'GET',
+        path: `${path}${suffix}`,
+        cookie: accountA,
+        ...(suffix ? { body: { idempotencyKey: `account-a${suffix}` } } : {}),
+      })
+      assert.equal(crossAccount.statusCode, 404)
+      assert.equal((crossAccount.body as { error: { code: string } }).error.code, 'RESOURCE_NOT_FOUND')
+    }
+
+    assert.equal((await requestJson(port, { method: 'GET', path, cookie: accountB })).statusCode, 200)
+    assert.equal((await requestJson(port, {
+      method: 'POST', path: `${path}/cancel`, cookie: accountB, body: { idempotencyKey: 'account-b-cancel' },
+    })).statusCode, 200)
+    assert.equal((await requestJson(port, {
+      method: 'POST', path: `${path}/retry`, cookie: accountB, body: { idempotencyKey: 'account-b-retry' },
+    })).statusCode, 200)
   } finally {
     await closeApiServer(server, 1_000)
   }
@@ -1759,6 +2292,281 @@ test('project revision restore route uses the session actor and preserves confli
     })
     assert.equal(unavailableAsset.statusCode, 409)
     assert.equal((unavailableAsset.body as { error: { code: string } }).error.code, 'ASSET_NOT_READY')
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('migration import routes use the trusted session actor and expose resumable state', async () => {
+  const migrations = createFakeMigrationImportService()
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+    migrationImportService: migrations.service,
+  })
+  const port = await listen(server)
+  const cookie = `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`
+  const preparePath = `${API_V1_PREFIX}/migrations/imports/prepare`
+  const importPath = `${API_V1_PREFIX}/migrations/imports/99999999-9999-4999-8999-999999999999`
+
+  try {
+    const missingSession = await requestJson(port, {
+      method: 'POST',
+      path: preparePath,
+      body: { idempotencyKey: 'prepare-1' },
+    })
+    assert.equal(missingSession.statusCode, 401)
+
+    const prepared = await requestJson(port, {
+      method: 'POST',
+      path: preparePath,
+      cookie,
+      body: { idempotencyKey: 'prepare-1' },
+    })
+    assert.equal(prepared.statusCode, 201)
+    assert.equal((prepared.body as MigrationImportResponse).import.status, 'prepared')
+
+    const restored = await requestJson(port, {
+      method: 'GET',
+      path: `${importPath}?user_id=forged-user&workspace_id=forged-workspace`,
+      cookie,
+    })
+    assert.equal(restored.statusCode, 200)
+    assert.equal((restored.body as MigrationImportResponse).import.id, '99999999-9999-4999-8999-999999999999')
+
+    const committed = await requestJson(port, {
+      method: 'POST',
+      path: `${importPath}/commit`,
+      cookie,
+      body: { idempotencyKey: 'commit-1', strategy: 'copy' },
+    })
+    assert.equal(committed.statusCode, 200)
+    assert.equal((committed.body as { status: string }).status, 'completed')
+
+    const forgedCancel = await requestJson(port, {
+      method: 'POST',
+      path: `${importPath}/cancel`,
+      cookie,
+      body: { userId: 'forged-user', workspaceId: 'forged-workspace' },
+    })
+    assert.equal(forgedCancel.statusCode, 400)
+
+    const canceled = await requestJson(port, {
+      method: 'POST',
+      path: `${importPath}/cancel`,
+      cookie,
+      body: {},
+    })
+    assert.equal(canceled.statusCode, 200)
+    assert.equal((canceled.body as MigrationImportResponse).import.status, 'canceled')
+    assert(migrations.actors.every((actor) => actor.userId === 'user_1' && actor.workspaceId === 'workspace_1'))
+    assert.deepEqual(migrations.calls, [
+      'prepare:prepare-1',
+      'get:99999999-9999-4999-8999-999999999999',
+      'commit:99999999-9999-4999-8999-999999999999',
+      'cancel:99999999-9999-4999-8999-999999999999',
+    ])
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('migration export routes use the trusted session actor and keep download metadata private', async () => {
+  const exports = createFakeMigrationExportService()
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+    migrationExportService: exports.service,
+  })
+  const port = await listen(server)
+  const cookie = `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`
+  const projectId = '11111111-1111-4111-8111-111111111111'
+  const exportId = '88888888-8888-4888-8888-888888888888'
+  const projectPath = `${API_V1_PREFIX}/projects/${projectId}/exports`
+
+  try {
+    const missingSession = await requestJson(port, {
+      method: 'POST',
+      path: `${projectPath}/prepare`,
+      body: { idempotencyKey: 'export-1' },
+    })
+    assert.equal(missingSession.statusCode, 401)
+    const prepared = await requestJson(port, {
+      method: 'POST',
+      path: `${projectPath}/prepare`,
+      cookie,
+      body: { idempotencyKey: 'export-1', expectedVersion: 2, expectedSequence: 3 },
+    })
+    assert.equal(prepared.statusCode, 201)
+    assert.equal((prepared.body as MigrationExportResponse).export.id, exportId)
+    const status = await requestJson(port, { method: 'GET', path: `${projectPath}/${exportId}`, cookie })
+    assert.equal(status.statusCode, 200)
+    const download = await requestJson(port, { method: 'GET', path: `${projectPath}/${exportId}/download`, cookie })
+    assert.equal(download.statusCode, 200)
+    assert.equal(JSON.stringify(download.body).includes('objectKey'), false)
+    const canceled = await requestJson(port, { method: 'POST', path: `${projectPath}/${exportId}/cancel`, cookie, body: {} })
+    assert.equal(canceled.statusCode, 200)
+    assert.equal((canceled.body as MigrationExportResponse).export.status, 'canceled')
+    const retried = await requestJson(port, { method: 'POST', path: `${projectPath}/${exportId}/retry`, cookie, body: {} })
+    assert.equal(retried.statusCode, 200)
+    assert.equal((retried.body as MigrationExportResponse).export.status, 'prepared')
+    assert(exports.actors.every((actor) => actor.userId === 'user_1' && actor.workspaceId === 'workspace_1'))
+    assert.deepEqual(exports.calls, [
+      `prepare:${projectId}:export-1`,
+      `get:${projectId}:${exportId}`,
+      `download:${projectId}:${exportId}`,
+      `cancel:${projectId}:${exportId}`,
+      `retry:${projectId}:${exportId}`,
+    ])
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('migration asset upload routes use the trusted session actor and preserve upload boundaries', async () => {
+  const actors: ProjectActor[] = []
+  const calls: string[] = []
+  const uploadResponse = (): MigrationImportAssetUploadResponse => ({
+    upload: {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      importId: '99999999-9999-4999-8999-999999999999',
+      logicalAssetId: 'asset-1',
+      status: 'uploading',
+      mode: 'multipart',
+      expectedMimeType: 'video/mp4',
+      expectedByteSize: 16,
+      expectedSha256: 'a'.repeat(64),
+      partSize: 8,
+      partCount: 2,
+      completedParts: [],
+      uploadedByteSize: 0,
+      retryCount: 0,
+      directUpload: null,
+      parts: [{
+        partNumber: 1,
+        byteSize: 8,
+        url: 'https://storage.invalid/part/1',
+        headers: { 'content-length': '8' },
+        expiresAt: '2026-07-19T00:00:00.000Z',
+      }],
+      expiresAt: '2026-07-19T00:00:00.000Z',
+      createdAt: '2026-07-18T00:00:00.000Z',
+      updatedAt: '2026-07-18T00:00:00.000Z',
+    },
+  })
+  const migrationAssetUploadService: MigrationAssetUploadService = {
+    async prepareAssetUpload(importId, logicalAssetId, actor) {
+      actors.push(actor)
+      calls.push(`prepare:${importId}:${logicalAssetId}`)
+      return uploadResponse()
+    },
+    async getAssetUpload(importId, logicalAssetId, actor) {
+      actors.push(actor)
+      calls.push(`get:${importId}:${logicalAssetId}`)
+      return uploadResponse()
+    },
+    async completeAssetPart(importId, logicalAssetId, partNumber, input, actor) {
+      actors.push(actor)
+      calls.push(`part:${importId}:${logicalAssetId}:${partNumber}:${JSON.stringify(input)}`)
+      return uploadResponse()
+    },
+    async completeAssetUpload(importId, logicalAssetId, input, actor) {
+      actors.push(actor)
+      calls.push(`complete:${importId}:${logicalAssetId}:${JSON.stringify(input)}`)
+      return uploadResponse()
+    },
+    async cancelAssetUpload(importId, logicalAssetId, actor) {
+      actors.push(actor)
+      calls.push(`cancel:${importId}:${logicalAssetId}`)
+      return uploadResponse()
+    },
+    async maintainStagingObjects() { return 0 },
+  }
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+    migrationAssetUploadService,
+  })
+  const port = await listen(server)
+  const cookie = `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`
+  const basePath = `${API_V1_PREFIX}/migrations/imports/99999999-9999-4999-8999-999999999999/assets/asset-1`
+
+  try {
+    assert.equal((await requestJson(port, { method: 'POST', path: `${basePath}/upload`, body: {} })).statusCode, 401)
+    assert.equal((await requestJson(port, { method: 'POST', path: `${basePath}/upload`, cookie, body: {} })).statusCode, 201)
+    assert.equal((await requestJson(port, { method: 'GET', path: `${basePath}/upload`, cookie })).statusCode, 200)
+    assert.equal((await requestJson(port, {
+      method: 'POST',
+      path: `${basePath}/parts/1/complete`,
+      cookie,
+      body: { etag: 'etag-1', byteSize: 8 },
+    })).statusCode, 200)
+    assert.equal((await requestJson(port, {
+      method: 'POST',
+      path: `${basePath}/complete`,
+      cookie,
+      body: {},
+    })).statusCode, 200)
+    assert.equal((await requestJson(port, {
+      method: 'POST',
+      path: `${basePath}/cancel`,
+      cookie,
+      body: { objectKey: 'forged-object-key' },
+    })).statusCode, 400)
+    assert.equal((await requestJson(port, {
+      method: 'POST',
+      path: `${basePath}/cancel`,
+      cookie,
+      body: {},
+    })).statusCode, 200)
+    assert(actors.every((actor) => actor.userId === 'user_1' && actor.workspaceId === 'workspace_1'))
+    assert.deepEqual(calls, [
+      'prepare:99999999-9999-4999-8999-999999999999:asset-1',
+      'get:99999999-9999-4999-8999-999999999999:asset-1',
+      'part:99999999-9999-4999-8999-999999999999:asset-1:1:{"etag":"etag-1","byteSize":8}',
+      'complete:99999999-9999-4999-8999-999999999999:asset-1:{}',
+      'cancel:99999999-9999-4999-8999-999999999999:asset-1',
+    ])
+  } finally {
+    await closeApiServer(server, 1_000)
+  }
+})
+
+test('observability records bounded API metrics and readiness failure recovery', async () => {
+  let redisUp = false
+  const metrics = createMetricsRegistry()
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+    metrics,
+    postgresPoolStats: () => ({ total: 4, idle: 3, waiting: 1 }),
+    readinessChecks: {
+      async postgres() {},
+      async redis() { if (!redisUp) throw new Error('redis://user:secret@private.example') },
+      async objectStorage() {},
+    },
+  })
+  const port = await listen(server)
+  try {
+    const degraded = await requestJson(port, { method: 'GET', path: '/health/ready' })
+    assert.equal(degraded.statusCode, 503)
+    assert.equal((degraded.body as { status: string }).status, 'degraded')
+    assert.doesNotMatch(JSON.stringify(degraded.body), /secret|private\.example/)
+
+    redisUp = true
+    assert.equal((await requestJson(port, { method: 'GET', path: '/health/ready' })).statusCode, 200)
+    assert.equal((await requestJson(port, { method: 'GET', path: `${API_V1_PREFIX}/auth/session` })).statusCode, 401)
+    assert.equal((await requestJson(port, { method: 'GET', path: '/not-a-route' })).statusCode, 404)
+    assert.equal((await requestJson(port, { method: 'GET', path: `${API_V1_PREFIX}/attacker-chosen-route` })).statusCode, 404)
+
+    const exposed = await requestText(port, '/metrics')
+    assert.equal(exposed.statusCode, 200)
+    assert.match(exposed.body, /ai_canvas_dependency_up\{dependency="redis"\} 1/)
+    assert.match(exposed.body, /ai_canvas_postgres_pool_connections\{state="waiting"\} 1/)
+    assert.match(exposed.body, /ai_canvas_api_auth_failures_total\{route="\/api\/v1\/auth",status_class="4xx"\} 1/)
+    assert.match(exposed.body, /ai_canvas_api_request_duration_seconds_count\{route="\/health\/ready"\} 2/)
+    assert.doesNotMatch(exposed.body, /secret|private\.example|requestId|workspace|user_1/)
+    assert.doesNotMatch(exposed.body, /attacker-chosen-route/)
   } finally {
     await closeApiServer(server, 1_000)
   }

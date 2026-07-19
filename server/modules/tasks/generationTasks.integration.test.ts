@@ -75,8 +75,9 @@ test('PostgreSQL generation task schema isolates workspaces and owns attempts an
     `, [TASK_A])
     await pool.query(`
       INSERT INTO task_attempts (
-        workspace_id, task_id, attempt_number, provider_id, model_key
-      ) VALUES ($1, $2, 1, 'openai', 'gpt-image-2')
+        workspace_id, task_id, attempt_number, provider_id, model_key,
+        submission_key, submission_stage
+      ) VALUES ($1, $2, 1, 'openai', 'gpt-image-2', 'provider-submission:task-a:1', 'ready')
     `, [WORKSPACE_A, TASK_A])
 
     await assert.rejects(
@@ -100,8 +101,9 @@ test('PostgreSQL generation task schema isolates workspaces and owns attempts an
     await assert.rejects(
       () => pool!.query(`
         INSERT INTO task_attempts (
-          workspace_id, task_id, attempt_number, provider_id, model_key
-        ) VALUES ($1, $2, 2, 'openai', 'gpt-image-2')
+          workspace_id, task_id, attempt_number, provider_id, model_key,
+          submission_key, submission_stage
+        ) VALUES ($1, $2, 2, 'openai', 'gpt-image-2', 'provider-submission:task-a:2', 'ready')
       `, [WORKSPACE_B, TASK_A]),
       /task_attempts_workspace_task_fk/,
     )

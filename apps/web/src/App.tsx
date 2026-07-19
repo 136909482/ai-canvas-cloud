@@ -1,23 +1,24 @@
 
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
-import { FolderOpen, Loader2, Plus } from 'lucide-react'
+import { ArrowLeftRight, FolderOpen, Loader2, Plus } from 'lucide-react'
 import { AppFeedbackHost } from '@/components/AppFeedbackHost'
 import { Canvas } from '@/components/Canvas'
 import { CanvasQuickActions } from '@/components/CanvasTopBar'
 import { FloatingToolbar } from '@/components/FloatingToolbar'
+import { NotificationCenterButton } from '@/components/NotificationCenterButton'
 import { ProjectBootstrap } from '@/components/ProjectBootstrap'
 import { ProjectConflictBanner } from '@/components/ProjectConflictBanner'
 import { TaskQueueRunner } from '@/components/TaskQueueRunner'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { Toolbar } from '@/components/Toolbar'
-import { WorkspaceSearchDialog } from '@/components/WorkspaceSearchDialog'
 import { AccountMenu } from '@/features/auth/AccountMenu'
 import { EmailVerificationBanner } from '@/features/auth/EmailVerificationBanner'
 import { AuthGate } from '@/features/auth/AuthGate'
 import { platformBridge } from '@/platform'
 import { useFeedbackStore } from '@/store/useFeedbackStore'
 import { useImageEditorStore } from '@/store/useImageEditorStore'
+import { useMigrationStore } from '@/store/useMigrationStore'
 import { useProjectDialogStore } from '@/store/useProjectDialogStore'
 import { useProjectStore } from '@/store/useProjectStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
@@ -28,6 +29,9 @@ const ImageFullscreenEditor = lazy(() => import('@/components/ImageFullscreenEdi
 })))
 const ProjectManagerDialog = lazy(() => import('@/components/ProjectManagerDialog').then((module) => ({
   default: module.ProjectManagerDialog,
+})))
+const MigrationCenterDialog = lazy(() => import('@/components/MigrationCenterDialog').then((module) => ({
+  default: module.MigrationCenterDialog,
 })))
 
 function EmptyProjectHint() {
@@ -107,6 +111,12 @@ function AppContent() {
   const isReady = useProjectStore((state) => state.isReady)
   const activeProjectId = useProjectStore((state) => state.activeProjectId)
   const imageEditorSession = useImageEditorStore((state) => state.session)
+  const hydrateMigrations = useMigrationStore((state) => state.hydrate)
+  const [showMigrationCenter, setShowMigrationCenter] = useState(false)
+
+  useEffect(() => {
+    void hydrateMigrations()
+  }, [hydrateMigrations])
   if (!hasHydrated || !isReady) {
     return (
       <div className={`flex min-h-screen items-center justify-center text-sm ${themeClasses.canvas} ${themeClasses.textMuted}`}>
@@ -121,10 +131,19 @@ function AppContent() {
         <Toolbar rightSlot={(
           <>
             <CanvasQuickActions includeWorkflowActions={false} />
+            <button
+              type="button"
+              title="迁移中心"
+              aria-label="打开迁移中心"
+              onClick={() => setShowMigrationCenter(true)}
+              className={`${themeClasses.iconButton} h-6 w-6 rounded-md`}
+            >
+              <ArrowLeftRight className="h-3.5 w-3.5" />
+            </button>
+            <NotificationCenterButton />
             <AccountMenu />
           </>
         )} />
-        <WorkspaceSearchDialog />
         <FloatingToolbar />
         <EmailVerificationBanner />
         <ProjectConflictBanner />
@@ -136,6 +155,11 @@ function AppContent() {
           </Suspense>
         ) : null}
         {!activeProjectId ? <EmptyProjectHint /> : null}
+        {showMigrationCenter ? (
+          <Suspense fallback={null}>
+            <MigrationCenterDialog onClose={() => setShowMigrationCenter(false)} />
+          </Suspense>
+        ) : null}
       </div>
     </ReactFlowProvider>
   )

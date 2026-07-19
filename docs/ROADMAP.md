@@ -244,7 +244,7 @@ P4-11 说明：
 - 节点、任务和检查点不持久化新 data URL 或第三方临时 URL。
 - GC 在删除前重新验证当前图、任务和保留检查点引用。
 
-## P5：模型网关与任务 Worker（P5-1 至 P5-3 已落地）
+## P5：模型网关与任务 Worker（P5-1 至 P5-11 已完成）
 
 交付物：
 
@@ -279,6 +279,110 @@ P5-3 说明：
 - `0009_task_commands.sql` 持久化 cancel/retry 幂等命令，以 `(workspace_id, idempotency_key)` 唯一并通过复合外键绑定同租户任务。命令在 workspace/任务锁下与状态更新同事务提交；queued 取消直接终止，running 取消只记录请求，failed 且未达上限才能重试。重放不重复转换，跨任务/命令复用同键稳定冲突。
 - 已覆盖请求纯校验、API session actor/字段不泄漏、真实 PostgreSQL 创建/命令幂等、节点与两工作区隔离、running cancel、failed retry、并发上限和 9 迁移连续升级。Redis 队列、Worker claim/租约恢复、Provider 实际调用、结果资产转存、图结果提交、状态事件和用量账本继续拆分为后续切片；前端可在下一切片先接只读任务中心与创建后的服务端状态恢复，但不能把任务 API 视为已执行 Provider。
 
+后续执行节点（按顺序推进，状态只在本节维护）：
+
+### P5-4：可靠入队与 Outbox（已完成）
+
+- 新增任务队列 outbox；任务创建和显式重试在原数据库事务中写入派发事实，不直接双写 PostgreSQL 与 Redis。
+- 使用 BullMQ 持久队列；Worker dispatcher 领取、发布和确认 outbox，使用稳定 job ID 抵抗崩溃后的重复发布。
+- Redis 暂时不可用时 queued 任务和未发布 outbox 继续保留，恢复后按退避时间自动补发；队列消息只携带任务和派发 ID，不携带请求正文、凭据或用户内容。
+- 验收：API 提交后在 Redis 不可用、dispatcher 中断、发布成功但确认前崩溃等情况下，任务最终只产生一个可幂等消费的队列作业。
+
+P5-4 说明：
+
+- `0012_task_queue_outbox.sql` 已建立同租户任务复合外键、workspace 派发键唯一约束、短期 claim tuple、失败退避、发布确认和 pending 索引；升级时会把既有 queued 任务按下一 attempt 编号前向回填，不改动 running 或终态任务。
+- 任务创建和显式 retry 已在原 PostgreSQL 事务内写入 `run:<task-id>:<attempt-number>` 派发事实；请求重放通过原任务/命令幂等与 outbox 唯一键共同保证不重复插入。API 不直接连接或写 Redis，因此数据库提交与队列暂时不可用之间不存在丢任务窗口。
+- `server/modules/tasks` 已提供带 `FOR UPDATE SKIP LOCKED` 的 outbox dispatcher：多 Worker 可并发领取不同派发，claim 过期后可恢复；BullMQ job ID 固定为 outbox UUID，发布成功但数据库确认前崩溃时重复发布仍由队列 job ID 和后续任务状态共同收敛。失败只保存脱敏、截断的基础设施错误，并按指数退避重新开放。
+- `apps/worker` 已接入 BullMQ publisher、dispatcher 单飞循环、Worker 实例 ID、队列/批次/claim/退避配置与优雅关闭；消息仅含 outbox/task UUID。任务消费适配、领取和租约恢复已在 P5-5 补齐，Provider 调用仍属于后续节点。
+- 已覆盖纯退避和配置单测、Worker 在途派发关闭、Redis URL/TLS 解析、真实 PostgreSQL 事务/失败恢复/多 dispatcher 竞争、12 迁移连续升级与 queued 存量回填；真实 BullMQ 幂等发布测试已通过。测试在其他环境 Redis 不可用或凭据不匹配时仍会明确跳过，不把环境错误当作通过。
+
+### P5-5：Worker 领取、租约与恢复（已完成）
+
+- 建立 Worker 专用任务执行领域服务，原子完成 queued -> running、attempt 创建、租约续期、取消收敛、条件状态转换和 lease token 防陈旧提交。
+- 增加过期租约扫描、lane 并发、指数退避、最大尝试次数和优雅关闭恢复。
+- 验收：多 Worker 竞争只产生一个有效 attempt，进程或 Redis 重启不产生永久 running。
+
+P5-5 说明：
+
+- `server/modules/tasks/execution` 已建立 Worker 专用领域服务。claim 使用 `UPDATE ... WHERE status='queued' AND available_at<=now()` 原子领取任务，在同一事务递增 attempt、写入 lease owner/token/expiry 并创建 running `task_attempts`；队列消息中的 ID 只用于定位，不能绕过数据库状态条件。
+- 续租、单调进度和任务收敛都要求 task ID、Worker ID 与 lease token 同时匹配，且已过期租约不能被续活。陈旧 Worker 的进度、失败或取消写入返回未收敛，不覆盖新 attempt。
+- 可重试失败在同一事务完成 attempt failed、任务 running -> queued、清理租约、推进 `available_at` 并创建下一 attempt 的延迟 outbox；不可重试或达到上限进入 failed。已请求取消的 running 任务统一收敛为 canceled，不再重排。
+- Worker runtime 已接入过期租约定期扫描，按 `FOR UPDATE SKIP LOCKED` 处理并发恢复：有剩余 attempt 的任务指数退避后重排，达到上限进入 failed，带取消请求的任务进入 canceled。恢复与 outbox 写入共享事务，不产生永久 running 或无派发 queued。
+- `apps/worker` 已提供 BullMQ Consumer 和任务作业处理器：队列级全局并发约束当前唯一 default lane；处理期间按配置心跳续租、上报进度、感知取消并在优雅关闭时可重试重排。P5-9 已接入受控同步图片 processor，主进程启用 Consumer；能力矩阵在任务创建时拒绝未启用的 Provider/model/kind，避免现有 queued 任务被错误领取。
+- 已覆盖 Worker 配置边界、作业错误分类、取消、fencing 丢失、关闭重排、不完整处理器保护、真实 PostgreSQL 并发 claim/attempt/进度/取消/失败/延迟 outbox/过期恢复，以及全量回归；真实 Redis Consumer 用例已通过。
+
+### P5-6：Provider 执行网关与连接测试（已完成）
+
+- 定义同步/异步 Provider adapter，集中管理能力矩阵、固定 endpoint、结果域名、超时、重定向、错误分类和日志脱敏。
+- 实现 `POST /settings/providers/:providerId/test`；API 路由不接触明文，执行凭据只由 Provider 领域模块在内部短期解密。
+- 验收：任意 URL、内网地址、相似域名、非 HTTPS 和重定向绕过全部被拒绝，响应和日志不包含密钥或完整 Provider 正文。
+
+P5-6 说明：
+
+- `server/modules/providers/adapter` 已提供统一 Provider adapter 边界及同步/异步提交类型，注册表集中保存固定测试 endpoint、业务 endpoint 和结果域名 allowlist。
+- `POST /api/v1/settings/providers/:providerId/test` 只接受 owner/admin 的空 JSON 对象；路由不解密或传递明文凭据，领域服务才会短期解密后调用 adapter。
+- 测试请求固定为 HTTPS、`redirect: 'error'`、10 秒超时和 64 KiB 流式响应上限；网络、超时、重定向、认证、上游拒绝和响应过大以脱敏稳定分类映射，日志不写入密钥、Authorization、请求正文或完整 Provider 响应。
+
+### P5-7：防重复 Provider 提交（已完成）
+
+- 为 attempt 保存确定性 submission key、提交阶段和远端任务 ID；恢复时优先继续轮询已有远端任务。
+- 只有 adapter 明确支持幂等提交时才自动重放不确定请求，否则稳定失败为需用户确认的提交结果不确定错误。
+- 验收：Worker 在网络提交前后任意时点崩溃，不会盲目产生第二次付费请求。
+
+P5-7 说明：
+
+- `0013_provider_submission_fencing.sql` 为 `task_attempts` 新增稳定 submission key、提交阶段和远端任务 ID，并将升级时当前 attempt 的既有任务远端 ID 前向迁入 submitted 状态；迁移测试覆盖约束、索引和升级回填。
+- `server/modules/tasks/execution` 仅在 Worker/lease token fencing 仍有效时准备提交或记录远端 ID。已有远端 ID 一律优先返回 poll；未确认提交只有 adapter 显式声明幂等时才返回 submit，否则返回 uncertain，供 processor 收敛为不可自动重试的提交结果不确定错误。
+- 当前注册表中所有 Provider 均明确为不支持幂等提交；P5-9 已为 OpenAI `gpt-image-2` 同步文生图启用 Consumer，其他能力继续由矩阵拒绝。升级后回退旧应用必须停止 claim、lease recovery 和 Consumer，重新升级由新 Worker 接续持久化提交状态。
+
+### P5-8：结果资产、用量与项目图事务（已完成）
+
+- 新增 `usage_ledger`；Worker 下载、限流校验并转存 Provider 临时结果到私有对象存储，建立任务资产引用。
+- 以任务幂等键完成资产、attempt、用量、任务状态和必要项目图 change；只合并任务拥有的结果字段，不覆盖用户后续位置或编辑。
+- 验收：对象转存失败时任务不标记 succeeded，重放不重复创建资产、节点或用量记录。
+
+P5-8 说明：
+
+- `0014_task_results_usage_ledger.sql` 已建立 `usage_ledger`，以 `(task_id)` 唯一约束一项成功任务只记一次用量，并通过 workspace/task 和 task/attempt 外键保持同租户、同 attempt 的归属；账本只保存受限的数值用量摘要，不保存 Provider 正文、URL 或凭据。
+- `server/modules/tasks/resultTransfer` 已提供 Worker 可调用的 Provider 临时结果转存边界：结果 URL 必须命中 Provider 精确 HTTPS 主机 allowlist，下载拒绝重定向，Provider `429` 映射为稳定可重试的限流分类，限制 50 MiB，校验 MIME、媒体魔数和 SHA-256 后才写入私有对象存储；任务/结果序号派生稳定 asset ID 和对象 key，重试不会换用新的结果定位符。
+- Worker 在持有当前 lease token 时通过 `settleSuccess` 在单一 PostgreSQL 事务内校验工作区配额、建立 completed 结果资产和 task/node `asset_references`、写入一次用量、结束 attempt、将任务收敛为 succeeded，并在 preview node 仍活动且项目未归档时追加 source=`worker` 的图 change。节点只合并标准资产对象构成的 `generationResults.<taskId>`，因此检查点 manifest 仍能提取并保护结果；不修改位置、尺寸、其他数据或用户后续编辑。预览节点已被删除或项目已归档时任务和任务资产仍可成功收敛，但不重建节点或写图变更。
+- 已覆盖转存 URL/响应验证、稳定对象定位、任务结果原子成功、账本/引用/图 change 幂等重放和用户节点字段保留；Provider 协议 processor 仍在 P5-9 才会启用。
+
+### P5-9：图片、编辑与视频 Provider 能力接入（已完成）
+
+- 先接入一个同步图片生成闭环，再接图片编辑、阿里百炼异步轮询和视频任务；每种能力独立声明输入、输出、超时和取消语义。
+- 验收：每种能力覆盖成功、限流、超时、取消、不可重试失败和 Worker 恢复。
+
+当前说明：
+
+- 已启用 OpenAI `gpt-image-2` 的同步文生图和图片编辑：文生图只调用固定 `POST /v1/images/generations`；编辑调用固定 `POST /v1/images/edits`，其输入只能从 source node 的 completed 私有资产引用读取并以 multipart 上传。两者都只接受受限参数和单张 base64 图片响应，不接受自定义 endpoint、URL 或浏览器密钥。
+- 已启用阿里百炼 `wanx2.1-t2i-turbo` 异步文生图和 `wan2.7-t2v` 异步文生视频：分别只向固定 `POST /api/v1/services/aigc/text2image/image-synthesis` 与 `POST /api/v1/services/aigc/video-generation/video-synthesis` 提交受限参数，并通过固定 `GET /api/v1/tasks/:remoteTaskId` 轮询。视频只接受 `720P`/`1080P`、`16:9`/`9:16` 和 5/10 秒。提交返回的受限远端 ID 必须立刻经 `recordProviderSubmission` 写入当前 attempt；恢复时 `prepareProviderSubmission` 返回 poll，绝不重复提交付费任务。结果 URL 仍必须经过 Provider 精确 HTTPS allowlist、私有转存校验和 P5-8 成功事务。
+- Worker 在有效 lease 内先写 P5-7 submission stage，再短期解密当前工作区 BYOK、调用 Provider、转存校验后的图片或视频，并复用 P5-8 成功事务。Provider `429`/超时/网络错误会作为可重试失败收敛；认证、受限参数、未知 model、重定向、超限或无效响应为不可重试失败；取消信号不会继续解密凭据或调用 Provider。P5-9 验收范围的同步图片、编辑、异步图片与视频能力均已落地。
+
+### P5-10：Web 服务端任务投影与切换（已完成）
+
+- Web 接入服务端任务创建、列表、详情、取消、重试和刷新恢复，服务端状态成为唯一事实来源。
+- Cloud 模式关闭浏览器 Provider 执行；任务成功后通过 changes/图读取和私有资产 API 恢复结果，checkpoint 保存脱敏任务投影及对应资产 manifest。
+- 阶段验收已覆盖：关闭页面后服务端任务继续；重新登录后由同一可信会话作用域恢复状态、结果和可执行操作；两账号之间的任务列表、读取、取消和重试均保持非泄露式隔离。
+
+当前说明：
+
+- Cloud Web 已新增固定 `/tasks` client，覆盖创建、分页列表、详情、取消与重试；请求只携带服务端允许的 Provider/model、脱敏参数、项目/node ID 与幂等键，不携带浏览器 API Key、Provider URL、结果 URL、对象 key 或远端任务 ID。
+- `TaskQueueRunner` 在 Cloud runtime 只提交未绑定服务端 ID 的本地排队投影并轮询项目任务列表，绝不调用浏览器 Provider 执行器。服务端任务 ID、0-100 progress、状态和脱敏错误同步回队列；恢复后的 queued/running server task 保持 server-owned，不能被旧本地恢复逻辑再次提交。失败重试与活跃任务取消通过服务端命令端点执行。
+- 已增加跨项目活跃任务缓存：非当前且未归档项目按轮转顺序只查询 `queued/running` 摘要，缓存也只保留活跃服务端任务，避免轮询完整历史。切回项目后先按项目 ID 合并缓存并更新当前节点投影，再以该项目完整任务查询校准；后台摘要从不写入当前项目画布，终态继续以项目图和当前项目查询恢复。
+- 任务面板合并当前项目投影与上述跨项目活跃缓存，可按全部、进行中和已结束筛选，并在失败项显示服务端脱敏错误；其他项目条目只显示项目名称、状态和进度并提供服务端取消，当前项目结果才提供画布定位、重试和本地移除，避免跨项目画布或快照误写。
+- 任务第一次进入终态时刷新项目图。Cloud platform 从 Worker 写入的 `generationResults.<taskId>.assets` 读取标准 asset ID，复用既有私有签名 URL 缓存填充图片/视频节点；不保存 Provider 临时 URL。检查点/项目快照仍只保留脱敏任务投影，不包含凭据或对象存储 key。
+- 设置中心已增加 Cloud 服务商配置入口，复用固定 `/settings/providers`、`/:providerId` 和 `/:providerId/test` API 显示脱敏状态、更新、测试和移除凭据。新 API Key 只在弹窗临时输入中存在，成功更新、移除或关闭时清空，绝不进入浏览器本地 Provider profile、任务投影、项目图或快照。
+
+### P5-11：任务事件、通知与 P5 验收（已完成）
+
+- 已新增 `generation_task_events` 迁移与 `generation_tasks` 触发器：创建、状态、进度和终态事件在同一事务持久化，迁移为既有任务回填当前状态；事件只保存工作区授权所需关联、脱敏错误和稳定 UUID/sequence 游标，不保存 request JSON、凭据、lease、attempt、远端 ID、结果 URL 或对象 key。
+- 已接入 `GET /api/v1/tasks/events` 轮询接口，支持项目/任务过滤、`after` 游标、分页 `hasMore` 和可信 session 工作区授权；事件丢失后可从游标继续，任务列表/详情仍是状态事实来源。
+- Web `TaskQueueRunner` 已按项目保存事件游标，将 terminal 事件以事件 UUID 幂等写入通知中心；重复轮询、断线重试和页面恢复不会重复计数。SSE、心跳和断线恢复协议仍不在本阶段首发范围内。
+- 已增加统一进程内 metrics registry 与 Prometheus 文本渲染；API `/metrics` 提供 queued backlog、running、expired lease 和 retryable failure 聚合 gauge，Worker 记录任务重试、租约过期恢复、Provider 请求耗时和结果转存失败。指标标签限制为固定低基数枚举，不包含 workspace、task、URL 或凭据。
+- API/Worker 服务对象重建、过期 lease 恢复、远端任务轮询、结果/账本幂等和转存失败不成功收敛已加入自动化演练并通过；真实 Redis 下的 BullMQ 稳定 job ID、重复发布和客户端断开重连测试也已通过。维护窗口在独立验收队列完成 Redis 实例级重启，确认 AOF 恢复、重复发布不产生第二个作业，业务队列和 PostgreSQL 活跃任务保持为空。
+- 验收：本节全部 P5 验收标准已满足，P5 完成并进入 P6；SSE、心跳和断线恢复协议留待后续阶段。
+
 验收标准：
 
 - 关闭浏览器后任务继续，重新登录恢复状态和结果。
@@ -289,6 +393,57 @@ P5-3 说明：
 - 日志和诊断不含 API Key、Authorization、附件或完整响应。
 
 ## P6：本地与云端迁移
+
+### P6-1：目录包与迁移契约（已完成）
+
+- `packages/contracts/src/migrationPackage.ts` 已冻结 `packageSchemaVersion=1`、单项目包布局和可选 checkpoint 格式：`manifest.json`、`project.json`、`graph.json`、`assets.json` 与 `checkpoint.json`。
+- manifest 包含 package/source platform、项目 ID/version/sequence、payload 文件数量、总字节数、内容 SHA-256 和逐文件 SHA-256；JSON 使用规范排序，时间使用 ISO UTC，资产只携带逻辑 ID 与受控相对路径。
+- 纯校验器覆盖未知 schema、路径穿越/重复路径/符号链接、压缩比、目录深度、文件/总包上限、重复逻辑资产 ID、悬空图引用、非规范 JSON 和凭据/Authorization/object key/签名 URL/租户内部字段泄漏。
+- 首发只支持单项目包；归档安全检查只接收条目元数据，不访问文件系统或解压。本切片没有新增数据库 schema，因此不运行 `db:migrate:test`。
+
+### P6-2：Import Prepare 预检会话（已完成）
+
+- `0016_migration_imports.sql` 已建立独立迁移导入生命周期表，持久化 validated package JSON、workspace 幂等指纹、冲突快照、文件/字节进度、固定错误字段和过期时间；状态预留 prepared、uploading、validating、ready、committing、completed、failed、canceled、expired。
+- `POST /api/v1/migrations/imports/prepare`、`GET /api/v1/migrations/imports/:importId` 和 `POST /api/v1/migrations/imports/:importId/cancel` 已接入可信 session。prepare/cancel 要求 owner/admin/editor，读取允许当前成员；客户端 user/workspace 字段不参与授权。
+- prepare 校验 P6-1 全部契约、规范 JSON 字节/SHA-256、逐文件摘要、配额和项目 ID 状态；workspace + idempotency key 同内容返回同一 import，不同内容返回 `IMPORT_CONFLICT`。跨 workspace ID 碰撞只返回不泄漏归属的 unavailable 冲突。
+- prepare 只写 `migration_imports`，不创建项目图、资产、引用或配额 reservation；GET/cancel 和过期收敛可在 API 重启后从 PostgreSQL 恢复。真实 PostgreSQL 两工作区隔离、API session actor 和 18 迁移顺序升级已验证。
+
+### P6-3：资产暂存与上传完成（已完成）
+
+- `0017_migration_import_asset_uploads.sql` 建立每个 logical asset 的独立暂存会话，保存服务端 staging key、multipart provider upload ID、分片计划/已完成 ETag、状态、retryCount 和过期时间；暂存 reservation 纳入 workspace 用量，不写正式 assets。
+- 提供单 PUT 和 S3 multipart 两种上传模式，支持断点恢复、分片确认、最终 MIME/大小/SHA-256 校验、失败重试、幂等完成、取消和对象清理。API 只返回短期签名 URL，不接受或返回 object key、provider upload ID 或凭据。
+- 真实 PostgreSQL fake storage 集成覆盖单 PUT、multipart resume、错误 hash、重试、跨 workspace 隔离、取消清理和 reservation；API actor 路由测试已覆盖。正式资产、引用和项目图由已完成的 P6-4 commit 事务创建。
+
+### P6-4：单项目 Commit（已完成）
+
+- 新增 `0018_migration_import_commit.sql`，持久化 commit idempotency key/fingerprint、策略、目标 project、完成时间和 logical asset 到正式 asset UUID 的映射。
+- `POST /api/v1/migrations/imports/:importId/commit` 支持 copy/replace。copy 始终创建新 project；replace 仅 owner/admin，必须携带 prepare 快照版本/sequence 和显式确认；冲突返回 `PROJECT_VERSION_CONFLICT`，不自动 merge。
+- 单事务锁定 workspace/import/目标 project，物化 completed staging assets，重写图中的逻辑资产 ID，复用 project-graph 写节点/连线、引用和 `source=import` change，可选写 import checkpoint；失败整体回滚，重复相同请求返回稳定结果。真实 PostgreSQL copy/replace、幂等、跨 workspace 和两账号权限已验证。
+
+### P6-5：项目冲突策略（已完成）
+
+- copy 每次生成新 project、node 和 edge ID，用统一映射重写父级、连线端点、change operations 与 import checkpoint；两个副本的图实体 ID 相互隔离。replace 保留包内实体 ID，仅 owner/admin 可在 prepare expected version/sequence 仍匹配且显式确认时执行，不实现隐式 merge。
+- commit 通过 assets 领域 helper 在可信 workspace 内按 completed、未删除、SHA-256、字节数和 MIME 安全复用资产；相同内容的重复导入不新增正式资产或存储用量，跨 workspace 同 hash 不能复用。
+- 真实 PostgreSQL 集成已覆盖 copy 结构映射、重复导入、checkpoint 映射、replace ID 语义、两账号角色、跨 workspace hash 隔离和 prepare 后并发编辑冲突；冲突事务不留下新资产、引用、change 或 committed 映射。
+
+### P6-6：目录包导出（已完成）
+
+- 新增 `0019_migration_exports.sql` 和独立导出生命周期；`prepare/status/download/cancel` API 使用可信 session/workspace，保存项目 version/sequence 快照、关系图、saved checkpoint、资产 manifest、归档进度、失败/取消/过期状态和幂等指纹，不复用 `generation_tasks`。
+- `POST /api/v1/projects/:projectId/exports/prepare` 在项目锁内冻结单一版本，后台生成兼容 P6-1 的 ZIP；Cloud asset UUID 转为不含租户内部字段的逻辑资产 ID，object key、签名 URL、Provider 凭据不进入 `project.json` 或归档。归档写入私有对象存储后，download 只签发 5 分钟 URL。
+- API/进程重启可从 PostgreSQL 恢复 prepared/generating 导出；取消和失败不会修改项目图、资产引用或 checkpoint。真实 PostgreSQL 集成覆盖 version 冻结、契约重导入、私有下载、幂等、跨 workspace 和失败不变性，19 个迁移顺序升级已验证。
+
+### P6-7：进度、取消、重试与清理（已完成）
+
+- `0020_migration_lifecycle_retry.sql` 为导出增加 retry_count 和 retryable 索引；failed/canceled 导出支持 owner/admin/editor 最多 3 次 retry，保留冻结 payload，不重读新 project version。状态响应持久化阶段、文件/字节进度、retryCount、固定错误码和过期时间。
+- API 重启从 PostgreSQL 恢复 prepared/generating 导出；取消在上传、校验、归档和 commit 边界收敛，重复 cancel/retry 保持幂等结果。P6-3 资产上传继续支持失败重试和断点恢复。
+- 启动维护和延迟 GC 清理过期 import、failed/canceled/expired staging/归档对象；已完成上传、completed import 和带 `committed_asset_id` 的 staging 行不进入清理范围。真实 PostgreSQL 已覆盖导出 retry、上传重试/取消、20 个迁移升级和 API actor retry 路由。
+
+### P6-8：Web 迁移中心（已完成）
+
+- Cloud Web 顶部工具栏新增显式迁移中心，不在登录或工作区初始化时自动上传本地数据。浏览器读取 `.zip` 目录包后提交 prepare 预检，展示来源版本/sequence、文件与字节统计、资产上传进度和服务端状态，再由用户显式 commit。
+- 项目冲突只展示服务端允许的 copy/replace 策略。replace 固定显示 prepare 返回的目标 expected version/sequence，并要求单独勾选确认；`PROJECT_VERSION_CONFLICT` 提供重新加载云端项目或改为复制新项目，不做客户端 merge。
+- 小文件和 multipart 资产使用服务端短期签名 URL 直传，分片按真实 ETag 确认；重新选择相同 package ID 可继续既有上传会话的缺失分片。导出按当前图 version/sequence prepare，轮询生成状态后获取短期私有下载 URL，并支持 cancel/retry。
+- 最近 import ID 与 export project/export ID 只保存在浏览器迁移索引中；页面刷新或重新登录后重新向服务端读取状态，账号切换先清空内存摘要，目录包正文和媒体不进入持久化 store。通知中心只接收预检/完成摘要，迁移会话、资产和项目图仍分别以服务端领域状态为事实来源。
 
 交付物：
 
@@ -309,6 +464,104 @@ P5-3 说明：
 - Provider API Key 不进入任何导出包。
 
 ## P7：staging、安全与运行保障
+
+### P7-1：API 来源边界与安全响应头（已完成）
+
+- API 配置新增 `WEB_ALLOWED_ORIGINS` 精确 allowlist；只接受无凭据、path、query 和 fragment 的 HTTP(S) origin，默认回退到 `WEB_PUBLIC_URL`。同一列表传给 API CORS 边界和 Better Auth trusted origins，避免认证与业务路由使用两套来源事实。
+- 所有 API 响应统一携带 `nosniff`、frame deny、referrer、permissions、COOP/CORP 和 API 专用 `default-src 'none'` CSP；staging/production 额外发送一年 HSTS。页面资源 CSP 仍由后续 Web CDN/反向代理节点配置，本节点不把 API CSP 当作页面 CSP。
+- 允许来源的预检返回 204、精确 `Access-Control-Allow-Origin`、credentials、固定 methods/headers 和 10 分钟 max-age；携带不受信 `Origin` 的读写请求在认证或领域服务前返回 `403 ACCESS_DENIED`，不回显来源、不读取 Cookie、不产生业务副作用。无 Origin 的健康检查、受控服务端客户端和测试仍可访问。
+- 配置纯测试和真实 HTTP 路由测试已覆盖 allowlist 规范化、非法 URL、允许预检、拒绝恶意来源及 staging 安全头。分层速率限制、Web 页面 CSP、CSRF 缺失 Origin 强制策略、staging 独立资源和安全攻击矩阵留在后续 P7 节点。
+
+### P7-2：staging 隔离基线与可部署制品（已完成）
+
+- 根 `Dockerfile` 按锁文件和显式 workspace 依赖顺序生成 Web、API、Worker 与一次性 migration 制品；API/Worker/迁移以非 root Node 用户运行，Web 以非 root Nginx 用户运行，镜像不包含 `.env`、开发 seed、源码凭据或运行时密钥，Web bundle 只包含公开静态配置。
+- `infra/deploy/staging/docker-compose.yml` 提供可执行的厂商无关 staging 基线，`staging.env.example` 只含键名和占位符。资源、队列、邮件 SMTP、Provider/BYOK 凭据标识和持久卷均带 staging 隔离边界，不复用 local/production；真实外部域名、TLS、邮件、Provider、密钥管理、备份和告警由部署环境提供。
+- 共享配置门禁在 staging/production 启动时拒绝 localhost、HTTP Web/Auth、默认 MinIO 凭据、占位 Better Auth secret、开发管理员 seed、缺失来源白名单和跨环境资源/凭据 ID；SMTP 是 protected 环境唯一邮件传输，验证/重置链接不写日志。迁移位于 `release` profile 的独立一次性步骤，API/Worker 启动不自动迁移。
+- API readiness 使用 PostgreSQL、Redis 和 S3 Bucket 检查，依赖停止返回 `503 degraded`；Worker 健康检查验证 Redis 连接。`npm run deploy:staging:check`、相关配置测试和受影响 workspace 构建已落地，Docker 实际启动仍需在具备 Docker 的空环境执行。
+
+验收：同一 staging 定义可从空卷重复部署；停掉 PostgreSQL、Redis 或对象存储时 readiness 明确 degraded；任一 staging 凭据或资源标识与 production/local 复用时配置门禁失败。
+
+### P7-3：Cookie CSRF 与分层速率限制（已完成）
+
+- staging/production 的 Cookie 写请求必须携带允许的 `Origin`，并拒绝 cross-site `Sec-Fetch-Site`；登录、注册、密码重置、邮箱验证、退出和普通业务写路径共用同一前置边界，不把客户端 user/workspace 当作授权依据。
+- 确认生产 Cookie 使用 Secure、HttpOnly、受控 SameSite、固定 Path 和正确代理 HTTPS 语义；未携带 Cookie 的健康检查、受控 Worker/运维入口不套用浏览器 CSRF 假设。
+- 使用 Redis 建立多实例一致的分层限流：认证尝试、密码/邮件、Provider 测试、任务创建、资产/迁移 prepare 与普通读写分别配置窗口和上限。键只使用服务端可信的账号/workspace/session 或受控网络标识，不在日志和响应暴露原始敏感标识。
+- 超限统一返回 `429 RATE_LIMITED`、稳定 retryability 和非敏感 `Retry-After`；Redis 故障策略按路由风险显式 fail-open/fail-closed，不能无声放行高风险认证与费用写路径。
+
+验收：同账号换 IP、同 IP 多账号、并发突发、窗口恢复、Redis 重启和两 API 实例共享限额均有自动化覆盖；跨站表单/fetch 不能触发 Cookie 写操作。
+
+实现结果：API 前置边界已在 staging/production 强制 Cookie/认证写请求的允许 Origin，并拒绝 cross-site Fetch Metadata；Better Auth Cookie 显式固定 Secure（protected）、HttpOnly、SameSite=Lax 和 Path=/。Redis Lua 原子窗口按八类路由分层，环境隔离 key 只保存 scope SHA-256；超限返回稳定 `429 RATE_LIMITED`/`Retry-After`，普通读故障 fail-open，其余写与高风险路径 fail-closed。自动化覆盖同 session 换 IP、同 IP 多 session、并发突发、窗口恢复、Redis 重连恢复、两客户端共享限额、前置无副作用拒绝和跨站 Cookie 写拒绝；真实 Redis 集成使用根 `.env` 的 `REDIS_URL`，不可用时按现有集成测试约定跳过且不输出地址或凭据。
+
+### P7-4：Web 页面 CSP、对象存储 CORS 与上传边界（已完成）
+
+- Web CDN/反向代理发送页面级 CSP、HSTS、frame-ancestors、Referrer-Policy、Permissions-Policy 和静态资源缓存策略；策略按实际 Vite chunk、图片/视频 blob、私有签名 URL 和 API connect 来源收敛，不使用宽泛 `*`、`unsafe-eval` 或任意公网媒体源。
+- staging Bucket 保持私有，CORS 只允许 staging Web origin、PUT/GET/HEAD 和实际所需请求头，并暴露 multipart ETag；不允许匿名 list/read/write，不把 object key 或永久凭据送入浏览器。
+- API 和对象存储共同约束单文件/总包大小、MIME、SHA-256、multipart 分片数、签名 URL TTL、请求体大小和 JSON 深度；错误 MIME、缺失对象和签名过期不得产生 completed asset 或引用。
+- 用真实浏览器验证图片/视频展示、单 PUT、multipart、迁移上传和导出下载在 CSP/CORS 下可用，并确认恶意第三方 origin 无法读取或上传。
+
+验收：浏览器控制台无非预期 CSP/CORS 例外；允许源全链路可用，不允许源、匿名请求、错误 MIME 和超限载荷稳定拒绝。
+
+实现结果：staging Nginx 以非 root template entrypoint 渲染页面 CSP、HSTS、frame deny、Referrer/Permissions/nosniff 和静态资源缓存；脚本仅允许 self，媒体/连接仅允许 self、blob/data 与配置的 `S3_PUBLIC_ORIGIN`。API 管理/健康检查使用内部 `S3_ENDPOINT`，签名上传/读取使用独立 HTTPS `S3_PUBLIC_ENDPOINT`，protected 配置要求它与 `S3_PUBLIC_ORIGIN` 同源。MinIO release step 保持 bucket 私有，按 Web allowlist 配置 GET/PUT/HEAD CORS、必要请求头和 ETag 暴露。资产完成严格复核对象 MIME、大小和 SHA-256；迁移固定 8 MiB 分片、最多 256 parts，并与 manifest 总大小、JSON/请求体上限和短期签名 TTL 共同生效。自动化已覆盖页面/Compose 约束、public/private presign endpoint、严格 MIME 拒绝和既有真实对象存储上传读取；真实外部 storage domain/TLS/CORS DNS 仍需部署环境提供。
+
+### P7-5：安全攻击面回归矩阵（已完成）
+
+- 建立表驱动安全测试，覆盖 SSRF、重定向、DNS/端口/协议绕过、ID 枚举、路径穿越、ZIP bomb、恶意 MIME、超大 JSON、深层对象、data/blob URL、重复字段和 Unicode/编码边界。
+- 对项目、节点、资产、任务、Provider、迁移、导出、会话和设备 ID 做不存在/本 workspace/其他 workspace 三态验证；禁止通过状态码、错误详情、耗时或列表差异泄漏其他租户资源。
+- 对日志、metrics、诊断、通知和 API 错误做敏感字段扫描，覆盖 Cookie、Authorization、API Key、重置/验证 token、对象 key、签名 URL、附件正文和完整 Provider 响应。
+- 固定恶意样本进入受控 test fixture；测试不得访问任意公网目标或把真实本地 `.env` 凭据写入快照和失败输出。
+
+实现结果：新增表驱动攻击样本，覆盖 Provider/result URL 的协议、凭据、host、端口、重定向和任务 ID 绕过，迁移路径穿越、大小/压缩比、大小写重复路径、深层 JSON、data/blob URL、重复对象键、非法 UTF-8/Unicode 代理项、恶意 MIME 和超限响应。API 在领域服务前拒绝重复键、无效 UTF-8、超过 64 层/100000 entries 的 JSON 和路由请求体上限；修复了尾部高代理项被误判为合法 Unicode 的绕过。请求日志仅记录固定路由组，共享 logger 对 Cookie、Authorization、token、API Key、对象 key、签名 URL 和 Provider/body 字段递归脱敏，开发邮件不记录验证/重置链接，底层对象存储错误不进入 API details。既有真实 PostgreSQL/MinIO 集成与 API 两账号 stub 覆盖项目、图节点引用、资产、任务、Provider、迁移、导出、会话和设备的可信 actor/workspace 作用域；跨 workspace 与不存在资源统一使用非披露错误，不在本节点提前实现浏览器两账号 E2E。
+
+验收：攻击矩阵在单测/API/真实 PostgreSQL/对象存储层稳定通过，发现的每个绕过都先补回归再修复，不以 WAF 代替应用边界。
+
+### P7-6：两账号云端 E2E 与授权矩阵（已完成）
+
+- 使用两个真实测试账号、独立浏览器上下文和不同设备 ID，覆盖注册/验证/登录接管、项目 CRUD、图保存/冲突、检查点恢复、资产上传读取、任务创建恢复、Provider 设置和迁移导入导出。
+- A 的项目、节点、资产、任务、检查点、Provider、会话、设备和迁移 ID 在 B 下必须统一不可见/不可写；copy/replace、归档项目、后台任务和签名 URL 也保持 workspace 隔离。
+- 覆盖页面刷新、重新登录、双标签并发、API/Worker 重启和关闭浏览器后任务/迁移恢复；测试清理只删除自己创建的命名空间，不依赖固定生产数据。
+- 建立 owner/admin/editor/viewer 的 API 授权矩阵测试；首发个人空间未开放的角色 UI 不伪装完成，但服务端角色边界必须可验证。
+
+实现结果：新增 `apps/api/src/cloudE2E.integration.test.ts`，使用随机 schema、随机 `.invalid` 测试账号、独立 `BrowserContext` cookie jar、不同 device ID 和真实 PostgreSQL/MinIO，覆盖注册、session 刷新、项目 CRUD/归档、图保存与双标签版本冲突、checkpoint、Provider 配置、任务创建与跨账号命令、资产 presigned PUT/完成/读取、会话/设备删除、API 重启后的 session/task 恢复和同账号登录接管。测试只删除自身 schema、workspace 产生的对象和随机命名空间，不依赖固定生产数据。
+
+新增真实 PostgreSQL owner/admin/editor/viewer 授权矩阵：读取允许四种成员角色，普通内容写允许 owner/admin/editor，管理操作允许 owner/admin，仅 owner 操作只允许 owner；workspace 外用户统一返回 `RESOURCE_NOT_FOUND`。现有真实服务集成继续覆盖迁移导入/导出、任务 Worker、对象存储和两 workspace 资源边界；本节点不伪造个人空间未开放的角色 UI。仓库不引入 Playwright 或云厂商 SDK，staging 浏览器上下文执行仍由部署/隔离 CI 运行器调用同一 HTTP harness。
+
+验收：两账号 E2E 在 staging 和隔离 CI 环境可重复运行，任何跨租户成功响应、可用签名 URL 或差异化泄漏均阻断发布。
+
+### P7-7：指标、告警与脱敏诊断（已完成）
+
+- 已补齐认证失败/限流、API 延迟与错误、项目版本冲突、任务 backlog/running/retry/lease、Worker/Provider/转存失败、迁移阶段、存储配额及 PostgreSQL/Redis/对象存储连接指标；API 与 Worker 均提供受控 Prometheus 抓取端点。
+- 指标标签只使用固定低基数枚举，禁止 workspace/user/project/task/request ID、URL、邮箱和错误正文；request/task/import/export ID 只进入受控脱敏日志用于单次链路定位。
+- 已建立 `infra/deploy/staging/prometheus.yml` 与 `alerts.yml` 告警规则和阈值，覆盖服务不可用、错误率、延迟、积压、租约恢复、转存失败、配额异常和依赖连接耗尽；每条规则包含内网排查入口和恢复判据。
+- 已通过 API/Worker readiness 依赖 down/up 受控故障注入验证 degraded -> ok 恢复，不向 Provider 发起请求，告警和诊断不携带用户内容或密钥。
+
+验收：关键故障能在预定窗口内触发并自动恢复告警；仅凭 request/task ID 可定位链路类别，不需要查看用户正文或凭据。
+
+### P7-8：备份、对象生命周期与隔离恢复演练（已完成）
+
+- staging 已建立 24 小时 PostgreSQL 同快照指纹/custom dump、AES-256-GCM 加密、SHA-256 manifest、30 天数据库/对象保留和独立 backup Bucket；主 Bucket 启用版本、非当前版本保留和 multipart 中止，临时上传/迁移继续使用数据库 TTL 与延迟 GC，正式当前资产不自动过期。
+- restore profile 强制使用 restore-only PostgreSQL、Bucket、Redis、队列和资源 ID；恢复校验密文、运行当前迁移、复制对象、重开 queued outbox，并由前后 source guard 确认原 staging 未被写入。
+- 只读审计覆盖两工作区、项目当前图、version/sequence/changes、checkpoint manifest、资产 hash/引用、任务/账本、迁移状态、软删除/GC 和对象存在性；缺失对象只报告并阻断，不静默修改资产。
+- 基线 RPO 为 24 小时、告警窗口为 26 小时，每次演练输出实际 `rtoSeconds`；Pushgateway/Prometheus 覆盖备份缺失和最新失败，日志/manifest/指标不包含数据库 URL、对象 key、密钥或用户正文。真实独立故障域、KMS 轮换、Alertmanager 接收端和经数据量验证的 RTO 仍由外部 staging 提供。
+
+验收：从备份恢复的两个账号仍保持隔离且核心项目/资产/任务一致；恢复演练可重复，原 staging 在全过程保持可用且未被写入。
+
+### P7-9：schema 发布、兼容窗口与前向修复（已完成）
+
+- 已将 20 个迁移登记到 `server/db/migrations/release-manifest.json`，phase 按 `expand -> migrate -> contract` 单调推进；每项声明旧/新应用兼容性、锁风险、statement timeout、回滚/前向修复和备份门槛。当前没有 contract migration，0020 additive retry 列由新 API 可选读取，旧 Worker 可读取新 schema。
+- `npm run db:migrate:compat` 已覆盖旧 schema + 新应用、新 schema + 旧应用、迁移事务中断回滚/重跑和连续 `schema_migrations`；Worker claim/submission/lease 窗口要求先停 Consumer，再运行恢复/前向修复，应用启动不自动迁移。
+- 破坏性或不可逆变更必须以 P7-8 加密备份和隔离恢复为回滚门槛；`check-schema-release.mjs` 拒绝未登记迁移、phase 倒退、缺失兼容声明和没有备份门槛的 DROP SQL。发布/回退只使用仓库真实命令。
+
+验收：20 个既有迁移和后续迁移可从空库及旧版本升级；模拟失败不会留下未知 schema 版本、永久锁或无法前向修复的数据。
+
+### P7-10：staging 全链路与发布门禁（已落地门禁，待真实 staging 验证）
+
+- 从空 staging 部署并完成迁移、账号、项目图、资产、Provider、任务 Worker、迁移导入导出、通知、维护和恢复演练；验证 Web 不依赖 Vite proxy、本地路径或浏览器 Provider Key。
+- 新增 `scripts/staging-release-gate.mjs` 与 `npm run deploy:staging:gate`：先构建全部 production workspace，再校验 protected staging 配置、非 root/显式迁移制品、CSP/告警边界和 Web bundle 的 localhost/Vite proxy/Provider 密钥/本地路径泄漏；可选对 Web/API/Worker readiness 和只读清理审计报告执行无敏感正文的在线门禁。
+- 统一执行单测、集成、两账号 E2E、安全矩阵、迁移检查、生产构建、依赖故障和备份恢复；固定发布阻断项与允许的环境性跳过条件。
+- 检查 CSP/CORS/CSRF/限流/对象存储权限、指标告警、日志脱敏和资源隔离；清理测试资源后确认无孤立正式资产、永久 running、重复扣费或不可回收 staging 对象。
+- P7 完成状态只在全部门禁有可复现证据后更新；未配置真实邮件、域名/TLS、备份或告警接收端时必须保持未完成，不用本地 fake 代替 staging 验收。
+
+验收：满足本节总验收标准后才进入 P8 生产灰度，任何跨租户、凭据泄漏、恢复不一致或发布不可回退问题均阻断进入 P8。
 
 交付物：
 

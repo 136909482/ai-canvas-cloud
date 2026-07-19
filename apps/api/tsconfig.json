@@ -9,6 +9,7 @@
       "@ai-canvas-cloud/contracts": ["../../packages/contracts/src/index.ts"],
       "@ai-canvas-cloud/server": ["../../server/index.ts"],
       "@ai-canvas-cloud/server/modules/auth": ["../../server/modules/auth/index.ts"],
+      "@ai-canvas-cloud/server/modules/migrations": ["../../server/modules/migrations/index.ts"],
       "@ai-canvas-cloud/server/modules/project-graph": ["../../server/modules/project-graph/index.ts"],
       "@ai-canvas-cloud/server/modules/project-snapshots": ["../../server/modules/project-snapshots/index.ts"],
       "@ai-canvas-cloud/server/modules/projects": ["../../server/modules/projects/index.ts"],

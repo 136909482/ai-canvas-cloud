@@ -1,10 +1,12 @@
 import { generateImage, submitAsyncImageGeneration, waitForAsyncImageGeneration } from '@/api/imageAdapter'
 import { submitAliyunTextToVideoGeneration, waitForAliyunVideoGeneration, type GenerateVideoParams } from '@/api/videoAdapter'
+import { cloudGenerationTaskApi } from '@/api/generationTasks'
 import { DEFAULT_IMAGE_MODEL_ID } from '@/config/modelCatalog'
 import { resolveRuntimeModelConfig } from '@/features/settings/providerConfig'
 import { useCanvasStore } from '@/store/useCanvasStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useTaskQueueStore } from '@/store/useTaskQueueStore'
+import { platformRuntime } from '@/platform'
 import { reportDiagnostic } from '@/store/useDiagnosticsStore'
 import type { GenerateTask, GptImageQuality, ImageInputFidelity, ImageOperationType, VideoGenerateMode, VideoGenerateNodeData, WorkspaceImageAsset } from '@/types'
 import { getPreviewNodeSize, loadImageDimensions } from './previewUtils'
@@ -527,6 +529,16 @@ export function retryGenerateTask(taskId: string) {
     return null
   }
 
+  if (platformRuntime === 'cloud' && task.serverTaskId) {
+    void cloudGenerationTaskApi.retry(task.serverTaskId, `cloud-retry:${task.serverTaskId}:${crypto.randomUUID()}`)
+      .then((response) => useTaskQueueStore.getState().syncServerTask(response.task))
+      .catch((error) => useTaskQueueStore.getState().markTaskError(
+        task.id,
+        error instanceof Error ? error.message : String(error),
+      ))
+    return taskId
+  }
+
   if (task.remoteTaskId && (task.kind === 'video' || task.kind === 'image')) {
     taskStore.resumeRemoteTask(taskId)
     const runningTask = useTaskQueueStore.getState().tasks.find((item) => item.id === taskId)
@@ -593,6 +605,20 @@ export function retryGenerateTask(taskId: string) {
     syncPreviewNodeWithTask(nextTask, 'queued')
   }
 
+  return taskId
+}
+
+export function cancelGenerateTask(taskId: string) {
+  const task = useTaskQueueStore.getState().tasks.find((item) => item.id === taskId)
+  if (!task || platformRuntime !== 'cloud' || !task.serverTaskId) {
+    return null
+  }
+  void cloudGenerationTaskApi.cancel(task.serverTaskId, `cloud-cancel:${task.serverTaskId}:${crypto.randomUUID()}`)
+    .then((response) => useTaskQueueStore.getState().syncServerTask(response.task))
+    .catch((error) => useTaskQueueStore.getState().markTaskError(
+      task.id,
+      error instanceof Error ? error.message : String(error),
+    ))
   return taskId
 }
 

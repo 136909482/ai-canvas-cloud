@@ -322,6 +322,55 @@ async function insertSnapshot(
   return snapshotResult.rows[0]!
 }
 
+export async function insertImportCheckpointTransaction(
+  client: DbClient,
+  input: {
+    projectId: string
+    projectName: string
+    projectVersion: number
+    sequence: number
+    nodes: ProjectGraphNode[]
+    edges: ProjectGraphEdge[]
+    taskQueue: { tasks: Record<string, unknown>[] }
+    assetManifest: string[]
+  },
+) {
+  const record: ProjectRevisionRecord = {
+    schemaVersion: PROJECT_SNAPSHOT_RECORD_SCHEMA_VERSION,
+    project: {
+      id: input.projectId,
+      name: input.projectName,
+      version: input.projectVersion,
+      lastSequence: input.sequence,
+    },
+    canvas: {
+      nodes: input.nodes,
+      edges: input.edges,
+    },
+    taskQueue: input.taskQueue,
+  }
+  validateRevisionRecord(record, input.projectId)
+  await requireCompletedAssetReferences(
+    client,
+    (await client.query<{ workspace_id: string }>(`SELECT workspace_id::text FROM projects WHERE id = $1`, [input.projectId])).rows[0]?.workspace_id ?? '',
+    collectNodeAssetReferenceChangesForNodes(input.nodes),
+  )
+  const snapshot = await insertSnapshot(
+    client,
+    input.projectId,
+    input.projectVersion,
+    input.sequence,
+    'import',
+    record,
+    input.assetManifest,
+  )
+  return {
+    id: snapshot.id,
+    projectVersion: Number(snapshot.project_version),
+    sequence: Number(snapshot.last_sequence),
+  }
+}
+
 async function findReusableManualSnapshot(
   client: DbClient,
   projectId: string,

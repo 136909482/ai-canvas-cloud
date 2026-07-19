@@ -181,3 +181,24 @@ test('S3 object storage creates expiring MinIO-compatible GET URLs without expos
   assert(new Date(read.expiresAt).getTime() >= before + 299_000)
   assert(new Date(read.expiresAt).getTime() <= Date.now() + 301_000)
 })
+
+test('S3 presigned browser URLs use the public endpoint while health and storage calls keep the private endpoint', async () => {
+  const storage = createS3ObjectStorage({
+    endpoint: 'http://object-storage:9000',
+    publicEndpoint: 'https://storage.staging.example.com',
+    bucket: 'ai-canvas-cloud-staging-assets',
+    region: 'us-east-1',
+    accessKeyId: 'staging-access-key',
+    secretAccessKey: 'staging-object-secret',
+    forcePathStyle: true,
+  })
+
+  const upload = await storage.createPresignedUpload({
+    objectKey: 'workspaces/workspace-1/projects/project-1/uploads/asset-1.png',
+    mimeType: 'image/png',
+    byteSize: 1024,
+    expiresInSeconds: 900,
+  })
+  assert.match(upload.url, /^https:\/\/storage\.staging\.example\.com\/ai-canvas-cloud-staging-assets\//)
+  assert.equal(upload.url.includes('staging-object-secret'), false)
+})

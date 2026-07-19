@@ -1,4 +1,7 @@
-import type { WorkspaceUsageResponse } from '@ai-canvas-cloud/contracts'
+import type {
+  WorkspaceProjectStorageSummary,
+  WorkspaceUsageResponse,
+} from '@ai-canvas-cloud/contracts'
 import type { DbClient, DbPool } from '../../db/postgres.js'
 import { AuthServiceError } from '../auth/service.js'
 import type { ProjectActor } from '../projects/service.js'
@@ -14,6 +17,16 @@ interface WorkspaceStorageUsageRow {
   quota_bytes: string | number
   used_bytes: string | number
   reserved_bytes: string | number
+}
+
+interface WorkspaceProjectStorageRow {
+  project_id: string
+  name: string
+  file_count: string | number
+  node_count: number
+  storage_bytes: string | number
+  archived_at: Date | string | null
+  updated_at: Date | string
 }
 
 export interface WorkspaceUsageService {
@@ -33,6 +46,7 @@ export function calculateWorkspaceStorageUsage(input: {
   quotaBytes: string | number
   usedBytes: string | number
   reservedBytes: string | number
+  projects?: WorkspaceProjectStorageSummary[]
 }): WorkspaceUsageResponse {
   const quotaBytes = toSafeBytes(input.quotaBytes, 'quotaBytes')
   const usedBytes = toSafeBytes(input.usedBytes, 'usedBytes')
@@ -51,7 +65,55 @@ export function calculateWorkspaceStorageUsage(input: {
       quotaBytes,
       availableBytes: Math.max(quotaBytes - totalBytes, 0),
     },
+    projects: input.projects ?? [],
   }
+}
+
+function toIso(value: Date | string) {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
+}
+
+export async function readWorkspaceProjectStorageUsage(
+  client: Pick<DbClient, 'query'>,
+  workspaceId: string,
+) {
+  const result = await client.query<WorkspaceProjectStorageRow>(
+    `
+      SELECT
+        p.id::text AS project_id,
+        p.name,
+        COUNT(a.id) FILTER (
+          WHERE a.status IN ('pending', 'completed', 'failed', 'quarantined')
+        ) AS file_count,
+        p.node_count,
+        COALESCE(SUM(a.byte_size) FILTER (
+          WHERE a.status IN ('pending', 'completed', 'failed', 'quarantined')
+        ), 0) AS storage_bytes,
+        p.archived_at,
+        p.updated_at
+      FROM projects p
+      LEFT JOIN assets a
+        ON a.workspace_id = p.workspace_id
+       AND a.origin_project_id = p.id
+       AND a.deleted_at IS NULL
+       AND a.status <> 'deleted'
+      WHERE p.workspace_id = $1
+        AND p.deleted_at IS NULL
+      GROUP BY p.id, p.name, p.node_count, p.archived_at, p.updated_at
+      ORDER BY storage_bytes DESC, p.updated_at DESC, p.id DESC
+    `,
+    [workspaceId],
+  )
+
+  return result.rows.map((row): WorkspaceProjectStorageSummary => ({
+    projectId: row.project_id,
+    name: row.name,
+    fileCount: toSafeBytes(row.file_count, 'fileCount'),
+    nodeCount: row.node_count,
+    storageBytes: toSafeBytes(row.storage_bytes, 'storageBytes'),
+    archivedAt: row.archived_at ? toIso(row.archived_at) : null,
+    updatedAt: toIso(row.updated_at),
+  }))
 }
 
 export async function readWorkspaceStorageUsage(
@@ -68,6 +130,12 @@ export async function readWorkspaceStorageUsage(
         ), 0) AS used_bytes,
         COALESCE(SUM(a.byte_size) FILTER (
           WHERE a.status = 'pending'
+        ), 0) + COALESCE((
+          SELECT SUM(miau.expected_byte_size)
+          FROM migration_import_asset_uploads miau
+          WHERE miau.workspace_id = w.id
+            AND miau.status IN ('pending', 'uploading', 'validating', 'completed')
+            AND miau.committed_asset_id IS NULL
         ), 0) AS reserved_bytes
       FROM workspaces w
       LEFT JOIN assets a
@@ -153,7 +221,14 @@ export function createPostgresWorkspaceUsageService(
         userId: actor.userId,
         workspaceId: actor.workspaceId,
       })
-      return readWorkspaceStorageUsage(pool, actor.workspaceId)
+      const [usage, projects] = await Promise.all([
+        readWorkspaceStorageUsage(pool, actor.workspaceId),
+        readWorkspaceProjectStorageUsage(pool, actor.workspaceId),
+      ])
+      return {
+        ...usage,
+        projects,
+      }
     },
   }
 }

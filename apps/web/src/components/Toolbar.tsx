@@ -1,11 +1,10 @@
 ﻿import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
-  Activity,
-  ChevronRight,
   Eye,
   EyeOff,
   Loader2,
+  LogOut,
   Plus,
   Search,
   Trash2,
@@ -27,13 +26,13 @@ import {
 } from '@/features/settings/providerConfig'
 import { isClaudeModel } from '@/features/settings/modelBrand'
 import { ClaudeIcon } from '@/components/icons/ClaudeIcon'
+import { useAuthStore } from '@/features/auth/useAuthStore'
 import { useFeedbackStore } from '@/store/useFeedbackStore'
-import { useDiagnosticsStore } from '@/store/useDiagnosticsStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useSettingsDialogStore } from '@/store/useSettingsDialogStore'
-import { useWorkspaceSearchStore } from '@/store/useWorkspaceSearchStore'
 import { useDialogFocus } from '@/hooks/useDialogFocus'
 import { StorageSettingsPanel } from '@/components/StorageSettingsDialog'
+import { CloudProviderSettingsPanel } from '@/components/CloudProviderSettingsPanel'
 import { AccountSettingsPanel } from '@/features/auth/AccountMenu'
 import { DeviceSettingsPanel } from '@/features/auth/DeviceSettingsPanel'
 import { TaskQueueButton } from '@/components/TaskQueueButton'
@@ -105,9 +104,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
   })))
   const notify = useFeedbackStore((state) => state.notify)
   const confirm = useFeedbackStore((state) => state.confirm)
-  const openDiagnostics = useDiagnosticsStore((state) => state.open)
-  const diagnosticCount = useDiagnosticsStore((state) => state.diagnostics.length)
-  const openWorkspaceSearch = useWorkspaceSearchStore((state) => state.open)
+  const logout = useAuthStore((state) => state.logout)
   const showSettings = useSettingsDialogStore((state) => state.isOpen)
   const activeCategory = useSettingsDialogStore((state) => state.activeCategory)
   const closeSettings = useSettingsDialogStore((state) => state.close)
@@ -579,6 +576,21 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                   })}
                 </div>
               </div>
+
+              <div className="shrink-0 border-t border-[var(--border-subtle)] p-2">
+                <button
+                  type="button"
+                  data-testid="settings-logout-button"
+                  onClick={() => {
+                    closeSettingsPanel()
+                    void logout()
+                  }}
+                  className="group flex h-10 w-full items-center gap-2.5 rounded-[10px] px-3 text-left text-[13px] font-medium text-[var(--text-muted)] transition-colors hover:bg-red-500/8 hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-red-400/50 dark:hover:text-red-300"
+                >
+                  <LogOut className="h-3.5 w-3.5 shrink-0 transition-colors group-hover:text-red-500 dark:group-hover:text-red-300" />
+                  <span>退出登录</span>
+                </button>
+              </div>
             </aside>
 
             <main className="min-h-0 bg-[var(--panel-bg-strong)]">
@@ -994,6 +1006,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                   <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--border-subtle)] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5">
                     {activeCategory === 'account' ? <AccountSettingsPanel onSignedOut={closeSettingsPanel} /> : null}
                     {activeCategory === 'devices' ? <DeviceSettingsPanel /> : null}
+                    {activeCategory === 'providers' ? <CloudProviderSettingsPanel active={showSettings && activeCategory === 'providers'} /> : null}
                     {activeCategory === 'storage' ? <StorageSettingsPanel active={showSettings && activeCategory === 'storage'} /> : null}
                     {activeCategory === 'canvas' ? (
                       <section className="overflow-hidden rounded-[14px] border border-[var(--border-subtle)] bg-[var(--control-bg)]">
@@ -1174,50 +1187,6 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                         <div className={`text-sm font-medium ${themeClasses.textPrimary}`}>任务队列设置预留</div>
                         <p className={`mt-2 text-xs leading-5 ${themeClasses.textMuted}`}>当前任务队列会自动恢复排队和远程轮询任务。后续可在这里加入并发、失败重试和完成任务清理策略。</p>
                       </div>
-                    ) : null}
-                    {activeCategory === 'tools' ? (
-                      <section className="overflow-hidden rounded-[14px] border border-[var(--border-subtle)] bg-[var(--control-bg)]">
-                        <button
-                          type="button"
-                          data-testid="open-workspace-search"
-                          onClick={() => {
-                            closeSettingsPanel()
-                            openWorkspaceSearch()
-                          }}
-                          className="group flex min-h-16 w-full items-center gap-3 border-b border-[var(--border-subtle)] px-4 text-left transition-colors hover:bg-[var(--control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400/60"
-                        >
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] text-[var(--text-secondary)]">
-                            <Search className="h-4 w-4" />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className={`block text-sm font-medium ${themeClasses.textPrimary}`}>全局搜索</span>
-                            <span className={`mt-0.5 block text-xs ${themeClasses.textMuted}`}>查找项目、节点文本和工作区资产</span>
-                          </span>
-                          <ChevronRight className="h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
-                        </button>
-
-                        <button
-                          type="button"
-                          data-testid="open-diagnostics-button"
-                          onClick={() => {
-                            closeSettingsPanel()
-                            openDiagnostics()
-                          }}
-                          className="group flex min-h-16 w-full items-center gap-3 px-4 text-left transition-colors hover:bg-[var(--control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400/60"
-                        >
-                          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] ${diagnosticCount > 0 ? 'text-red-500 dark:text-red-200' : 'text-[var(--text-secondary)]'}`}>
-                            <Activity className="h-4 w-4" />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className={`flex items-center gap-2 text-sm font-medium ${themeClasses.textPrimary}`}>
-                              诊断记录
-                              {diagnosticCount > 0 ? <span className="rounded-full bg-red-500/12 px-1.5 py-0.5 text-[10px] font-semibold text-red-500 dark:text-red-200">{diagnosticCount}</span> : null}
-                            </span>
-                            <span className={`mt-0.5 block text-xs ${themeClasses.textMuted}`}>查看会话错误、运行信息和本地审计</span>
-                          </span>
-                          <ChevronRight className="h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
-                        </button>
-                      </section>
                     ) : null}
                   </div>
                 </section>

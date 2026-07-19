@@ -63,9 +63,14 @@
 - `npm run lint`
 - `npm run db:migrate`
 - `npm run db:migrate:test`
+- `npm run db:migrate:compat`
 - `npm run db:repair:checkpoint-assets`
 - `npm run db:maintain:assets`
 - `npm run build`
+- `npm run deploy:staging:check`
+- `npm run deploy:staging:gate`
+- `npm run deploy:staging:backup`
+- `npm run deploy:staging:restore:drill`
 
 代码落地后，常规改动至少验证：
 

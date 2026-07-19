@@ -12,6 +12,20 @@
 - 创建、图批次、上传完成、任务和用量相关写操作支持幂等键。
 - 时间使用 ISO 8601 UTC；ID 对客户端是不透明字符串。
 
+P7-1/P7-3/P7-4 起，浏览器来源使用 `WEB_ALLOWED_ORIGINS` 精确匹配。允许来源的 CORS 响应回显该精确 origin、允许 credentials，并仅在 `OPTIONS` 预检中开放固定的 `GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS` 与 `content-type/x-request-id`；不使用 `*`。任何携带不受信 `Origin` 的请求在认证和业务路由前返回 `403 ACCESS_DENIED`，不回显来源或读取其 Cookie。staging/production 的 Cookie 写请求以及登录、注册、密码/邮箱认证写入口缺失允许 Origin 时同样返回 `403 ACCESS_DENIED`，所有非安全方法拒绝 `Sec-Fetch-Site: cross-site`。无 Cookie 的健康检查和受控服务端客户端保留可用性。
+
+API 响应统一发送 `X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、Referrer/Permissions/COOP/CORP 及 `default-src 'none'` 的 API CSP；staging/production 发送 HSTS。该 CSP 只约束 API 响应，不代表 Web HTML 的页面 CSP 已配置。
+
+API 对认证尝试、密码/邮件、Provider 测试、任务创建、资产/迁移 prepare 和普通读写使用 Redis 共享限流。超限固定返回 `429 RATE_LIMITED`、`retryable=true`，并发送整数秒 `Retry-After`；`details` 最多包含相同的非敏感等待秒数，不包含 Cookie、邮箱、账号、workspace、IP 或 Redis key。Redis 不可用时普通读 fail-open，高风险认证、费用写和普通写 fail-closed，返回可重试 `503 SERVICE_UNAVAILABLE` 且不得读取 body 或调用领域服务。
+
+Web 页面由 staging Nginx 发送页面级 CSP、HSTS、frame-ancestors、Referrer-Policy、Permissions-Policy、nosniff 和静态资源缓存头。CSP 的 `script-src` 仅允许 `'self'`，图片/视频/连接只允许 `'self'`、浏览器 blob/data 和配置的 `S3_PUBLIC_ORIGIN`，不允许 `unsafe-eval` 或任意公网媒体源。
+
+对象存储管理地址 `S3_ENDPOINT` 不返回浏览器；签名 URL 使用独立 `S3_PUBLIC_ENDPOINT`，并由 protected 配置验证其 HTTPS origin 与 `S3_PUBLIC_ORIGIN` 一致。staging bucket CORS 只允许 `WEB_ALLOWED_ORIGINS` 的 GET/PUT/HEAD、Content-Type/必要 `x-amz-*` headers 并暴露 ETag，匿名 list/read/write 保持关闭。资产单文件上限 50 MiB；迁移 manifest 和 JSON 深度/entries、8 MiB API body、8 MiB multipart part、最多 256 parts、短期签名 TTL、MIME/大小/SHA-256 完成复核共同组成上传边界。对象缺失、MIME/大小/hash 不匹配不得进入 completed asset 或正式引用。
+
+P7-5 起，所有 JSON API 请求在路由业务逻辑前拒绝非法 UTF-8、重复对象键、非法 Unicode 代理项、非有限数值、超过 64 层或 100000 entries 的结构；各路由仍执行自身更小的字节上限和字段 schema。迁移包额外拒绝路径穿越、大小写重复路径、symlink、ZIP bomb、data/blob/持久 URL、敏感字段和非 canonical JSON。错误响应不回显 Cookie、Authorization、token、API Key、对象 key、签名 URL、附件正文、底层存储错误或完整 Provider 响应。
+
+P7-6 的资源访问只使用可信 session actor 推导的 user/workspace，客户端提交的 `userId`、`workspaceId`、项目/资产/任务归属字段不参与授权。不存在资源和其他 workspace 资源使用相同 `404 RESOURCE_NOT_FOUND` 语义；签名 URL 只在当前 workspace 的服务端授权成功后生成。会话和设备撤销同样按当前用户作用域查询，owner/admin/editor/viewer 的写权限由服务端 workspace membership 决定。
+
 成功响应可以直接返回资源或统一 data envelope，P0 固定后不得混用。错误响应固定为：
 
 ```json
@@ -29,6 +43,25 @@
 ```
 
 `details` 只包含恢复所需的非敏感信息。生产错误不得返回堆栈、SQL、Cookie、API Key 或 Provider Authorization。
+
+## 可观测性
+
+```text
+GET /metrics
+```
+
+`/metrics` 返回 Prometheus text exposition 格式的 API 指标，不要求浏览器会话，仅用于受控内网抓取。它包含请求计数/延迟、错误、认证失败、限流、项目版本冲突、配额、迁移阶段、PostgreSQL/Redis/对象存储依赖、PostgreSQL pool total/idle/waiting，以及 queued backlog、running task、过期租约和可重试失败 gauge。Worker 的内网 `GET /metrics` 还包含 outbox/Consumer/lease recovery、任务重试、Provider 请求耗时和结果转存失败。指标 registry 只允许固定低基数枚举标签，拒绝 workspace/user/project/task/request ID、URL、邮箱、请求正文、长值和凭据；健康检查错误只返回 Error 类型。
+
+## 健康检查
+
+```text
+GET /health/live
+GET /health/ready
+GET /api/v1/health/live
+GET /api/v1/health/ready
+```
+
+`live` 只表示 API 进程仍可响应，不触发数据库、Redis 或对象存储访问。`ready` 并行检查 PostgreSQL、Redis 和配置 Bucket：对象存储使用服务端 S3 凭据执行 `HeadBucket`，不调用 MinIO 专用路径。全部依赖可用时返回 `200` 与 `status=ok`；任一依赖停止时返回 `503`、`status=degraded` 和不含 URL/凭据的错误类别。健康检查不执行数据库迁移，迁移必须由独立发布步骤运行。
 
 ## 认证
 
@@ -114,11 +147,22 @@ GET /api/v1/workspaces/current/usage
     "totalBytes": 1126170624,
     "quotaBytes": 21474836480,
     "availableBytes": 20348665856
-  }
+  },
+  "projects": [
+    {
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "name": "产品主视觉",
+      "fileCount": 12,
+      "nodeCount": 24,
+      "storageBytes": 268435456,
+      "archivedAt": null,
+      "updatedAt": "2026-07-17T12:00:00.000Z"
+    }
+  ]
 }
 ```
 
-`usedBytes` 包含 completed、failed 和 quarantined 资产，`reservedBytes` 包含 pending 上传，`totalBytes` 为两者之和；软删除资产退出逻辑用量。响应不包含对象 key、资产 ID、用户 ID 或其他工作区统计。
+`usedBytes` 包含 completed、failed 和 quarantined 资产，`reservedBytes` 包含 pending 上传，`totalBytes` 为两者之和；软删除资产退出逻辑用量。`projects` 返回当前工作区所有未软删除项目，按项目来源聚合同一配额口径下的文件数和字节数，并直接读取关系化的 `projects.node_count`；列表按占用字节降序排列，归档项目保留 `archivedAt`，已删除项目不返回。响应不包含对象 key、资产 ID、用户 ID 或其他工作区统计。
 
 ## 项目元数据
 
@@ -521,16 +565,18 @@ GET  /api/v1/tasks
 GET  /api/v1/tasks/:taskId
 POST /api/v1/tasks/:taskId/cancel
 POST /api/v1/tasks/:taskId/retry
-GET  /api/v1/tasks/events # 尚未实现
+GET  /api/v1/tasks/events
 ```
 
-P5-3 已实现除 events 外的任务 HTTP 路由。所有作用域来自可信 session；读取允许当前工作区成员，创建、取消和重试要求 owner/admin/editor。创建返回 `201`，其余成功返回 `200`。跨工作区任务、项目或节点统一按不存在处理，响应不包含 workspace/user、请求参数、Worker 租约、远端任务 ID 或 Provider 凭据。
+P5-3 已实现任务 HTTP 路由，P5-11 增加事件轮询路径。所有作用域来自可信 session；读取允许当前工作区成员，创建、取消和重试要求 owner/admin/editor。创建返回 `201`，其余成功返回 `200`。跨工作区任务、项目或节点统一按不存在处理，响应不包含 workspace/user、请求参数、Worker 租约、远端任务 ID 或 Provider 凭据。
 
-创建请求携带项目、source node、可选 preview node、image/video kind、Provider/model、参数对象和幂等键。当前只接受 `billingMode="workspace_key"`，且对应 Provider 必须已配置并为 active；服务端只锁定并确认配置，不在 API 路径解密密钥。`parameters` 最大 256 KiB、嵌套深度最大 12，不接受非 JSON 值，也拒绝任何层级的 apiKey、Authorization、base/api/target URL 或 endpoint 字段。客户端不能指定任意 Provider URL。创建幂等键在同一 workspace 唯一；同键同输入返回原任务，不同输入返回 `409 VALIDATION_FAILED`。同一 workspace 最多 5 个 queued/running 任务，超限返回 `409 TASK_CONCURRENCY_LIMIT` 和 `details.activeLimit=5`。
+创建请求携带项目、source node、可选 preview node、image/video kind、Provider/model、参数对象和幂等键。当前只接受 `billingMode="workspace_key"`，且对应 Provider 必须已配置并为 active；服务端只锁定并确认配置，不在 API 路径解密密钥。`parameters` 最大 256 KiB、嵌套深度最大 12，不接受非 JSON 值，也拒绝任何层级的 apiKey、Authorization、base/api/target URL 或 endpoint 字段。客户端不能指定任意 Provider URL。创建幂等键在同一 workspace 唯一；同键同输入返回原任务，不同输入返回 `409 VALIDATION_FAILED`。同一 workspace 最多 5 个 queued/running 任务，超限返回 `409 TASK_CONCURRENCY_LIMIT` 和 `details.activeLimit=5`。P5-7 的 submission key、提交阶段、远端任务 ID 和 `PROVIDER_SUBMISSION_UNCERTAIN` 只属于 Worker/attempt 内部状态，不由本 API 接收或响应；不确定的非幂等提交不得被 API 重试入口伪装成普通重试。P5-8 的结果 URL、对象 key、SHA-256、用量账本和 worker 图变更同样没有浏览器 HTTP 写入接口：只由持有有效 lease 的 Worker 领域服务在私有转存成功后收敛，任务查询仍不返回这些内部字段。P5-9 已使能力矩阵中的 OpenAI `gpt-image-2` 同步图片、阿里百炼 `wanx2.1-t2i-turbo` 异步图片与 `wan2.7-t2v` 异步视频 task 由 Worker 消费；视频参数只接受服务端固定的分辨率、比例和时长，其他 Provider/model/kind 组合在创建时返回 `409 PROVIDER_CAPABILITY_UNSUPPORTED`。未新增任务 HTTP 字段或响应字段，浏览器仍不能提交 Provider endpoint、密钥、远端任务 ID、结果字节或用量。
+
+P5-10 Cloud Web 已使用上述 task API：创建请求的幂等键由当前项目和本地 UI task ID 派生，浏览器分页读取当前项目任务并把返回 `GenerationTaskSummary` 的 server task ID、0-100 `progress`、状态和脱敏错误映射为投影；非当前项目只使用同一固定列表路由附带 `status=queued` 或 `status=running` 做轮转式活跃任务缓存。取消/重试命令从浏览器生成新的命令幂等键；浏览器不把 `remoteTaskId`、attempt、结果 URL 或对象 key 写入请求。任务终态的媒体恢复不扩展 task response，而是重新读取项目图并按其中的 asset ID 请求既有 `GET /assets/:assetId/url`。
 
 列表支持 `projectId`、`status`、`cursor` 和 `limit`；status 只允许 queued/running/succeeded/failed/canceled，limit 默认为 50、最大 100，按 `(created_at, id)` 倒序 keyset 分页。取消/重试请求均为 `{ "idempotencyKey": "..." }`。queued 取消立即进入 canceled；running 取消只写 `cancelRequestedAt`，由后续 Worker 收敛；只有 failed 且未达到 max attempts 的任务可重排为 queued。命令幂等键在同一 workspace 全局唯一，同键重放返回当前任务状态，同键用于其他任务或命令返回冲突。取消和重试不会修改项目图 version/sequence 或 `project_changes`。
 
-任务事件首发可以使用 SSE 或轮询。无论传输方式，数据库任务状态是事实来源；事件丢失后客户端必须能通过查询恢复。
+`GET /api/v1/tasks/events` 是 P5-11 首发的轮询接口，接受 `projectId`、可选 `taskId`、数字 `after` 游标和 `limit`（默认 100，最大 200）。响应按工作区内单调 `sequence` 升序返回 `{ id, taskId, projectId, type, status, progress, errorCode, errorMessage, createdAt }`，并返回 `nextCursor` 与 `hasMore`；事件 UUID 是终态通知的幂等键。事件只包含脱敏状态投影，不包含 request JSON、workspace/user、lease、attempt、远端任务 ID、结果 URL、对象 key 或 Provider 凭据。读取仍由可信 session 的 workspace 成员关系授权，跨工作区任务统一返回空事件列表。客户端必须保存 `nextCursor`，断线或页面重载后从该游标继续轮询；任务列表/详情始终是状态事实来源。SSE、心跳和断线恢复在后续阶段实现，不在 P5-11 首发范围内。
 
 ## Provider 设置
 
@@ -554,7 +600,21 @@ PUT 请求只接受 API Key 和可选 base URL：
 
 当前注册表只允许 OpenAI `https://api.openai.com` 和阿里百炼 `https://dashscope.aliyuncs.com/compatible-mode/v1`，不接受任意 URL、HTTP、非标准端口、URL 用户名/密码、query、fragment、相似子域或内网地址。成功响应只返回脱敏 `ProviderSettingSummary`。DELETE 幂等删除当前工作区凭据，不影响其他工作区；删除后新任务不能使用该 Provider。
 
-`POST /settings/providers/:providerId/test` 尚未实现，后续必须通过服务端白名单适配器发起并使用 `redirect: error`，不得接受客户端 target URL，也不得把 Authorization、正文或完整 Provider 响应写入日志。
+`POST /settings/providers/:providerId/test` 已实现。请求体必须为 `{}`，当前工作区 owner/admin 才可调用；`providerId` 仅来自固定注册表，query 和请求体中的任意 target URL 都不参与网络请求，非空字段请求返回 `400 VALIDATION_FAILED`。路由不读取密文或明文 API Key，领域服务在内部短期解密后以固定 HTTPS endpoint 发起测试，使用 `redirect: 'error'`、10 秒超时和 64 KiB 响应上限。
+
+P5-10 Web 设置客户端仅调用上述固定列表、写入、测试和删除路径。它以 JSON 提交一次性 `apiKey`，不接受或发送 workspace/user、任务字段、Provider target URL、结果 URL、对象 key 或远端任务 ID；成功、删除和关闭设置界面后清空该临时输入，列表仍只使用脱敏 `ProviderSettingSummary`。
+
+成功返回 `200`，不暴露 Provider 正文、远端 URL、凭据或 workspace：
+
+```json
+{
+  "providerId": "openai",
+  "ok": true,
+  "checkedAt": "2026-07-18T10:00:00.000Z"
+}
+```
+
+认证或非临时客户端拒绝返回 `409 PROVIDER_CONFIG_INVALID`；网络、超时、重定向、响应过大、限流及上游失败返回 `503 PROVIDER_UNAVAILABLE`，其中 `details.category` 仅为脱敏分类。日志只记录 Provider ID、分类、可重试性、成功状态码和耗时，绝不记录 Authorization、请求/响应正文或完整 Provider 响应。
 
 ## 搜索与审计
 
@@ -568,18 +628,50 @@ GET /api/v1/audit
 ## 导入与导出
 
 ```text
-POST /api/v1/imports/workspace/prepare
-POST /api/v1/imports/workspace/:candidateId/assets
-POST /api/v1/imports/workspace/:candidateId/commit
-POST /api/v1/exports/workspace
-GET  /api/v1/exports/:exportId
-
-POST /api/v1/imports/project/prepare
-POST /api/v1/imports/project/:candidateId/commit
-POST /api/v1/exports/projects/:projectId
+POST /api/v1/migrations/imports/prepare
+GET  /api/v1/migrations/imports/:importId
+POST /api/v1/migrations/imports/:importId/cancel
 ```
 
-prepare 只读取、迁移和验证，不修改活动项目。commit 重新校验候选过期、ID 冲突、资产完整性和配额后写入。导出作为后台任务生成兼容目录包或后续外层归档，Provider 密钥必须清空。
+P6-2 已实现以上三条单项目导入预检接口。prepare 请求包含 `idempotencyKey` 以及 P6-1 的 manifest、ProjectRecord、graph、asset manifest、可空 checkpoint 和 archive entry 元数据；最大请求体 8 MiB。请求不接受 user/workspace、object key、签名 URL、Provider URL 或凭据。服务端从 HttpOnly session 解析 actor，prepare/cancel 要求 owner/admin/editor，GET 允许当前 workspace 成员。
+
+prepare 返回 `201` 与持久化 import 摘要：import ID/status/过期时间、来源项目 ID/name/version/sequence、冲突类型、允许策略、文件/资产/字节估算、进度及逻辑资产上传清单。上传项只包含 logical asset ID、包内路径、文件名、MIME、字节数、SHA-256、尺寸和 asset kind，不包含对象 key 或上传 URL。`conflict.type` 为 `none`、`project_exists`、`project_id_unavailable` 或 `source_id_incompatible`；只有当前 workspace 的真实目标项目会返回 ID/name 与 expected version/sequence，跨 workspace 碰撞只返回 unavailable。replace 仅对 owner/admin 的同 workspace 目标开放，editor 最多返回 copy，viewer 的只读状态响应返回空策略列表。
+
+prepare 使用 `(workspace_id, idempotencyKey)` 幂等：同键同内容返回同一 import，不同内容返回 `409 IMPORT_CONFLICT`。包/schema/摘要/引用非法返回 `422 IMPORT_INVALID`；配额不足返回 `409 QUOTA_EXCEEDED`，且都不创建 import 或正式资源。prepare 只写 `migration_imports`，不创建项目图、资产、引用、checkpoint 或配额 reservation。
+
+GET 从 PostgreSQL 恢复状态；跨 workspace 和不存在统一返回 `404 RESOURCE_NOT_FOUND`。cancel 不需要命令幂等键，无请求体或仅接受 `{}`，重复调用返回同一 canceled/expired/failed 状态；completed 返回 `409 IMPORT_CONFLICT`。
+
+P6-3 为每个逻辑资产提供独立暂存上传会话：
+
+```text
+POST /api/v1/migrations/imports/:importId/assets/:logicalAssetId/upload
+GET  /api/v1/migrations/imports/:importId/assets/:logicalAssetId/upload
+POST /api/v1/migrations/imports/:importId/assets/:logicalAssetId/parts/:partNumber/complete
+POST /api/v1/migrations/imports/:importId/assets/:logicalAssetId/complete
+POST /api/v1/migrations/imports/:importId/assets/:logicalAssetId/cancel
+```
+
+上传会话只绑定 workspace、import 和 logical asset ID。小文件返回服务端生成 staging key 对应的短期 presigned PUT；大文件使用 S3 multipart，返回缺失分片的短期 URL，客户端在每个分片成功后提交 ETag/字节数，刷新或重试可恢复未完成分片。请求体不接受 object key、provider upload ID、签名 URL 或凭据；浏览器直传沿用 `credentials: omit`、`redirect: error` 和 `cache: no-store`。
+
+最终完成会重新读取暂存对象，校验 MIME、字节数和 SHA-256；失败标记 `ASSET_VALIDATION_FAILED`、清理暂存对象并允许同一逻辑资产重新建立上传会话。cancel/过期不会创建 `assets`、`asset_references` 或项目图记录；已完成上传仍保留暂存 reservation，等待 commit 事务转为正式资产。
+
+P6-4/P6-5 `POST /api/v1/migrations/imports/:importId/commit` 请求必须包含 `idempotencyKey` 和 `strategy=copy|replace`。copy 始终生成新的 project ID，并重新生成节点/连线 ID、重写父级和连线端点；replace 保留包内图 ID，仅 owner/admin 可用，必须携带 prepare 返回的 `expectedVersion`、`expectedSequence` 和 `confirmReplace=true`。commit 会在一个数据库事务中锁定 import/workspace/目标项目，按同 workspace 的 SHA-256、字节数和 MIME 复用安全匹配的 completed 资产，否则物化 staging asset；随后重映射逻辑资产 ID、写入项目图、引用和 `source=import` 的 project change，包内 checkpoint（若有）使用同一映射写入 `snapshot_type=import`。版本不一致返回 `409 PROJECT_VERSION_CONFLICT`，同一 commit 指纹重试返回同一结果，事务失败不留下正式项目、资产、引用或 change。资产匹配和 `committedAssetId` 映射始终限定可信 session workspace，不能跨 workspace 复用；首发不提供 merge。
+
+P6-6 导出接口：
+
+```text
+POST /api/v1/projects/:projectId/exports/prepare
+GET  /api/v1/projects/:projectId/exports/:exportId
+GET  /api/v1/projects/:projectId/exports/:exportId/download
+POST /api/v1/projects/:projectId/exports/:exportId/cancel
+POST /api/v1/projects/:projectId/exports/:exportId/retry
+```
+
+prepare 请求为 `{ idempotencyKey, expectedVersion?, expectedSequence? }`，项目 ID 只来自路径，actor 只来自 HttpOnly session。服务端在项目行锁内读取同一 version/sequence 的关系化图、项目元数据、当前 saved checkpoint 和 completed 资产元数据，随后持久化 `prepared` 导出会话；提供 expected 快照时不匹配返回 `409 PROJECT_VERSION_CONFLICT`。同 workspace 同键同内容返回原导出，不同内容返回 `409 EXPORT_CONFLICT`。
+
+导出状态包含 `prepared`、`generating`、`completed`、`failed`、`canceled`、`expired` 及文件/字节/retryCount 进度。后台生成固定单项目 ZIP，payload 使用 `manifest.json`、`project.json`、`graph.json`、`assets.json` 和可选 `checkpoint.json`；逻辑资产 ID 与 `assets/<path>` 在生成时重写，归档完成后再次校验 P6-1 契约。生成失败只收敛导出行，不修改项目图、资产引用或检查点。download 仅对 completed 导出签发 5 分钟私有 URL，不返回对象 key；cancel 在生成边界使用 cancel request，重复调用保持同一终态；failed/canceled 导出可由 owner/admin/editor 调用 retry，最多 3 次，超过上限返回 `409 EXPORT_RETRY_EXHAUSTED`。跨 workspace、不存在或已删除项目不泄漏存在性。
+
+P6-8 Cloud Web 只通过以上固定接口编排迁移。导入先在浏览器读取目录包条目，再将 JSON 和 archive entry 元数据提交 prepare；服务端响应返回前不得开始资产直传，所有统计、冲突类型和允许策略以 prepare 摘要为准。replace UI 必须展示 `targetProject.expectedVersion/expectedSequence` 并取得单独确认；提交返回 `PROJECT_VERSION_CONFLICT` 时只能重新加载云端状态或使用允许的 copy 策略。multipart 直传必须使用对象存储响应中的 ETag，重新选择相同 package ID 时可以读取已有 upload 状态并续传缺失分片。导出先读取当前关系图 version/sequence 作为 expected 快照，再轮询 status；completed 后才请求 download URL。浏览器只持久化 import/export ID 用于刷新和重新登录后的 GET 恢复，不持久化目录包正文、媒体、签名 URL、object key、workspace/user 或凭据；通知中心只显示迁移摘要。
 
 ## 主要错误码
 
@@ -602,8 +694,13 @@ PROVIDER_CONFIG_INVALID
 PROVIDER_UNAVAILABLE
 IMPORT_CONFLICT
 IMPORT_INVALID
+EXPORT_CONFLICT
+EXPORT_NOT_READY
+EXPORT_EXPIRED
+EXPORT_CANCELED
+EXPORT_RETRY_EXHAUSTED
+EXPORT_GENERATION_FAILED
 SERVICE_UNAVAILABLE
 ```
 
 权限不足与不存在的响应必须避免泄漏其他租户资源是否存在。可重试字段由错误分类决定，不能把所有 5xx 或 Provider 失败都标记为可重试。
-

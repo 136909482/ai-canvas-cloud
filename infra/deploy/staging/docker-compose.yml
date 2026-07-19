@@ -1,0 +1,463 @@
+name: ai-canvas-cloud-staging
+
+services:
+  postgres:
+    image: postgres:17.6-alpine3.22
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in staging.env}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in staging.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in staging.env}
+    volumes:
+      - staging-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:8.2.1-alpine3.22
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--requirepass",
+        "${REDIS_PASSWORD:?set REDIS_PASSWORD in staging.env}",
+      ]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in staging.env}
+    volumes:
+      - staging-redis-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  object-storage:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in staging.env}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in staging.env}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${WEB_ALLOWED_ORIGINS:?set WEB_ALLOWED_ORIGINS in staging.env}
+    volumes:
+      - staging-object-storage-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  create-bucket:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      object-storage:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        mc alias set staging http://object-storage:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}";
+        mc mb --ignore-existing "staging/$${S3_BUCKET}";
+        mc anonymous set none "staging/$${S3_BUCKET}";
+        origins_json=$$(printf '%s' "$${WEB_ALLOWED_ORIGINS}" | tr -d '[:space:]' | sed 's/,/","/g');
+        printf '{"CORSRules":[{"AllowedOrigins":["%s"],"AllowedMethods":["GET","PUT","HEAD"],"AllowedHeaders":["Content-Type","x-amz-*","x-amz-content-sha256","x-amz-date"],"ExposeHeaders":["ETag"],"MaxAgeSeconds":600}]}' "$$origins_json" >/tmp/staging-cors.json;
+        mc cors set "staging/$${S3_BUCKET}" /tmp/staging-cors.json;
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in staging.env}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in staging.env}
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in staging.env}
+      WEB_ALLOWED_ORIGINS: ${WEB_ALLOWED_ORIGINS:?set WEB_ALLOWED_ORIGINS in staging.env}
+    restart: "no"
+
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: api
+    env_file: ./staging.env
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 8787
+      API_TRUST_PROXY: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      object-storage:
+        condition: service_healthy
+    expose: ["8787"]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:8787/health/live'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: worker
+    environment:
+      NODE_ENV: ${NODE_ENV:?set NODE_ENV in staging.env}
+      DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:?set DEPLOYMENT_ENV in staging.env}
+      DEPLOYMENT_RESOURCE_NAMESPACE: ${DEPLOYMENT_RESOURCE_NAMESPACE:?set DEPLOYMENT_RESOURCE_NAMESPACE in staging.env}
+      DEPLOYMENT_CREDENTIAL_NAMESPACE: ${DEPLOYMENT_CREDENTIAL_NAMESPACE:?set DEPLOYMENT_CREDENTIAL_NAMESPACE in staging.env}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in staging.env}
+      REDIS_URL: ${REDIS_URL:?set REDIS_URL in staging.env}
+      S3_ENDPOINT: ${S3_ENDPOINT:?set S3_ENDPOINT in staging.env}
+      S3_REGION: ${S3_REGION:?set S3_REGION in staging.env}
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in staging.env}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in staging.env}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in staging.env}
+      PROVIDER_CREDENTIAL_KEYS: ${PROVIDER_CREDENTIAL_KEYS:?set PROVIDER_CREDENTIAL_KEYS in staging.env}
+      PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION: ${PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION:?set PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION in staging.env}
+      WORKER_INSTANCE_ID: ${WORKER_INSTANCE_ID:?set WORKER_INSTANCE_ID in staging.env}
+      WORKER_OBSERVABILITY_HOST: 0.0.0.0
+      WORKER_OBSERVABILITY_PORT: 8790
+      WORKER_TASK_QUEUE_NAME: ${WORKER_TASK_QUEUE_NAME:?set WORKER_TASK_QUEUE_NAME in staging.env}
+      WORKER_OUTBOX_DISPATCH_INTERVAL_MS: ${WORKER_OUTBOX_DISPATCH_INTERVAL_MS:?set WORKER_OUTBOX_DISPATCH_INTERVAL_MS in staging.env}
+      WORKER_OUTBOX_BATCH_SIZE: ${WORKER_OUTBOX_BATCH_SIZE:?set WORKER_OUTBOX_BATCH_SIZE in staging.env}
+      WORKER_OUTBOX_CLAIM_TTL_MS: ${WORKER_OUTBOX_CLAIM_TTL_MS:?set WORKER_OUTBOX_CLAIM_TTL_MS in staging.env}
+      WORKER_OUTBOX_RETRY_BASE_MS: ${WORKER_OUTBOX_RETRY_BASE_MS:?set WORKER_OUTBOX_RETRY_BASE_MS in staging.env}
+      WORKER_OUTBOX_RETRY_MAX_MS: ${WORKER_OUTBOX_RETRY_MAX_MS:?set WORKER_OUTBOX_RETRY_MAX_MS in staging.env}
+      WORKER_TASK_CONCURRENCY: ${WORKER_TASK_CONCURRENCY:?set WORKER_TASK_CONCURRENCY in staging.env}
+      WORKER_TASK_LEASE_TTL_MS: ${WORKER_TASK_LEASE_TTL_MS:?set WORKER_TASK_LEASE_TTL_MS in staging.env}
+      WORKER_TASK_LEASE_HEARTBEAT_MS: ${WORKER_TASK_LEASE_HEARTBEAT_MS:?set WORKER_TASK_LEASE_HEARTBEAT_MS in staging.env}
+      WORKER_TASK_RECOVERY_INTERVAL_MS: ${WORKER_TASK_RECOVERY_INTERVAL_MS:?set WORKER_TASK_RECOVERY_INTERVAL_MS in staging.env}
+      WORKER_TASK_RECOVERY_BATCH_SIZE: ${WORKER_TASK_RECOVERY_BATCH_SIZE:?set WORKER_TASK_RECOVERY_BATCH_SIZE in staging.env}
+      WORKER_TASK_RETRY_BASE_MS: ${WORKER_TASK_RETRY_BASE_MS:?set WORKER_TASK_RETRY_BASE_MS in staging.env}
+      WORKER_TASK_RETRY_MAX_MS: ${WORKER_TASK_RETRY_MAX_MS:?set WORKER_TASK_RETRY_MAX_MS in staging.env}
+      DATABASE_RESOURCE_ID: ${DATABASE_RESOURCE_ID:?set DATABASE_RESOURCE_ID in staging.env}
+      REDIS_RESOURCE_ID: ${REDIS_RESOURCE_ID:?set REDIS_RESOURCE_ID in staging.env}
+      S3_RESOURCE_ID: ${S3_RESOURCE_ID:?set S3_RESOURCE_ID in staging.env}
+      MAIL_RESOURCE_ID: ${MAIL_RESOURCE_ID:?set MAIL_RESOURCE_ID in staging.env}
+      PROVIDER_RESOURCE_ID: ${PROVIDER_RESOURCE_ID:?set PROVIDER_RESOURCE_ID in staging.env}
+      PERSISTENCE_RESOURCE_ID: ${PERSISTENCE_RESOURCE_ID:?set PERSISTENCE_RESOURCE_ID in staging.env}
+      DATABASE_CREDENTIAL_ID: ${DATABASE_CREDENTIAL_ID:?set DATABASE_CREDENTIAL_ID in staging.env}
+      REDIS_CREDENTIAL_ID: ${REDIS_CREDENTIAL_ID:?set REDIS_CREDENTIAL_ID in staging.env}
+      S3_CREDENTIAL_ID: ${S3_CREDENTIAL_ID:?set S3_CREDENTIAL_ID in staging.env}
+      MAIL_CREDENTIAL_ID: ${MAIL_CREDENTIAL_ID:?set MAIL_CREDENTIAL_ID in staging.env}
+      PROVIDER_CREDENTIAL_ID: ${PROVIDER_CREDENTIAL_ID:?set PROVIDER_CREDENTIAL_ID in staging.env}
+      BYOK_KEYRING_ID: ${BYOK_KEYRING_ID:?set BYOK_KEYRING_ID in staging.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      object-storage:
+        condition: service_healthy
+    expose: ["8790"]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:8790/health/ready'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  web:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: web
+    environment:
+      S3_PUBLIC_ORIGIN: ${S3_PUBLIC_ORIGIN:?set S3_PUBLIC_ORIGIN in staging.env}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${STAGING_WEB_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  migrate:
+    profiles: ["release"]
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: migrate
+    env_file: ./staging.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      [
+        "sh",
+        "-ec",
+        "node scripts/check-deployment-config.mjs && node scripts/apply-migrations.mjs",
+      ]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      [
+        "--config.file=/etc/prometheus/prometheus.yml",
+        "--storage.tsdb.path=/prometheus",
+        "--storage.tsdb.retention.time=15d",
+      ]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - staging-prometheus-data:/prometheus
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    expose: ["9090"]
+    restart: unless-stopped
+
+  pushgateway:
+    image: prom/pushgateway:v1.11.1
+    expose: ["9091"]
+    restart: unless-stopped
+
+  backup-storage:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${BACKUP_S3_ACCESS_KEY_ID:?set BACKUP_S3_ACCESS_KEY_ID in staging.env}
+      MINIO_ROOT_PASSWORD: ${BACKUP_S3_SECRET_ACCESS_KEY:?set BACKUP_S3_SECRET_ACCESS_KEY in staging.env}
+    volumes:
+      - staging-backup-object-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  create-backup-bucket:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      backup-storage:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        mc alias set backup http://backup-storage:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}";
+        mc mb --ignore-existing "backup/$${BACKUP_S3_BUCKET}";
+        mc anonymous set none "backup/$${BACKUP_S3_BUCKET}";
+    environment:
+      MINIO_ROOT_USER: ${BACKUP_S3_ACCESS_KEY_ID:?set BACKUP_S3_ACCESS_KEY_ID in staging.env}
+      MINIO_ROOT_PASSWORD: ${BACKUP_S3_SECRET_ACCESS_KEY:?set BACKUP_S3_SECRET_ACCESS_KEY in staging.env}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:?set BACKUP_S3_BUCKET in staging.env}
+    restart: "no"
+
+  configure-object-lifecycle:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: operations
+    command: ["node", "scripts/configure-object-lifecycle.mjs"]
+    environment:
+      S3_ENDPOINT: ${S3_ENDPOINT:?set S3_ENDPOINT in staging.env}
+      S3_REGION: ${S3_REGION:?set S3_REGION in staging.env}
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in staging.env}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in staging.env}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in staging.env}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:?set BACKUP_S3_ENDPOINT in staging.env}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:?set BACKUP_S3_BUCKET in staging.env}
+      BACKUP_S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:?set BACKUP_S3_ACCESS_KEY_ID in staging.env}
+      BACKUP_S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:?set BACKUP_S3_SECRET_ACCESS_KEY in staging.env}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:?set BACKUP_RETENTION_DAYS in staging.env}
+      OBJECT_NONCURRENT_RETENTION_DAYS: ${OBJECT_NONCURRENT_RETENTION_DAYS:?set OBJECT_NONCURRENT_RETENTION_DAYS in staging.env}
+    depends_on:
+      create-bucket:
+        condition: service_completed_successfully
+      create-backup-bucket:
+        condition: service_completed_successfully
+    restart: "no"
+
+  backup-scheduler:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: operations
+    command: ["node", "scripts/run-staging-backup-scheduler.mjs"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in staging.env}
+      S3_ENDPOINT: ${S3_ENDPOINT:?set S3_ENDPOINT in staging.env}
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in staging.env}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in staging.env}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in staging.env}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:?set BACKUP_S3_ENDPOINT in staging.env}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:?set BACKUP_S3_BUCKET in staging.env}
+      BACKUP_S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:?set BACKUP_S3_ACCESS_KEY_ID in staging.env}
+      BACKUP_S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:?set BACKUP_S3_SECRET_ACCESS_KEY in staging.env}
+      BACKUP_DIRECTORY: /backups
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:?set BACKUP_INTERVAL_HOURS in staging.env}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:?set BACKUP_RETENTION_DAYS in staging.env}
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:?set BACKUP_ENCRYPTION_KEY in staging.env}
+      PUSHGATEWAY_URL: ${PUSHGATEWAY_URL:?set PUSHGATEWAY_URL in staging.env}
+    volumes:
+      - staging-database-backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+      configure-object-lifecycle:
+        condition: service_completed_successfully
+      pushgateway:
+        condition: service_started
+    restart: unless-stopped
+
+  restore-postgres:
+    profiles: ["restore"]
+    image: postgres:17.6-alpine3.22
+    environment:
+      POSTGRES_DB: ${RESTORE_POSTGRES_DB:?set RESTORE_POSTGRES_DB in staging.env}
+      POSTGRES_USER: ${RESTORE_POSTGRES_USER:?set RESTORE_POSTGRES_USER in staging.env}
+      POSTGRES_PASSWORD: ${RESTORE_POSTGRES_PASSWORD:?set RESTORE_POSTGRES_PASSWORD in staging.env}
+    volumes:
+      - staging-restore-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  restore-redis:
+    profiles: ["restore"]
+    image: redis:8.2.1-alpine3.22
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${RESTORE_REDIS_PASSWORD:?set RESTORE_REDIS_PASSWORD in staging.env}"]
+    volumes:
+      - staging-restore-redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", 'REDISCLI_AUTH="${RESTORE_REDIS_PASSWORD}" redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  restore-object-storage:
+    profiles: ["restore"]
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${RESTORE_S3_ACCESS_KEY_ID:?set RESTORE_S3_ACCESS_KEY_ID in staging.env}
+      MINIO_ROOT_PASSWORD: ${RESTORE_S3_SECRET_ACCESS_KEY:?set RESTORE_S3_SECRET_ACCESS_KEY in staging.env}
+    volumes:
+      - staging-restore-object-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  create-restore-bucket:
+    profiles: ["restore"]
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      restore-object-storage:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        mc alias set restore http://restore-object-storage:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}";
+        mc mb --ignore-existing "restore/$${RESTORE_S3_BUCKET}";
+        mc anonymous set none "restore/$${RESTORE_S3_BUCKET}";
+        mc version enable "restore/$${RESTORE_S3_BUCKET}";
+    environment:
+      MINIO_ROOT_USER: ${RESTORE_S3_ACCESS_KEY_ID:?set RESTORE_S3_ACCESS_KEY_ID in staging.env}
+      MINIO_ROOT_PASSWORD: ${RESTORE_S3_SECRET_ACCESS_KEY:?set RESTORE_S3_SECRET_ACCESS_KEY in staging.env}
+      RESTORE_S3_BUCKET: ${RESTORE_S3_BUCKET:?set RESTORE_S3_BUCKET in staging.env}
+    restart: "no"
+
+  restore-drill:
+    profiles: ["restore"]
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: operations
+    command: ["node", "scripts/restore-staging-backup.mjs"]
+    environment:
+      BACKUP_DIRECTORY: /backups
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:?set BACKUP_ENCRYPTION_KEY in staging.env}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:?set BACKUP_S3_ENDPOINT in staging.env}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:?set BACKUP_S3_BUCKET in staging.env}
+      BACKUP_S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:?set BACKUP_S3_ACCESS_KEY_ID in staging.env}
+      BACKUP_S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:?set BACKUP_S3_SECRET_ACCESS_KEY in staging.env}
+      RESTORE_BACKUP_ID: ${RESTORE_BACKUP_ID:?set RESTORE_BACKUP_ID in staging.env}
+      RESTORE_POSTGRES_DB: ${RESTORE_POSTGRES_DB:?set RESTORE_POSTGRES_DB in staging.env}
+      RESTORE_DATABASE_URL: ${RESTORE_DATABASE_URL:?set RESTORE_DATABASE_URL in staging.env}
+      RESTORE_S3_ENDPOINT: ${RESTORE_S3_ENDPOINT:?set RESTORE_S3_ENDPOINT in staging.env}
+      RESTORE_S3_BUCKET: ${RESTORE_S3_BUCKET:?set RESTORE_S3_BUCKET in staging.env}
+      RESTORE_S3_ACCESS_KEY_ID: ${RESTORE_S3_ACCESS_KEY_ID:?set RESTORE_S3_ACCESS_KEY_ID in staging.env}
+      RESTORE_S3_SECRET_ACCESS_KEY: ${RESTORE_S3_SECRET_ACCESS_KEY:?set RESTORE_S3_SECRET_ACCESS_KEY in staging.env}
+      S3_REGION: ${S3_REGION:?set S3_REGION in staging.env}
+      DATABASE_RESOURCE_ID: ${DATABASE_RESOURCE_ID:?set DATABASE_RESOURCE_ID in staging.env}
+      REDIS_RESOURCE_ID: ${REDIS_RESOURCE_ID:?set REDIS_RESOURCE_ID in staging.env}
+      S3_RESOURCE_ID: ${S3_RESOURCE_ID:?set S3_RESOURCE_ID in staging.env}
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in staging.env}
+      WORKER_TASK_QUEUE_NAME: ${WORKER_TASK_QUEUE_NAME:?set WORKER_TASK_QUEUE_NAME in staging.env}
+      RESTORE_DATABASE_RESOURCE_ID: ${RESTORE_DATABASE_RESOURCE_ID:?set RESTORE_DATABASE_RESOURCE_ID in staging.env}
+      RESTORE_REDIS_RESOURCE_ID: ${RESTORE_REDIS_RESOURCE_ID:?set RESTORE_REDIS_RESOURCE_ID in staging.env}
+      RESTORE_S3_RESOURCE_ID: ${RESTORE_S3_RESOURCE_ID:?set RESTORE_S3_RESOURCE_ID in staging.env}
+      RESTORE_TASK_QUEUE_NAME: ${RESTORE_TASK_QUEUE_NAME:?set RESTORE_TASK_QUEUE_NAME in staging.env}
+      RESTORE_AUDIT_MIN_WORKSPACES: ${RESTORE_AUDIT_MIN_WORKSPACES:-2}
+      RESTORE_RESET_CONFIRMED: ${RESTORE_RESET_CONFIRMED:?set RESTORE_RESET_CONFIRMED in staging.env}
+    volumes:
+      - staging-database-backups:/backups
+    depends_on:
+      restore-postgres:
+        condition: service_healthy
+      restore-redis:
+        condition: service_healthy
+      create-restore-bucket:
+        condition: service_completed_successfully
+      backup-storage:
+        condition: service_healthy
+    restart: "no"
+
+  source-guard:
+    profiles: ["restore"]
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: operations
+    command: ["node", "scripts/verify-staging-source-unchanged.mjs"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in staging.env}
+      BACKUP_DIRECTORY: /backups
+      RESTORE_BACKUP_ID: ${RESTORE_BACKUP_ID:?set RESTORE_BACKUP_ID in staging.env}
+      SOURCE_GUARD_MODE: ${SOURCE_GUARD_MODE:-verify}
+    volumes:
+      - staging-database-backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  staging-postgres-data:
+    name: ai-canvas-cloud-staging-postgres-data
+  staging-redis-data:
+    name: ai-canvas-cloud-staging-redis-data
+  staging-object-storage-data:
+    name: ai-canvas-cloud-staging-object-storage-data
+  staging-prometheus-data:
+    name: ai-canvas-cloud-staging-prometheus-data
+  staging-backup-object-data:
+    name: ai-canvas-cloud-staging-backup-object-data
+  staging-database-backups:
+    name: ai-canvas-cloud-staging-database-backups
+  staging-restore-postgres-data:
+    name: ai-canvas-cloud-staging-restore-postgres-data
+  staging-restore-redis-data:
+    name: ai-canvas-cloud-staging-restore-redis-data
+  staging-restore-object-data:
+    name: ai-canvas-cloud-staging-restore-object-data

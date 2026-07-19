@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@ai-canvas-cloud/server": "0.1.0",
-    "@ai-canvas-cloud/shared": "0.1.0"
+    "@ai-canvas-cloud/shared": "0.1.0",
+    "bullmq": "^5.80.6",
+    "ioredis": "^5.11.1"
   }
 }

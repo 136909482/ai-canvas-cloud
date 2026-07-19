@@ -16,10 +16,18 @@ export const apiErrorCodes = [
   'ASSET_VALIDATION_FAILED',
   'QUOTA_EXCEEDED',
   'TASK_CONCURRENCY_LIMIT',
+  'PROVIDER_CAPABILITY_UNSUPPORTED',
   'PROVIDER_CONFIG_INVALID',
   'PROVIDER_UNAVAILABLE',
   'IMPORT_CONFLICT',
   'IMPORT_INVALID',
+  'EXPORT_CONFLICT',
+  'EXPORT_NOT_READY',
+  'EXPORT_EXPIRED',
+  'EXPORT_CANCELED',
+  'EXPORT_GENERATION_FAILED',
+  'EXPORT_RETRY_EXHAUSTED',
+  'PACKAGE_LIMIT_EXCEEDED',
   'SERVICE_UNAVAILABLE',
 ] as const
 
@@ -83,9 +91,20 @@ export interface WorkspaceStorageUsageSummary {
   availableBytes: number
 }
 
+export interface WorkspaceProjectStorageSummary {
+  projectId: string
+  name: string
+  fileCount: number
+  nodeCount: number
+  storageBytes: number
+  archivedAt: string | null
+  updatedAt: string
+}
+
 export interface WorkspaceUsageResponse {
   workspaceId: string
   storage: WorkspaceStorageUsageSummary
+  projects: WorkspaceProjectStorageSummary[]
 }
 
 export interface SessionSummary {
@@ -452,6 +471,26 @@ export interface GenerationTasksResponse {
   nextCursor: string | null
 }
 
+export type GenerationTaskEventType = 'created' | 'status' | 'progress' | 'terminal'
+
+export interface GenerationTaskEvent {
+  id: string
+  taskId: string
+  projectId: string
+  type: GenerationTaskEventType
+  status: GenerationTaskStatus
+  progress: number
+  errorCode: string | null
+  errorMessage: string | null
+  createdAt: string
+}
+
+export interface GenerationTaskEventsResponse {
+  events: GenerationTaskEvent[]
+  nextCursor: string | null
+  hasMore: boolean
+}
+
 export interface GenerationTaskCommandRequest {
   idempotencyKey: string
 }
@@ -480,6 +519,12 @@ export interface PutProviderCredentialRequest {
 
 export interface ProviderSettingResponse {
   provider: ProviderSettingSummary
+}
+
+export interface ProviderConnectionTestResponse {
+  providerId: CloudProviderId
+  ok: true
+  checkedAt: string
 }
 
 export interface DeleteProviderCredentialResponse {
@@ -512,3 +557,6 @@ export function createServiceUnavailableError(requestId: string, message = 'Serv
     },
   }
 }
+
+export * from './migrationPackage.ts'
+export * from './migrationExport.ts'

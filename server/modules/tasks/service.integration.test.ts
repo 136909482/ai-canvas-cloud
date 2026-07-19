@@ -82,14 +82,35 @@ test('PostgreSQL generation task service is idempotent, bounded, command-safe, a
         secret_last_four, created_by_user_id, updated_by_user_id
       ) VALUES ($1, 'openai', 'https://api.openai.com', $2::jsonb, 1, '1234', 'task-owner-a', 'task-owner-a')
     `, [WORKSPACE_A, envelope])
+    await pool.query(`
+      INSERT INTO provider_credentials (
+        workspace_id, provider_id, base_url, encrypted_secret_json, key_version,
+        secret_last_four, created_by_user_id, updated_by_user_id
+      ) VALUES ($1, 'aliyun', 'https://dashscope.aliyuncs.com/compatible-mode/v1', $2::jsonb, 1, '5678', 'task-owner-a', 'task-owner-a')
+    `, [WORKSPACE_A, envelope])
 
-    const service = createPostgresGenerationTaskService(pool)
+    let service = createPostgresGenerationTaskService(pool)
     const actorA = { userId: 'task-owner-a', workspaceId: WORKSPACE_A }
     const actorB = { userId: 'task-owner-b', workspaceId: WORKSPACE_B }
+    await assert.rejects(
+      () => service.createTask(request('unsupported-video', { kind: 'video' }), actorA),
+      (error: unknown) => error instanceof AuthServiceError && error.apiCode === 'PROVIDER_CAPABILITY_UNSUPPORTED',
+    )
+    const aliyun = await service.createTask(request('aliyun-image', {
+      providerId: 'aliyun', model: 'wanx2.1-t2i-turbo', parameters: { prompt: 'async image' },
+    }), actorA)
+    assert.equal(aliyun.task.providerId, 'aliyun')
+    await service.cancelTask(aliyun.task.id, { idempotencyKey: 'cancel-aliyun-image' }, actorA)
+    const aliyunVideo = await service.createTask(request('aliyun-video', {
+      kind: 'video', providerId: 'aliyun', model: 'wan2.7-t2v',
+      parameters: { prompt: 'async video', resolution: '720P', ratio: '16:9', duration: 5 },
+    }), actorA)
+    assert.equal(aliyunVideo.task.kind, 'video')
+    await service.cancelTask(aliyunVideo.task.id, { idempotencyKey: 'cancel-aliyun-video' }, actorA)
     const created = await service.createTask(request('same-create'), actorA)
     const replay = await service.createTask(request('same-create'), actorA)
     assert.equal(replay.task.id, created.task.id)
-    assert.equal((await pool.query(`SELECT task_count FROM projects WHERE id = $1`, [PROJECT_A])).rows[0]?.task_count, 1)
+    assert.equal((await pool.query(`SELECT task_count FROM projects WHERE id = $1`, [PROJECT_A])).rows[0]?.task_count, 3)
     await assert.rejects(
       () => service.createTask(request('same-create', { model: 'different-model' }), actorA),
       (error: unknown) => error instanceof AuthServiceError && error.statusCode === 409,
@@ -103,21 +124,46 @@ test('PostgreSQL generation task service is idempotent, bounded, command-safe, a
       (error: unknown) => error instanceof AuthServiceError && error.apiCode === 'RESOURCE_NOT_FOUND',
     )
 
-    const canceled = await service.cancelTask(created.task.id, { idempotencyKey: 'cancel-one' }, actorA)
+    // Recreate the stateless domain service to model an API process restart. PostgreSQL remains
+    // the only recovery source, and the new process must retain authorization and commands.
+    service = createPostgresGenerationTaskService(pool)
+    const actorAAfterRelogin = { ...actorA }
+    const restored = await service.listTasks({ projectId: PROJECT_A, status: 'queued' }, actorAAfterRelogin)
+    assert(restored.tasks.some((task) => task.id === created.task.id))
+    assert.equal((await service.getTask(created.task.id, actorAAfterRelogin)).task.status, 'queued')
+
+    const canceled = await service.cancelTask(created.task.id, { idempotencyKey: 'cancel-one' }, actorAAfterRelogin)
     assert.equal(canceled.task.status, 'canceled')
     assert.equal((await service.cancelTask(created.task.id, { idempotencyKey: 'cancel-one' }, actorA)).task.status, 'canceled')
     assert.equal((await pool.query(`SELECT count(*)::integer AS count FROM task_commands WHERE idempotency_key = 'cancel-one'`)).rows[0]?.count, 1)
+    assert(service.listEvents)
+    const firstEvents = await service.listEvents({ projectId: PROJECT_A, limit: 2 }, actorAAfterRelogin)
+    assert.equal(firstEvents.events.length, 2)
+    assert.equal(firstEvents.hasMore, true)
+    assert(firstEvents.nextCursor)
+    assert(firstEvents.events.every((event) => !('workspaceId' in event) && !('remoteTaskId' in event)))
+    const resumedEvents = await service.listEvents({
+      projectId: PROJECT_A,
+      after: firstEvents.nextCursor,
+      limit: 100,
+    }, actorAAfterRelogin)
+    assert(resumedEvents.events.some((event) => event.taskId === created.task.id && event.type === 'terminal'))
+    assert.deepEqual(await service.listEvents({ projectId: PROJECT_A }, actorB), {
+      events: [], nextCursor: null, hasMore: false,
+    })
 
     const failed = await service.createTask(request('retry-create'), actorA)
     await pool.query(`
       UPDATE generation_tasks SET status = 'failed', attempt_count = 1,
-        error_code = 'UPSTREAM', error_message = 'redacted', finished_at = now(), updated_at = now()
+        error_code = 'UPSTREAM', error_message = 'apiKey=must-not-leak', finished_at = now(), updated_at = now()
       WHERE id = $1
     `, [failed.task.id])
     const retried = await service.retryTask(failed.task.id, { idempotencyKey: 'retry-one' }, actorA)
     assert.equal(retried.task.status, 'queued')
     assert.equal(retried.task.errorCode, null)
     assert.equal((await service.retryTask(failed.task.id, { idempotencyKey: 'retry-one' }, actorA)).task.id, failed.task.id)
+    const failedEvents = await service.listEvents({ taskId: failed.task.id, limit: 100 }, actorA)
+    assert(failedEvents.events.some((event) => event.errorMessage === 'apiKey=[redacted]'))
     await service.cancelTask(failed.task.id, { idempotencyKey: 'cancel-retry' }, actorA)
 
     const running = await service.createTask(request('running-create'), actorA)

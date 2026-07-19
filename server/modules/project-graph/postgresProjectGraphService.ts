@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type {
   ApplyProjectGraphOperationsResponse,
   ProjectGraphChange,
@@ -21,6 +22,7 @@ import {
 } from './assetReferences.js'
 import {
   replaceNodeAssetReferences,
+  replaceProjectNodeAssetReferences,
   requireCompletedAssetReferences,
 } from './postgresAssetReferences.js'
 import {
@@ -98,7 +100,7 @@ function projectNotFound(): never {
   })
 }
 
-function validateNodeTopology(rows: ActiveNodeRow[], operations: ProjectGraphOperation[]) {
+export function validateNodeTopology(rows: ActiveNodeRow[], operations: ProjectGraphOperation[]) {
   const parents = new Map(rows.map((row) => [row.node_id, row.parent_node_id]))
 
   for (const operation of operations) {
@@ -146,7 +148,7 @@ function validateNodeTopology(rows: ActiveNodeRow[], operations: ProjectGraphOpe
   return parents
 }
 
-function validateEdgeEndpoints(activeNodes: ReadonlyMap<string, string | null>, operations: ProjectGraphOperation[]) {
+export function validateEdgeEndpoints(activeNodes: ReadonlyMap<string, string | null>, operations: ProjectGraphOperation[]) {
   for (const operation of operations) {
     if (operation.type !== 'upsertEdge') {
       continue
@@ -162,7 +164,7 @@ function validateEdgeEndpoints(activeNodes: ReadonlyMap<string, string | null>, 
   }
 }
 
-async function applyNodeOperation(client: DbClient, projectId: string, operation: ProjectGraphOperation) {
+export async function applyNodeOperation(client: DbClient, projectId: string, operation: ProjectGraphOperation) {
   if (operation.type === 'upsertNode') {
     const node = operation.node
     await client.query(
@@ -229,7 +231,7 @@ async function applyNodeOperation(client: DbClient, projectId: string, operation
   }
 }
 
-async function applyEdgeOperation(client: DbClient, projectId: string, operation: ProjectGraphOperation) {
+export async function applyEdgeOperation(client: DbClient, projectId: string, operation: ProjectGraphOperation) {
   if (operation.type === 'upsertEdge') {
     const edge = operation.edge
     await client.query(
@@ -275,6 +277,152 @@ async function applyEdgeOperation(client: DbClient, projectId: string, operation
       [projectId, operation.edgeId],
     )
   }
+}
+
+export interface ImportGraphTransactionInput {
+  projectId: string
+  workspaceId: string
+  actorUserId: string
+  expectedVersion: number
+  expectedSequence: number
+  operations: ProjectGraphOperation[]
+  replaceExisting: boolean
+  idempotencyKey: string
+}
+
+export interface ImportGraphTransactionResult {
+  projectId: string
+  version: number
+  sequence: number
+  updatedAt: Date | string
+  operations: ProjectGraphOperation[]
+}
+
+export async function applyImportGraphTransaction(
+  client: DbClient,
+  input: ImportGraphTransactionInput,
+): Promise<ImportGraphTransactionResult> {
+  assertProjectId(input.projectId)
+  const projectResult = await client.query<LockedProjectRow>(
+    `
+      SELECT id::text, version, last_sequence, archived_at
+      FROM projects
+      WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL
+      FOR UPDATE
+    `,
+    [input.projectId, input.workspaceId],
+  )
+  const project = projectResult.rows[0] ?? projectNotFound()
+  if (project.archived_at) {
+    throw new AuthServiceError({
+      statusCode: 403,
+      apiCode: 'ACCESS_DENIED',
+      message: 'Archived projects cannot receive imported graph data',
+    })
+  }
+
+  const currentVersion = Number(project.version)
+  const currentSequence = Number(project.last_sequence)
+  if (currentVersion !== input.expectedVersion || currentSequence !== input.expectedSequence) {
+    throw new AuthServiceError({
+      statusCode: 409,
+      apiCode: 'PROJECT_VERSION_CONFLICT',
+      message: 'Project was updated before import commit',
+      details: { currentVersion, currentSequence },
+    })
+  }
+
+  const nodeResult = await client.query<ActiveNodeRow>(
+    `SELECT node_id, parent_node_id FROM project_nodes WHERE project_id = $1 AND deleted_at IS NULL`,
+    [input.projectId],
+  )
+  const edgeResult = await client.query<{ edge_id: string }>(
+    `SELECT edge_id FROM project_edges WHERE project_id = $1 AND deleted_at IS NULL`,
+    [input.projectId],
+  )
+  const deleteOperations: ProjectGraphOperation[] = input.replaceExisting
+    ? [
+        ...edgeResult.rows.map((row) => ({ type: 'deleteEdge', edgeId: row.edge_id }) satisfies ProjectGraphOperation),
+        ...nodeResult.rows.map((row) => ({ type: 'deleteNode', nodeId: row.node_id }) satisfies ProjectGraphOperation),
+      ]
+    : []
+  const operations = [...deleteOperations, ...input.operations]
+  const activeNodes = validateNodeTopology(nodeResult.rows, operations)
+  validateEdgeEndpoints(activeNodes, operations)
+  let assetReferenceChanges: NodeAssetReferenceChange[]
+  try {
+    assetReferenceChanges = collectNodeAssetReferenceChanges(input.operations)
+  } catch (error) {
+    throw new AuthServiceError({
+      statusCode: 400,
+      apiCode: 'VALIDATION_FAILED',
+      message: error instanceof Error ? error.message : 'Invalid imported node asset reference',
+    })
+  }
+  await requireCompletedAssetReferences(client, input.workspaceId, assetReferenceChanges)
+
+  for (const operation of operations) {
+    if (operation.type === 'upsertNode' || operation.type === 'deleteNode') {
+      await applyNodeOperation(client, input.projectId, operation)
+    }
+  }
+  for (const operation of operations) {
+    if (operation.type === 'upsertEdge' || operation.type === 'deleteEdge') {
+      await applyEdgeOperation(client, input.projectId, operation)
+    }
+  }
+  await replaceProjectNodeAssetReferences(client, input.workspaceId, input.projectId, assetReferenceChanges)
+
+  const countsResult = await client.query<{ node_count: number; edge_count: number }>(
+    `
+      SELECT
+        (SELECT count(*)::integer FROM project_nodes WHERE project_id = $1 AND deleted_at IS NULL) AS node_count,
+        (SELECT count(*)::integer FROM project_edges WHERE project_id = $1 AND deleted_at IS NULL) AS edge_count
+    `,
+    [input.projectId],
+  )
+  const counts = countsResult.rows[0]!
+  const resultVersion = currentVersion + 1
+  const sequence = currentSequence + 1
+  const batchId = `import_${randomUUID()}`
+  const operationsJson = JSON.stringify(operations)
+  const changeResult = await client.query<{ created_at: Date | string }>(
+    `
+      INSERT INTO project_changes (
+        project_id, sequence, base_version, result_version, actor_user_id,
+        client_id, batch_id, idempotency_key, source, operations_json
+      ) VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, 'import', $8::jsonb)
+      RETURNING created_at
+    `,
+    [
+      input.projectId,
+      sequence,
+      currentVersion,
+      resultVersion,
+      input.actorUserId,
+      batchId,
+      input.idempotencyKey,
+      operationsJson,
+    ],
+  )
+  const updatedAt = changeResult.rows[0]!.created_at
+  const updated = await client.query(
+    `
+      UPDATE projects
+      SET version = $3, last_sequence = $4, node_count = $5, edge_count = $6, updated_at = $7
+      WHERE id = $1 AND workspace_id = $2 AND version = $8
+    `,
+    [input.projectId, input.workspaceId, resultVersion, sequence, counts.node_count, counts.edge_count, updatedAt, currentVersion],
+  )
+  if (updated.rowCount !== 1) {
+    throw new AuthServiceError({
+      statusCode: 409,
+      apiCode: 'PROJECT_VERSION_CONFLICT',
+      message: 'Project was updated before import commit',
+      details: { currentVersion, currentSequence },
+    })
+  }
+  return { projectId: input.projectId, version: resultVersion, sequence, updatedAt, operations }
 }
 
 function toIdempotentResponse(projectId: string, change: ExistingChangeRow): ApplyProjectGraphOperationsResponse {

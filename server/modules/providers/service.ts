@@ -1,6 +1,7 @@
 import type {
   CloudProviderId,
   DeleteProviderCredentialResponse,
+  ProviderConnectionTestResponse,
   ProviderSettingResponse,
   ProviderSettingsResponse,
   PutProviderCredentialRequest,
@@ -14,6 +15,7 @@ import {
   type WorkspaceAuthorizationService,
 } from '../workspaces/authorization.js'
 import type { ProviderCredentialCipher } from './credentialCipher.js'
+import { createProviderAdapter, ProviderGatewayError, type ProviderAdapter } from './adapter.js'
 import {
   getCloudProviderDefinition,
   listCloudProviderDefinitions,
@@ -47,6 +49,10 @@ export interface ProviderCredentialService {
     providerId: string,
     actor: ProjectActor,
   ) => Promise<DeleteProviderCredentialResponse>
+  testConnection: (
+    providerId: string,
+    actor: ProjectActor,
+  ) => Promise<ProviderConnectionTestResponse>
   getExecutionCredential: (input: {
     workspaceId: string
     providerId: string
@@ -156,9 +162,11 @@ export function createPostgresProviderCredentialService(
   options: {
     cipher: ProviderCredentialCipher
     authorizationService?: WorkspaceAuthorizationService
+    adapter?: ProviderAdapter
   },
 ): ProviderCredentialService {
   const authorizationService = options.authorizationService ?? createWorkspaceAuthorizationService(pool)
+  const adapter = options.adapter ?? createProviderAdapter()
 
   return {
     async listProviders(actor) {
@@ -257,6 +265,43 @@ export function createPostgresProviderCredentialService(
       return { ok: true }
     },
 
+    async testConnection(providerId, actor) {
+      const definition = requireProvider(providerId)
+      await authorizationService.requireWorkspaceAccess({
+        userId: actor.userId,
+        workspaceId: actor.workspaceId,
+        allowedRoles: PROVIDER_WRITE_ROLES,
+      })
+      const row = await findCredential(pool, actor.workspaceId, definition.id)
+      if (!row || row.status !== 'active') {
+        throw new AuthServiceError({
+          statusCode: 409,
+          apiCode: 'PROVIDER_CONFIG_INVALID',
+          message: 'Provider credential is not configured',
+        })
+      }
+      const apiKey = options.cipher.decrypt(row.encrypted_secret_json, {
+        workspaceId: actor.workspaceId,
+        providerId: definition.id,
+      })
+      try {
+        await adapter.testConnection({ providerId: definition.id, apiKey })
+      } catch (error) {
+        if (!(error instanceof ProviderGatewayError)) {
+          throw error
+        }
+        const configurationError = error.category === 'authentication' || error.category === 'rejected'
+        throw new AuthServiceError({
+          statusCode: configurationError ? 409 : 503,
+          apiCode: configurationError ? 'PROVIDER_CONFIG_INVALID' : 'PROVIDER_UNAVAILABLE',
+          message: configurationError ? 'Provider rejected the configured credential' : 'Provider connection test failed',
+          retryable: error.retryable,
+          details: { category: error.category },
+        })
+      }
+      return { providerId: definition.id, ok: true, checkedAt: new Date().toISOString() }
+    },
+
     async getExecutionCredential(input) {
       const definition = requireProvider(input.providerId)
       const row = await findCredential(pool, input.workspaceId, definition.id)
@@ -292,6 +337,7 @@ export function createUnavailableProviderCredentialService(): ProviderCredential
     async listProviders() { return unavailable() },
     async putProvider() { return unavailable() },
     async deleteProvider() { return unavailable() },
+    async testConnection() { return unavailable() },
     async getExecutionCredential() { return unavailable() },
   }
 }

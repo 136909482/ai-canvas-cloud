@@ -2,7 +2,20 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { APIError } from 'better-auth'
 import { AuthServiceError } from '../../dist/modules/auth/service.js'
-import { createPostgresAuthService } from '../../dist/modules/auth/postgresAuthService.js'
+import { createPostgresAuthService, getAuthCookieSecurityOptions } from '../../dist/modules/auth/postgresAuthService.js'
+
+test('protected environments use fixed secure session cookie attributes', () => {
+  assert.deepEqual(getAuthCookieSecurityOptions('staging'), {
+    useSecureCookies: true,
+    defaultCookieAttributes: {
+      secure: true,
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+    },
+  })
+  assert.equal(getAuthCookieSecurityOptions('development').useSecureCookies, false)
+})
 
 interface QueryCall {
   text: string

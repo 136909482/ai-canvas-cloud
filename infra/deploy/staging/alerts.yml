@@ -1,0 +1,152 @@
+groups:
+  - name: ai-canvas-cloud-staging-availability
+    rules:
+      - alert: AiCanvasApiUnavailable
+        expr: up{job="api"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: API metrics target is unavailable
+          runbook: Check the API container, then PostgreSQL, Redis, and object storage readiness.
+      - alert: AiCanvasWorkerUnavailable
+        expr: up{job="worker"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: Worker metrics target is unavailable
+          runbook: Check the Worker container and Redis queue connectivity.
+      - alert: AiCanvasDependencyDown
+        expr: ai_canvas_dependency_up == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: A required dependency is unavailable
+          runbook: Identify the dependency label, restore it, and confirm the gauge returns to 1.
+      - alert: AiCanvasPostgresPoolExhausted
+        expr: ai_canvas_postgres_pool_connections{state="waiting"} > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: API requests are waiting for PostgreSQL connections
+          runbook: Check query latency and pool saturation; restore until waiting returns to 0.
+
+  - name: ai-canvas-cloud-staging-api
+    rules:
+      - alert: AiCanvasApiHighErrorRate
+        expr: sum(rate(ai_canvas_api_errors_total[5m])) / clamp_min(sum(rate(ai_canvas_api_requests_total[5m])), 1) > 0.05
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: API error ratio is above 5 percent
+          runbook: Compare route and status_class labels; diagnostics must not include request bodies.
+      - alert: AiCanvasApiP95LatencyHigh
+        expr: histogram_quantile(0.95, sum by (le, route) (rate(ai_canvas_api_request_duration_seconds_bucket[5m]))) > 2
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: API p95 latency is above 2 seconds
+          runbook: Check dependency latency and route groups without logging URLs or user input.
+      - alert: AiCanvasAuthFailuresSpike
+        expr: sum(rate(ai_canvas_api_auth_failures_total[5m])) > 1
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Authentication failures exceed 1 per second
+          runbook: Check auth service health and abuse controls; do not inspect passwords or tokens.
+      - alert: AiCanvasRateLimitSpike
+        expr: sum(rate(ai_canvas_api_rate_limited_total[5m])) > 0.5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Rate limiting exceeds 0.5 responses per second
+          runbook: Check route groups and Redis availability without recording network identities.
+      - alert: AiCanvasProjectConflictSpike
+        expr: rate(ai_canvas_project_version_conflicts_total[5m]) > 0.2
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: Project version conflicts exceed expected contention
+          runbook: Check client refresh and idempotency flows; project IDs are intentionally absent.
+      - alert: AiCanvasStorageQuotaSpike
+        expr: rate(ai_canvas_storage_quota_exceeded_total[15m]) > 0.05
+        for: 15m
+        labels: { severity: info }
+        annotations:
+          summary: Storage quota rejections are increasing
+          runbook: Review aggregate staging capacity without exposing workspace identifiers.
+      - alert: AiCanvasMigrationFailures
+        expr: sum(rate(ai_canvas_migration_operations_total{outcome="failure"}[15m])) > 0.02
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: Migration operations are failing
+          runbook: Use the phase label to locate the failing stage; never log package contents.
+
+  - name: ai-canvas-cloud-staging-tasks
+    rules:
+      - alert: AiCanvasTaskBacklogHigh
+        expr: ai_canvas_task_queue_backlog > 100
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: Generation task backlog exceeds 100
+          runbook: Check Worker availability, queue dispatch failures, and Provider health.
+      - alert: AiCanvasTaskLeaseFailures
+        expr: increase(ai_canvas_task_lease_expired_total[15m]) > 5 or ai_canvas_task_expired_leases > 5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Task leases are expiring repeatedly
+          runbook: Check Worker saturation and database latency; task IDs are intentionally absent.
+      - alert: AiCanvasTaskRetriesHigh
+        expr: increase(ai_canvas_task_retries_total[15m]) > 10 or ai_canvas_task_retryable_failures > 10
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Task retries exceed the staging threshold
+          runbook: Compare low-cardinality outcome labels and Provider health.
+      - alert: AiCanvasQueueDispatchFailures
+        expr: increase(ai_canvas_task_queue_dispatch_total{outcome="failed"}[10m]) > 3
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: PostgreSQL outbox delivery to Redis is failing
+          runbook: Restore Redis, then confirm failed dispatches stop and backlog drains.
+      - alert: AiCanvasWorkerFailures
+        expr: increase(ai_canvas_worker_failures_total[10m]) > 3
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: Worker operational failures exceed threshold
+          runbook: Use only the component label to isolate outbox, lease recovery, or consumer startup.
+      - alert: AiCanvasProviderFailures
+        expr: sum(rate(ai_canvas_provider_request_duration_seconds_count{outcome!="success"}[10m])) > 0.1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: Provider requests are failing
+          runbook: Check Provider status and credential configuration without exposing prompts or keys.
+      - alert: AiCanvasResultTransferFailures
+        expr: increase(ai_canvas_task_result_transfer_failures_total[10m]) > 3
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: Provider results cannot be transferred to private object storage
+          runbook: Check object storage readiness and low-cardinality failure code.
+
+  - name: ai-canvas-cloud-staging-recovery
+    rules:
+      - alert: AiCanvasBackupMissing
+        expr: absent(ai_canvas_backup_last_success_timestamp_seconds{job="staging_backup"}) or time() - max(ai_canvas_backup_last_success_timestamp_seconds{job="staging_backup"}) > 93600
+        for: 15m
+        labels: { severity: critical }
+        annotations:
+          summary: No successful encrypted staging backup exists within the 26 hour RPO window
+          runbook: Check backup-scheduler, PostgreSQL snapshot export, backup storage, and Pushgateway.
+      - alert: AiCanvasBackupFailed
+        expr: max(ai_canvas_backup_last_failure_timestamp_seconds{job="staging_backup"}) > max(ai_canvas_backup_last_success_timestamp_seconds{job="staging_backup"})
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: The latest staging backup attempt failed
+          runbook: Restore PostgreSQL or backup object storage connectivity, then confirm a newer success timestamp.

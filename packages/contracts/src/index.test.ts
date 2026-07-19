@@ -25,11 +25,13 @@ import {
   type CreateGenerationTaskRequest,
   type GenerationTaskCommandRequest,
   type GenerationTaskResponse,
+  type GenerationTaskEventsResponse,
   type ProviderSettingsResponse,
 } from './index.ts'
 
 test('contracts expose stable API error codes', () => {
   assert(apiErrorCodes.includes('PROJECT_VERSION_CONFLICT'))
+  assert(apiErrorCodes.includes('PROVIDER_CAPABILITY_UNSUPPORTED'))
   assert.equal(createServiceUnavailableError('req_1').error.requestId, 'req_1')
 })
 
@@ -83,9 +85,19 @@ test('workspace usage contract separates stored and reserved bytes', () => {
       quotaBytes: 20 * 1024 * 1024 * 1024,
       availableBytes: 20 * 1024 * 1024 * 1024 - 1536,
     },
+    projects: [{
+      projectId: '11111111-1111-4111-8111-111111111111',
+      name: 'Product board',
+      fileCount: 3,
+      nodeCount: 8,
+      storageBytes: 1024,
+      archivedAt: null,
+      updatedAt: '2026-07-15T00:00:00.000Z',
+    }],
   }
 
   assert.equal(response.storage.totalBytes, response.storage.usedBytes + response.storage.reservedBytes)
+  assert.equal(response.projects[0]?.fileCount, 3)
   assert.equal('userId' in response, false)
 })
 
@@ -468,6 +480,29 @@ test('generation task contracts expose resumable state without tenant or lease i
   assert.equal('leaseOwner' in response.task, false)
   assert.equal('leaseToken' in response.task, false)
   assert.equal('remoteTaskId' in response.task, false)
+})
+
+test('generation task events expose only durable sanitized projection fields', () => {
+  const response: GenerationTaskEventsResponse = {
+    events: [{
+      id: '88888888-8888-4888-8888-888888888888',
+      taskId: '77777777-7777-4777-8777-777777777777',
+      projectId: '11111111-1111-4111-8111-111111111111',
+      type: 'terminal',
+      status: 'failed',
+      progress: 75,
+      errorCode: 'PROVIDER_UNAVAILABLE',
+      errorMessage: 'Provider request failed',
+      createdAt: '2026-07-18T00:00:00.000Z',
+    }],
+    nextCursor: '42',
+    hasMore: false,
+  }
+
+  assert.equal(response.events[0]?.type, 'terminal')
+  assert.equal('workspaceId' in response.events[0]!, false)
+  assert.equal('requestJson' in response.events[0]!, false)
+  assert.equal('remoteTaskId' in response.events[0]!, false)
 })
 
 test('provider settings expose only configuration state and secret hints', () => {

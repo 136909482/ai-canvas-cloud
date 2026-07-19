@@ -29,6 +29,7 @@ export interface PostgresAuthServiceOptions {
   baseURL?: string
   secret?: string
   publicWebUrl?: string
+  environment?: string
   trustedOrigins?: string[]
   emailService?: AuthEmailService
   authApi?: BetterAuthApi
@@ -165,6 +166,19 @@ const BETTER_AUTH_FIELD_MAPPING = {
     updatedAt: 'updated_at',
   },
 } as const
+
+export function getAuthCookieSecurityOptions(environment?: string) {
+  const secure = environment === 'production' || environment === 'staging'
+  return {
+    useSecureCookies: secure,
+    defaultCookieAttributes: {
+      secure,
+      httpOnly: true,
+      sameSite: 'lax' as const,
+      path: '/',
+    },
+  }
+}
 
 function toIsoString(value: Date | string | null) {
   if (!value) {
@@ -579,6 +593,7 @@ function createDefaultBetterAuthApi(pool: DbPool, options: PostgresAuthServiceOp
     rateLimit: {
       enabled: true,
     },
+    advanced: getAuthCookieSecurityOptions(options.environment),
   })
 
   return auth.api as unknown as BetterAuthApi

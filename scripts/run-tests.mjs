@@ -40,7 +40,7 @@ if (testFiles.length === 0) {
   process.exit(1)
 }
 
-const packageBuild = spawnSync('npm.cmd', ['run', 'build', '--workspace', '@ai-canvas-cloud/shared', '--workspace', '@ai-canvas-cloud/contracts', '--workspace', '@ai-canvas-cloud/server', '--workspace', '@ai-canvas-cloud/api'], {
+const packageBuild = spawnSync('npm.cmd', ['run', 'build'], {
   stdio: 'inherit',
   shell: process.platform === 'win32',
 })
@@ -51,7 +51,7 @@ if (packageBuild.status !== 0) {
 
 console.log(`Running ${testFiles.length} test files with Node test runner.`)
 
-const result = spawnSync(process.execPath, ['--test', ...testFiles], {
+const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', ...testFiles], {
   stdio: 'inherit',
 })
 

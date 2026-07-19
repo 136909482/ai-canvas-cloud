@@ -1,5 +1,6 @@
 import type {
   CreateGenerationTaskRequest,
+  GenerationTaskEventsResponse,
   GenerationTaskCommandRequest,
   GenerationTaskResponse,
   GenerationTaskStatus,
@@ -9,12 +10,14 @@ import type {
 import { Buffer } from 'node:buffer'
 import { withTransaction, type DbClient, type DbPool } from '../../db/postgres.js'
 import { AuthServiceError } from '../auth/service.js'
+import { isProviderGenerationTaskEnabled } from '../providers/registry.js'
 import { lockConfiguredProviderCredential } from '../providers/service.js'
 import type { ProjectActor } from '../projects/service.js'
 import {
   createWorkspaceAuthorizationService,
   type WorkspaceAuthorizationService,
 } from '../workspaces/authorization.js'
+import { insertTaskQueueDispatch } from './queueOutbox.js'
 
 export const GENERATION_TASK_DEFAULT_LIMIT = 50
 export const GENERATION_TASK_MAX_LIMIT = 100
@@ -57,11 +60,38 @@ interface TaskCommandRow {
   command_type: 'cancel' | 'retry'
 }
 
+interface GenerationTaskEventRow {
+  id: string
+  task_id: string
+  project_id: string
+  event_type: 'created' | 'status' | 'progress' | 'terminal'
+  status: GenerationTaskStatus
+  progress: number
+  error_code: string | null
+  error_message: string | null
+  sequence: string | number
+  created_at: Date | string
+}
+
 export interface ListGenerationTasksInput {
   projectId?: string | null
   status?: string | null
   cursor?: string | null
   limit?: number
+}
+
+export interface ListGenerationTaskEventsInput {
+  projectId?: string | null
+  taskId?: string | null
+  after?: string | null
+  limit?: number
+}
+
+export interface GenerationTaskOperationalMetrics {
+  queueBacklog: number
+  runningTasks: number
+  expiredLeases: number
+  retryableFailures: number
 }
 
 export interface GenerationTaskService {
@@ -78,6 +108,11 @@ export interface GenerationTaskService {
     input: GenerationTaskCommandRequest,
     actor: ProjectActor,
   ) => Promise<GenerationTaskResponse>
+  listEvents?: (
+    input: ListGenerationTaskEventsInput,
+    actor: ProjectActor,
+  ) => Promise<GenerationTaskEventsResponse>
+  getOperationalMetrics?: () => Promise<GenerationTaskOperationalMetrics>
 }
 
 function validationError(message: string): never {
@@ -255,6 +290,36 @@ function decodeCursor(value: string | null | undefined) {
   }
 }
 
+function decodeEventCursor(value: string | null | undefined) {
+  if (!value) return null
+  if (!/^[0-9]{1,20}$/.test(value) || value === '0') {
+    return validationError('Invalid task event cursor')
+  }
+  return value
+}
+
+function sanitizeTaskEventErrorMessage(value: string | null) {
+  if (value === null) return null
+  const normalized = value.trim()
+    .replace(/(https?:\/\/)[^\s@/]+@/gi, '$1[redacted]@')
+    .replace(/\b(password|authorization|api[_-]?key)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+  return (normalized || 'Task execution failed').slice(0, 1000)
+}
+
+function toTaskEvent(row: GenerationTaskEventRow) {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    projectId: row.project_id,
+    type: row.event_type,
+    status: row.status,
+    progress: row.progress,
+    errorCode: row.error_code,
+    errorMessage: sanitizeTaskEventErrorMessage(row.error_message),
+    createdAt: toIso(row.created_at)!,
+  }
+}
+
 async function readTask(
   client: Pick<DbClient, 'query'>,
   workspaceId: string,
@@ -404,6 +469,11 @@ export function createPostgresGenerationTaskService(
           [actor.workspaceId, taskId],
         )
         updated = result.rows[0] ?? conflictError('Task state changed before retry')
+        await insertTaskQueueDispatch(client, {
+          workspaceId: actor.workspaceId,
+          taskId,
+          attemptNumber: task.attempt_count + 1,
+        })
       }
       await insertCommand(client, {
         workspaceId: actor.workspaceId,
@@ -437,6 +507,17 @@ export function createPostgresGenerationTaskService(
 
         await requireProjectNodes(client, input, actor.workspaceId)
         await lockConfiguredProviderCredential(client, actor.workspaceId, input.providerId)
+        if (!isProviderGenerationTaskEnabled({
+          providerId: input.providerId,
+          kind: input.kind,
+          model: input.model,
+        })) {
+          throw new AuthServiceError({
+            statusCode: 409,
+            apiCode: 'PROVIDER_CAPABILITY_UNSUPPORTED',
+            message: 'Provider task capability is not enabled',
+          })
+        }
         const active = await client.query<{ count: number }>(
           `SELECT count(*)::integer AS count FROM generation_tasks
            WHERE workspace_id = $1 AND status IN ('queued', 'running')`,
@@ -463,6 +544,11 @@ export function createPostgresGenerationTaskService(
             input.billingMode ?? 'workspace_key', JSON.stringify(input.parameters), input.idempotencyKey,
           ],
         )
+        await insertTaskQueueDispatch(client, {
+          workspaceId: actor.workspaceId,
+          taskId: result.rows[0]!.id,
+          attemptNumber: 1,
+        })
         await client.query(
           `UPDATE projects SET task_count = task_count + 1, updated_at = now()
            WHERE workspace_id = $1 AND id = $2`,
@@ -501,6 +587,59 @@ export function createPostgresGenerationTaskService(
       }
     },
 
+    async listEvents(input, actor) {
+      await authorize(actor)
+      const limit = input.limit ?? 100
+      if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+        return validationError('limit must be between 1 and 200')
+      }
+      const projectId = input.projectId == null ? null : requireUuid(input.projectId, 'projectId')
+      const taskId = input.taskId == null ? null : requireUuid(input.taskId, 'taskId')
+      const after = decodeEventCursor(input.after)
+      const result = await pool.query<GenerationTaskEventRow>(
+        `SELECT e.id::text, e.task_id::text, e.project_id::text, e.event_type,
+                e.status, e.progress, e.error_code, e.error_message,
+                e.sequence::text, e.created_at
+         FROM generation_task_events e
+         WHERE e.workspace_id = $1
+           AND ($2::uuid IS NULL OR e.project_id = $2)
+           AND ($3::uuid IS NULL OR e.task_id = $3)
+           AND ($4::bigint IS NULL OR e.sequence > $4::bigint)
+         ORDER BY e.sequence ASC
+         LIMIT $5` ,
+        [actor.workspaceId, projectId, taskId, after, limit + 1],
+      )
+      const rows = result.rows.slice(0, limit)
+      return {
+        events: rows.map(toTaskEvent),
+        nextCursor: rows.length > 0 ? String(rows.at(-1)!.sequence) : after,
+        hasMore: result.rows.length > limit,
+      }
+    },
+
+    async getOperationalMetrics() {
+      const result = await pool.query<{
+        queue_backlog: string | number
+        running_tasks: string | number
+        expired_leases: string | number
+        retryable_failures: string | number
+      }>(
+        `SELECT
+           count(*) FILTER (WHERE status = 'queued')::integer AS queue_backlog,
+           count(*) FILTER (WHERE status = 'running')::integer AS running_tasks,
+           count(*) FILTER (WHERE status = 'running' AND lease_expires_at <= now())::integer AS expired_leases,
+           count(*) FILTER (WHERE status = 'failed' AND attempt_count < max_attempts)::integer AS retryable_failures
+         FROM generation_tasks`,
+      )
+      const row = result.rows[0]
+      return {
+        queueBacklog: Number(row?.queue_backlog ?? 0),
+        runningTasks: Number(row?.running_tasks ?? 0),
+        expiredLeases: Number(row?.expired_leases ?? 0),
+        retryableFailures: Number(row?.retryable_failures ?? 0),
+      }
+    },
+
     async getTask(taskIdValue, actor) {
       const taskId = requireUuid(taskIdValue, 'taskId')
       await authorize(actor)
@@ -533,5 +672,7 @@ export function createUnavailableGenerationTaskService(): GenerationTaskService 
     async getTask() { return unavailable() },
     async cancelTask() { return unavailable() },
     async retryTask() { return unavailable() },
+    async listEvents() { return unavailable() },
+    async getOperationalMetrics() { return unavailable() },
   }
 }

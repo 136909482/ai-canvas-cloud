@@ -2,8 +2,13 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useReactFlow } from '@xyflow/react'
 import { AlertCircle, CheckCircle2, ImageIcon, LocateFixed, ListTodo, LoaderCircle, RotateCcw, Trash2, Video, X } from 'lucide-react'
 import { TooltipIconButton } from '@/components/TooltipIconButton'
-import { retryGenerateTask } from '@/features/generateQueue/orchestrator'
+import { cloudGenerationTaskApi } from '@/api/generationTasks'
+import { cancelGenerateTask, retryGenerateTask } from '@/features/generateQueue/orchestrator'
+import { filterTaskQueueTasks, type TaskQueueFilter } from '@/features/generateQueue/taskQueueView'
+import { platformRuntime } from '@/platform'
 import { useCanvasStore } from '@/store/useCanvasStore'
+import { useFeedbackStore } from '@/store/useFeedbackStore'
+import { useProjectStore } from '@/store/useProjectStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useTaskQueueStore } from '@/store/useTaskQueueStore'
 import { themeClasses } from '@/styles/themeClasses'
@@ -26,6 +31,11 @@ const UI_TEXT = {
   video: '\u89c6\u9891',
   openTasks: '\u67e5\u770b\u751f\u6210\u4efb\u52a1',
   closePanel: '\u5173\u95ed\u9762\u677f',
+  otherProject: '\u5176\u4ed6\u9879\u76ee',
+  allTasks: '\u5168\u90e8',
+  activeTasks: '\u8fdb\u884c\u4e2d',
+  finishedTasks: '\u5df2\u7ed3\u675f',
+  filterEmpty: '\u5f53\u524d\u7b5b\u9009\u6ca1\u6709\u4efb\u52a1',
 } as const
 
 type IconButtonProps = {
@@ -50,6 +60,13 @@ function formatDuration(task: GenerateTask, now: number) {
   const seconds = totalSeconds % 60
 
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+function formatTaskMetric(task: GenerateTask, now: number) {
+  if (task.serverTaskId && (task.status === 'queued' || task.status === 'running')) {
+    return `${task.serverProgress ?? 0}%`
+  }
+  return formatDuration(task, now)
 }
 
 function ToolbarIconButton({
@@ -116,19 +133,29 @@ function getStatusMeta(status: GenerateTask['status']) {
 export function TaskQueueButton() {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const [open, setOpen] = useState(false)
+  const [filter, setFilter] = useState<TaskQueueFilter>('all')
   const panelRef = useDialogFocus<HTMLDivElement>(open, () => setOpen(false))
   const [now, setNow] = useState(() => Date.now())
   const reactFlow = useReactFlow()
   const selectNode = useCanvasStore((s) => s.selectNode)
   const customModels = useSettingsStore((s) => s.config.customModels)
   const tasks = useTaskQueueStore((s) => s.tasks)
+  const cachedServerTasks = useTaskQueueStore((s) => s.cachedServerTasks)
   const clearFinishedTasks = useTaskQueueStore((s) => s.clearFinishedTasks)
   const removeTask = useTaskQueueStore((s) => s.removeTask)
-  const activeTaskCount = tasks.filter((task) => task.status === 'queued' || task.status === 'running').length
+  const activeProjectId = useProjectStore((s) => s.activeProjectId)
+  const projectNameById = useProjectStore((s) => new Map(s.projects.map((project) => [project.id, project.name])))
+  const notify = useFeedbackStore((s) => s.notify)
+  const visibleTasks = useMemo(() => {
+    if (platformRuntime !== 'cloud') return tasks
+    const currentServerTaskIds = new Set(tasks.map((task) => task.serverTaskId).filter((id): id is string => Boolean(id)))
+    return [...tasks, ...cachedServerTasks.filter((task) => !currentServerTaskIds.has(task.serverTaskId ?? ''))]
+  }, [cachedServerTasks, tasks])
+  const activeTaskCount = visibleTasks.filter((task) => task.status === 'queued' || task.status === 'running').length
   const hasFinishedTask = tasks.some((task) => task.status === 'done' || task.status === 'error')
   const sortedTasks = useMemo(
     () =>
-      [...tasks].sort((left, right) => {
+      [...visibleTasks].sort((left, right) => {
         const leftActive = left.status === 'queued' || left.status === 'running'
         const rightActive = right.status === 'queued' || right.status === 'running'
 
@@ -138,7 +165,11 @@ export function TaskQueueButton() {
 
         return right.createdAt - left.createdAt
       }),
-    [tasks],
+    [visibleTasks],
+  )
+  const filteredTasks = useMemo(
+    () => filterTaskQueueTasks(sortedTasks, filter),
+    [filter, sortedTasks],
   )
   const modelNameById = useMemo(
     () => new Map(customModels.map((model) => [model.modelId, model.name])),
@@ -161,7 +192,7 @@ export function TaskQueueButton() {
   }, [open])
 
   useEffect(() => {
-    if (tasks.length === 0) {
+    if (visibleTasks.length === 0) {
       return
     }
 
@@ -170,7 +201,7 @@ export function TaskQueueButton() {
     }, 1000)
 
     return () => window.clearInterval(timer)
-  }, [tasks.length])
+  }, [visibleTasks.length])
 
   const handleLocateResult = (task: GenerateTask) => {
     if (!task.previewNodeId) {
@@ -192,6 +223,21 @@ export function TaskQueueButton() {
     }
 
     setOpen(false)
+  }
+
+  const handleCancelTask = (task: GenerateTask) => {
+    if (!task.serverTaskId) return
+    if (task.projectId === activeProjectId) {
+      cancelGenerateTask(task.id)
+      return
+    }
+    void cloudGenerationTaskApi.cancel(task.serverTaskId, `cloud-cancel:${task.serverTaskId}:${crypto.randomUUID()}`)
+      .then((response) => useTaskQueueStore.getState().cacheServerTask(response.task))
+      .catch((error) => notify({
+        tone: 'error',
+        title: '取消任务失败',
+        message: error instanceof Error ? error.message : String(error),
+      }))
   }
 
   return (
@@ -233,9 +279,9 @@ export function TaskQueueButton() {
                 <div className="flex items-center gap-2">
                   <div className={`text-sm font-semibold ${themeClasses.textPrimary}`}>{UI_TEXT.panelTitle}</div>
                   <span className="inline-flex items-center rounded border border-[var(--border-subtle)] bg-[var(--control-bg)] px-1.5 py-0.5 text-[11px] font-medium leading-none text-[var(--text-muted)]">
-                    {tasks.length} {UI_TEXT.itemUnit}
+                    {filteredTasks.length} {UI_TEXT.itemUnit}
                   </span>
-                  {tasks.length === 0 && (
+                  {visibleTasks.length === 0 && (
                     <span className={`truncate text-xs ${themeClasses.textMuted}`}>
                       {UI_TEXT.panelEmpty}
                     </span>
@@ -264,10 +310,33 @@ export function TaskQueueButton() {
             </div>
           </div>
 
-          {sortedTasks.length > 0 && (
+          {visibleTasks.length > 0 && (
+            <div className="border-b border-[var(--border-subtle)] px-3 py-2">
+              <div className="grid h-7 grid-cols-3 gap-1 rounded-md bg-[var(--control-bg)] p-0.5" role="tablist" aria-label={UI_TEXT.panelTitle}>
+                {([
+                  ['all', UI_TEXT.allTasks],
+                  ['active', UI_TEXT.activeTasks],
+                  ['finished', UI_TEXT.finishedTasks],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="tab"
+                    aria-selected={filter === value}
+                    onClick={() => setFilter(value)}
+                    className={`rounded-[5px] text-[10px] font-medium transition ${filter === value ? 'bg-[var(--control-bg-hover)] text-[var(--text-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {filteredTasks.length > 0 ? (
             <div className="task-queue-scrollbar max-h-[20rem] overflow-x-hidden overflow-y-auto px-2 py-2">
               <div className="space-y-1.5">
-                {sortedTasks.map((task) => {
+                {filteredTasks.map((task) => {
                   const statusMeta = getStatusMeta(task.status)
                   const modelDisplayName = modelNameById.get(task.model) || task.model
 
@@ -307,7 +376,7 @@ export function TaskQueueButton() {
                         </span>
 
                         <span className="inline-flex w-11 items-center justify-end text-[11px] font-semibold leading-none tabular-nums text-[var(--text-secondary)]">
-                          {formatDuration(task, now)}
+                          {formatTaskMetric(task, now)}
                         </span>
 
                         <span className={`inline-flex h-5 min-w-12 items-center justify-center gap-1 whitespace-nowrap rounded border px-1 text-[11px] font-semibold leading-none ${statusMeta.pillClassName}`}>
@@ -315,7 +384,7 @@ export function TaskQueueButton() {
                         </span>
 
                         <span className="flex h-6 w-6 items-center justify-center">
-                          {task.status === 'done' && task.previewNodeId ? (
+                          {task.status === 'done' && task.previewNodeId && task.projectId === activeProjectId ? (
                             <ToolbarIconButton
                               label={UI_TEXT.locateResult}
                               onClick={() => handleLocateResult(task)}
@@ -331,11 +400,20 @@ export function TaskQueueButton() {
                               showTooltip={false}
                               icon={<RotateCcw className="h-3.5 w-3.5" />}
                             />
+                          ) : platformRuntime === 'cloud' && task.serverTaskId ? (
+                            <ToolbarIconButton
+                              label="取消任务"
+                              onClick={() => handleCancelTask(task)}
+                              testId={`cancel-task-${task.id}`}
+                              showTooltip={false}
+                              className="hover:border-red-400/20 hover:bg-red-500/10 hover:text-red-500 dark:hover:text-red-200"
+                              icon={<X className="h-3.5 w-3.5" />}
+                            />
                           ) : null}
                         </span>
 
                         <span className="flex h-6 w-6 items-center justify-center">
-                          {(task.status === 'done' || task.status === 'error') && (
+                          {(task.status === 'done' || task.status === 'error') && task.projectId === activeProjectId && (
                             <ToolbarIconButton
                               label={UI_TEXT.removeTask}
                               onClick={() => removeTask(task.id)}
@@ -346,12 +424,26 @@ export function TaskQueueButton() {
                           )}
                         </span>
                       </div>
+                      {task.projectId !== activeProjectId ? (
+                        <span className="col-span-4 -mt-1 block min-w-0 truncate pl-14 text-[10px] leading-none text-[var(--text-muted)]">
+                          {projectNameById.get(task.projectId ?? '') ?? UI_TEXT.otherProject}
+                        </span>
+                      ) : null}
+                      {task.status === 'error' && task.errorMsg ? (
+                        <span className="col-span-4 -mt-1 break-words pl-14 text-[10px] leading-4 text-red-500 dark:text-red-200">
+                          {task.errorMsg}
+                        </span>
+                      ) : null}
                     </div>
                   )
                 })}
               </div>
             </div>
-          )}
+          ) : visibleTasks.length > 0 ? (
+            <div className={`flex min-h-24 items-center justify-center px-4 text-center text-xs ${themeClasses.textMuted}`}>
+              {UI_TEXT.filterEmpty}
+            </div>
+          ) : null}
         </div>
       )}
     </div>

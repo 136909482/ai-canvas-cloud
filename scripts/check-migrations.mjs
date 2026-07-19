@@ -451,11 +451,11 @@ async function assertGenerationTaskSchema(client, schemaName) {
   `)
   await client.query(`
     INSERT INTO task_attempts (
-      workspace_id, task_id, attempt_number, provider_id, model_key
+      workspace_id, task_id, attempt_number, provider_id, model_key, submission_key
     ) VALUES (
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       '88888888-8888-4888-8888-888888888888',
-      1, 'openai', 'gpt-image-2'
+      1, 'openai', 'gpt-image-2', 'provider-submission:88888888-8888-4888-8888-888888888888'
     )
   `)
   await client.query(`
@@ -928,6 +928,522 @@ async function assertAuthDeviceSchema(client, schemaName) {
   }
 }
 
+async function seedTaskQueueOutboxUpgradeFixture(client) {
+  await client.query(`
+    INSERT INTO "user" (id, name, email, email_verified)
+    VALUES ('outbox-upgrade-user', 'Outbox Upgrade', 'outbox-upgrade@example.com', true)
+  `)
+  await client.query(`
+    INSERT INTO workspaces (id, name, owner_user_id)
+    VALUES ('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'Outbox upgrade workspace', 'outbox-upgrade-user')
+  `)
+  await client.query(`
+    INSERT INTO projects (id, workspace_id, name)
+    VALUES (
+      'cccccccc-cccc-4ccc-8ccc-cccccccccccd',
+      'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      'Outbox upgrade project'
+    )
+  `)
+  await client.query(`
+    INSERT INTO project_nodes (project_id, node_id, node_type, position_x, position_y)
+    VALUES ('cccccccc-cccc-4ccc-8ccc-cccccccccccd', 'outbox-source', 'generate', 0, 0)
+  `)
+  await client.query(`
+    INSERT INTO generation_tasks (
+      id, workspace_id, project_id, created_by_user_id, source_node_id,
+      task_kind, provider_id, model_key, idempotency_key
+    ) VALUES (
+      'cccccccc-cccc-4ccc-8ccc-ccccccccccce',
+      'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      'cccccccc-cccc-4ccc-8ccc-cccccccccccd',
+      'outbox-upgrade-user', 'outbox-source', 'image', 'openai',
+      'gpt-image-2', 'outbox-upgrade-task'
+    )
+  `)
+}
+
+async function assertTaskQueueOutboxSchema(client, schemaName) {
+  const tableResult = await client.query(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema = $1 AND table_name = 'task_queue_outbox'`,
+    [schemaName],
+  )
+  if (tableResult.rowCount !== 1) {
+    throw new Error('Task queue outbox migration did not create its table')
+  }
+  const requiredConstraints = [
+    'task_queue_outbox_workspace_task_fk',
+    'task_queue_outbox_workspace_dispatch_key_unique',
+    'task_queue_outbox_claim_tuple_check',
+  ]
+  const constraints = await client.query(`
+    SELECT conname FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = $1 AND conname = ANY($2::text[])
+  `, [schemaName, requiredConstraints])
+  if (constraints.rowCount !== requiredConstraints.length) {
+    throw new Error('Task queue outbox migration is missing required constraints')
+  }
+  const indexes = await client.query(`
+    SELECT indexname FROM pg_indexes
+    WHERE schemaname = $1 AND indexname = ANY($2::text[])
+  `, [schemaName, ['task_queue_outbox_pending_idx', 'task_queue_outbox_task_idx']])
+  if (indexes.rowCount !== 2) {
+    throw new Error('Task queue outbox migration is missing required indexes')
+  }
+  const backfilled = await client.query(`
+    SELECT dispatch_key FROM task_queue_outbox
+    WHERE task_id = 'cccccccc-cccc-4ccc-8ccc-ccccccccccce'
+  `)
+  if (backfilled.rows[0]?.dispatch_key !== 'run:cccccccc-cccc-4ccc-8ccc-ccccccccccce:1') {
+    throw new Error('Task queue outbox migration did not backfill a queued task')
+  }
+  await expectRejected(
+    client,
+    `INSERT INTO task_queue_outbox (workspace_id, task_id, dispatch_key)
+     VALUES (
+       'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+       'cccccccc-cccc-4ccc-8ccc-ccccccccccce',
+       'run:cccccccc-cccc-4ccc-8ccc-ccccccccccce:1'
+     )`,
+    [],
+    'Task queue outbox accepted a duplicate dispatch key',
+  )
+  await expectRejected(
+    client,
+    `INSERT INTO task_queue_outbox (workspace_id, task_id, dispatch_key)
+     VALUES (
+       '99999999-9999-4999-8999-999999999999',
+       'cccccccc-cccc-4ccc-8ccc-ccccccccccce',
+       'cross-workspace-dispatch'
+     )`,
+    [],
+    'Task queue outbox accepted a task from another workspace',
+  )
+}
+
+async function seedProviderSubmissionUpgradeFixture(client) {
+  await client.query(`
+    INSERT INTO "user" (id, name, email, email_verified)
+    VALUES ('submission-upgrade-user', 'Submission Upgrade', 'submission-upgrade@example.com', true)
+  `)
+  await client.query(`
+    INSERT INTO workspaces (id, name, owner_user_id)
+    VALUES ('dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'Submission upgrade workspace', 'submission-upgrade-user')
+  `)
+  await client.query(`
+    INSERT INTO projects (id, workspace_id, name)
+    VALUES ('dddddddd-dddd-4ddd-8ddd-ddddddddddde', 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'Submission upgrade project')
+  `)
+  await client.query(`
+    INSERT INTO project_nodes (project_id, node_id, node_type, position_x, position_y)
+    VALUES ('dddddddd-dddd-4ddd-8ddd-ddddddddddde', 'submission-source', 'generate', 0, 0)
+  `)
+  await client.query(`
+    INSERT INTO generation_tasks (
+      id, workspace_id, project_id, created_by_user_id, source_node_id,
+      task_kind, provider_id, model_key, idempotency_key, remote_task_id,
+      status, attempt_count, lease_owner, lease_token, lease_expires_at, started_at
+    ) VALUES (
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddf',
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      'dddddddd-dddd-4ddd-8ddd-ddddddddddde',
+      'submission-upgrade-user', 'submission-source', 'image', 'openai',
+      'gpt-image-2', 'submission-upgrade-task', 'legacy-remote-task',
+      'running', 1, 'legacy-worker', gen_random_uuid(), now() + interval '5 minutes', now()
+    )
+  `)
+  await client.query(`
+    INSERT INTO task_attempts (
+      workspace_id, task_id, attempt_number, provider_id, model_key
+    ) VALUES (
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddf', 1, 'openai', 'gpt-image-2'
+    )
+  `)
+}
+
+async function assertProviderSubmissionSchema(client, schemaName) {
+  const columns = await client.query(`
+    SELECT column_name FROM information_schema.columns
+    WHERE table_schema = $1 AND table_name = 'task_attempts'
+      AND column_name = ANY($2::text[])
+  `, [schemaName, ['submission_key', 'submission_stage', 'remote_task_id']])
+  if (columns.rowCount !== 3) {
+    throw new Error('Provider submission migration is missing attempt submission columns')
+  }
+  const requiredConstraints = [
+    'task_attempts_submission_key_check',
+    'task_attempts_submission_stage_check',
+    'task_attempts_remote_task_id_check',
+    'task_attempts_submission_remote_state_check',
+  ]
+  const constraints = await client.query(`
+    SELECT conname FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = $1 AND conname = ANY($2::text[])
+  `, [schemaName, requiredConstraints])
+  if (constraints.rowCount !== requiredConstraints.length) {
+    throw new Error('Provider submission migration is missing submission constraints')
+  }
+  const index = await client.query(`
+    SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND indexname = 'task_attempts_submission_recovery_idx'
+  `, [schemaName])
+  if (index.rowCount !== 1) {
+    throw new Error('Provider submission migration is missing its recovery index')
+  }
+  const upgraded = await client.query(`
+    SELECT submission_key, submission_stage, remote_task_id
+    FROM task_attempts WHERE task_id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddf'
+  `)
+  if (
+    upgraded.rows[0]?.submission_key !== 'provider-submission:dddddddd-dddd-4ddd-8ddd-dddddddddddf'
+    || upgraded.rows[0]?.submission_stage !== 'submitted'
+    || upgraded.rows[0]?.remote_task_id !== 'legacy-remote-task'
+  ) {
+    throw new Error('Provider submission migration did not preserve an in-flight remote task')
+  }
+  await expectRejected(
+    client,
+    `UPDATE task_attempts SET submission_stage = 'invalid' WHERE task_id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddf'`,
+    [],
+    'Provider submission migration accepted an invalid submission stage',
+  )
+}
+
+async function assertGenerationTaskEventSchema(client, schemaName) {
+  const table = await client.query(`
+    SELECT table_name FROM information_schema.tables
+    WHERE table_schema = $1 AND table_name = 'generation_task_events'
+  `, [schemaName])
+  if (table.rowCount !== 1) {
+    throw new Error('Generation task event migration did not create its table')
+  }
+  const requiredConstraints = [
+    'generation_task_events_workspace_task_fk',
+    'generation_task_events_workspace_project_fk',
+    'generation_task_events_type_check',
+    'generation_task_events_status_check',
+  ]
+  const constraints = await client.query(`
+    SELECT conname FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = $1 AND conname = ANY($2::text[])
+  `, [schemaName, requiredConstraints])
+  if (constraints.rowCount !== requiredConstraints.length) {
+    throw new Error('Generation task event migration is missing tenant or event constraints')
+  }
+  const indexes = await client.query(`
+    SELECT indexname FROM pg_indexes
+    WHERE schemaname = $1 AND indexname = ANY($2::text[])
+  `, [schemaName, [
+    'generation_task_events_workspace_sequence_idx',
+    'generation_task_events_workspace_project_sequence_idx',
+    'generation_task_events_workspace_task_sequence_idx',
+  ]])
+  if (indexes.rowCount !== 3) {
+    throw new Error('Generation task event migration is missing polling indexes')
+  }
+  const backfilled = await client.query(`
+    SELECT event_type, status FROM generation_task_events
+    WHERE task_id = 'cccccccc-cccc-4ccc-8ccc-ccccccccccce'
+  `)
+  if (backfilled.rows[0]?.status !== 'queued') {
+    throw new Error('Generation task event migration did not backfill an existing task')
+  }
+  await client.query(`
+    UPDATE generation_tasks
+    SET progress = 25, error_code = 'UPSTREAM', error_message = 'apiKey=must-not-leak'
+    WHERE id = 'cccccccc-cccc-4ccc-8ccc-ccccccccccce'
+  `)
+  const triggered = await client.query(`
+    SELECT event_type, progress, error_message
+    FROM generation_task_events
+    WHERE task_id = 'cccccccc-cccc-4ccc-8ccc-ccccccccccce'
+    ORDER BY sequence DESC LIMIT 1
+  `)
+  if (
+    triggered.rows[0]?.event_type !== 'progress'
+    || triggered.rows[0]?.progress !== 25
+    || triggered.rows[0]?.error_message !== 'apiKey=[redacted]'
+  ) {
+    throw new Error('Generation task event trigger did not persist a sanitized projection')
+  }
+  await expectRejected(
+    client,
+    `INSERT INTO generation_task_events (
+       workspace_id, task_id, project_id, event_type, status, progress
+     ) VALUES (
+       '99999999-9999-4999-8999-999999999999',
+       'cccccccc-cccc-4ccc-8ccc-ccccccccccce',
+       'cccccccc-cccc-4ccc-8ccc-cccccccccccd',
+       'status', 'queued', 0
+     )`,
+    [],
+    'Generation task events accepted a task from another workspace',
+  )
+}
+
+async function assertMigrationImportSchema(client, schemaName) {
+  const table = await client.query(`
+    SELECT table_name FROM information_schema.tables
+    WHERE table_schema = $1 AND table_name = 'migration_imports'
+  `, [schemaName])
+  if (table.rowCount !== 1) {
+    throw new Error('Migration import migration did not create its table')
+  }
+  const requiredConstraints = [
+    'migration_imports_workspace_creator_fk',
+    'migration_imports_target_project_fk',
+    'migration_imports_workspace_idempotency_unique',
+    'migration_imports_status_check',
+    'migration_imports_conflict_type_check',
+    'migration_imports_conflict_target_check',
+    'migration_imports_counts_nonnegative',
+    'migration_imports_bytes_nonnegative',
+    'migration_imports_manifest_object_check',
+  ]
+  const constraints = await client.query(`
+    SELECT conname FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = $1 AND conname = ANY($2::text[])
+  `, [schemaName, requiredConstraints])
+  if (constraints.rowCount !== requiredConstraints.length) {
+    throw new Error('Migration import migration is missing tenant, lifecycle, or payload constraints')
+  }
+  const indexes = await client.query(`
+    SELECT indexname FROM pg_indexes
+    WHERE schemaname = $1 AND indexname = ANY($2::text[])
+  `, [schemaName, ['migration_imports_workspace_status_updated_idx', 'migration_imports_expiry_idx']])
+  if (indexes.rowCount !== 2) {
+    throw new Error('Migration import migration is missing status or expiry indexes')
+  }
+  await client.query(`
+    INSERT INTO "user" (id, name, email, email_verified)
+    VALUES ('migration-schema-user', 'Migration Schema', 'migration-schema@example.com', true)
+  `)
+  await client.query(`
+    INSERT INTO workspaces (id, name, owner_user_id)
+    VALUES ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'Migration schema workspace', 'migration-schema-user')
+  `)
+  await client.query(`
+    INSERT INTO workspace_members (workspace_id, user_id, role)
+    VALUES ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'migration-schema-user', 'owner')
+  `)
+  await client.query(`
+    INSERT INTO projects (id, workspace_id, name)
+    VALUES ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeef', 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'Migration target')
+  `)
+  await client.query(`
+    INSERT INTO migration_imports (
+      id, workspace_id, created_by_user_id, package_schema_version, package_id,
+      source_platform, source_project_id, source_project_version, source_project_sequence,
+      project_name, request_fingerprint, content_sha256, idempotency_key,
+      conflict_type, target_project_id, target_project_name,
+      target_expected_version, target_expected_sequence,
+      asset_count, total_file_count, total_bytes, estimated_storage_bytes,
+      available_bytes_at_prepare, manifest_json, project_record_json, graph_json,
+      asset_manifest_json, expires_at
+    ) VALUES (
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1',
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'migration-schema-user', 1, 'package-schema',
+      'electron', 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeef', 0, 0,
+      'Migration package', repeat('a', 64), repeat('b', 64), 'prepare-schema',
+      'project_exists', 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeef', 'Migration target', 0, 0,
+      0, 3, 300, 0, 1000, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
+      now() + interval '1 hour'
+    )
+  `)
+  await expectRejected(
+    client,
+    `UPDATE migration_imports SET status = 'invalid' WHERE id = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1'`,
+    [],
+    'Migration imports accepted an invalid status',
+  )
+  await expectRejected(
+    client,
+    `INSERT INTO migration_imports (
+       workspace_id, created_by_user_id, package_schema_version, package_id,
+       source_platform, source_project_id, source_project_version, source_project_sequence,
+       project_name, request_fingerprint, content_sha256, idempotency_key,
+       asset_count, total_file_count, total_bytes, estimated_storage_bytes,
+       available_bytes_at_prepare, manifest_json, project_record_json, graph_json,
+       asset_manifest_json, expires_at
+     ) VALUES (
+       'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'quota-upgrade-user', 1, 'cross-user',
+       'web', 'legacy-project', 0, 0, 'Cross user', repeat('c', 64), repeat('d', 64),
+       'cross-user', 0, 3, 0, 0, 1000, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
+       '{}'::jsonb, now() + interval '1 hour'
+     )`,
+    [],
+    'Migration imports accepted a creator outside the workspace',
+  )
+  await expectRejected(
+    client,
+    `INSERT INTO migration_imports (
+       workspace_id, created_by_user_id, package_schema_version, package_id,
+       source_platform, source_project_id, source_project_version, source_project_sequence,
+       project_name, request_fingerprint, content_sha256, idempotency_key,
+       asset_count, total_file_count, total_bytes, estimated_storage_bytes,
+       available_bytes_at_prepare, manifest_json, project_record_json, graph_json,
+       asset_manifest_json, expires_at
+     ) VALUES (
+       'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'migration-schema-user', 1, 'duplicate-key',
+       'web', 'legacy-project', 0, 0, 'Duplicate key', repeat('e', 64), repeat('f', 64),
+       'prepare-schema', 0, 3, 0, 0, 1000, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
+       '{}'::jsonb, now() + interval '1 hour'
+     )`,
+    [],
+    'Migration imports accepted a duplicate workspace idempotency key',
+  )
+}
+
+async function assertMigrationAssetUploadSchema(client, schemaName) {
+  const table = await client.query(`
+    SELECT table_name FROM information_schema.tables
+    WHERE table_schema = $1 AND table_name = 'migration_import_asset_uploads'
+  `, [schemaName])
+  if (table.rowCount !== 1) {
+    throw new Error('Migration asset upload migration did not create its table')
+  }
+  const requiredConstraints = [
+    'migration_import_asset_uploads_workspace_import_fk',
+    'migration_import_asset_uploads_logical_unique',
+    'migration_import_asset_uploads_object_key_unique',
+    'migration_import_asset_uploads_mode_parts_check',
+    'migration_import_asset_uploads_status_check',
+    'migration_import_asset_uploads_completed_parts_json_check',
+    'migration_import_asset_uploads_byte_size_check',
+    'migration_import_asset_uploads_error_state_check',
+  ]
+  const constraints = await client.query(`
+    SELECT conname FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = $1 AND conname = ANY($2::text[])
+  `, [schemaName, requiredConstraints])
+  if (constraints.rowCount !== requiredConstraints.length) {
+    throw new Error('Migration asset upload migration is missing lifecycle, tenant, or payload constraints')
+  }
+  const indexes = await client.query(`
+    SELECT indexname FROM pg_indexes
+    WHERE schemaname = $1 AND indexname = ANY($2::text[])
+  `, [schemaName, ['migration_import_asset_uploads_import_status_idx', 'migration_import_asset_uploads_expiry_idx']])
+  if (indexes.rowCount !== 2) {
+    throw new Error('Migration asset upload migration is missing status or expiry indexes')
+  }
+  await client.query(`
+    INSERT INTO migration_import_asset_uploads (
+      id, workspace_id, import_id, logical_asset_id, object_key, provider_upload_id,
+      upload_mode, part_size, part_count, completed_parts_json, expected_file_path,
+      expected_original_file_name, expected_mime_type, expected_byte_size, expected_sha256,
+      expected_asset_kind, status, expires_at
+    ) VALUES (
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2',
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1',
+      'schema-asset', 'workspaces/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee/migration-imports/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1/schema-asset.png',
+      'provider-upload-1', 'multipart', 8, 2,
+      '[{"partNumber":1,"etag":"etag-1","byteSize":8}]'::jsonb,
+      'assets/schema-asset.png', 'schema.png', 'image/png', 16, repeat('a', 64), 'upload', 'uploading',
+      now() + interval '1 hour'
+    )
+  `)
+  await expectRejected(
+    client,
+    `UPDATE migration_import_asset_uploads SET status = 'invalid' WHERE id = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2'`,
+    [],
+    'Migration asset uploads accepted an invalid status',
+  )
+  await expectRejected(
+    client,
+    `INSERT INTO migration_import_asset_uploads (
+       workspace_id, import_id, logical_asset_id, object_key, upload_mode, part_size, part_count,
+       expected_file_path, expected_mime_type, expected_byte_size, expected_sha256, expected_asset_kind, expires_at
+     ) VALUES (
+       'ffffffff-ffff-4fff-8fff-ffffffffffff',
+       'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1', 'cross-workspace',
+       'workspaces/ffffffff-ffff-4fff-8fff-ffffffffffff/migration-imports/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1/cross.png',
+       'single', 8, 1, 'assets/cross.png', 'image/png', 8, repeat('b', 64), 'upload', now() + interval '1 hour'
+     )`,
+    [],
+    'Migration asset uploads accepted a cross-workspace import',
+  )
+}
+
+async function assertMigrationCommitSchema(client, schemaName) {
+  const columns = await client.query(`
+    SELECT column_name FROM information_schema.columns
+    WHERE table_schema = $1 AND table_name = 'migration_imports'
+      AND column_name = ANY($2::text[])
+  `, [schemaName, ['commit_idempotency_key', 'commit_request_fingerprint', 'commit_strategy', 'committed_project_id', 'committed_at']])
+  if (columns.rowCount !== 5) {
+    throw new Error('Migration commit migration is missing commit idempotency columns')
+  }
+  const constraints = await client.query(`
+    SELECT conname FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = $1 AND conname = ANY($2::text[])
+  `, [schemaName, [
+    'migration_imports_commit_key_check',
+    'migration_imports_commit_fingerprint_check',
+    'migration_imports_commit_strategy_check',
+    'migration_imports_commit_state_check',
+    'migration_import_asset_uploads_committed_asset_fk',
+  ]])
+  if (constraints.rowCount !== 5) {
+    throw new Error('Migration commit migration is missing commit state constraints')
+  }
+  await expectRejected(
+    client,
+    `UPDATE migration_imports SET status = 'completed' WHERE id = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1'`,
+    [],
+    'Migration imports accepted a completed row without commit metadata',
+  )
+}
+
+async function assertMigrationExportSchema(client, schemaName) {
+  const table = await client.query(`
+    SELECT table_name FROM information_schema.tables
+    WHERE table_schema = $1 AND table_name = 'migration_exports'
+  `, [schemaName])
+  if (table.rowCount !== 1) {
+    throw new Error('Migration export migration did not create migration_exports')
+  }
+  const columns = await client.query(`
+    SELECT column_name FROM information_schema.columns
+    WHERE table_schema = $1 AND table_name = 'migration_exports' AND column_name = 'retry_count'
+  `, [schemaName])
+  if (columns.rowCount !== 1) {
+    throw new Error('Migration lifecycle retry migration is missing export retry_count')
+  }
+  const constraints = await client.query(`
+    SELECT conname FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = $1 AND conname = ANY($2::text[])
+  `, [schemaName, [
+    'migration_exports_workspace_idempotency_unique',
+    'migration_exports_workspace_project_fk',
+    'migration_exports_creator_fk',
+    'migration_exports_status_check',
+    'migration_exports_versions_nonnegative',
+    'migration_exports_counts_nonnegative',
+    'migration_exports_payload_object_check',
+    'migration_exports_archive_state_check',
+    'migration_exports_retry_count_check',
+  ]])
+  if (constraints.rowCount !== 9) {
+    throw new Error('Migration export migration is missing lifecycle or tenant constraints')
+  }
+  const indexes = await client.query(`
+    SELECT indexname FROM pg_indexes
+    WHERE schemaname = $1 AND indexname = ANY($2::text[])
+  `, [schemaName, ['migration_exports_workspace_status_updated_idx', 'migration_exports_expiry_idx', 'migration_exports_retryable_idx']])
+  if (indexes.rowCount !== 3) {
+    throw new Error('Migration export migration is missing lifecycle indexes')
+  }
+}
+
 readDotEnv()
 const migrations = loadMigrations()
 const databaseUrl = process.env.DATABASE_URL
@@ -955,6 +1471,13 @@ try {
     if (migration.version === '0011') {
       await seedAuthDeviceLegacyDedupUpgradeFixture(client)
     }
+    if (migration.version === '0012') {
+      await seedTaskQueueOutboxUpgradeFixture(client)
+    }
+    if (migration.version === '0013') {
+      await seedProviderSubmissionUpgradeFixture(client)
+      await client.query('SET CONSTRAINTS ALL IMMEDIATE')
+    }
     await client.query(migration.sql)
     await client.query(
       'INSERT INTO schema_migrations (version, name) VALUES ($1, $2)',
@@ -969,6 +1492,13 @@ try {
   await assertProviderCredentialSchema(client, schemaName)
   await assertTaskCommandSchema(client, schemaName)
   await assertAuthDeviceSchema(client, schemaName)
+  await assertTaskQueueOutboxSchema(client, schemaName)
+  await assertProviderSubmissionSchema(client, schemaName)
+  await assertGenerationTaskEventSchema(client, schemaName)
+  await assertMigrationImportSchema(client, schemaName)
+  await assertMigrationAssetUploadSchema(client, schemaName)
+  await assertMigrationCommitSchema(client, schemaName)
+  await assertMigrationExportSchema(client, schemaName)
   await client.query('SET CONSTRAINTS ALL IMMEDIATE')
   await client.query('ROLLBACK')
   console.log(`Checked and upgraded ${migrations.length} migration file(s) in an isolated PostgreSQL schema.`)

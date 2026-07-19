@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import pg from 'pg'
+import { validateSchemaReleaseManifest } from './check-schema-release.mjs'
 
 const migrationsDir = join(process.cwd(), 'server', 'db', 'migrations')
 const migrationPattern = /^(\d{4})_([a-z0-9_]+)\.sql$/
@@ -34,6 +35,8 @@ function readDotEnv() {
 }
 
 function loadMigrations() {
+  const releaseManifest = validateSchemaReleaseManifest().manifest
+  const metadataByVersion = new Map(releaseManifest.migrations.map((migration) => [migration.version, migration]))
   return readdirSync(migrationsDir)
     .filter((fileName) => fileName.endsWith('.sql'))
     .sort()
@@ -59,6 +62,7 @@ function loadMigrations() {
         version: match[1],
         name: match[2],
         sql,
+        release: metadataByVersion.get(match[1]),
       }
     })
 }
@@ -86,6 +90,9 @@ async function applyMigration(client, migration) {
   await client.query('BEGIN')
 
   try {
+    const lockTimeoutMs = migration.release.lockRisk === 'low' ? 1000 : migration.release.lockRisk === 'medium' ? 5000 : 10000
+    await client.query(`SET LOCAL lock_timeout = '${lockTimeoutMs}ms'`)
+    await client.query(`SET LOCAL statement_timeout = '${migration.release.statementTimeoutMs}ms'`)
     if (await isApplied(client, migration.version)) {
       await client.query('COMMIT')
       console.log(`Skipped ${migration.fileName}`)
@@ -107,6 +114,11 @@ async function applyMigration(client, migration) {
 }
 
 readDotEnv()
+
+if (['staging', 'production'].includes((process.env.NODE_ENV ?? '').trim().toLowerCase())) {
+  const { validateProtectedDeploymentEnvironment } = await import('../packages/shared/dist/index.js')
+  validateProtectedDeploymentEnvironment(process.env)
+}
 
 const databaseUrl = process.env.DATABASE_URL
 
