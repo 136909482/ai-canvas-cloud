@@ -17,12 +17,14 @@
 
 认证核心使用 Better Auth 1.6.x 的 PostgreSQL 表模型：
 
-- `"user"`：主要字段为 `id`、`name`、`email`、`email_verified`、`image`、`status`、`created_at`、`updated_at`。其中 `status` 是 Cloud 追加字段，用于 `active`、`disabled`、`deleted` 账号状态。
+- `"user"`：主要字段为 `id`、`user_no`、`name`、`email`、`email_verified`、`image`、`status`、`created_at`、`updated_at`。其中 `status` 是 Cloud 追加字段，用于 `active`、`disabled`、`deleted` 账号状态；`user_no` 是从 `10001` 开始、由 PostgreSQL sequence 自动分配的不可变人类可读用户编号，唯一且不回收，但不参与认证或授权。
 - `"session"`：主要字段为 `id`、`user_id`、`token`、`expires_at`、`ip_address`、`user_agent`、`created_at`、`updated_at`。会话 Cookie 由 Better Auth 生成签名值并写入 `better-auth.session_token`。
 - `"account"`：保存登录提供方账号，邮箱密码登录使用 `provider_id='credential'`，密码哈希由 Better Auth 管理并保存在 `password` 字段。
 - `"verification"`：保存 Better Auth 的邮箱验证、密码重置等一次性验证值。注册后发送验证邮件、重发验证邮件、验证 token 消费、忘记密码和重置密码均复用 Better Auth 能力，不维护自研 token 表。
 
 前端和 API 日志不得记录密码、`better-auth.session_token`、重置 token、生产验证/重置链接、Authorization 或 Provider API Key。开发/测试环境可以打印邮箱验证和密码重置链接用于本地调试；生产环境必须接入真实邮件发送服务，不能依赖日志取 token。Cloud 业务授权不信任客户端传入的 `user_id`，必须先从 Better Auth session 解析用户，再通过 `workspace_members` 校验工作区权限。
+
+`0023_user_numbers.sql` 按 `(created_at, id)` 为历史账号稳定回填 `10001` 起的编号，再把 sequence 推进到当前最大值；新账号由列默认值取得下一编号。sequence 允许因事务回滚产生空号，但已经分配的编号不得修改或复用。Better Auth 的不透明 `user.id` 继续作为认证主键和外键目标，`user_no` 只用于用户本人展示、客服检索和后台运营管理。
 
 账号采用单活跃 session。登录密码验证成功后若已存在其他有效 session，未携带接管确认时返回稳定的 `409 ACTIVE_SESSION_EXISTS` 并删除本次临时 session；确认后删除同用户其他 session，只保留新 session。业务 API 只能信任未到期且未撤销的当前 session，密码重置成功后同样撤销旧 session。
 
@@ -256,15 +258,21 @@ P5-4 已由 `0012_task_queue_outbox.sql` 建表。每行保存 workspace、任�
 
 ### `provider_credentials`
 
-P5-2 已由 `0008_provider_credentials.sql` 建表。保存 `workspace_id`、Provider ID、白名单 base URL、AES-256-GCM envelope JSON、密钥版本、末四位提示、active/disabled 状态、创建/更新用户和时间戳；`(workspace_id, provider_id)` 唯一。envelope 必须包含 algorithm、keyVersion、IV、ciphertext 和 auth tag，JSON keyVersion 必须与关系列一致。表中不保存明文 API Key。
+P5-2 已由 `0008_provider_credentials.sql` 建表，`0021_custom_provider_profiles.sql` 增加 `display_name` 和 `provider_type`，`0024_provider_website_urls.sql` 增加可空 `website_url`。`0022_user_provider_credentials.sql` 将当前归属改为账号：表以 `user_id` 和 Provider ID 唯一，保存显示名称、协议类型、官网链接、API base URL、AES-256-GCM envelope JSON、密钥版本、末四位提示、active/disabled 状态、创建/更新用户和时间戳。`workspace_id` 仅作为 0022 之前密文的可空旧加密作用域保留，新凭据不写该列。表中不保存明文 API Key。
 
-加密 AAD 绑定 workspace ID 和 Provider ID，因此跨租户或跨 Provider 复制 ciphertext 无法通过认证解密。写入使用当前 active key version，读取可使用 keyring 中的历史版本；轮换采用“部署新旧 keyring -> 切换 active -> 后台重加密 -> 移除旧密钥”的前向流程。回退旧应用时保留表即可；旧应用不读取 Provider 凭据。base URL 的精确 allowlist 属于服务端注册表约束，数据库额外拒绝非 HTTPS 和含空白的值。
+新密文的 AAD 绑定 user ID 和 Provider ID，因此跨账号或跨 Provider 复制 ciphertext 无法通过认证解密。0022 之前的密文继续使用保留的 `workspace_id` 按 v1 AAD 解密；用户下次更新 API Key 时会写为 user scope 并清空旧 workspace 作用域。写入使用当前 active key version，读取可使用 keyring 中的历史版本；轮换采用“部署新旧 keyring -> 切换 active -> 后台重加密 -> 移除旧密钥”的前向流程。base URL 在领域层规范化为公开 HTTPS 根地址并拒绝本机、私网、凭据、query、fragment 和非标准端口；数据库继续拒绝非 HTTPS 和含空白的值。协议类型首发为 `openai_compatible`，旧 `aliyun` 行前向迁移为 `aliyun_dashscope`。
 
-P5-6 连接测试不新增持久化表，也不写入 `provider_credentials`。请求在授权成功后读取同工作区 active 行并短期解密 envelope；测试结果、Provider 响应正文、Authorization、完整 URL query 和 API Key 均不进入表、任务错误或日志。失败只通过稳定的脱敏分类映射为 `PROVIDER_CONFIG_INVALID` 或 `PROVIDER_UNAVAILABLE`。
+P5-6 连接测试不新增持久化表，也不写入 `provider_credentials`。请求在认证成功后只读取当前用户的 active 行并短期解密 envelope；测试结果、Provider 响应正文、Authorization、完整 URL query 和 API Key 均不进入表、任务错误或日志。失败只通过稳定的脱敏分类映射为 `PROVIDER_CONFIG_INVALID` 或 `PROVIDER_UNAVAILABLE`。
 
 ### P5-2 schema 迁移策略
 
-`0008_provider_credentials.sql` 是纯新增表迁移，不改写用户、项目、任务或资产数据。应用回退可保留该表；若回退版本无法解密新 key version，必须停止 Provider 执行而不是清空或降级密文。迁移测试验证 envelope 完整性、key version 一致性、HTTPS base URL、workspace/provider 唯一性和随机隔离 schema 升级。
+`0008_provider_credentials.sql` 是纯新增表迁移，不改写用户、项目、任务或资产数据。应用回退可保留该表；若回退版本无法解密新 key version，必须停止 Provider 执行而不是清空或降级密文。当前迁移测试验证 envelope 完整性、key version 一致性、HTTPS base URL、user/provider 唯一性和随机隔离 schema 升级。
+
+`0021_custom_provider_profiles.sql` 是兼容性扩展迁移：为既有行回填显示名称与协议类型，`openai` 映射为 `openai_compatible`，`aliyun` 映射为 `aliyun_dashscope`；触发器保证旧应用省略新字段写入时仍得到确定协议。发布后不删除这两列或密文；需要回退应用时保留 schema，由前向修复重新回填缺失元数据。迁移前必须备份凭据表，迁移过程不解密也不重写 API Key envelope。
+
+`0022_user_provider_credentials.sql` 增加 `user_id` 并从稳定的 `created_by_user_id` 回填，随后把唯一约束和查询索引切换为 user/provider；旧 `workspace_id` 改为可空，仅用于识别 v1 AAD，不解密或重写 envelope。若历史数据中同一创建用户和 Provider ID 存在多行，迁移会原子失败，必须在加密备份后人工确认保留/改名策略再前向重跑，不能静默删除凭据。新应用不兼容未执行 0022 的 schema，旧应用也不能在 0022 后继续写 Provider，因此发布顺序必须是备份、迁移、API/Worker 同步切换；回退需要恢复迁移前备份或继续前向修复。
+
+`0024_provider_website_urls.sql` 是可向后兼容的 nullable additive 迁移：OpenAI 和阿里百炼旧行回填各自官网，自定义 Provider 从已校验 API base URL 提取公开 HTTPS origin。数据库约束官网长度、HTTPS 和无空白；领域层进一步拒绝本机、私网、凭据、query、fragment 和非标准端口。`website_url` 仅作为设置页信息展示，Worker 和连接测试绝不把它当作请求目标，所有 Provider 网络请求仍只使用已校验的 `base_url` 与固定 endpoint。旧应用可以忽略该列；回退时保留列和回填值，缺失值由新应用使用官方默认值或 API origin 前向修复。
 
 ### P5-3 schema 迁移策略
 

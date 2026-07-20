@@ -10,7 +10,7 @@ const KEY_2 = Buffer.alloc(32, 2).toString('base64')
 
 test('provider credential cipher encrypts with random authenticated envelopes', () => {
   const cipher = createProviderCredentialCipher(parseProviderCredentialKeyring(`1:${KEY_1}`, 1))
-  const context = { workspaceId: 'workspace-a', providerId: 'openai' }
+  const context = { scope: 'user', scopeId: 'user-a', providerId: 'openai' } as const
   const first = cipher.encrypt('provider-secret-1234', context)
   const second = cipher.encrypt('provider-secret-1234', context)
 
@@ -19,14 +19,15 @@ test('provider credential cipher encrypts with random authenticated envelopes', 
   assert.notEqual(first.ciphertext, second.ciphertext)
   assert.equal(JSON.stringify(first).includes('provider-secret-1234'), false)
   assert.equal(cipher.decrypt(first, context), 'provider-secret-1234')
-  assert.throws(() => cipher.decrypt(first, { ...context, workspaceId: 'workspace-b' }))
+  assert.throws(() => cipher.decrypt(first, { ...context, scopeId: 'user-b' }))
+  assert.throws(() => cipher.decrypt(first, { ...context, scope: 'workspace' }))
   assert.throws(() => cipher.decrypt(first, { ...context, providerId: 'aliyun' }))
 })
 
 test('provider credential keyring decrypts old versions during rotation', () => {
   const oldCipher = createProviderCredentialCipher(parseProviderCredentialKeyring(`1:${KEY_1}`, 1))
   const rotatedCipher = createProviderCredentialCipher(parseProviderCredentialKeyring(`1:${KEY_1},2:${KEY_2}`, 2))
-  const context = { workspaceId: 'workspace-a', providerId: 'openai' }
+  const context = { scope: 'workspace', scopeId: 'workspace-a', providerId: 'openai' } as const
   const oldEnvelope = oldCipher.encrypt('old-provider-secret', context)
   const newEnvelope = rotatedCipher.encrypt('new-provider-secret', context)
 

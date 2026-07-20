@@ -65,6 +65,7 @@ export type WorkspaceStatus = 'active' | 'disabled' | 'deleted'
 
 export interface UserSummary {
   id: string
+  userNumber: number
   email: string
   status: UserStatus
   emailVerified: boolean
@@ -495,12 +496,13 @@ export interface GenerationTaskCommandRequest {
   idempotencyKey: string
 }
 
-export type CloudProviderId = 'openai' | 'aliyun'
+export type CloudProviderId = string
 export type ProviderCredentialStatus = 'active' | 'disabled'
 
 export interface ProviderSettingSummary {
   providerId: CloudProviderId
   label: string
+  websiteUrl: string
   baseUrl: string
   configured: boolean
   status: ProviderCredentialStatus | 'not_configured'
@@ -513,7 +515,9 @@ export interface ProviderSettingsResponse {
 }
 
 export interface PutProviderCredentialRequest {
-  apiKey: string
+  label?: string
+  websiteUrl?: string
+  apiKey?: string
   baseUrl?: string
 }
 

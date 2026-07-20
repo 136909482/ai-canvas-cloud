@@ -106,6 +106,7 @@ interface BetterAuthApi {
 
 interface AuthRows {
   user_id: string
+  user_no: string | number
   email: string
   email_verified: boolean
   user_status: UserStatus
@@ -220,9 +221,16 @@ function toUserStatus(row: Pick<AuthRows, 'user_status'>): UserStatus {
 }
 
 function toAuthSessionResponse(row: AuthRows): AuthSessionResponse {
+  const userNumber = Number(row.user_no)
+
+  if (!Number.isSafeInteger(userNumber) || userNumber < 10001) {
+    throw new Error('Authenticated user number is invalid')
+  }
+
   return {
     user: {
       id: row.user_id,
+      userNumber,
       email: row.email,
       status: toUserStatus(row),
       emailVerified: row.email_verified,
@@ -392,6 +400,7 @@ async function getPrimaryWorkspace(client: Pick<DbClient, 'query'>, userId: stri
     `
       SELECT
         u.id AS user_id,
+        u.user_no,
         u.email,
         u.email_verified,
         COALESCE(u.status, 'active') AS user_status,

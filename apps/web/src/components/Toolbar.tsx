@@ -1,9 +1,6 @@
 ﻿import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
-  Eye,
-  EyeOff,
-  Loader2,
   LogOut,
   Plus,
   Search,
@@ -11,8 +8,6 @@ import {
   X,
 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import { testImageModelConnection } from '@/api/testImageModel'
-import { testChatModelConnection } from '@/api/testChatModel'
 import {
   getModelDeleteErrorFeedback,
   getModelDeleteSuccessFeedback,
@@ -21,7 +16,6 @@ import {
 } from '@/features/settings/modelFeedback'
 import {
   getModelDraftValidationMessage,
-  getProviderProfileValidationMessage,
   PROVIDER_CONFIG_MESSAGES,
 } from '@/features/settings/providerConfig'
 import { isClaudeModel } from '@/features/settings/modelBrand'
@@ -30,6 +24,7 @@ import { useAuthStore } from '@/features/auth/useAuthStore'
 import { useFeedbackStore } from '@/store/useFeedbackStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useSettingsDialogStore } from '@/store/useSettingsDialogStore'
+import { useCloudProviderStore } from '@/store/useCloudProviderStore'
 import { useDialogFocus } from '@/hooks/useDialogFocus'
 import { StorageSettingsPanel } from '@/components/StorageSettingsDialog'
 import { CloudProviderSettingsPanel } from '@/components/CloudProviderSettingsPanel'
@@ -39,7 +34,6 @@ import { TaskQueueButton } from '@/components/TaskQueueButton'
 import { themeClasses } from '@/styles/themeClasses'
 import type { CanvasPerformanceMode, CustomModelKind, EdgeStyle, ThemeMode } from '@/types'
 import {
-  API_URL_HELP_TEXT,
   AUTOSAVE_INTERVAL_OPTIONS,
   CANVAS_EXPERIENCE_TEXT,
   CANVAS_OPTION_BUTTON_CLASS,
@@ -47,7 +41,6 @@ import {
   CANVAS_PERFORMANCE_OPTIONS,
   CANVAS_SETTINGS_ROW_CLASS,
   type DraftModelCard,
-  type DraftProviderProfile,
   EDGE_STYLE_OPTIONS,
   FIELD_INPUT_CLASS,
   FIELD_SELECT_CLASS,
@@ -55,23 +48,15 @@ import {
   MODEL_SETTINGS_PANEL_CLASS,
   MODEL_TAB_ICONS,
   MODEL_TABS,
-  READONLY_FIELD_CLASS,
   SETTINGS_CATEGORIES,
-  SWITCH_OPTION_CLASS,
   THEME_MODE_OPTIONS,
   UI_TEXT,
   createEmptyDraft,
-  createEmptyProviderDraft,
   cx,
-  formatAsyncConfigJson,
-  formatTimestamp,
   getKindLabel,
-  getProviderLabel,
   getStatusTone,
   sanitizeDraftModel,
-  sanitizeProviderProfile,
   toDraftModel,
-  toDraftProviderProfile,
 } from '@/components/toolbar/settingsModel'
 import { CanvasSettingsSwitch, DetailRow } from '@/components/toolbar/settingsComponents'
 
@@ -85,8 +70,6 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
     config,
     saveCustomModel,
     deleteCustomModel,
-    saveProviderProfile,
-    deleteProviderProfile,
     setModelProviderProfile,
     setDefaultModel,
     setStorageSettings,
@@ -95,33 +78,25 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
     config: state.config,
     saveCustomModel: state.saveCustomModel,
     deleteCustomModel: state.deleteCustomModel,
-    saveProviderProfile: state.saveProviderProfile,
-    deleteProviderProfile: state.deleteProviderProfile,
     setModelProviderProfile: state.setModelProviderProfile,
     setDefaultModel: state.setDefaultModel,
     setStorageSettings: state.setStorageSettings,
     persistWorkspaceConfig: state.persistWorkspaceConfig,
   })))
   const notify = useFeedbackStore((state) => state.notify)
-  const confirm = useFeedbackStore((state) => state.confirm)
   const logout = useAuthStore((state) => state.logout)
   const showSettings = useSettingsDialogStore((state) => state.isOpen)
   const activeCategory = useSettingsDialogStore((state) => state.activeCategory)
   const closeSettings = useSettingsDialogStore((state) => state.close)
   const setActiveCategory = useSettingsDialogStore((state) => state.setActiveCategory)
   const [draftModels, setDraftModels] = useState<DraftModelCard[]>([])
-  const [draftProviderProfiles, setDraftProviderProfiles] = useState<DraftProviderProfile[]>([])
   const [draftModelProviderProfileIds, setDraftModelProviderProfileIds] = useState<Record<string, string>>({})
-  const [draftAsyncConfigText, setDraftAsyncConfigText] = useState<Record<string, string>>({})
-  const [showApiKeys, setShowApiKeys] = useState<Record<string, boolean>>({})
-  const [pendingId, setPendingId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<CustomModelKind>('image')
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
-  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null)
-  const [editingAsyncProviderId, setEditingAsyncProviderId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const savedModels = config.customModels
-  const savedProviderProfiles = config.providerProfiles
+  const cloudProviders = useCloudProviderStore((state) => state.providers)
+  const loadCloudProviders = useCloudProviderStore((state) => state.load)
 
   const visibleDraftModels = draftModels.filter((model) => {
     if (model.kind !== activeTab) {
@@ -140,20 +115,16 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
     )
   })
 
-  const visibleProviderProfiles = draftProviderProfiles.filter((profile) => profile.kind === activeTab)
-
   useEffect(() => {
     if (!showSettings) {
       return
     }
 
     setDraftModels(savedModels.map(toDraftModel))
-    const nextProviderProfiles = savedProviderProfiles.map(toDraftProviderProfile)
-    setDraftProviderProfiles(nextProviderProfiles)
     setDraftModelProviderProfileIds(config.modelProviderProfileIds)
-    setDraftAsyncConfigText(Object.fromEntries(nextProviderProfiles.map((profile) => [profile.id, formatAsyncConfigJson(profile)])))
     setSearchQuery('')
-  }, [config.modelProviderProfileIds, savedModels, savedProviderProfiles, showSettings])
+    void loadCloudProviders()
+  }, [config.modelProviderProfileIds, loadCloudProviders, savedModels, showSettings])
 
   useEffect(() => {
     if (!showSettings || activeCategory !== 'models') {
@@ -171,50 +142,19 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
     }
   }, [activeCategory, showSettings, visibleDraftModels, selectedModelId])
 
-  useEffect(() => {
-    if (!showSettings || activeCategory !== 'models') {
-      return
-    }
-
-    const visibleProviders = draftProviderProfiles.filter((profile) => profile.kind === activeTab)
-    if (visibleProviders.length === 0) {
-      setSelectedProviderId(null)
-      return
-    }
-
-    const selectedModel = draftModels.find((model) => model.id === selectedModelId)
-    const modelProviderId = selectedModel ? draftModelProviderProfileIds[selectedModel.modelId] : undefined
-    const resolvedProviderId = modelProviderId ?? config.activeProviderProfileIds[activeTab] ?? visibleProviders[0]?.id ?? null
-    const stillVisible = visibleProviders.some((profile) => profile.id === selectedProviderId)
-    if (!stillVisible || (resolvedProviderId && selectedProviderId !== resolvedProviderId)) {
-      setSelectedProviderId(resolvedProviderId)
-    }
-  }, [activeCategory, activeTab, config.activeProviderProfileIds, draftModelProviderProfileIds, draftModels, draftProviderProfiles, selectedModelId, selectedProviderId, showSettings])
-
   const selectedModel = draftModels.find((model) => model.id === selectedModelId) ?? null
-  const selectedProvider = draftProviderProfiles.find((profile) => profile.id === selectedProviderId)
-    ?? (selectedModel ? visibleProviderProfiles.find((profile) => profile.id === draftModelProviderProfileIds[selectedModel.modelId]) : undefined)
-    ?? visibleProviderProfiles.find((profile) => profile.id === config.activeProviderProfileIds[activeTab])
-    ?? visibleProviderProfiles[0]
-    ?? null
+  const selectedProviderId = selectedModel ? draftModelProviderProfileIds[selectedModel.modelId] ?? '' : ''
+  const selectedProvider = cloudProviders.find((provider) => provider.providerId === selectedProviderId) ?? null
 
   const closeSettingsPanel = () => {
     closeSettings()
     setDraftModels([])
-    setDraftProviderProfiles([])
     setDraftModelProviderProfileIds({})
-    setDraftAsyncConfigText({})
     setSelectedModelId(null)
-    setSelectedProviderId(null)
-    setEditingAsyncProviderId(null)
     setSearchQuery('')
   }
 
   const settingsDialogRef = useDialogFocus<HTMLDivElement>(showSettings, closeSettingsPanel)
-  const asyncConfigDialogRef = useDialogFocus<HTMLDivElement>(
-    Boolean(showSettings && editingAsyncProviderId),
-    () => setEditingAsyncProviderId(null),
-  )
 
   const updateDraft = (id: string, patch: Partial<DraftModelCard>) => {
     setDraftModels((current) =>
@@ -234,7 +174,6 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
   }
 
   const updateSelectedModelProvider = (model: DraftModelCard, profileId: string | null) => {
-    setSelectedProviderId(profileId)
     setDraftModelProviderProfileIds((current) => {
       const next = { ...current }
       if (profileId) {
@@ -262,66 +201,11 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
     })
   }
 
-  const updateProviderDraft = (id: string, patch: Partial<DraftProviderProfile>) => {
-    setDraftProviderProfiles((current) =>
-      current.map((profile) =>
-        profile.id === id
-          ? sanitizeProviderProfile({
-            ...profile,
-            ...patch,
-          })
-          : profile,
-      ),
-    )
-
-    if (patch.kind) {
-      setActiveTab(patch.kind)
-    }
-  }
-
-  const updateProviderAsyncConfigJson = (id: string, value: string) => {
-    setDraftAsyncConfigText((current) => ({
-      ...current,
-      [id]: value,
-    }))
-
-    try {
-      const parsed = JSON.parse(value) as DraftProviderProfile['asyncConfig']
-      updateProviderDraft(id, {
-        asyncConfig: parsed,
-        testStatus: 'idle',
-        testMessage: '',
-      })
-    } catch (error) {
-      updateProviderDraft(id, {
-        testStatus: 'error',
-        testMessage: `高级异步配置 JSON 格式无效：${error instanceof Error ? error.message : String(error)}`,
-      })
-    }
-  }
-
   const handleAddModel = () => {
     const nextModel = createEmptyDraft(activeTab)
     setDraftModels((current) => [...current, nextModel])
     setSelectedModelId(nextModel.id)
     setSearchQuery('')
-  }
-
-  const handleAddProvider = () => {
-    const nextProfile = createEmptyProviderDraft(activeTab)
-    const currentModel = draftModels.find((model) => model.id === selectedModelId && model.kind === activeTab)
-    setDraftProviderProfiles((current) => [...current, nextProfile])
-    setDraftAsyncConfigText((current) => ({
-      ...current,
-      [nextProfile.id]: formatAsyncConfigJson(nextProfile),
-    }))
-    if (currentModel) {
-      setDraftModelProviderProfileIds((current) => ({
-        ...current,
-        [currentModel.modelId]: nextProfile.id,
-      }))
-    }
-    setSelectedProviderId(nextProfile.id)
   }
 
   const handleDeleteModel = async (id: string) => {
@@ -346,123 +230,10 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
     }
   }
 
-  const handleTestModel = async (model: DraftModelCard, providerProfile: DraftProviderProfile | null) => {
+  const handleSaveModel = async (model: DraftModelCard, providerId: string | null) => {
     const sanitized = sanitizeDraftModel(model)
     const validationMessage = getModelDraftValidationMessage(sanitized)
-    const sanitizedProvider = providerProfile ? sanitizeProviderProfile(providerProfile) : null
-    const providerValidationMessage = sanitizedProvider
-      ? getProviderProfileValidationMessage(sanitizedProvider)
-      : PROVIDER_CONFIG_MESSAGES.emptyProviderProfile
-
-    if (validationMessage || providerValidationMessage) {
-      updateDraft(model.id, {
-        testStatus: 'error',
-        testMessage: validationMessage || providerValidationMessage,
-        lastTestedAt: null,
-      })
-      return
-    }
-
-    if (!sanitizedProvider) {
-      return
-    }
-
-    if (!['image', 'chat'].includes(sanitized.kind)) {
-      updateDraft(model.id, {
-        testStatus: 'error',
-        testMessage: UI_TEXT.unsupportedTest,
-        lastTestedAt: null,
-      })
-      return
-    }
-
-    updateDraft(model.id, {
-      ...sanitized,
-      testStatus: 'testing',
-      testMessage: '',
-    })
-
-    setPendingId(model.id)
-
-    try {
-      const runtimeModel = {
-        ...sanitized,
-        apiKey: sanitizedProvider.apiKey,
-        apiUrl: sanitizedProvider.apiUrl,
-        provider: sanitizedProvider.provider,
-        requestMode: sanitizedProvider.requestMode,
-        asyncConfig: sanitizedProvider.asyncConfig,
-      }
-      if (sanitized.kind === 'image') {
-        await testImageModelConnection(runtimeModel)
-      } else {
-        await testChatModelConnection(runtimeModel)
-      }
-
-      updateDraft(model.id, {
-        ...sanitized,
-        testStatus: 'success',
-        testMessage: sanitized.kind === 'image' ? UI_TEXT.testSuccess : UI_TEXT.testLinkSuccess,
-        lastTestedAt: Date.now(),
-      })
-    } catch (error) {
-      updateDraft(model.id, {
-        ...sanitized,
-        testStatus: 'error',
-        testMessage: error instanceof Error ? error.message : String(error),
-        lastTestedAt: Date.now(),
-      })
-    } finally {
-      setPendingId(null)
-    }
-  }
-
-  const handleDeleteProvider = async (id: string) => {
-    const deletedProvider = draftProviderProfiles.find((profile) => profile.id === id)
-    const deletedProviderName = deletedProvider?.name || ''
-    const confirmed = await confirm({
-      title: UI_TEXT.deleteProviderConfirmTitle,
-      message: deletedProviderName
-        ? `${deletedProviderName}：${UI_TEXT.deleteProviderConfirmMessage}`
-        : UI_TEXT.deleteProviderConfirmMessage,
-      confirmLabel: UI_TEXT.delete,
-      cancelLabel: UI_TEXT.close,
-      tone: 'danger',
-    })
-
-    if (!confirmed) {
-      return
-    }
-
-    let nextSelectedId: string | null = null
-
-    setDraftProviderProfiles((current) => {
-      const filtered = current.filter((profile) => profile.id !== id)
-      const nextVisible = filtered.filter((profile) => profile.kind === activeTab)
-      nextSelectedId = nextVisible[0]?.id ?? null
-      return filtered
-    })
-
-    setSelectedProviderId((current) => (current === id ? nextSelectedId : current))
-    setDraftModelProviderProfileIds((current) => Object.fromEntries(
-      Object.entries(current).filter(([, profileId]) => profileId !== id),
-    ))
-    deleteProviderProfile(id)
-    try {
-      await useSettingsStore.getState().persistWorkspaceConfig()
-      notify(getModelDeleteSuccessFeedback(deletedProviderName))
-    } catch {
-      notify(getModelDeleteErrorFeedback(deletedProviderName))
-    }
-  }
-
-  const handleSaveModel = async (model: DraftModelCard, providerProfile: DraftProviderProfile | null) => {
-    const sanitized = sanitizeDraftModel(model)
-    const validationMessage = getModelDraftValidationMessage(sanitized)
-    const sanitizedProvider = providerProfile ? sanitizeProviderProfile(providerProfile) : null
-    const providerValidationMessage = sanitizedProvider
-      ? getProviderProfileValidationMessage(sanitizedProvider)
-      : PROVIDER_CONFIG_MESSAGES.emptyProviderProfile
+    const providerValidationMessage = providerId ? '' : PROVIDER_CONFIG_MESSAGES.emptyProviderProfile
 
     if (validationMessage || providerValidationMessage) {
       updateDraft(model.id, {
@@ -472,18 +243,16 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
       return
     }
 
-    if (!sanitizedProvider) {
+    if (!providerId) {
       return
     }
 
     saveCustomModel(sanitized)
-    saveProviderProfile(sanitizedProvider)
-    setModelProviderProfile(sanitized.modelId, sanitizedProvider.id)
+    setModelProviderProfile(sanitized.modelId, providerId)
     updateDraft(model.id, sanitized)
-    updateProviderDraft(sanitizedProvider.id, sanitizedProvider)
     setDraftModelProviderProfileIds((current) => ({
       ...current,
-      [sanitized.modelId]: sanitizedProvider.id,
+      [sanitized.modelId]: providerId,
     }))
     try {
       await useSettingsStore.getState().persistWorkspaceConfig()
@@ -734,7 +503,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                           </button>
                         </div>
                         <div className="flex min-h-0 flex-1 overflow-y-auto px-5 py-3 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--border-subtle)] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5">
-                    <div key={`${activeTab}-${selectedModel.id}-${selectedProvider?.id ?? 'no-provider'}`} className="mx-auto grid min-h-full w-full max-w-4xl grid-rows-[repeat(6,minmax(0,auto))] overflow-hidden rounded-[10px] border border-[var(--border-subtle)] bg-[var(--control-bg)]">
+                    <div key={`${activeTab}-${selectedModel.id}-${selectedProvider?.providerId ?? 'no-provider'}`} className="mx-auto grid w-full max-w-4xl self-start overflow-hidden rounded-[10px] border border-[var(--border-subtle)] bg-[var(--control-bg)]">
                         <DetailRow label={MODEL_NAME_LABEL} hint="给模型起一个更容易识别的名字。">
                           <input
                             type="text"
@@ -777,144 +546,21 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                             className={FIELD_INPUT_CLASS}
                           />
                         </DetailRow>
-                        <DetailRow label={UI_TEXT.providerProfile} hint="同一个模型 ID 会使用当前选中的服务商接口发起请求。">
-                          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
-                            <select
-                              value={selectedProvider?.id ?? ''}
-                              onChange={(event) => updateSelectedModelProvider(selectedModel, event.target.value || null)}
-                              className={FIELD_SELECT_CLASS}
-                              aria-label={UI_TEXT.providerProfile}
-                            >
-                              {visibleProviderProfiles.map((profile) => (
-                                <option key={profile.id} value={profile.id} className="bg-[var(--panel-bg-strong)] text-[var(--text-primary)]">
-                                  {profile.name}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              onClick={handleAddProvider}
-                              className={`${themeClasses.secondaryButton} h-8.5 shrink-0 whitespace-nowrap rounded-[9px] px-3 text-xs font-medium`}
-                            >
-                              {UI_TEXT.addProvider}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (selectedProvider) {
-                                  void handleDeleteProvider(selectedProvider.id)
-                                }
-                              }}
-                              disabled={!selectedProvider}
-                              className={`${themeClasses.iconButton} h-8.5 w-8.5 shrink-0 rounded-[9px] text-red-500 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40`}
-                              aria-label={UI_TEXT.deleteProvider}
-                              title={UI_TEXT.deleteProvider}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                        <DetailRow label="服务商" hint="模型只绑定 Cloud 服务商；URL 和 Key 请到 Cloud 服务商页面管理。">
+                          <select
+                            value={selectedProviderId}
+                            onChange={(event) => updateSelectedModelProvider(selectedModel, event.target.value || null)}
+                            className={FIELD_SELECT_CLASS}
+                            aria-label="服务商"
+                          >
+                            <option value="">请选择 Cloud 服务商</option>
+                            {cloudProviders.map((provider) => (
+                              <option key={provider.providerId} value={provider.providerId} className="bg-[var(--panel-bg-strong)] text-[var(--text-primary)]">
+                                {provider.label}
+                              </option>
+                            ))}
+                          </select>
                         </DetailRow>
-
-                        {selectedProvider ? (
-                          <>
-                            <DetailRow label={MODEL_NAME_LABEL} hint="给服务商接口起一个方便识别的名字。">
-                              <input
-                                type="text"
-                                value={selectedProvider.name}
-                                onChange={(event) => updateProviderDraft(selectedProvider.id, { name: event.target.value })}
-                                placeholder="OpenAI / Code0 / 阿里百炼"
-                                aria-label="服务商显示名称"
-                                className={FIELD_INPUT_CLASS}
-                              />
-                            </DetailRow>
-
-                            <DetailRow label={UI_TEXT.apiKey} hint="用于连接服务商接口的访问密钥。">
-                              <div className="space-y-1.5">
-                                <div className="relative">
-                                  <input
-                                    type={showApiKeys[selectedProvider.id] ? 'text' : 'password'}
-                                    value={selectedProvider.apiKey}
-                                    onChange={(event) => updateProviderDraft(selectedProvider.id, { apiKey: event.target.value })}
-                                    placeholder="sk-..."
-                                    aria-label={UI_TEXT.apiKey}
-                                    className={cx(FIELD_INPUT_CLASS, 'pr-10')}
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setShowApiKeys((current) => ({
-                                        ...current,
-                                        [selectedProvider.id]: !current[selectedProvider.id],
-                                      }))
-                                    }
-                                    className="absolute right-1.5 top-1/2 inline-flex h-6.5 w-6.5 -translate-y-1/2 items-center justify-center rounded-[7px] text-[var(--text-muted)] transition-colors hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-secondary)]"
-                                    aria-label={showApiKeys[selectedProvider.id] ? '隐藏 API Key' : '显示 API Key'}
-                                    aria-pressed={Boolean(showApiKeys[selectedProvider.id])}
-                                  >
-                                    {showApiKeys[selectedProvider.id] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                                  </button>
-                                </div>
-                                <p className={`text-[11px] leading-4 ${themeClasses.textMuted}`}>
-                                  密钥随工作区配置保存，浏览器配置缓存会自动移除密钥。
-                                </p>
-                              </div>
-                            </DetailRow>
-
-                            <DetailRow label={UI_TEXT.apiUrl} hint={API_URL_HELP_TEXT}>
-                              <input
-                                type="text"
-                                value={selectedProvider.apiUrl}
-                                onChange={(event) => updateProviderDraft(selectedProvider.id, { apiUrl: event.target.value })}
-                                placeholder="https://your-api-endpoint.com"
-                                aria-label={UI_TEXT.apiUrl}
-                                className={FIELD_INPUT_CLASS}
-                              />
-                            </DetailRow>
-                            <DetailRow label={UI_TEXT.provider} hint="系统会根据 API 请求地址自动判断。">
-                              <div className={READONLY_FIELD_CLASS}>
-                                {getProviderLabel(selectedProvider) || UI_TEXT.pendingApiUrl}
-                              </div>
-                            </DetailRow>
-
-                            <DetailRow
-                              label={UI_TEXT.requestMode}
-                              hint={UI_TEXT.requestModeHint}
-                            >
-                              <div className="flex flex-wrap items-center gap-2">
-                                <div className="grid h-8.5 w-56 grid-cols-2 gap-1 rounded-[9px] border border-[var(--border-subtle)] bg-[var(--control-bg)] p-1">
-                                  {(['sync', 'async'] as const).map((mode) => (
-                                    <button
-                                      key={mode}
-                                      type="button"
-                                      onClick={() =>
-                                        updateProviderDraft(selectedProvider.id, {
-                                          requestMode: mode,
-                                        })
-                                      }
-                                      className={cx(
-                                        SWITCH_OPTION_CLASS,
-                                        selectedProvider.requestMode === mode
-                                          ? 'bg-[var(--control-bg-hover)] text-[var(--text-primary)]'
-                                          : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
-                                      )}
-                                    >
-                                      {mode === 'sync' ? UI_TEXT.requestModeSync : UI_TEXT.requestModeAsync}
-                                    </button>
-                                  ))}
-                                </div>
-                                {selectedProvider.requestMode === 'async' ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => setEditingAsyncProviderId(selectedProvider.id)}
-                                    className={`${themeClasses.secondaryButton} h-8.5 rounded-[9px] px-3 text-xs font-medium`}
-                                  >
-                                    {UI_TEXT.asyncConfig}
-                                  </button>
-                                ) : null}
-                              </div>
-                            </DetailRow>
-                          </>
-                        ) : null}
                     </div>
                   </div>
 
@@ -931,7 +577,6 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                     >
                       {selectedModel.testMessage ||
                         (savedModels.some((item) => item.id === selectedModel.id) ? UI_TEXT.saved : UI_TEXT.unsaved)}
-                      {selectedModel.lastTestedAt ? ` · ${formatTimestamp(selectedModel.lastTestedAt)}` : ''}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -950,23 +595,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                       <button
                         type="button"
                         onClick={() => {
-                          void handleTestModel(selectedModel, selectedProvider)
-                        }}
-                        disabled={pendingId === selectedModel.id}
-                        className={`${themeClasses.secondaryButton} inline-flex h-8 items-center gap-1.5 rounded-[9px] px-3 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60`}
-                      >
-                        {pendingId === selectedModel.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                        {pendingId === selectedModel.id
-                          ? UI_TEXT.testing
-                          : selectedModel.kind === 'chat'
-                            ? UI_TEXT.testLink
-                            : UI_TEXT.test}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void handleSaveModel(selectedModel, selectedProvider)
+                          void handleSaveModel(selectedModel, selectedProvider?.providerId ?? null)
                         }}
                         className="h-8 rounded-[9px] bg-[var(--text-primary)] px-3 text-xs font-semibold text-[var(--canvas-bg)] transition hover:opacity-90"
                       >
@@ -1196,53 +825,6 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
         </div>
       )}
 
-      {showSettings && editingAsyncProviderId ? (() => {
-        const editingProvider = draftProviderProfiles.find((profile) => profile.id === editingAsyncProviderId)
-        if (!editingProvider) return null
-
-        return (
-          <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-sm">
-            <div ref={asyncConfigDialogRef} role="dialog" aria-modal="true" aria-labelledby="async-config-dialog-title" tabIndex={-1} className={`flex h-[min(78vh,40rem)] w-[min(92vw,44rem)] flex-col overflow-hidden rounded-[14px] ${themeClasses.strongPanel}`}>
-              <header className="flex items-center justify-between gap-4 border-b border-[var(--border-subtle)] px-5 py-4">
-                <div className="min-w-0">
-                  <h2 id="async-config-dialog-title" className={`truncate text-[16px] font-semibold ${themeClasses.textPrimary}`}>{UI_TEXT.asyncConfig}</h2>
-                  <p className={`mt-1 truncate text-xs ${themeClasses.textMuted}`}>{editingProvider.name}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setEditingAsyncProviderId(null)}
-                  aria-label={UI_TEXT.close}
-                  className={`${themeClasses.iconButton} h-8 w-8 shrink-0 rounded-[9px]`}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </header>
-
-              <div className="min-h-0 flex-1 p-5">
-                <textarea
-                  value={draftAsyncConfigText[editingProvider.id] ?? formatAsyncConfigJson(editingProvider)}
-                  onChange={(event) => updateProviderAsyncConfigJson(editingProvider.id, event.target.value)}
-                  spellCheck={false}
-                  className="h-full w-full resize-none rounded-[10px] border border-[var(--border-subtle)] bg-[var(--control-bg)] px-3 py-3 font-mono text-xs leading-5 text-[var(--text-primary)] outline-none transition placeholder:text-[var(--text-muted)] focus:border-violet-400/60 focus:bg-[var(--control-bg-hover)]"
-                />
-              </div>
-
-              <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] bg-[var(--control-bg)] px-5 py-3">
-                <p className={`min-w-0 flex-1 text-xs leading-5 ${editingProvider.testStatus === 'error' ? 'text-red-500 dark:text-red-200' : themeClasses.textMuted}`}>
-                  {editingProvider.testMessage || UI_TEXT.asyncConfigHint}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setEditingAsyncProviderId(null)}
-                  className="h-8 rounded-[9px] bg-[var(--text-primary)] px-4 text-xs font-semibold text-[var(--canvas-bg)] transition hover:opacity-90"
-                >
-                  {UI_TEXT.save}
-                </button>
-              </footer>
-            </div>
-          </div>
-        )
-      })() : null}
     </>
   )
 }

@@ -1,7 +1,6 @@
-import type { CloudProviderId } from '@ai-canvas-cloud/contracts'
 import { createJsonLogger, type Logger, type MetricsRegistry } from '@ai-canvas-cloud/shared'
 import { getCloudProviderDefinition, resolveProviderTaskEndpoint, resolveProviderTestEndpoint } from './registry.js'
-import { resolveProviderEndpoint } from './registry.js'
+import { resolveProviderEndpoint, type CloudProviderType } from './registry.js'
 
 export const PROVIDER_CONNECTION_TEST_TIMEOUT_MS = 10_000
 export const PROVIDER_CONNECTION_TEST_MAX_RESPONSE_BYTES = 64 * 1024
@@ -20,19 +19,23 @@ export type ProviderGatewayErrorCategory =
 
 export interface ProviderAdapterSubmission {
   mode: ProviderExecutionMode
-  providerId: CloudProviderId
+  providerId: string
   model: string
   parameters: Record<string, unknown>
 }
 
 export interface ProviderAdapter {
-  supportsIdempotentSubmission: (providerId: CloudProviderId) => boolean
+  supportsIdempotentSubmission: (providerId: string) => boolean
   testConnection: (input: {
-    providerId: CloudProviderId
+    providerId: string
+    providerType?: CloudProviderType
+    baseUrl?: string
     apiKey: string
   }) => Promise<void>
   generateImage: (input: {
-    providerId: CloudProviderId
+    providerId: string
+    providerType?: CloudProviderType
+    baseUrl?: string
     apiKey: string
     model: string
     parameters: Record<string, unknown>
@@ -43,7 +46,9 @@ export interface ProviderAdapter {
     usage: Record<string, number>
   }>
   editImage: (input: {
-    providerId: CloudProviderId
+    providerId: string
+    providerType?: CloudProviderType
+    baseUrl?: string
     apiKey: string
     model: string
     parameters: Record<string, unknown>
@@ -52,14 +57,18 @@ export interface ProviderAdapter {
     signal?: AbortSignal
   }) => ReturnType<ProviderAdapter['generateImage']>
   submitAliyunImageTask: (input: {
-    providerId: CloudProviderId
+    providerId: string
+    providerType?: CloudProviderType
+    baseUrl?: string
     apiKey: string
     model: string
     parameters: Record<string, unknown>
     signal?: AbortSignal
   }) => Promise<{ remoteTaskId: string }>
   pollAliyunImageTask: (input: {
-    providerId: CloudProviderId
+    providerId: string
+    providerType?: CloudProviderType
+    baseUrl?: string
     apiKey: string
     remoteTaskId: string
     signal?: AbortSignal
@@ -69,14 +78,18 @@ export interface ProviderAdapter {
     | { status: 'failed' }
   >
   submitAliyunVideoTask: (input: {
-    providerId: CloudProviderId
+    providerId: string
+    providerType?: CloudProviderType
+    baseUrl?: string
     apiKey: string
     model: string
     parameters: Record<string, unknown>
     signal?: AbortSignal
   }) => Promise<{ remoteTaskId: string }>
   pollAliyunVideoTask: (input: {
-    providerId: CloudProviderId
+    providerId: string
+    providerType?: CloudProviderType
+    baseUrl?: string
     apiKey: string
     remoteTaskId: string
     signal?: AbortSignal
@@ -124,6 +137,14 @@ function classifyFetchFailure(error: unknown, timedOut: boolean): ProviderGatewa
     return new ProviderGatewayError('redirect', false)
   }
   return new ProviderGatewayError('network', true)
+}
+
+function resolveAdapterProvider(input: { providerId: string; providerType?: CloudProviderType; baseUrl?: string }) {
+  const legacy = getCloudProviderDefinition(input.providerId)
+  const providerType = input.providerType ?? legacy?.providerType
+  const baseUrl = input.baseUrl ?? legacy?.defaultBaseUrl
+  if (!providerType || !baseUrl) throw new ProviderGatewayError('rejected', false)
+  return { providerType, baseUrl }
 }
 
 function linkAbortSignal(signal: AbortSignal | undefined, controller: AbortController) {
@@ -390,15 +411,12 @@ export function createProviderAdapter(options: {
 
   const adapter: ProviderAdapter = {
     supportsIdempotentSubmission(providerId) {
-      return getCloudProviderDefinition(providerId)?.supportsIdempotentSubmission ?? false
+      return Boolean(getCloudProviderDefinition(providerId)) && false
     },
 
     async testConnection(input) {
-      const definition = getCloudProviderDefinition(input.providerId)
-      if (!definition) {
-        throw new ProviderGatewayError('rejected', false)
-      }
-      const endpoint = resolveProviderTestEndpoint(definition.id)
+      const provider = resolveAdapterProvider(input)
+      const endpoint = resolveProviderTestEndpoint(provider.providerType, provider.baseUrl)
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), timeoutMs)
       const startedAt = Date.now()
@@ -415,7 +433,7 @@ export function createProviderAdapter(options: {
           throw classifyResponse(response.status)
         }
         logger.info('provider.connection_test.completed', {
-          providerId: definition.id,
+          providerId: input.providerId,
           statusCode: response.status,
           elapsedMs: Date.now() - startedAt,
         })
@@ -424,7 +442,7 @@ export function createProviderAdapter(options: {
           ? error
           : classifyFetchFailure(error, controller.signal.aborted)
         logger.warn('provider.connection_test.failed', {
-          providerId: definition.id,
+          providerId: input.providerId,
           category: gatewayError.category,
           retryable: gatewayError.retryable,
           elapsedMs: Date.now() - startedAt,
@@ -436,10 +454,8 @@ export function createProviderAdapter(options: {
     },
 
     async generateImage(input) {
-      if (input.providerId !== 'openai') {
-        throw new ProviderGatewayError('rejected', false)
-      }
-      if (input.model !== 'gpt-image-2') {
+      const provider = resolveAdapterProvider(input)
+      if (provider.providerType !== 'openai_compatible') {
         throw new ProviderGatewayError('rejected', false)
       }
       const prompt = requireImagePrompt(input.parameters)
@@ -454,7 +470,7 @@ export function createProviderAdapter(options: {
       const unlinkAbortSignal = linkAbortSignal(input.signal, controller)
       try {
         if (controller.signal.aborted) throw new ProviderGatewayError('network', true)
-        const response = await providerFetch(resolveProviderEndpoint('openai', 'image_generation'), {
+        const response = await providerFetch(resolveProviderEndpoint(provider.providerType, provider.baseUrl, 'image_generation'), {
           method: 'POST',
           headers: {
             authorization: `Bearer ${input.apiKey}`,
@@ -490,7 +506,8 @@ export function createProviderAdapter(options: {
     },
 
     async editImage(input) {
-      if (input.providerId !== 'openai' || input.model !== 'gpt-image-2' || !['image/png', 'image/jpeg', 'image/webp'].includes(input.mimeType) || input.image.byteLength < 1 || input.image.byteLength > 50 * 1024 * 1024) {
+      const provider = resolveAdapterProvider(input)
+      if (provider.providerType !== 'openai_compatible' || !['image/png', 'image/jpeg', 'image/webp'].includes(input.mimeType) || input.image.byteLength < 1 || input.image.byteLength > 50 * 1024 * 1024) {
         throw new ProviderGatewayError('rejected', false)
       }
       const prompt = requireImagePrompt(input.parameters)
@@ -505,7 +522,7 @@ export function createProviderAdapter(options: {
         form.set('prompt', prompt)
         form.set('output_format', outputFormat)
         form.set('image', new Blob([input.image], { type: input.mimeType }), `source.${input.mimeType === 'image/jpeg' ? 'jpg' : input.mimeType.slice(6)}`)
-        const response = await providerFetch(resolveProviderEndpoint('openai', 'image_edit'), {
+        const response = await providerFetch(resolveProviderEndpoint(provider.providerType, provider.baseUrl, 'image_edit'), {
           method: 'POST', headers: { authorization: `Bearer ${input.apiKey}` }, body: form, redirect: 'error', signal: controller.signal,
         })
         if (!response.ok) {
@@ -523,7 +540,8 @@ export function createProviderAdapter(options: {
     },
 
     async submitAliyunImageTask(input) {
-      if (input.providerId !== 'aliyun' || input.model !== 'wanx2.1-t2i-turbo') {
+      const provider = resolveAdapterProvider(input)
+      if (provider.providerType !== 'aliyun_dashscope' || input.model !== 'wanx2.1-t2i-turbo') {
         throw new ProviderGatewayError('rejected', false)
       }
       const prompt = requireImagePrompt(input.parameters)
@@ -534,7 +552,7 @@ export function createProviderAdapter(options: {
       const unlinkAbortSignal = linkAbortSignal(input.signal, controller)
       try {
         if (controller.signal.aborted) throw new ProviderGatewayError('network', true)
-        const response = await providerFetch(resolveProviderEndpoint('aliyun', 'image_async_submission'), {
+        const response = await providerFetch(resolveProviderEndpoint(provider.providerType, provider.baseUrl, 'image_async_submission'), {
           method: 'POST',
           headers: { authorization: `Bearer ${input.apiKey}`, 'content-type': 'application/json', 'x-dashscope-async': 'enable' },
           body: JSON.stringify({
@@ -559,12 +577,13 @@ export function createProviderAdapter(options: {
     },
 
     async pollAliyunImageTask(input) {
-      if (input.providerId !== 'aliyun') {
+      const provider = resolveAdapterProvider(input)
+      if (provider.providerType !== 'aliyun_dashscope') {
         throw new ProviderGatewayError('rejected', false)
       }
       let endpoint: string
       try {
-        endpoint = resolveProviderTaskEndpoint('aliyun', input.remoteTaskId)
+        endpoint = resolveProviderTaskEndpoint(provider.providerType, provider.baseUrl, input.remoteTaskId)
       } catch {
         throw new ProviderGatewayError('rejected', false)
       }
@@ -591,7 +610,8 @@ export function createProviderAdapter(options: {
     },
 
     async submitAliyunVideoTask(input) {
-      if (input.providerId !== 'aliyun' || input.model !== 'wan2.7-t2v') {
+      const provider = resolveAdapterProvider(input)
+      if (provider.providerType !== 'aliyun_dashscope' || input.model !== 'wan2.7-t2v') {
         throw new ProviderGatewayError('rejected', false)
       }
       const prompt = requireImagePrompt(input.parameters)
@@ -603,7 +623,7 @@ export function createProviderAdapter(options: {
       const unlinkAbortSignal = linkAbortSignal(input.signal, controller)
       try {
         if (controller.signal.aborted) throw new ProviderGatewayError('network', true)
-        const response = await providerFetch(resolveProviderEndpoint('aliyun', 'video_async_submission'), {
+        const response = await providerFetch(resolveProviderEndpoint(provider.providerType, provider.baseUrl, 'video_async_submission'), {
           method: 'POST',
           headers: { authorization: `Bearer ${input.apiKey}`, 'content-type': 'application/json', 'x-dashscope-async': 'enable' },
           body: JSON.stringify({
@@ -628,12 +648,13 @@ export function createProviderAdapter(options: {
     },
 
     async pollAliyunVideoTask(input) {
-      if (input.providerId !== 'aliyun') {
+      const provider = resolveAdapterProvider(input)
+      if (provider.providerType !== 'aliyun_dashscope') {
         throw new ProviderGatewayError('rejected', false)
       }
       let endpoint: string
       try {
-        endpoint = resolveProviderTaskEndpoint('aliyun', input.remoteTaskId)
+        endpoint = resolveProviderTaskEndpoint(provider.providerType, provider.baseUrl, input.remoteTaskId)
       } catch {
         throw new ProviderGatewayError('rejected', false)
       }

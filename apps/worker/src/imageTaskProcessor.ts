@@ -56,7 +56,7 @@ export function createSynchronousOpenAiImageTaskProcessor(options: {
 }): GenerationTaskProcessor {
   return {
     async process(lease: GenerationTaskLease, context: GenerationTaskProcessorContext) {
-      if (lease.kind !== 'image' || lease.providerId !== 'openai') {
+      if (lease.kind !== 'image') {
         throw new GenerationTaskProcessingError('TASK_CAPABILITY_UNSUPPORTED', 'Task capability is not enabled', false)
       }
       const decision = await options.executionService.prepareProviderSubmission({
@@ -82,7 +82,7 @@ export function createSynchronousOpenAiImageTaskProcessor(options: {
       await context.reportProgress(10)
       assertNotAborted(context.signal)
       const credential = await options.providerCredentialService.getExecutionCredential({
-        workspaceId: lease.workspaceId,
+        userId: lease.createdByUserId,
         providerId: lease.providerId,
       })
       let providerResult: Awaited<ReturnType<ProviderAdapter['generateImage']>>
@@ -91,10 +91,10 @@ export function createSynchronousOpenAiImageTaskProcessor(options: {
           const source = await options.executionService.getSourceAsset({ taskId: lease.taskId, workerId: lease.workerId, leaseToken: lease.leaseToken })
           if (!source) throw new GenerationTaskProcessingError('TASK_INPUT_ASSET_MISSING', 'Task source asset is not available', false)
           const image = await options.objectStorage.getObjectBytes({ objectKey: source.objectKey, maxBytes: 50 * 1024 * 1024 })
-          providerResult = await options.providerAdapter.editImage({ providerId: credential.providerId, apiKey: credential.apiKey, model: lease.model, parameters: lease.parameters, image, mimeType: source.mimeType, signal: context.signal })
+          providerResult = await options.providerAdapter.editImage({ providerId: credential.providerId, providerType: credential.providerType, baseUrl: credential.baseUrl, apiKey: credential.apiKey, model: lease.model, parameters: lease.parameters, image, mimeType: source.mimeType, signal: context.signal })
         } else {
           providerResult = await options.providerAdapter.generateImage({
-            providerId: credential.providerId, apiKey: credential.apiKey, model: lease.model, parameters: lease.parameters, signal: context.signal,
+            providerId: credential.providerId, providerType: credential.providerType, baseUrl: credential.baseUrl, apiKey: credential.apiKey, model: lease.model, parameters: lease.parameters, signal: context.signal,
           })
         }
       } catch (error) {
@@ -184,7 +184,7 @@ export function createAliyunAsyncImageTaskProcessor(options: {
       await context.reportProgress(10)
       assertNotAborted(context.signal)
       const credential = await options.providerCredentialService.getExecutionCredential({
-        workspaceId: lease.workspaceId,
+        userId: lease.createdByUserId,
         providerId: 'aliyun',
       })
       let remoteTaskId: string
@@ -193,7 +193,7 @@ export function createAliyunAsyncImageTaskProcessor(options: {
           remoteTaskId = decision.remoteTaskId
         } else {
           remoteTaskId = (await options.providerAdapter.submitAliyunImageTask({
-            providerId: credential.providerId,
+            providerId: credential.providerId, providerType: credential.providerType, baseUrl: credential.baseUrl,
             apiKey: credential.apiKey,
             model: lease.model,
             parameters: lease.parameters,
@@ -220,7 +220,7 @@ export function createAliyunAsyncImageTaskProcessor(options: {
         let status: Awaited<ReturnType<ProviderAdapter['pollAliyunImageTask']>>
         try {
           status = await options.providerAdapter.pollAliyunImageTask({
-            providerId: credential.providerId,
+            providerId: credential.providerId, providerType: credential.providerType, baseUrl: credential.baseUrl,
             apiKey: credential.apiKey,
             remoteTaskId,
             signal: context.signal,
@@ -297,7 +297,7 @@ export function createAliyunAsyncVideoTaskProcessor(options: {
       await context.reportProgress(10)
       assertNotAborted(context.signal)
       const credential = await options.providerCredentialService.getExecutionCredential({
-        workspaceId: lease.workspaceId,
+        userId: lease.createdByUserId,
         providerId: 'aliyun',
       })
       let remoteTaskId: string
@@ -306,7 +306,7 @@ export function createAliyunAsyncVideoTaskProcessor(options: {
           remoteTaskId = decision.remoteTaskId
         } else {
           remoteTaskId = (await options.providerAdapter.submitAliyunVideoTask({
-            providerId: credential.providerId,
+            providerId: credential.providerId, providerType: credential.providerType, baseUrl: credential.baseUrl,
             apiKey: credential.apiKey,
             model: lease.model,
             parameters: lease.parameters,
@@ -333,7 +333,7 @@ export function createAliyunAsyncVideoTaskProcessor(options: {
         let status: Awaited<ReturnType<ProviderAdapter['pollAliyunVideoTask']>>
         try {
           status = await options.providerAdapter.pollAliyunVideoTask({
-            providerId: credential.providerId,
+            providerId: credential.providerId, providerType: credential.providerType, baseUrl: credential.baseUrl,
             apiKey: credential.apiKey,
             remoteTaskId,
             signal: context.signal,
@@ -388,13 +388,13 @@ export function createProviderImageTaskProcessor(options: {
   const aliyunVideo = createAliyunAsyncVideoTaskProcessor(options)
   return {
     process(lease, context) {
-      return lease.providerId === 'openai'
-        ? openAi.process(lease, context)
-        : lease.providerId === 'aliyun' && lease.kind === 'image'
+      return lease.providerId === 'aliyun' && lease.kind === 'image'
           ? aliyun.process(lease, context)
           : lease.providerId === 'aliyun' && lease.kind === 'video'
             ? aliyunVideo.process(lease, context)
-          : Promise.reject(new GenerationTaskProcessingError('TASK_CAPABILITY_UNSUPPORTED', 'Task capability is not enabled', false))
+            : lease.kind === 'image'
+              ? openAi.process(lease, context)
+              : Promise.reject(new GenerationTaskProcessingError('TASK_CAPABILITY_UNSUPPORTED', 'Task capability is not enabled', false))
     },
   }
 }

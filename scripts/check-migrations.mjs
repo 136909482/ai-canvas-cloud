@@ -521,9 +521,10 @@ async function assertProviderCredentialSchema(client, schemaName) {
   }
 
   const requiredConstraints = [
-    'provider_credentials_workspace_provider_unique',
+    'provider_credentials_user_provider_unique',
     'provider_credentials_envelope_object_check',
     'provider_credentials_base_url_check',
+    'provider_credentials_website_url_check',
     'provider_credentials_status_check',
   ]
   const constraintResult = await client.query(
@@ -541,10 +542,10 @@ async function assertProviderCredentialSchema(client, schemaName) {
 
   const indexResult = await client.query(
     `SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND indexname = $2`,
-    [schemaName, 'provider_credentials_workspace_status_idx'],
+    [schemaName, 'provider_credentials_user_status_idx'],
   )
   if (indexResult.rowCount !== 1) {
-    throw new Error('Provider credential migration is missing its workspace status index')
+    throw new Error('Provider credential migration is missing its user status index')
   }
 
   const envelope = JSON.stringify({
@@ -556,22 +557,38 @@ async function assertProviderCredentialSchema(client, schemaName) {
   })
   await client.query(`
     INSERT INTO provider_credentials (
-      workspace_id, provider_id, base_url, encrypted_secret_json,
+      user_id, provider_id, base_url, encrypted_secret_json,
       key_version, secret_last_four, created_by_user_id, updated_by_user_id
     ) VALUES (
-      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'openai', 'https://api.openai.com',
+      'migration-user', 'openai', 'https://api.openai.com',
       $1::jsonb, 1, '1234', 'migration-user', 'migration-user'
     )
   `, [envelope])
+
+  const backfilledWebsite = await client.query(`
+    SELECT website_url
+    FROM provider_credentials
+    WHERE user_id = 'quota-upgrade-user' AND provider_id = 'openai'
+  `)
+  if (backfilledWebsite.rows[0]?.website_url !== 'https://openai.com') {
+    throw new Error('Provider website URL migration did not backfill the known provider website')
+  }
+
+  await expectRejected(
+    client,
+    `UPDATE provider_credentials SET website_url = 'http://127.0.0.1' WHERE user_id = 'migration-user' AND provider_id = 'openai'`,
+    [],
+    'Provider credential constraint accepted a non-HTTPS website URL',
+  )
 
   await expectRejected(
     client,
     `
       INSERT INTO provider_credentials (
-        workspace_id, provider_id, base_url, encrypted_secret_json,
+        user_id, provider_id, base_url, encrypted_secret_json,
         key_version, secret_last_four, created_by_user_id, updated_by_user_id
       ) VALUES (
-        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'aliyun', 'http://127.0.0.1',
+        'migration-user', 'aliyun', 'http://127.0.0.1',
         $1::jsonb, 1, '1234', 'migration-user', 'migration-user'
       )
     `,
@@ -582,10 +599,10 @@ async function assertProviderCredentialSchema(client, schemaName) {
     client,
     `
       INSERT INTO provider_credentials (
-        workspace_id, provider_id, base_url, encrypted_secret_json,
+        user_id, provider_id, base_url, encrypted_secret_json,
         key_version, secret_last_four, created_by_user_id, updated_by_user_id
       ) VALUES (
-        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'aliyun',
+        'migration-user', 'aliyun',
         'https://dashscope.aliyuncs.com/compatible-mode/v1',
         '{}'::jsonb, 1, '1234', 'migration-user', 'migration-user'
       )
@@ -1444,6 +1461,77 @@ async function assertMigrationExportSchema(client, schemaName) {
   }
 }
 
+async function seedUserNumberUpgradeFixture(client) {
+  await client.query(`
+    INSERT INTO "user" (id, name, email, created_at, updated_at)
+    VALUES
+      ('user-number-a', 'User Number A', 'user-number-a@example.invalid', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+      ('user-number-b', 'User Number B', 'user-number-b@example.invalid', '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z')
+  `)
+}
+
+async function seedProviderWebsiteUpgradeFixture(client) {
+  await client.query(`
+    INSERT INTO provider_credentials (
+      user_id, provider_id, display_name, provider_type, base_url, encrypted_secret_json,
+      key_version, secret_last_four, status, created_by_user_id, updated_by_user_id
+    ) VALUES (
+      'quota-upgrade-user', 'openai', 'OpenAI', 'openai_compatible', 'https://api.openai.com',
+      '{"algorithm":"aes-256-gcm","keyVersion":1,"iv":"website-iv","ciphertext":"website-ciphertext","authTag":"website-auth-tag"}'::jsonb,
+      1, '1234', 'active', 'quota-upgrade-user', 'quota-upgrade-user'
+    )
+  `)
+}
+
+async function assertUserNumberSchema(client, schemaName) {
+  const users = await client.query(`
+    SELECT id, user_no
+    FROM "user"
+    WHERE id IN ('user-number-a', 'user-number-b')
+    ORDER BY created_at ASC, id ASC
+  `)
+  if (users.rows.length !== 2
+    || Number(users.rows[0]?.user_no) !== 10001
+    || Number(users.rows[1]?.user_no) !== 10002) {
+    throw new Error('User number migration did not backfill stable sequential numbers')
+  }
+
+  const maximumBeforeInsert = await client.query('SELECT max(user_no) AS maximum FROM "user"')
+  const expectedNextNumber = Number(maximumBeforeInsert.rows[0]?.maximum) + 1
+  const inserted = await client.query(`
+    INSERT INTO "user" (id, name, email)
+    VALUES ('user-number-c', 'User Number C', 'user-number-c@example.invalid')
+    RETURNING user_no
+  `)
+  if (Number(inserted.rows[0]?.user_no) !== expectedNextNumber) {
+    throw new Error('User number sequence did not continue after the backfill maximum')
+  }
+
+  const constraints = await client.query(`
+    SELECT conname
+    FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = $1
+      AND conname = ANY($2::text[])
+  `, [schemaName, ['user_user_no_unique', 'user_user_no_check']])
+  if (constraints.rowCount !== 2) {
+    throw new Error('User number migration is missing uniqueness or range constraints')
+  }
+
+  await expectRejected(
+    client,
+    `UPDATE "user" SET user_no = 10000 WHERE id = 'user-number-c'`,
+    [],
+    'User number migration accepted a number below 10001',
+  )
+  await expectRejected(
+    client,
+    `UPDATE "user" SET user_no = 10001 WHERE id = 'user-number-c'`,
+    [],
+    'User number migration accepted a duplicate number',
+  )
+}
+
 readDotEnv()
 const migrations = loadMigrations()
 const databaseUrl = process.env.DATABASE_URL
@@ -1478,6 +1566,12 @@ try {
       await seedProviderSubmissionUpgradeFixture(client)
       await client.query('SET CONSTRAINTS ALL IMMEDIATE')
     }
+    if (migration.version === '0023') {
+      await seedUserNumberUpgradeFixture(client)
+    }
+    if (migration.version === '0024') {
+      await seedProviderWebsiteUpgradeFixture(client)
+    }
     await client.query(migration.sql)
     await client.query(
       'INSERT INTO schema_migrations (version, name) VALUES ($1, $2)',
@@ -1499,6 +1593,7 @@ try {
   await assertMigrationAssetUploadSchema(client, schemaName)
   await assertMigrationCommitSchema(client, schemaName)
   await assertMigrationExportSchema(client, schemaName)
+  await assertUserNumberSchema(client, schemaName)
   await client.query('SET CONSTRAINTS ALL IMMEDIATE')
   await client.query('ROLLBACK')
   console.log(`Checked and upgraded ${migrations.length} migration file(s) in an isolated PostgreSQL schema.`)

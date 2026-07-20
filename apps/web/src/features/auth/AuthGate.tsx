@@ -246,11 +246,11 @@ export function AuthGate({ children }: AuthGateProps) {
 
   const helperText = useMemo(() => {
     if (mode === 'login') {
-      return '登录后进入你的 Cloud 个人空间。'
+      return '登录后继续访问你的项目。'
     }
 
     if (mode === 'register') {
-      return '首个账号会自动创建个人工作区。'
+      return '注册后即可创建和管理多个项目。'
     }
 
     if (mode === 'forgot') {
@@ -598,7 +598,7 @@ export function AuthGate({ children }: AuthGateProps) {
                   返回登录
                 </button>
               ) : (
-                <span>注册即创建你的个人云端空间</span>
+                <span>注册后即可开始创建云端项目</span>
               )}
             </div>
           </section>

@@ -78,6 +78,7 @@ function createAuthResponse(expiresAt: Date): AuthSuccessResponse {
   return {
     user: {
       id: 'user_1',
+      userNumber: 10001,
       email: 'artist@example.com',
       status: 'active',
       emailVerified: true,
@@ -620,6 +621,7 @@ function createFakeProviderCredentialService() {
         providers: [{
           providerId: 'openai',
           label: 'OpenAI',
+          websiteUrl: 'https://openai.com',
           baseUrl: 'https://api.openai.com',
           configured: false,
           status: 'not_configured',
@@ -635,6 +637,7 @@ function createFakeProviderCredentialService() {
         provider: {
           providerId: 'openai',
           label: 'OpenAI',
+          websiteUrl: input.websiteUrl ?? 'https://openai.com',
           baseUrl: 'https://api.openai.com',
           configured: true,
           status: 'active',
@@ -1571,10 +1574,11 @@ test('provider settings routes use the session actor and never return the API ke
       method: 'PUT',
       path: `${API_V1_PREFIX}/settings/providers/openai`,
       cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`,
-      body: { apiKey: 'test-provider-secret-1234', baseUrl: 'https://api.openai.com' },
+      body: { websiteUrl: 'https://openai.com', apiKey: 'test-provider-secret-1234', baseUrl: 'https://api.openai.com' },
     })
     assert.equal(updated.statusCode, 200)
     assert.equal((updated.body as { provider: { secretLastFour: string } }).provider.secretLastFour, '1234')
+    assert.equal((updated.body as { provider: { websiteUrl: string } }).provider.websiteUrl, 'https://openai.com')
     assert.equal(JSON.stringify(updated.body).includes('test-provider-secret'), false)
 
     const listed = await requestJson(port, {
@@ -1726,7 +1730,7 @@ test('generation task routes preserve non-disclosing two-account isolation for r
     async getSession(context) {
       if (context.cookieHeader?.includes('session_a')) {
         return {
-          user: { id: 'task_user_a', email: 'task-a@example.com', status: 'active', emailVerified: true },
+          user: { id: 'task_user_a', userNumber: 10001, email: 'task-a@example.com', status: 'active', emailVerified: true },
           workspace: {
             id: 'task_workspace_a', type: 'personal', name: 'Task A workspace', role: 'owner',
             status: 'active', planKey: 'free',
@@ -1735,7 +1739,7 @@ test('generation task routes preserve non-disclosing two-account isolation for r
       }
       if (context.cookieHeader?.includes('session_b')) {
         return {
-          user: { id: 'task_user_b', email: 'task-b@example.com', status: 'active', emailVerified: true },
+          user: { id: 'task_user_b', userNumber: 10002, email: 'task-b@example.com', status: 'active', emailVerified: true },
           workspace: {
             id: 'task_workspace_b', type: 'personal', name: 'Task B workspace', role: 'owner',
             status: 'active', planKey: 'free',
@@ -1868,7 +1872,7 @@ test('asset read routes preserve non-disclosing two-account isolation', async ()
     async getSession(context) {
       if (context.cookieHeader?.includes('session_b')) {
         return {
-          user: { id: 'asset_user_b', email: 'asset-b@example.com', status: 'active', emailVerified: true },
+          user: { id: 'asset_user_b', userNumber: 10002, email: 'asset-b@example.com', status: 'active', emailVerified: true },
           workspace: {
             id: 'asset_workspace_b',
             type: 'personal',
@@ -1882,7 +1886,7 @@ test('asset read routes preserve non-disclosing two-account isolation', async ()
 
       if (context.cookieHeader?.includes('session_a')) {
         return {
-          user: { id: 'asset_user_a', email: 'asset-a@example.com', status: 'active', emailVerified: true },
+          user: { id: 'asset_user_a', userNumber: 10001, email: 'asset-a@example.com', status: 'active', emailVerified: true },
           workspace: {
             id: 'asset_workspace_a',
             type: 'personal',
@@ -1961,7 +1965,7 @@ test('project routes preserve non-disclosing two-account isolation', async () =>
     async getSession(context) {
       if (context.cookieHeader?.includes('session_b')) {
         return {
-          user: { id: 'user_b', email: 'b@example.com', status: 'active', emailVerified: true },
+          user: { id: 'user_b', userNumber: 10002, email: 'b@example.com', status: 'active', emailVerified: true },
           workspace: {
             id: 'workspace_b',
             type: 'personal',
@@ -1975,7 +1979,7 @@ test('project routes preserve non-disclosing two-account isolation', async () =>
 
       if (context.cookieHeader?.includes('session_a')) {
         return {
-          user: { id: 'user_a', email: 'a@example.com', status: 'active', emailVerified: true },
+          user: { id: 'user_a', userNumber: 10001, email: 'a@example.com', status: 'active', emailVerified: true },
           workspace: {
             id: 'workspace_a',
             type: 'personal',

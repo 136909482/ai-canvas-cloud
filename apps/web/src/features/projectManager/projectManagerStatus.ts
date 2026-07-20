@@ -25,7 +25,7 @@ export function getProjectManagerStatusView(status: ProjectPersistenceStatus): P
     case 'storage-required':
       return {
         label: '未配置存储',
-        title: '需要先选择缓存目录，项目才能写入本地工作区。',
+        title: '云端存储暂未就绪，项目当前无法保存。',
         tone: 'warning',
       }
     case 'saving':
@@ -43,19 +43,19 @@ export function getProjectManagerStatusView(status: ProjectPersistenceStatus): P
     case 'pending-autosave':
       return {
         label: '待自动保存',
-        title: '当前改动尚未写入工作区，等待下一次自动保存。',
+        title: '当前改动尚未同步到云端，等待下一次自动保存。',
         tone: 'warning',
       }
     case 'auto-saved-manual-dirty':
       return {
         label: '已自动保存',
-        title: `已在 ${new Date(status.at).toLocaleString('zh-CN')} 自动写入工作区，但尚未手动保存为项目保存点。`,
+        title: `已在 ${new Date(status.at).toLocaleString('zh-CN')} 自动同步到云端，但尚未手动保存为项目保存点。`,
         tone: 'warning',
       }
     case 'auto-saved':
       return {
         label: '已自动保存',
-        title: `已在 ${new Date(status.at).toLocaleString('zh-CN')} 自动写入工作区。`,
+        title: `已在 ${new Date(status.at).toLocaleString('zh-CN')} 自动同步到云端。`,
         tone: 'success',
       }
     case 'manual-saved':

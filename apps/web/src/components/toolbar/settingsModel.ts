@@ -167,7 +167,7 @@ export const SETTINGS_CATEGORIES: Array<{
   description: string
   Icon: LucideIcon
 }> = [
-  { id: 'account', label: '账号设置', description: '账号信息与个人空间', Icon: UserRound },
+  { id: 'account', label: '账号设置', description: '账号信息与登录状态', Icon: UserRound },
   { id: 'devices', label: '设备管理', description: '当前设备与登录历史', Icon: MonitorCheck },
   { id: 'models', label: '模型管理', description: 'API、模型库与默认模型', Icon: SlidersHorizontal },
   { id: 'providers', label: 'Cloud 服务商', description: '服务端 BYOK 凭据与连接测试', Icon: KeyRound },

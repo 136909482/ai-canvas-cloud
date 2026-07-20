@@ -5,6 +5,7 @@ import { useProjectStore } from '@/store/useProjectStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useTaskQueueStore } from '@/store/useTaskQueueStore'
 import type { CanvasSnapshot } from '@/types'
+import { hasGraphDeletion } from '@/features/projectManager/projectAutosave'
 
 const AUTOSAVE_IDLE_TIMEOUT_MS = 2_000
 
@@ -182,6 +183,12 @@ export function ProjectBootstrap() {
         if (hasDraggingNode(state)) {
           return
         }
+      }
+
+      if (hasGraphDeletion(state, previousState)) {
+        cancelDebounce()
+        scheduleIdleSave()
+        return
       }
 
       scheduleAutosave()

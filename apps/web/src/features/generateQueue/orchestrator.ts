@@ -63,13 +63,14 @@ function createPreviewLabel(timestamp: number) {
   return `${UI_TEXT.previewLabelPrefix} ${new Date(timestamp).toLocaleTimeString('zh-CN', { hour12: false })}`
 }
 
-function getTaskProviderSnapshot(kind: 'image' | 'video', modelId: string) {
-  const profile = useSettingsStore.getState().getResolvedProviderProfile(modelId, kind)
+function getTaskProviderSnapshot(modelId: string) {
+  const settings = useSettingsStore.getState()
+  const providerId = settings.config.modelProviderProfileIds[modelId] ?? null
 
   return {
-    apiProfileId: profile?.id ?? null,
-    apiProfileName: profile?.name ?? null,
-    provider: profile?.provider ?? null,
+    apiProfileId: providerId,
+    apiProfileName: providerId,
+    provider: providerId,
   }
 }
 
@@ -359,7 +360,7 @@ export function enqueueGenerateTask(input: EnqueueGenerateTaskInput) {
 
   const ratio = input.ratio || '1:1'
   const model = input.model || DEFAULT_IMAGE_MODEL_ID
-  const providerSnapshot = getTaskProviderSnapshot('image', model)
+  const providerSnapshot = getTaskProviderSnapshot(model)
   const sourceImageNodeId = typeof input.sourceImageNodeId === 'string' ? input.sourceImageNodeId : null
   const maskImageUrl = input.maskImageUrl ?? null
   const operationType = input.operationType === 'image-edit' && sourceImageNodeId && maskImageUrl
@@ -420,7 +421,7 @@ export function enqueueVideoGenerateTask(input: EnqueueVideoGenerateTaskInput) {
   }
 
   const videoNodeId = createQueuedVideoNode(input.sourceNodeId, model)
-  const providerSnapshot = getTaskProviderSnapshot('video', model)
+  const providerSnapshot = getTaskProviderSnapshot(model)
   const taskId = useTaskQueueStore.getState().createTask({
     projectId: input.projectId ?? null,
     kind: 'video',
@@ -474,7 +475,7 @@ export function enqueueImageEditTask(input: EnqueueGenerateTaskInput) {
 
   const ratio = input.ratio || '1:1'
   const model = input.model || DEFAULT_IMAGE_MODEL_ID
-  const providerSnapshot = getTaskProviderSnapshot('image', model)
+  const providerSnapshot = getTaskProviderSnapshot(model)
   const maskImageUrl = input.maskImageUrl ?? (typeof sourceNode.data?.maskDataUrl === 'string' ? sourceNode.data.maskDataUrl : null)
   if (!maskImageUrl) {
     return null

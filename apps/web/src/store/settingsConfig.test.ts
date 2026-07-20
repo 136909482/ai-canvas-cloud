@@ -115,13 +115,13 @@ function runSettingsConfigTests() {
   assert(smoothStepEdges.edgeStyle === 'smoothstep', 'smoothstep edge style should be preserved')
 
   const workspaceConfig = toWorkspaceConfigFile(normalized)
-  assert(workspaceConfig.providerProfiles?.[0]?.apiKey === 'secret', 'workspace config should retain provider secrets')
+  assert(workspaceConfig.providerProfiles?.length === 0, 'cloud workspace config should not persist provider secrets')
   assert(!('testStatus' in workspaceConfig.customModels[0]), 'workspace config should omit runtime model test state')
   assert(!('workspaceConfigured' in workspaceConfig.storage), 'workspace config should omit runtime storage state')
 
   const restored = fromWorkspaceConfigFile(workspaceConfig)
   assert(restored?.customModels[0]?.testStatus === 'idle', 'workspace models should restore with idle test state')
-  assert(restored?.providerProfiles[0]?.testStatus === 'idle', 'workspace profiles should restore with idle test state')
+  assert(restored?.providerProfiles.length === 0, 'cloud workspace config should restore without browser provider profiles')
   assert(restored?.storage.workspaceConfigured === false, 'workspace runtime status should not hydrate from config files')
   assert(restored?.storage.workspaceDirectoryName === '', 'workspace directory name should come from runtime status')
 }

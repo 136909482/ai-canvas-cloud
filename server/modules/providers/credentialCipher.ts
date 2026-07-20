@@ -47,8 +47,17 @@ export function parseProviderCredentialKeyring(serialized: string, activeVersion
   return { activeVersion, keys }
 }
 
-function contextAad(workspaceId: string, providerId: string) {
-  return Buffer.from(`ai-canvas-cloud/provider-credential/v1/${workspaceId}/${providerId}`, 'utf8')
+export interface ProviderCredentialCipherContext {
+  scope: 'user' | 'workspace'
+  scopeId: string
+  providerId: string
+}
+
+function contextAad(context: ProviderCredentialCipherContext) {
+  const prefix = context.scope === 'workspace'
+    ? 'ai-canvas-cloud/provider-credential/v1'
+    : 'ai-canvas-cloud/provider-credential/v2/user'
+  return Buffer.from(`${prefix}/${context.scopeId}/${context.providerId}`, 'utf8')
 }
 
 function requireEnvelope(value: unknown): ProviderCredentialEnvelope {
@@ -74,11 +83,11 @@ function requireEnvelope(value: unknown): ProviderCredentialEnvelope {
 
 export function createProviderCredentialCipher(keyring: ProviderCredentialKeyring) {
   return {
-    encrypt(secret: string, context: { workspaceId: string; providerId: string }) {
+    encrypt(secret: string, context: ProviderCredentialCipherContext) {
       const key = keyring.keys.get(keyring.activeVersion)!
       const iv = randomBytes(12)
       const cipher = createCipheriv(ALGORITHM, key, iv)
-      cipher.setAAD(contextAad(context.workspaceId, context.providerId))
+      cipher.setAAD(contextAad(context))
       const ciphertext = Buffer.concat([cipher.update(secret, 'utf8'), cipher.final()])
       return {
         algorithm: ALGORITHM,
@@ -89,7 +98,7 @@ export function createProviderCredentialCipher(keyring: ProviderCredentialKeyrin
       } satisfies ProviderCredentialEnvelope
     },
 
-    decrypt(value: unknown, context: { workspaceId: string; providerId: string }) {
+    decrypt(value: unknown, context: ProviderCredentialCipherContext) {
       const envelope = requireEnvelope(value)
       const key = keyring.keys.get(envelope.keyVersion)
       if (!key) {
@@ -97,7 +106,7 @@ export function createProviderCredentialCipher(keyring: ProviderCredentialKeyrin
       }
       try {
         const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(envelope.iv, 'base64'))
-        decipher.setAAD(contextAad(context.workspaceId, context.providerId))
+        decipher.setAAD(contextAad(context))
         decipher.setAuthTag(Buffer.from(envelope.authTag, 'base64'))
         return Buffer.concat([
           decipher.update(Buffer.from(envelope.ciphertext, 'base64')),

@@ -39,6 +39,7 @@ test('auth success response keeps user and workspace boundaries explicit', () =>
   const response: AuthSuccessResponse = {
     user: {
       id: 'user_1',
+      userNumber: 10001,
       email: 'artist@example.com',
       status: 'active',
       emailVerified: true,
@@ -58,6 +59,7 @@ test('auth success response keeps user and workspace boundaries explicit', () =>
 
   assert.equal(response.workspace.role, 'owner')
   assert.equal(response.user.email, 'artist@example.com')
+  assert.equal(response.user.userNumber, 10001)
 })
 
 test('current workspace response wraps the authorized workspace summary', () => {
@@ -510,6 +512,7 @@ test('provider settings expose only configuration state and secret hints', () =>
     providers: [{
       providerId: 'openai',
       label: 'OpenAI',
+      websiteUrl: 'https://openai.com',
       baseUrl: 'https://api.openai.com',
       configured: true,
       status: 'active',

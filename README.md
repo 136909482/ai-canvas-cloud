@@ -108,7 +108,7 @@ docker compose --env-file infra/deploy/staging/staging.env -f infra/deploy/stagi
 
 `migrate` 是独立的一次性发布步骤；API/Worker 启动命令不执行迁移。Compose 使用独立的 staging PostgreSQL、Redis、MinIO Bucket、队列名、邮件/Provider/BYOK 配置和持久卷，Web 只通过同域反向代理访问 API。配置门禁会拒绝 staging/production 的 localhost、HTTP Web/Auth URL、默认 MinIO 凭据、占位认证密钥、开发管理员 seed、缺失来源白名单以及带有 local/production 标识的资源或凭据 ID。停止 PostgreSQL、Redis 或对象存储后，API `/health/ready` 返回 `503` 与 `degraded`；Worker 健康检查会反映 Redis 连接状态。
 
-schema 发布使用 `expand -> migrate -> contract` 单调顺序，长期元数据位于 `server/db/migrations/release-manifest.json`。每个迁移声明旧/新应用可读性、锁风险、statement timeout、回滚边界、前向修复和备份门槛；`npm run db:migrate:compat` 会校验 20 个迁移的 manifest、旧 schema + 新应用的可选列读取、新 schema + 旧应用的列读取，以及中断事务重跑。当前没有 contract migration；删除列/表必须先经过备份与独立发布窗口。
+schema 发布使用 `expand -> migrate -> contract` 单调顺序，长期元数据位于 `server/db/migrations/release-manifest.json`。每个迁移声明旧/新应用可读性、锁风险、statement timeout、回滚边界、前向修复和备份门槛；`npm run db:migrate:compat` 会校验 24 个迁移的 manifest、旧 schema + 新应用的可选列读取、新 schema + 旧应用的列读取，以及中断事务重跑。当前没有 contract migration；删除列/表必须先经过备份与独立发布窗口。
 
 该定义是厂商无关的容器基线，不代表真实 staging 已配置域名/TLS、SMTP、Provider、密钥管理、备份或告警接收端；这些外部资源必须在部署前单独创建并填入密钥管理系统，不能提交到 Git。
 

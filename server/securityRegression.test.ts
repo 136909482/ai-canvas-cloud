@@ -37,14 +37,16 @@ test('security URL matrix rejects SSRF protocol, host, port, credential and ID b
   const rejectedBaseUrls = [
     'http://api.openai.com',
     'https://api.openai.com:8443',
-    'https://api.openai.com.evil.invalid',
     'https://user@api.openai.com',
     'https://127.0.0.1',
+    'https://localhost/v1',
+    'https://service.local/v1',
     'data:text/plain,fixture',
   ]
   for (const value of rejectedBaseUrls) {
     assert.throws(() => normalizeProviderBaseUrl('openai', value), undefined, value)
   }
+  assert.equal(normalizeProviderBaseUrl('custom', 'https://api.openai.com.evil.invalid/v1'), 'https://api.openai.com.evil.invalid/v1')
 
   for (const taskId of ['../secret', 'task/child', 'task%2fchild', 'task?target=evil', 'task#fragment', '任务']) {
     assert.throws(() => resolveProviderTaskEndpoint('aliyun', taskId), undefined, taskId)

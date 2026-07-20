@@ -38,7 +38,7 @@ interface GenerationTaskRow {
   source_node_id: string
   preview_node_id: string | null
   task_kind: 'image' | 'video'
-  provider_id: 'openai' | 'aliyun'
+  provider_id: string
   model_key: string
   billing_mode: 'workspace_key' | 'platform'
   request_json: unknown
@@ -506,9 +506,9 @@ export function createPostgresGenerationTaskService(
         }
 
         await requireProjectNodes(client, input, actor.workspaceId)
-        await lockConfiguredProviderCredential(client, actor.workspaceId, input.providerId)
+        const provider = await lockConfiguredProviderCredential(client, actor.userId, input.providerId)
         if (!isProviderGenerationTaskEnabled({
-          providerId: input.providerId,
+          providerType: provider.providerType,
           kind: input.kind,
           model: input.model,
         })) {

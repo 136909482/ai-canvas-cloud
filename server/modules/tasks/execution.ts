@@ -62,6 +62,7 @@ interface ExecutionTaskRow {
 export interface GenerationTaskLease {
   taskId: string
   workspaceId: string
+  createdByUserId: string
   projectId: string
   sourceNodeId: string
   previewNodeId: string | null
@@ -666,6 +667,7 @@ export function createPostgresGenerationTaskExecutionService(
         return {
           taskId: task.id,
           workspaceId: task.workspace_id,
+          createdByUserId: task.created_by_user_id,
           projectId: task.project_id,
           sourceNodeId: task.source_node_id,
           previewNodeId: task.preview_node_id,

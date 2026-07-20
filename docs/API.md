@@ -83,6 +83,30 @@ DELETE /api/v1/account
 
 认证兼容接口保留在 `/api/v1/auth/*`，底层委托 Better Auth 管理邮箱密码、签名 HttpOnly Cookie、session、邮箱验证 token 和密码重置 token。注册、登录和会话恢复后，Cloud 侧会幂等确保个人工作区和 owner membership 存在。
 
+注册、登录和 `GET /auth/session` 返回的用户摘要包含不可变数字用户编号：
+
+```json
+{
+  "user": {
+    "id": "better-auth-internal-id",
+    "userNumber": 10001,
+    "email": "artist@example.com",
+    "status": "active",
+    "emailVerified": true
+  },
+  "workspace": {
+    "id": "workspace-uuid",
+    "type": "personal",
+    "name": "artist 的个人空间",
+    "role": "owner",
+    "status": "active",
+    "planKey": "free"
+  }
+}
+```
+
+`userNumber` 从 `10001` 开始递增，用于账号页展示和后台人工检索；它可被枚举，因此不得作为认证凭据、对象存储边界或资源授权依据。服务端仍只信任 HttpOnly session 解析出的 Better Auth `user.id`。
+
 ### 登录与单设备接管
 
 同账号只允许一个有效登录 session。`POST /auth/login` 首次提交会先完成密码验证；如检测到其他有效 session，本次临时 session 立即删除并返回 `409 ACTIVE_SESSION_EXISTS`，不设置 Cookie。客户端明确确认后以同一凭据和 `force: true` 重试，服务端撤销旧 session 并签发新 Cookie。
@@ -587,22 +611,24 @@ DELETE /api/v1/settings/providers/:providerId
 POST   /api/v1/settings/providers/:providerId/test
 ```
 
-P5-2 已实现 `GET /settings/providers`、`PUT /settings/providers/:providerId` 和 `DELETE /settings/providers/:providerId`。GET 允许当前工作区成员读取固定 Provider 列表，只返回 Provider ID、显示名称、固定 base URL、是否已配置、active/disabled、末四位和更新时间；不返回明文、密文、key version、workspace 或更新用户。PUT/DELETE 要求 owner/admin，workspace/user 只从 session 解析。
+`GET /settings/providers`、`PUT /settings/providers/:providerId` 和 `DELETE /settings/providers/:providerId` 管理当前登录用户自己的自定义 Provider。GET 只返回该用户已经创建的 Provider ID、显示名称、官网链接、API base URL、active/disabled、末四位和更新时间；不返回明文、密文、key version、workspace、user ID 或更新用户。PUT 可创建或更新，DELETE 幂等删除；任何已认证成员都只能操作自己的记录，user/workspace 只从 session 解析。同一用户切换项目或工作区仍看到同一套服务商，同一工作区的其他用户看不到也不能使用这些凭据。
 
-PUT 请求只接受 API Key 和可选 base URL：
+PUT 请求接受供应商名称、官网链接、API 请求地址和 API Key；更新已有 Provider 时省略 `apiKey` 表示保留原密钥：
 
 ```json
 {
-  "apiKey": "<provider-api-key>",
-  "baseUrl": "https://api.openai.com"
+  "label": "Krill",
+  "websiteUrl": "https://krill.ai",
+  "baseUrl": "https://api.cdn-krill-ai.com/v1",
+  "apiKey": "<provider-api-key>"
 }
 ```
 
-当前注册表只允许 OpenAI `https://api.openai.com` 和阿里百炼 `https://dashscope.aliyuncs.com/compatible-mode/v1`，不接受任意 URL、HTTP、非标准端口、URL 用户名/密码、query、fragment、相似子域或内网地址。成功响应只返回脱敏 `ProviderSettingSummary`。DELETE 幂等删除当前工作区凭据，不影响其他工作区；删除后新任务不能使用该 Provider。
+`websiteUrl` 必须是公开 HTTPS 地址，只用于设置页展示和用户识别供应商，不参与连接测试、模型调用、endpoint 拼接或网络 allowlist。自定义 Provider 首发统一使用 OpenAI Compatible 协议。`baseUrl` 同样必须是公开 HTTPS 地址，不接受非标准端口、URL 用户名/密码、query、fragment、localhost、`.local`、`.internal` 或私有 IP；Worker 只会在已保存的 base URL 下访问固定的 `/models`、`/images/generations` 和 `/images/edits` 路径，不接受任务请求携带 target URL。既有 `aliyun` 记录继续以前向兼容的 `aliyun_dashscope` 协议执行。成功响应只返回含 `websiteUrl` 的脱敏 `ProviderSettingSummary`；删除后新任务不能使用该 Provider。
 
-`POST /settings/providers/:providerId/test` 已实现。请求体必须为 `{}`，当前工作区 owner/admin 才可调用；`providerId` 仅来自固定注册表，query 和请求体中的任意 target URL 都不参与网络请求，非空字段请求返回 `400 VALIDATION_FAILED`。路由不读取密文或明文 API Key，领域服务在内部短期解密后以固定 HTTPS endpoint 发起测试，使用 `redirect: 'error'`、10 秒超时和 64 KiB 响应上限。
+`POST /settings/providers/:providerId/test` 的请求体必须为 `{}`；Provider 必须来自当前登录用户已保存的记录，query 和请求体中的任意 target URL 都不参与网络请求，非空字段请求返回 `400 VALIDATION_FAILED`。路由不接触密文或明文 API Key，领域服务在内部短期解密后按已保存 base URL 的固定 models endpoint 发起测试，使用 `redirect: 'error'`、10 秒超时和 64 KiB 响应上限。
 
-P5-10 Web 设置客户端仅调用上述固定列表、写入、测试和删除路径。它以 JSON 提交一次性 `apiKey`，不接受或发送 workspace/user、任务字段、Provider target URL、结果 URL、对象 key 或远端任务 ID；成功、删除和关闭设置界面后清空该临时输入，列表仍只使用脱敏 `ProviderSettingSummary`。
+Web 设置客户端通过上述固定 API 路径新增、更新、测试和删除自定义 Provider。API Key 只存在于表单临时状态，成功后立即清空，不进入模型配置、Zustand 持久化、任务投影、项目图或快照；模型设置只保存 `modelId -> providerId` 绑定。
 
 成功返回 `200`，不暴露 Provider 正文、远端 URL、凭据或 workspace：
 

@@ -117,7 +117,7 @@ function NotificationRow({
         title="删除通知"
         aria-label={`删除通知：${notification.title}`}
         onClick={() => onDelete(notification.id)}
-        className={`${themeClasses.iconButton} absolute right-2.5 top-2.5 h-7 w-7 text-[var(--text-muted)] opacity-70 hover:text-red-500 focus-visible:text-red-500 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100`}
+        className={`${themeClasses.iconButton} absolute right-2.5 top-2.5 h-7 w-7 text-[var(--text-muted)] opacity-70 hover:text-red-500 focus-visible:text-red-500`}
       >
         <Trash2 className="h-3.5 w-3.5" />
       </button>
@@ -131,6 +131,7 @@ export function NotificationCenterButton() {
   const markRead = useNotificationStore((state) => state.markRead)
   const markAllRead = useNotificationStore((state) => state.markAllRead)
   const remove = useNotificationStore((state) => state.remove)
+  const clear = useNotificationStore((state) => state.clear)
   const [isOpen, setIsOpen] = useState(false)
   const [filter, setFilter] = useState<NotificationFilter>('all')
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -205,15 +206,26 @@ export function NotificationCenterButton() {
                 {unreadCount > 0 ? `${unreadCount} 条未读` : '没有未读消息'}
               </span>
             </span>
-            <button
-              type="button"
-              onClick={markAllRead}
-              disabled={unreadCount === 0}
-              className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[10px] font-medium text-[var(--text-secondary)] transition hover:bg-[var(--control-bg-hover)] disabled:cursor-default disabled:opacity-40"
-            >
-              <CheckCheck className="h-3.5 w-3.5" />
-              全部已读
-            </button>
+            <span className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={markAllRead}
+                disabled={unreadCount === 0}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[10px] font-medium text-[var(--text-secondary)] transition hover:bg-[var(--control-bg-hover)] disabled:cursor-default disabled:opacity-40"
+              >
+                <CheckCheck className="h-3.5 w-3.5" />
+                全部已读
+              </button>
+              <button
+                type="button"
+                onClick={clear}
+                disabled={items.length === 0}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[10px] font-medium text-[var(--text-secondary)] transition hover:bg-red-500/10 hover:text-red-500 disabled:cursor-default disabled:opacity-40"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                清空
+              </button>
+            </span>
           </header>
 
           <div className="border-b border-[var(--border-subtle)] px-3.5 py-2">

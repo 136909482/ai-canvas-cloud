@@ -310,7 +310,7 @@ test('provider adapter rejects unsupported image inputs and classifies rate limi
   )
   await assert.rejects(
     () => rateLimited.generateImage({ providerId: 'openai', apiKey: API_KEY, model: 'other-image-model', parameters: { prompt: 'draw' } }),
-    (error: unknown) => error instanceof ProviderGatewayError && error.category === 'rejected' && !error.retryable,
+    (error: unknown) => error instanceof ProviderGatewayError && error.category === 'upstream' && error.retryable,
   )
   await assert.rejects(
     () => rateLimited.editImage({

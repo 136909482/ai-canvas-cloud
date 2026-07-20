@@ -39,6 +39,7 @@ function createMockPool(handler: (call: QueryCall) => Promise<{ rows: unknown[] 
 function createWorkspaceRows() {
   return {
     user_id: 'user-1',
+    user_no: '10001',
     email: 'artist@example.com',
     email_verified: false,
     user_status: 'active',
@@ -90,6 +91,7 @@ test('register delegates credentials to Better Auth and creates workspace data',
   )
 
   assert.equal(result.response.user.email, 'artist@example.com')
+  assert.equal(result.response.user.userNumber, 10001)
   assert.equal(result.response.workspace.role, 'owner')
   assert.match(result.setCookieHeaders.join('\n'), /better-auth\.session_token=signed/)
   assert(calls.some((call) => call.text.includes('INSERT INTO workspaces')))

@@ -54,6 +54,7 @@ test('PostgreSQL generation task service is idempotent, bounded, command-safe, a
     await pool.query(`
       INSERT INTO "user" (id, name, email, email_verified)
       VALUES ('task-owner-a', 'A', 'task-service-a@example.com', true),
+             ('task-editor-a', 'A Editor', 'task-service-editor-a@example.com', true),
              ('task-owner-b', 'B', 'task-service-b@example.com', true)
     `)
     await pool.query(`
@@ -62,7 +63,8 @@ test('PostgreSQL generation task service is idempotent, bounded, command-safe, a
     `, [WORKSPACE_A, WORKSPACE_B])
     await pool.query(`
       INSERT INTO workspace_members (workspace_id, user_id, role)
-      VALUES ($1, 'task-owner-a', 'owner'), ($2, 'task-owner-b', 'owner')
+      VALUES ($1, 'task-owner-a', 'owner'), ($1, 'task-editor-a', 'editor'),
+             ($2, 'task-owner-b', 'owner')
     `, [WORKSPACE_A, WORKSPACE_B])
     await pool.query(`
       INSERT INTO projects (id, workspace_id, name)
@@ -78,20 +80,25 @@ test('PostgreSQL generation task service is idempotent, bounded, command-safe, a
     })
     await pool.query(`
       INSERT INTO provider_credentials (
-        workspace_id, provider_id, base_url, encrypted_secret_json, key_version,
+        user_id, provider_id, base_url, encrypted_secret_json, key_version,
         secret_last_four, created_by_user_id, updated_by_user_id
-      ) VALUES ($1, 'openai', 'https://api.openai.com', $2::jsonb, 1, '1234', 'task-owner-a', 'task-owner-a')
-    `, [WORKSPACE_A, envelope])
+      ) VALUES ('task-owner-a', 'openai', 'https://api.openai.com', $1::jsonb, 1, '1234', 'task-owner-a', 'task-owner-a')
+    `, [envelope])
     await pool.query(`
       INSERT INTO provider_credentials (
-        workspace_id, provider_id, base_url, encrypted_secret_json, key_version,
+        user_id, provider_id, base_url, encrypted_secret_json, key_version,
         secret_last_four, created_by_user_id, updated_by_user_id
-      ) VALUES ($1, 'aliyun', 'https://dashscope.aliyuncs.com/compatible-mode/v1', $2::jsonb, 1, '5678', 'task-owner-a', 'task-owner-a')
-    `, [WORKSPACE_A, envelope])
+      ) VALUES ('task-owner-a', 'aliyun', 'https://dashscope.aliyuncs.com/compatible-mode/v1', $1::jsonb, 1, '5678', 'task-owner-a', 'task-owner-a')
+    `, [envelope])
 
     let service = createPostgresGenerationTaskService(pool)
     const actorA = { userId: 'task-owner-a', workspaceId: WORKSPACE_A }
+    const editorA = { userId: 'task-editor-a', workspaceId: WORKSPACE_A }
     const actorB = { userId: 'task-owner-b', workspaceId: WORKSPACE_B }
+    await assert.rejects(
+      () => service.createTask(request('editor-cannot-borrow-provider'), editorA),
+      (error: unknown) => error instanceof AuthServiceError && error.apiCode === 'PROVIDER_CONFIG_INVALID',
+    )
     await assert.rejects(
       () => service.createTask(request('unsupported-video', { kind: 'video' }), actorA),
       (error: unknown) => error instanceof AuthServiceError && error.apiCode === 'PROVIDER_CAPABILITY_UNSUPPORTED',

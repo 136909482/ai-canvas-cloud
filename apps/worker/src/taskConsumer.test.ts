@@ -14,6 +14,7 @@ function lease(): GenerationTaskLease {
   return {
     taskId: randomUUID(),
     workspaceId: randomUUID(),
+    createdByUserId: 'worker-user',
     projectId: randomUUID(),
     sourceNodeId: 'source',
     previewNodeId: null,

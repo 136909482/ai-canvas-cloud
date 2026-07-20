@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import type { GenerationTaskSummary } from '@ai-canvas-cloud/contracts'
-import type { ProviderId } from '@/config/modelCatalog'
 import type {
   GenerateTask,
   GptImageQuality,
@@ -27,7 +26,7 @@ export interface GenerateTaskSnapshot {
   maskImageUrl?: string | null
   apiProfileId?: string | null
   apiProfileName?: string | null
-  provider?: ProviderId | null
+  provider?: string | null
   referenceImageUrls?: string[]
   inputFidelity?: ImageInputFidelity | null
   quality?: GptImageQuality | null

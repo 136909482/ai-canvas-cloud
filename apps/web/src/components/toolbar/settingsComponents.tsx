@@ -29,7 +29,7 @@ type DetailRowProps = {
 
 export function DetailRow({ label, hint, children }: DetailRowProps) {
   return (
-    <div className="relative grid min-h-0 items-center gap-3 px-4 py-1.5 last:[&>span[data-row-divider]]:hidden md:grid-cols-[8rem_minmax(0,1fr)] md:gap-4">
+    <div className="relative grid min-h-16 items-center gap-3 px-4 py-2.5 last:[&>span[data-row-divider]]:hidden md:grid-cols-[8rem_minmax(0,1fr)] md:gap-4">
       <div className="md:pl-3">
         <div className={`flex items-center gap-1.5 text-[12px] font-medium ${themeClasses.textPrimary}`}>
           <span>{label}</span>

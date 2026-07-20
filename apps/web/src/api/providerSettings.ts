@@ -1,5 +1,4 @@
 import type {
-  CloudProviderId,
   DeleteProviderCredentialResponse,
   ProviderConnectionTestResponse,
   ProviderSettingResponse,
@@ -9,7 +8,7 @@ import { requestCloudJson } from './cloudApiClient.ts'
 
 type CloudRequest = <TResponse>(path: string, options?: RequestInit) => Promise<TResponse>
 
-function providerPath(providerId: CloudProviderId) {
+function providerPath(providerId: string) {
   return `/settings/providers/${encodeURIComponent(providerId)}`
 }
 
@@ -19,18 +18,18 @@ export function createCloudProviderSettingsApi(request: CloudRequest = requestCl
       return request<ProviderSettingsResponse>('/settings/providers')
     },
 
-    update(providerId: CloudProviderId, input: { apiKey: string; baseUrl?: string }) {
+    update(providerId: string, input: { label?: string; websiteUrl?: string; apiKey?: string; baseUrl?: string }) {
       return request<ProviderSettingResponse>(providerPath(providerId), {
         method: 'PUT',
         body: JSON.stringify(input),
       })
     },
 
-    remove(providerId: CloudProviderId) {
+    remove(providerId: string) {
       return request<DeleteProviderCredentialResponse>(providerPath(providerId), { method: 'DELETE' })
     },
 
-    test(providerId: CloudProviderId) {
+    test(providerId: string) {
       return request<ProviderConnectionTestResponse>(`${providerPath(providerId)}/test`, {
         method: 'POST',
         body: JSON.stringify({}),

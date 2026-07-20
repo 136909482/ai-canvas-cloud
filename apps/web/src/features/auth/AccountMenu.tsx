@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ChevronRight,
-  FolderKanban,
   HardDrive,
   IdCard,
   KeyRound,
@@ -92,7 +91,7 @@ export function AccountMenu() {
                 {session.user.email}
               </span>
               <span className={`mt-0.5 block truncate text-[9px] ${themeClasses.textMuted}`}>
-                {session.workspace.name}
+                个人账号 · UID {session.user.userNumber}
               </span>
             </span>
           </div>
@@ -189,7 +188,7 @@ export function AccountSettingsPanel({ onSignedOut }: AccountSettingsPanelProps)
               {session.user.email}
             </span>
             <span className={`mt-1 block truncate text-xs ${themeClasses.textMuted}`}>
-              {session.workspace.name}
+              个人账号
             </span>
           </span>
         </div>
@@ -213,13 +212,14 @@ export function AccountSettingsPanel({ onSignedOut }: AccountSettingsPanelProps)
 
         <div className="flex min-h-16 items-center gap-3">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[var(--control-bg-hover)] text-[var(--text-secondary)]">
-            <FolderKanban className="h-4 w-4" />
+            <IdCard className="h-4 w-4" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className={`block text-xs ${themeClasses.textMuted}`}>个人空间</span>
-            <span className={`mt-1 block truncate text-sm font-medium ${themeClasses.textPrimary}`}>{session.workspace.name}</span>
+            <span className={`block text-xs ${themeClasses.textMuted}`}>用户编号</span>
+            <span className={`mt-1 block font-mono text-sm font-semibold tracking-[0.08em] ${themeClasses.textPrimary}`}>UID {session.user.userNumber}</span>
           </span>
         </div>
+
       </div>
 
       <footer className="flex items-center justify-between gap-3 border-t border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] px-4 py-3">

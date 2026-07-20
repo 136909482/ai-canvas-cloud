@@ -120,9 +120,11 @@ P6-2 起，`server/modules/migrations` 是导入预检、暂存上传、commit �
 
 ## Worker 应用
 
-`apps/worker` 负责进程生命周期、BullMQ 连接、dispatcher、Consumer 适配、并发和优雅关闭。P5-4 已由 `server/modules/tasks` 的 outbox dispatcher 领取 PostgreSQL 派发事实，Worker 队列适配器只发布包含 outbox/task ID 的稳定作业；P5-5 已由任务执行领域服务负责 claim、attempt、lease fencing、取消、失败重排和过期恢复，Worker runtime 只编排恢复循环和 Consumer。P5-9 已启用受控图片/视频 processor：OpenAI 同步路径调用 tasks 的 submission/success 边界、providers 的短期凭据与固定 endpoint adapter，以及 assets 的私有读写接口；图片编辑的 source asset 只由 tasks 领域在有效 lease 下解析，Worker 读取该私有对象后 multipart 上传。阿里百炼异步图片/视频路径提交后立即持久化远端 ID，恢复仅走固定 task query endpoint，结果仍通过 tasks 私有转存/成功边界。Consumer 在 Worker 启动后运行并在关闭前先 abort 活跃任务。结果转存、计量和图更新只能通过服务端领域模块完成；Worker 不能持有前端状态，也不能用旧快照覆盖当前项目。
+`apps/worker` 负责进程生命周期、BullMQ 连接、dispatcher、Consumer 适配、并发和优雅关闭。同步图片 processor 根据任务的 `created_by_user_id` 和 `provider_id` 读取任务发起人自己的 Provider 凭据与协议类型，并只在该 Provider 已保存的公开 HTTPS base URL 下调用 OpenAI Compatible 固定端点；任务参数不能提交或覆盖 URL。既有 `aliyun_dashscope` 异步图片/视频路径继续持久化远端 ID并使用固定 task query endpoint。结果转存、计量和图更新只能通过服务端领域模块完成；Worker 不能持有前端状态，也不能用旧快照覆盖当前项目。
 
-P5-10 的 `apps/web/src/api/generationTasks.ts` 是浏览器任务 HTTP 边界，封装 `/tasks` 的创建、分页、详情、取消和重试，以及非当前项目的 active-only 查询；`TaskQueueRunner` 只编排 Cloud 投影提交、当前项目完整轮询和非当前项目轮转缓存，在 Cloud runtime 不调用 `features/generateQueue` 的浏览器 Provider 执行路径。`TaskQueueButton` 使用 `features/generateQueue/taskQueueView` 对当前项目投影和跨项目活跃缓存做全部、进行中、已结束的纯视图筛选，并只对非当前项目调用固定取消命令，绝不访问其画布或暴露未脱敏错误。队列 Zustand store 的 `cachedServerTasks` 只保存会话内、按项目隔离的 queued/running 摘要，切换项目后先恢复再由 API 校准，不能成为任务、资产或图状态的事实来源。`apps/web/src/api/providerSettings.ts` 与 `CloudProviderSettingsPanel` 是服务端 BYOK 的浏览器边界，只访问固定 Provider 设置 API，API Key 只留在组件临时状态且不进入设置 store。`platform/cloud/cloudPlatform.ts` 在项目图加载时只把 Worker 的标准结果 asset ID 转成 `cloud-assets/<uuid>` 定位符并通过私有签名 URL 缓存解析，不能读取对象 key 或 Provider 结果 URL。
+P5-10 的 `apps/web/src/api/generationTasks.ts` 是浏览器任务 HTTP 边界；`TaskQueueRunner` 与 `TaskQueueButton` 只处理服务端任务投影。`apps/web/src/api/providerSettings.ts`、`useCloudProviderStore` 与 `CloudProviderSettingsPanel` 管理当前账号自定义服务商的脱敏列表和一次性密钥输入。模型管理只维护模型和 Cloud Provider ID 绑定，不新增、删除或编辑服务商，也不把 URL/Key 写入工作区模型配置。`platform/cloud/cloudPlatform.ts` 仍只通过标准 asset ID 恢复私有媒体。
+
+Cloud Web 不提供 workspace 选择器、切换器或个人 workspace 名称展示。`ProjectBootstrap` 和 `cloudPlatform` 仍从可信 session/API 恢复默认 workspace ID，用于项目、资产、任务和配额请求；这是平台适配层内部状态，不进入普通账号的信息架构。账号菜单直接展示用户身份，空状态直接创建项目，存储页只展示容量与项目用量。
 
 ## 数据库与迁移
 

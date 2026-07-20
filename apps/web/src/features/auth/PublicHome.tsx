@@ -136,14 +136,14 @@ export function PublicHome({ onLogin, onRegister }: PublicHomeProps) {
             <Cloud aria-hidden="true" />
             <div>
               <h3>云端延续</h3>
-              <p>项目与媒体资产进入你的个人空间。</p>
+              <p>项目与媒体资产安全保存在云端。</p>
             </div>
           </div>
           <div className="home-capability">
             <ShieldCheck aria-hidden="true" />
             <div>
               <h3>私有边界</h3>
-              <p>账号、Provider 与作品资产按工作区隔离。</p>
+              <p>账号、Provider 与作品资产严格隔离。</p>
             </div>
           </div>
         </div>

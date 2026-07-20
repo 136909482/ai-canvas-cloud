@@ -26,7 +26,7 @@ test('recovery audit SQL is read-only and valid against the configured PostgreSQ
       await client.query('INSERT INTO schema_migrations (version, name) VALUES ($1, $2)', [version, name])
     }
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
-    const failures = await auditDatabaseConsistency(client, 20, 0)
+    const failures = await auditDatabaseConsistency(client, 24, 0)
     const fingerprint = await createRecoveryFingerprint(client)
     await client.query('ROLLBACK')
     assert.deepEqual(failures, [])

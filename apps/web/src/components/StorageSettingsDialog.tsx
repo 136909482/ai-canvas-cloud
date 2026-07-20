@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import type { WorkspaceUsageResponse } from '@ai-canvas-cloud/contracts'
 import { AlertTriangle, Archive, Cloud, FileIcon, FolderOpen, Loader2, RefreshCw, X } from 'lucide-react'
 import { requestCloudJson } from '@/api/cloudApiClient'
-import { useAuthStore } from '@/features/auth/useAuthStore'
 import { formatStorageBytes, getStorageUsagePercentage } from '@/features/storage/storageOverview'
 import { useDialogFocus } from '@/hooks/useDialogFocus'
 import { useStorageDialogStore } from '@/store/useStorageDialogStore'
@@ -28,7 +27,6 @@ function StorageOverviewSkeleton() {
 }
 
 export function StorageSettingsPanel({ active = true }: { active?: boolean }) {
-  const workspace = useAuthStore((state) => state.session?.workspace)
   const [usage, setUsage] = useState<WorkspaceUsageResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -93,7 +91,6 @@ export function StorageSettingsPanel({ active = true }: { active?: boolean }) {
 
   const percentage = getStorageUsagePercentage(usage.storage.totalBytes, usage.storage.quotaBytes)
   const isNearlyFull = percentage >= 90
-  const workspaceLabel = workspace?.type === 'team' ? '团队云空间' : '个人云空间'
 
   return (
     <div className="flex flex-col gap-4" aria-busy={isLoading}>
@@ -104,12 +101,7 @@ export function StorageSettingsPanel({ active = true }: { active?: boolean }) {
               <Cloud className="h-4 w-4 shrink-0 text-emerald-500 dark:text-emerald-300" />
               <h3 className={`truncate text-sm font-medium ${themeClasses.textPrimary}`}>存储概况</h3>
             </div>
-            <div className="flex items-center gap-2">
-              {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-muted)]" /> : null}
-              <span className="rounded-full bg-[var(--control-bg-hover)] px-2.5 py-1 text-[11px] text-[var(--text-muted)]">
-                {workspaceLabel}
-              </span>
-            </div>
+            {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-muted)]" /> : null}
           </div>
 
           <div className="mt-5 flex items-end justify-between gap-4">

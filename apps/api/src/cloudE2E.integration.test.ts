@@ -252,9 +252,18 @@ test('cloud API two-account E2E keeps projects, graph, assets, tasks, providers,
     assert.equal(registeredB.statusCode, 201)
     const workspaceA = (registeredA.body as { workspace: { id: string } }).workspace.id
     const workspaceB = (registeredB.body as { workspace: { id: string } }).workspace.id
+    const userNumberA = (registeredA.body as { user: { userNumber: number } }).user.userNumber
+    const userNumberB = (registeredB.body as { user: { userNumber: number } }).user.userNumber
     assert.notEqual(workspaceA, workspaceB)
-    assert.equal((await accountA.request(port, 'GET', '/api/v1/auth/session')).statusCode, 200)
-    assert.equal((await accountB.request(port, 'GET', '/api/v1/auth/session')).statusCode, 200)
+    assert.equal(Number.isSafeInteger(userNumberA) && userNumberA >= 10001, true)
+    assert.equal(Number.isSafeInteger(userNumberB) && userNumberB >= 10001, true)
+    assert.notEqual(userNumberA, userNumberB)
+    const sessionResponseA = await accountA.request(port, 'GET', '/api/v1/auth/session')
+    const sessionResponseB = await accountB.request(port, 'GET', '/api/v1/auth/session')
+    assert.equal(sessionResponseA.statusCode, 200)
+    assert.equal(sessionResponseB.statusCode, 200)
+    assert.equal((sessionResponseA.body as { user: { userNumber: number } }).user.userNumber, userNumberA)
+    assert.equal((sessionResponseB.body as { user: { userNumber: number } }).user.userNumber, userNumberB)
 
     const createdProject = await accountA.request(port, 'POST', '/api/v1/projects', { name: `P7-6 A ${runId}` })
     assert.equal(createdProject.statusCode, 201)
@@ -312,11 +321,15 @@ test('cloud API two-account E2E keeps projects, graph, assets, tasks, providers,
     assert.equal(checkpoint.statusCode, 201)
     assert.equal((await accountB.request(port, 'GET', `/api/v1/projects/${projectA}/revisions`)).statusCode, 404)
 
-    const provider = await accountA.request(port, 'PUT', '/api/v1/settings/providers/openai', { apiKey: `e2e-provider-${runId}` })
+    const provider = await accountA.request(port, 'PUT', '/api/v1/settings/providers/openai', {
+      websiteUrl: 'https://openai.com',
+      apiKey: `e2e-provider-${runId}`,
+    })
     assert.equal(provider.statusCode, 200)
+    assert.equal((provider.body as { provider: { websiteUrl: string } }).provider.websiteUrl, 'https://openai.com')
     const providerListB = await accountB.request(port, 'GET', '/api/v1/settings/providers')
     assert.equal(providerListB.statusCode, 200)
-    assert.equal((providerListB.body as { providers: Array<{ providerId: string; configured: boolean }> }).providers.find((item) => item.providerId === 'openai')?.configured, false)
+    assert.equal((providerListB.body as { providers: Array<{ providerId: string; configured: boolean }> }).providers.length, 0)
 
     const task = await accountA.request(port, 'POST', '/api/v1/tasks', {
       projectId: projectA,

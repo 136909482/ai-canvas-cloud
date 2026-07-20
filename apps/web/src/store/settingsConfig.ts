@@ -306,7 +306,6 @@ export function normalizeConfig(config?: Partial<ApiConfig> | LegacyConfigShape)
       return [kind, activeId]
     }).filter((entry): entry is [CustomModelKind, string] => typeof entry[1] === 'string' && entry[1].length > 0),
   ) as Partial<Record<CustomModelKind, string>>
-  const enabledProfileIds = new Set(enabledProfiles.map((profile) => profile.id))
   const modelKindByModelId = new Map(customModels.map((model) => [model.modelId, model.kind]))
   const modelProviderProfileIds = Object.fromEntries(
     Object.entries(rawModelProviderProfileIds)
@@ -314,9 +313,8 @@ export function normalizeConfig(config?: Partial<ApiConfig> | LegacyConfigShape)
         typeof entry[0] === 'string'
         && entry[0].trim().length > 0
         && typeof entry[1] === 'string'
-        && enabledProfileIds.has(entry[1])
+        && /^[a-z0-9][a-z0-9_-]{0,79}$/.test(entry[1])
         && modelKindByModelId.has(entry[0])
-        && providerProfiles.some((profile) => profile.id === entry[1] && profile.kind === modelKindByModelId.get(entry[0]))
       )),
   )
 
@@ -343,18 +341,8 @@ export function toWorkspaceConfigFile(config: ApiConfig): WorkspaceConfigFile {
       kind: model.kind,
       enabled: model.enabled,
     })),
-    providerProfiles: normalized.providerProfiles.map((profile) => ({
-      id: profile.id,
-      name: profile.name,
-      kind: profile.kind,
-      apiKey: profile.apiKey,
-      apiUrl: profile.apiUrl,
-      provider: profile.provider,
-      requestMode: profile.requestMode,
-      asyncConfig: profile.asyncConfig,
-      enabled: profile.enabled,
-    })),
-    activeProviderProfileIds: normalized.activeProviderProfileIds,
+    providerProfiles: [],
+    activeProviderProfileIds: {},
     modelProviderProfileIds: normalized.modelProviderProfileIds,
     storage: {
       autosaveIntervalMs: normalized.storage.autosaveIntervalMs,

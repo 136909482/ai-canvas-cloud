@@ -12,7 +12,7 @@ import {
 
 function lease(): GenerationTaskLease {
   return {
-    taskId: randomUUID(), workspaceId: randomUUID(), projectId: randomUUID(),
+    taskId: randomUUID(), workspaceId: randomUUID(), createdByUserId: 'worker-user', projectId: randomUUID(),
     sourceNodeId: 'source', previewNodeId: 'preview', kind: 'image', providerId: 'openai',
     model: 'gpt-image-2', billingMode: 'workspace_key', queueLane: 'default',
     parameters: { prompt: 'draw a circle' }, attemptNumber: 1, maxAttempts: 3,

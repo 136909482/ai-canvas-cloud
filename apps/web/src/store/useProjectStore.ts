@@ -165,7 +165,7 @@ function setProjectPersistenceError(error: unknown, operation = 'background-save
 
   const diagnostic = reportDiagnostic({
     area: 'persistence',
-    title: operation === 'manual-save' ? '项目保存失败' : '工作区写入失败',
+    title: operation === 'manual-save' ? '项目保存失败' : '项目同步失败',
     error,
     code: operation === 'manual-save' ? 'PROJECT_SAVE_FAILED' : 'WORKSPACE_PERSIST_FAILED',
     context: {

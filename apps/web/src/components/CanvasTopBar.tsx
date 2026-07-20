@@ -45,7 +45,7 @@ function getPersistenceStatusView(status: ProjectPersistenceStatus) {
       return {
         text: '未配置缓存目录',
         tone: 'text-amber-500 dark:text-amber-200',
-        title: '请在存储设置中选择缓存目录，项目才能写入本地工作区。',
+        title: '云端存储暂未就绪，项目当前无法保存。',
       }
     case 'saving':
       return {
@@ -63,13 +63,13 @@ function getPersistenceStatusView(status: ProjectPersistenceStatus) {
       return {
         text: '待自动保存',
         tone: 'text-amber-500 dark:text-amber-200',
-        title: '当前更改还未写入工作区文件，稍后会自动保存。',
+        title: '当前更改尚未同步到云端，稍后会自动保存。',
       }
     case 'auto-saved-manual-dirty':
       return {
         text: `自动保存 ${formatStatusTime(status.at)} · 未手动保存`,
         tone: 'text-amber-500 dark:text-amber-200',
-        title: `更改已在 ${new Date(status.at).toLocaleString('zh-CN')} 自动写入工作区，但尚未手动保存为项目保存点。`,
+        title: `更改已在 ${new Date(status.at).toLocaleString('zh-CN')} 自动同步到云端，但尚未手动保存为项目保存点。`,
       }
     case 'auto-saved':
       return {

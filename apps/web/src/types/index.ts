@@ -369,7 +369,7 @@ export interface GenerateTask {
   maskImageUrl?: string | null
   apiProfileId?: string | null
   apiProfileName?: string | null
-  provider?: ProviderId | null
+  provider?: string | null
   referenceImageUrls: string[]
   inputFidelity?: ImageInputFidelity | null
   quality?: GptImageQuality | null

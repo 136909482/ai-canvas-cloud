@@ -261,7 +261,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
     } catch (error) {
       reportDiagnostic({
         area: 'persistence',
-        title: '工作区配置保存失败',
+        title: '配置保存失败',
         error,
         code: 'WORKSPACE_CONFIG_SAVE_FAILED',
         context: { operation: 'save-config' },
@@ -380,15 +380,13 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
       const normalized = normalizeConfig(state.config)
       const trimmedModelId = modelId.trim()
       const model = normalized.customModels.find((item) => item.modelId === trimmedModelId)
-      const profile = profileId
-        ? normalized.providerProfiles.find((item) => item.enabled && item.id === profileId && (!model || item.kind === model.kind))
-        : null
+      const normalizedProviderId = profileId?.trim() ?? ''
       const modelProviderProfileIds = { ...normalized.modelProviderProfileIds }
 
-      if (trimmedModelId.length === 0 || !profile) {
+      if (!model || !/^[a-z0-9][a-z0-9_-]{0,79}$/.test(normalizedProviderId)) {
         delete modelProviderProfileIds[trimmedModelId]
       } else {
-        modelProviderProfileIds[trimmedModelId] = profile.id
+        modelProviderProfileIds[trimmedModelId] = normalizedProviderId
       }
 
       return {

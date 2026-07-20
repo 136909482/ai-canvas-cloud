@@ -18,8 +18,6 @@ import { useDialogFocus } from '@/hooks/useDialogFocus'
 import { useFeedbackStore } from '@/store/useFeedbackStore'
 import { useProjectDialogStore } from '@/store/useProjectDialogStore'
 import { useProjectStore } from '@/store/useProjectStore'
-import { useSettingsDialogStore } from '@/store/useSettingsDialogStore'
-import { useSettingsStore } from '@/store/useSettingsStore'
 import { themeClasses } from '@/styles/themeClasses'
 import type { ProjectBundleImportCandidate, ProjectImportResolution } from '@/platform/types'
 import type { ProjectRecord } from '@/types'
@@ -144,8 +142,6 @@ function ProjectImportConflictDialog({
 export function ProjectManagerDialog() {
   const isOpen = useProjectDialogStore((state) => state.isOpen)
   const close = useProjectDialogStore((state) => state.close)
-  const openSettings = useSettingsDialogStore((state) => state.open)
-  const workspaceConfigured = useSettingsStore((state) => state.runtime.workspaceConfigured)
   const projects = useProjectStore((state) => state.projects)
   const activeProjectId = useProjectStore((state) => state.activeProjectId)
   const createProject = useProjectStore((state) => state.createProject)
@@ -213,9 +209,7 @@ export function ProjectManagerDialog() {
       return
     }
 
-    notify({ tone: 'warning', title: '需要保存位置', message: '请先选择项目保存位置，再新建项目。' })
-    close()
-    openSettings('storage')
+    notify({ tone: 'error', title: '项目创建失败', message: '云端服务暂时不可用，请稍后重试。' })
   }
 
   const handleRenameProject = async (name: string) => {
@@ -255,7 +249,7 @@ export function ProjectManagerDialog() {
     try {
       const exported = await exportProject(project.id)
       if (!exported) {
-        notify({ tone: 'warning', title: '需要工作区', message: '请先在存储设置中配置工作区，再导出项目目录包。' })
+        notify({ tone: 'warning', title: '暂时无法导出', message: '云端项目尚未准备好，请稍后重试。' })
         return
       }
       notify({ tone: 'success', title: '项目已导出', message: `${project.name} 的目录包已创建。` })
@@ -272,7 +266,7 @@ export function ProjectManagerDialog() {
       notify({
         tone: 'success',
         title: resolution === 'replace' ? '项目已替换' : '项目已导入',
-        message: `${result.project.name} 已写入工作区，共导入 ${result.importedAssetCount} 个资产。`,
+        message: `${result.project.name} 已导入云端，共导入 ${result.importedAssetCount} 个资产。`,
       })
     } catch (error) {
       notify({ tone: 'error', title: '导入失败', message: error instanceof Error ? error.message : String(error) })
@@ -357,18 +351,22 @@ export function ProjectManagerDialog() {
     setBatchMode(false)
   }
 
-  const handleConfigureWorkspace = () => {
-    close()
-    openSettings('storage')
-  }
-
   const hasProjects = filteredProjects.length > 0
   const activePersistenceStatus = getActivePersistenceStatus()
   const activeProjectStatusView = getProjectManagerStatusView(activePersistenceStatus)
 
   return (
     <div className="absolute inset-0 z-[55] flex items-center justify-center overflow-hidden bg-black/30 px-4 py-6 backdrop-blur-sm">
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="project-manager-title" tabIndex={-1} className={`relative flex h-[min(78vh,40rem)] w-[min(94vw,66rem)] overflow-hidden rounded-[12px] ${themeClasses.strongPanel}`}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="project-manager-title" tabIndex={-1} className={`relative flex h-[min(78vh,40rem)] w-[min(94vw,76rem)] overflow-hidden rounded-[12px] ${themeClasses.strongPanel}`}>
+        <button
+          type="button"
+          onClick={close}
+          className={`${themeClasses.iconButton} absolute right-4 top-7 z-10 h-10 w-10 rounded-2xl`}
+          aria-label="关闭项目管理"
+        >
+          <X className="h-4 w-4" />
+        </button>
+
         <aside className="relative hidden w-52 shrink-0 border-r border-[var(--border-subtle)] lg:flex lg:flex-col">
           <div className="px-7 pt-8">
             <h2 id="project-manager-title" className={`text-[1.65rem] font-semibold tracking-[-0.06em] ${themeClasses.textPrimary}`}>项目管理</h2>
@@ -403,9 +401,9 @@ export function ProjectManagerDialog() {
 
         <section className="relative flex min-w-0 flex-1 flex-col p-5 sm:p-6 lg:p-7">
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-end">
-              <div className="flex flex-wrap items-center gap-2.5 xl:justify-end">
-                <div className="relative w-full sm:w-[15.5rem]">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+              <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
+                <div className="relative w-full sm:w-[15.5rem] xl:w-[13.5rem] xl:shrink-0">
                   <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
                   <input
                     data-dialog-initial-focus
@@ -484,7 +482,7 @@ export function ProjectManagerDialog() {
                   </button>
                 ) : null}
 
-                {!batchMode && workspaceConfigured ? (
+                {!batchMode ? (
                   <>
                     <button
                       type="button"
@@ -505,26 +503,8 @@ export function ProjectManagerDialog() {
                       新建项目
                     </button>
                   </>
-                ) : !batchMode ? (
-                  <button
-                    type="button"
-                    onClick={handleConfigureWorkspace}
-                    data-testid="project-workspace-setup-button"
-                    className="inline-flex h-10 items-center gap-2 rounded-2xl border border-violet-400/25 bg-violet-500 px-4 text-sm font-semibold text-white transition hover:bg-violet-400"
-                  >
-                    <FolderOpen className="h-4 w-4" />
-                    选择保存位置
-                  </button>
                 ) : null}
 
-                <button
-                  type="button"
-                  onClick={close}
-                  className={`${themeClasses.iconButton} h-10 w-10 rounded-2xl`}
-                  aria-label="关闭项目管理"
-                >
-                  <X className="h-4 w-4" />
-                </button>
               </div>
             </div>
 
@@ -572,9 +552,7 @@ export function ProjectManagerDialog() {
                 <div>
                   <div className="text-sm font-semibold text-[var(--text-primary)]">这里还没有符合条件的项目</div>
                   <p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">
-                    {!workspaceConfigured
-                      ? '请先选择项目保存位置，然后再创建第一个项目。'
-                      : activeCategory === 'archived'
+                    {activeCategory === 'archived'
                       ? '归档项目会保留完整快照和资产引用，并可随时恢复。'
                       : '试试切换分类、清空搜索，或者直接新建一个项目开始。'}
                   </p>

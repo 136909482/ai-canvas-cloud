@@ -10,7 +10,7 @@ test('cloud provider settings client uses fixed provider configuration paths', a
   })
 
   await api.list()
-  await api.update('openai', { apiKey: 'temporary-key', baseUrl: 'https://api.openai.com/v1' })
+  await api.update('openai', { websiteUrl: 'https://openai.com', apiKey: 'temporary-key', baseUrl: 'https://api.openai.com/v1' })
   await api.test('aliyun')
   await api.remove('openai')
 
@@ -20,7 +20,7 @@ test('cloud provider settings client uses fixed provider configuration paths', a
       path: '/settings/providers/openai',
       options: {
         method: 'PUT',
-        body: JSON.stringify({ apiKey: 'temporary-key', baseUrl: 'https://api.openai.com/v1' }),
+        body: JSON.stringify({ websiteUrl: 'https://openai.com', apiKey: 'temporary-key', baseUrl: 'https://api.openai.com/v1' }),
       },
     },
     { path: '/settings/providers/aliyun/test', options: { method: 'POST', body: '{}' } },

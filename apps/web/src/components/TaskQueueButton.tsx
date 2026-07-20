@@ -144,8 +144,12 @@ export function TaskQueueButton() {
   const clearFinishedTasks = useTaskQueueStore((s) => s.clearFinishedTasks)
   const removeTask = useTaskQueueStore((s) => s.removeTask)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
-  const projectNameById = useProjectStore((s) => new Map(s.projects.map((project) => [project.id, project.name])))
+  const projects = useProjectStore((s) => s.projects)
   const notify = useFeedbackStore((s) => s.notify)
+  const projectNameById = useMemo(
+    () => new Map(projects.map((project) => [project.id, project.name])),
+    [projects],
+  )
   const visibleTasks = useMemo(() => {
     if (platformRuntime !== 'cloud') return tasks
     const currentServerTaskIds = new Set(tasks.map((task) => task.serverTaskId).filter((id): id is string => Boolean(id)))

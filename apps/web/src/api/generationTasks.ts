@@ -13,13 +13,13 @@ export const CLOUD_TASK_POLL_INTERVAL_MS = 3_000
 type CloudRequest = <TResponse>(path: string, options?: RequestInit) => Promise<TResponse>
 
 function requireCloudProvider(task: GenerateTask) {
-  if (task.provider !== 'openai' && task.provider !== 'aliyun') {
+  if (!task.provider?.trim()) {
     throw new Error('Cloud task requires a configured supported Provider')
   }
   return task.provider
 }
 
-function buildTaskParameters(task: GenerateTask, providerId: 'openai' | 'aliyun') {
+function buildTaskParameters(task: GenerateTask, providerId: string) {
   if (task.kind === 'video') {
     return {
       prompt: task.prompt,
@@ -32,7 +32,7 @@ function buildTaskParameters(task: GenerateTask, providerId: 'openai' | 'aliyun'
     prompt: task.prompt,
     operationType: task.operationType,
     ...(providerId === 'aliyun' && task.negativePrompt ? { negativePrompt: task.negativePrompt } : {}),
-    ...(providerId === 'openai' && task.quality ? { quality: task.quality } : {}),
+    ...(providerId !== 'aliyun' && task.quality ? { quality: task.quality } : {}),
   }
 }
 

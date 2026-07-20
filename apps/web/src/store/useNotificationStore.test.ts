@@ -80,3 +80,12 @@ test('removes only the selected notification', () => {
 
   assert.deepEqual(useNotificationStore.getState().items.map((item) => item.id), [secondId])
 })
+
+test('clears all notifications', () => {
+  useNotificationStore.getState().push({ kind: 'error', title: '资源恢复失败' })
+  useNotificationStore.getState().push({ kind: 'system', title: '任务已完成' })
+
+  useNotificationStore.getState().clear()
+
+  assert.deepEqual(useNotificationStore.getState().items, [])
+})

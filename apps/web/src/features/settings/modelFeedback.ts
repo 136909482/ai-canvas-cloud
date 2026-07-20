@@ -14,7 +14,7 @@ export function getModelSaveSuccessFeedback(name: string): ModelSettingsFeedback
   return {
     tone: 'success',
     title: '模型已保存',
-    message: `${getModelDisplayName(name)} 的配置已写入工作区。`,
+    message: `${getModelDisplayName(name)} 的配置已保存。`,
   }
 }
 
@@ -22,7 +22,7 @@ export function getModelSaveErrorFeedback(name: string): ModelSettingsFeedback {
   return {
     tone: 'error',
     title: '模型保存失败',
-    message: `${getModelDisplayName(name)} 的配置未能写入工作区，请稍后重试。`,
+    message: `${getModelDisplayName(name)} 的配置保存失败，请稍后重试。`,
   }
 }
 
@@ -38,6 +38,6 @@ export function getModelDeleteErrorFeedback(name: string): ModelSettingsFeedback
   return {
     tone: 'error',
     title: '模型删除失败',
-    message: `${getModelDisplayName(name)} 的删除结果未能写入工作区，请稍后重试。`,
+    message: `${getModelDisplayName(name)} 的删除结果保存失败，请稍后重试。`,
   }
 }

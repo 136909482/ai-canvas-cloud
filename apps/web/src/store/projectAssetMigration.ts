@@ -3,7 +3,8 @@ import {
   buildProjectAssetPath,
   getWorkspaceAssetPathParts,
 } from '@/features/projectManager/projectAssetPaths'
-import { platformBridge } from '@/platform'
+import { isVolatileCloudMemoryAssetPath } from '@/features/projectManager/volatileCloudAssetPath'
+import { platformBridge, platformRuntime } from '@/platform'
 import { useCanvasStore } from '@/store/useCanvasStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { reportDiagnostic } from '@/store/useDiagnosticsStore'
@@ -267,6 +268,11 @@ export async function resolveWorkspaceNodeAssetUrls() {
         return
       }
 
+      if (platformRuntime === 'cloud' && isVolatileCloudMemoryAssetPath(relativePath)) {
+        updateNodeData(node.id, { videoAsset: null, videoUrl: '' })
+        return
+      }
+
       try {
         const videoUrl = await platformBridge.resolveWorkspaceAssetUrl(relativePath)
         updateNodeData(node.id, { videoUrl })
@@ -289,6 +295,11 @@ export async function resolveWorkspaceNodeAssetUrls() {
       : null
 
     if (!relativePath) {
+      return
+    }
+
+    if (platformRuntime === 'cloud' && isVolatileCloudMemoryAssetPath(relativePath)) {
+      updateNodeData(node.id, { imageAsset: null, imageUrl: '' })
       return
     }
 

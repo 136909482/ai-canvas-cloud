@@ -32,6 +32,7 @@ interface NotificationStore {
   markRead: (id: string) => void
   markAllRead: () => void
   remove: (id: string) => void
+  clear: () => void
 }
 
 const MAX_NOTIFICATION_COUNT = 100
@@ -110,4 +111,6 @@ export const useNotificationStore = create<NotificationStore>()((set) => ({
   remove: (id) => set((state) => ({
     items: state.items.filter((item) => item.id !== id),
   })),
+
+  clear: () => set({ items: [] }),
 }))

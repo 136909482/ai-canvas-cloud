@@ -66,10 +66,10 @@ test('PostgreSQL task outbox is transactional, retryable, and safe across dispat
     })
     await pool.query(`
       INSERT INTO provider_credentials (
-        workspace_id, provider_id, base_url, encrypted_secret_json, key_version,
+        user_id, provider_id, base_url, encrypted_secret_json, key_version,
         secret_last_four, created_by_user_id, updated_by_user_id
-      ) VALUES ($1, 'openai', 'https://api.openai.com', $2::jsonb, 1, '1234', 'outbox-owner', 'outbox-owner')
-    `, [WORKSPACE_ID, envelope])
+      ) VALUES ('outbox-owner', 'openai', 'https://api.openai.com', $1::jsonb, 1, '1234', 'outbox-owner', 'outbox-owner')
+    `, [envelope])
 
     const service = createPostgresGenerationTaskService(pool)
     const actor = { userId: 'outbox-owner', workspaceId: WORKSPACE_ID }

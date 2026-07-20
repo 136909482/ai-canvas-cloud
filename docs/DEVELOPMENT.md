@@ -30,7 +30,7 @@ P1 第一批代码已经建立 npm workspaces monorepo：
 
 Web 平台适配层已从 P1 临时内存项目适配推进到 P3 Cloud API 适配：项目列表、创建、读取、重命名、归档/恢复、软删除和图 GET/PATCH 走 Cloud API；前端仍不直接访问 PostgreSQL、Redis、对象存储管理凭据或服务端模块。
 
-P2 第一批已经建立用户/工作区迁移、认证共享契约和最小认证 HTTP 路由骨架。当前认证实现已切到 Better Auth，由 Better Auth 管理邮箱密码、密码哈希、签名 HttpOnly Cookie、session、邮箱验证 token 和密码重置 token。同账号只允许一个有效 session：密码验证成功但检测到其他设备在线时返回 `ACTIVE_SESSION_EXISTS`，前端显示接管确认；确认后旧 session 失效。独立 `auth_devices` 设备历史不随 session 删除，设备管理页识别常见浏览器和系统，展示首次登录与最近活跃时间，并允许删除非当前设备记录。前端首屏恢复一次 session，可见页面每 5 分钟执行一次心跳，业务 API 返回未授权时立即回登录页，同一标签页并发检查复用一个在途请求。Cloud 侧在注册、登录和会话恢复时幂等确保 personal workspace、owner 成员关系和工作区用户状态存在。登录成功后才初始化画布工作区；账号菜单、登录接管确认、设备管理、退出登录、邮箱验证、忘记密码和重置密码闭环保持不变。
+P2 第一批已经建立用户/工作区迁移、认证共享契约和最小认证 HTTP 路由骨架。当前认证实现已切到 Better Auth，由 Better Auth 管理邮箱密码、密码哈希、签名 HttpOnly Cookie、session、邮箱验证 token 和密码重置 token。Better Auth 不透明 `user.id` 继续作为认证主键；`0023_user_numbers.sql` 另行提供从 `10001` 开始的唯一数字 `user_no`，只用于前端账号展示和运营检索，不参与授权。同账号只允许一个有效 session：密码验证成功但检测到其他设备在线时返回 `ACTIVE_SESSION_EXISTS`，前端显示接管确认；确认后旧 session 失效。独立 `auth_devices` 设备历史不随 session 删除，设备管理页识别常见浏览器和系统，展示首次登录与最近活跃时间，并允许删除非当前设备记录。前端首屏恢复一次 session，可见页面每 5 分钟执行一次心跳，业务 API 返回未授权时立即回登录页，同一标签页并发检查复用一个在途请求。Cloud 侧在注册、登录和会话恢复时幂等确保 personal workspace、owner 成员关系和工作区用户状态存在。登录成功后才初始化画布工作区；账号菜单和账号设置页展示 `UID <userNumber>`，登录接管确认、设备管理、退出登录、邮箱验证、忘记密码和重置密码闭环保持不变。
 
 匿名产品首页使用完整首屏画布场景、深色产品能力区和品牌 Footer；尚未落地的项目/社区页面不提前暴露空导航，帮助、协议、企业主体和备案信息在没有真实内容时不得伪造可点击链接或备案号。生产发布前必须把 Footer 中的待补充企业主体、联系方式、用户协议、隐私政策、账号注销说明及备案信息替换为经确认的真实内容。
 
@@ -127,15 +127,15 @@ P4-1 至 P4-11 当前已落数据库、领域契约、本地 MinIO 预签名上�
 
 P5-1 已建立任务持久化底座：PostgreSQL `generation_tasks` 是任务事实来源，`task_attempts` 保存每次 Provider 尝试；共享契约只暴露可恢复的任务摘要，不暴露 workspace、创建者、租约 token、Worker owner 或 Provider 远端任务 ID。服务端纯状态机统一约束 queued -> running、running -> queued/succeeded/failed/canceled、failed -> queued，并禁止 succeeded/canceled 再次运行。P5-4 已把任务创建/重试与 `task_queue_outbox` 派发事实放入同一数据库事务，并由 Worker dispatcher 使用短期 claim、失败退避和稳定 BullMQ job ID 可靠发布。P5-5 已建立原子 claim、attempt、lease fencing、续租、进度、取消、失败重排和过期恢复；Provider processor 尚未接入，主进程当前不启动 Consumer，queued 仍不能描述为 Provider 已开始执行。
 
-P5-2 已建立 Provider 配置服务。OpenAI 和阿里百炼的 base URL、显示名称及允许 endpoint 由 `server/modules/providers` 注册表拥有；用户输入必须精确命中固定 HTTPS allowlist，禁止 HTTP、凭据 URL、非标准端口、查询、fragment、相似子域和任意自定义 host。BYOK 使用 AES-256-GCM，AAD 绑定 workspace ID 与 Provider ID，envelope 记录 key version；API 进程从 `PROVIDER_CREDENTIAL_KEYS` 载入所有仍需解密的版本，并使用 `PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION` 加密新值。轮换必须先部署包含新旧密钥的 keyring，再切 active version，待后台重加密完成后才能移除旧版本。
+P5-2 已建立按账号隔离的 Provider 配置服务。每条配置保存供应商名称、仅供展示的公开 HTTPS 官网链接、用于实际请求的公开 HTTPS API base URL、协议类型和加密 BYOK；Cloud 设置页按“供应商名称 / 官网链接 / API 请求地址 / API Key”四行编辑。官网链接绝不参与连接测试、模型调用或 endpoint 拼接；Provider 网络请求只使用领域层校验后的 base URL 和协议固定 endpoint。OpenAI、阿里百炼及 OpenAI Compatible 协议规则由 `server/modules/providers` 注册表拥有，拒绝 HTTP、凭据 URL、非标准端口、query、fragment、本机、私网和相似子域绕过。BYOK 使用 AES-256-GCM，新密文 AAD 绑定 user ID 与 Provider ID；旧 workspace scope envelope 只作迁移兼容。API 进程从 `PROVIDER_CREDENTIAL_KEYS` 载入所有仍需解密的版本，并使用 `PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION` 加密新值。轮换必须先部署包含新旧密钥的 keyring，再切 active version，待后台重加密完成后才能移除旧版本。
 
-P5-6 的 Provider adapter 集中声明同步/异步调用的公共边界、固定测试 endpoint 和结果域名 allowlist。连接测试只能向注册表生成的 HTTPS URL 发起 `GET`，使用 `redirect: 'error'`、10 秒 AbortController 超时和 64 KiB 流式响应上限；不解析或记录 Provider 正文。网络、超时、重定向、认证、上游拒绝和响应过大被归为稳定脱敏分类，日志仅记录 Provider ID、分类、可重试性、HTTP 状态（成功时）和耗时。`POST /settings/providers/:providerId/test` 必须以可信 session 的 owner/admin 身份调用，且仅接受空 JSON 对象；API 路由不解密 API Key，Provider 领域服务只在内部短期解密并立即调用 adapter。
+P5-6 的 Provider adapter 集中声明同步/异步调用的公共边界、固定测试 endpoint 和结果域名 allowlist。连接测试只能向注册表生成的 HTTPS URL 发起 `GET`，使用 `redirect: 'error'`、10 秒 AbortController 超时和 64 KiB 流式响应上限；不解析或记录 Provider 正文。网络、超时、重定向、认证、上游拒绝和响应过大被归为稳定脱敏分类，日志仅记录 Provider ID、分类、可重试性、HTTP 状态（成功时）和耗时。`POST /settings/providers/:providerId/test` 必须来自可信 session，且仅接受空 JSON 对象；API 路由不解密 API Key，Provider 领域服务只读取并短期解密当前用户自己的凭据后立即调用 adapter。
 
 P5-7 将 Provider 提交建模为 Worker lease 内的受控状态机。每个 attempt 在 claim 时获得由 task ID 确定的 submission key，并记录 `ready`、`submitting`、`submitted`、`polling` 或 `uncertain` 阶段及可空远端任务 ID。网络调用前必须先持久化 `submitting`；收到远端 ID 后同时写入 attempt 和任务，后续恢复优先返回 `poll`，不再提交第二个付费请求。没有远端 ID 的 `submitting`/`uncertain` 恢复只有 `ProviderAdapter.supportsIdempotentSubmission(providerId)` 明确为 true 时可重用原 key；否则返回 `uncertain`，调用方必须收敛为不可自动重试的 `PROVIDER_SUBMISSION_UNCERTAIN`。当前注册表所有 Provider 均明确为不支持，P5-9 接入实际协议时才能逐个放开。旧 Worker 不认识 `submission_key`，数据库升级到 `0013` 后如需应用回退必须停用 Consumer、lease recovery 和所有 claim 路径；前向恢复使用新 Worker，迁移已把既有 attempt 回填 key，并将当前 attempt 的既有 `generation_tasks.remote_task_id` 迁入 submitted 状态。
 
 P5-8 的结果下载只能由 Worker 的 `server/modules/tasks/resultTransfer` 边界执行：URL 先按 Provider 注册表的精确 HTTPS 结果主机 allowlist 校验，再以 `redirect: 'error'` 下载，Provider `429` 单独归为稳定可重试的限流分类，限制 50 MiB、校验 MIME 和媒体魔数、计算 SHA-256 后写入私有对象存储。临时结果 URL、Provider 正文和凭据不写入任务、节点、检查点、账本或日志。结果数据库收敛必须匹配当前 task/Worker/lease token，并在一笔事务中完成配额校验、completed 资产、task/node 引用、一次 `usage_ledger`、attempt/task succeeded 和必要 worker 图 change；无有效 lease、取消请求、转存失败或事务失败均不得把任务标记 succeeded。图更新只合并 preview node 的 `generationResults.<taskId>`，不得重建删除的节点、修改位置/尺寸或覆盖用户其他字段。
 
-P5-9 当前启用 OpenAI `gpt-image-2` 同步文生图和图片编辑 processor，以及阿里百炼 `wanx2.1-t2i-turbo` 异步文生图和 `wan2.7-t2v` 异步文生视频 processor。它们都必须先通过 `prepareProviderSubmission` 持久化 submission stage，再从 Provider 领域服务短期取用同工作区凭据；OpenAI 编辑输入只从 source node 的 completed 私有资产引用读取，并向注册表固定 edits endpoint 以 multipart 上传，绝不读取浏览器 URL。阿里任务只使用注册表固定的提交和 task query endpoint；视频只接受 `720P`/`1080P`、`16:9`/`9:16` 与 5/10 秒，远端 ID 返回后立刻以当前 lease 写入 attempt/task，恢复只能轮询该 ID，不得二次提交。成功结果直接进入私有对象存储和 `settleSuccess`，不经浏览器。Provider `429`、超时和网络故障为可重试任务失败，认证、模型/参数不支持、重定向、超限和无效响应为不可重试失败。取消或 shutdown signal 后 processor 不得继续读取凭据、调用 Provider 或提交成功结果。Worker 进程现在启动 BullMQ Consumer，并在关闭时先 abort 活跃 Consumer 再断开队列、数据库和对象存储资源。
+P5-9 当前启用 OpenAI `gpt-image-2` 同步文生图和图片编辑 processor，以及阿里百炼 `wanx2.1-t2i-turbo` 异步文生图和 `wan2.7-t2v` 异步文生视频 processor。它们都必须先通过 `prepareProviderSubmission` 持久化 submission stage，再从 Provider 领域服务短期取用任务发起用户自己的凭据；OpenAI 编辑输入只从 source node 的 completed 私有资产引用读取，并向注册表固定 edits endpoint 以 multipart 上传，绝不读取浏览器 URL。阿里任务只使用注册表固定的提交和 task query endpoint；视频只接受 `720P`/`1080P`、`16:9`/`9:16` 与 5/10 秒，远端 ID 返回后立刻以当前 lease 写入 attempt/task，恢复只能轮询该 ID，不得二次提交。成功结果直接进入私有对象存储和 `settleSuccess`，不经浏览器。Provider `429`、超时和网络故障为可重试任务失败，认证、模型/参数不支持、重定向、超限和无效响应为不可重试失败。取消或 shutdown signal 后 processor 不得继续读取凭据、调用 Provider 或提交成功结果。Worker 进程现在启动 BullMQ Consumer，并在关闭时先 abort 活跃 Consumer 再断开队列、数据库和对象存储资源。
 
 首发每个 personal workspace 使用 20 GiB（`21474836480` 字节）云资产配额；个人空间与用户一一对应，但授权和统计始终以可信 session 的 `workspace_id` 为边界。`GET /api/v1/workspaces/current/usage` 返回 completed/failed/quarantined 的已用量、pending 上传预留量、总计、配额和剩余容量。创建上传会话先在事务中锁定 workspace 行，再查幂等键和最新资产总量；同一幂等请求只复用原预留，不同并发上传会串行校验，不能共同越过配额。完成上传只把 pending 预留转为 completed 已用量，不增加总占用。软删除资产立即退出逻辑配额统计，物理对象仍由后续宽限期 GC 负责；failed/quarantined 在被清理前继续计入用量。
 
@@ -160,21 +160,23 @@ Worker claim 在一个事务中条件更新 queued 任务、递增 attempt、写
 首发优先 BYOK：
 
 - 密钥在服务端使用版本化 AES-256-GCM envelope；生产后续可把同一接口替换为 KMS 包封加密。
-- 读取接口只返回 Provider、固定 base URL、状态和末四位提示，不返回原始密钥或密文。
+- 读取接口只返回 Provider ID、供应商名称、官网链接、API base URL、状态和末四位提示，不返回原始密钥或密文；官网链接仅供展示，不是请求目标。
 - 前端 bundle、日志、诊断、目录包和错误响应不得包含密钥。
 - Provider 测试和运行统一走服务端白名单适配器。
 - 任意 target URL 代理、内网地址、重定向绕过和非 HTTPS 生产端点必须拒绝。
-- Provider 凭据写入/删除要求 owner/admin，普通成员只能读取脱敏配置状态；Worker 内部解密接口不接受浏览器调用。
+- Provider 凭据按可信 session 用户隔离，不按工作区角色共享；每个已认证用户只能读取、写入、测试和删除自己的脱敏配置，Worker 内部解密接口不接受浏览器调用。
 
 ## 任务 API 边界
 
 - 任务 HTTP 写入只接受可信 session actor；客户端提交的 workspace/user 字段无效，项目、source/preview node 和任务都必须在领域服务内按 workspace 重新授权。
-- 创建、取消和重试要求 owner/admin/editor，读取允许成员。跨工作区资源与不存在统一处理，不在错误中暴露其他租户任务、节点或 Provider 配置。
+- 创建、取消和重试要求 owner/admin/editor，读取允许成员。跨工作区资源与不存在统一处理；Provider 配置还必须匹配任务发起用户，不在错误中暴露其他账号的配置。
 - 创建幂等、活跃任务上限和命令幂等都在 workspace 行锁保护下计算；任务状态更新和 `task_commands` 插入共享事务，API 路由不得直接写表。
 - 浏览器参数不得包含 Provider 密钥、Authorization 或任意 target/base/api URL/endpoint。创建只确认白名单 Provider 配置存在，不解密 BYOK；解密只属于后续 Worker 内部执行路径。
 - P5-5 已提供 BullMQ Consumer、数据库 claim 和租约续期能力；P5-9 已为受控 OpenAI 同步图片和阿里百炼异步图片/视频 processor 启动 Consumer，并由创建阶段能力矩阵拒绝其余 Provider/model/kind。P5-10 当前已让 Cloud Web 以服务端任务状态驱动队列投影，浏览器 Provider 执行链路不再在 Cloud runtime 启动。
 
-P5-10 当前在 Cloud runtime 启用服务端任务投影：Web 只通过 `/api/v1/tasks` 创建、分页读取、详情、取消和重试，并用本地队列保存 server task ID、服务端 0-100 progress 与脱敏状态作为 UI 投影；不提交 API Key、Authorization、Provider/base/target URL、对象 key、结果 URL 或远端 ID。`TaskQueueRunner` 轮询当前项目任务，未绑定 server ID 的本地 queued 项只提交一次，同一 ID 的 queued/running 项在刷新和项目快照恢复后继续由服务端拥有，不能落回浏览器 Provider 执行器。非当前项目只按轮转顺序查询 `queued/running` 摘要并写入会话内缓存，回到项目时先按项目 ID 合并缓存、同步该项目节点状态，再由完整查询校准；后台摘要不得写入当前画布，终态不进入跨项目缓存。任务面板合并当前项目任务与跨项目活跃缓存，可按全部、进行中和已结束筛选，并显示失败项的服务端脱敏错误；其他项目条目只显示项目名、状态、进度并允许服务端取消，当前项目才允许定位结果、重试或移除，避免跨项目图和快照误写。终态首次到达时重新读取项目图；Cloud platform 只从 `generationResults.<taskId>.assets` 的标准 asset ID 取得短期签名 URL，填充图片/视频节点，失败不阻断图加载。浏览器的取消/重试都调用服务端任务命令。Cloud 服务商设置只经既有 `/api/v1/settings/providers` 固定路径调用；API Key 只保留在组件临时输入，更新成功、移除或关闭后清空，且不得流入 `ProviderProfileConfig`、Zustand 持久化、任务投影、项目图或快照。P5-10 阶段验收已确认：关闭页面不影响独立 Worker 的任务执行；重新登录后必须由可信 user/workspace 作用域重新枚举任务并恢复图结果与服务端命令；另一账号的列表为空，按 ID 读取、取消或重试均统一返回 `RESOURCE_NOT_FOUND`，不得泄露任务存在性。
+P5-10 当前在 Cloud runtime 启用服务端任务投影：Web 只通过 `/api/v1/tasks` 创建、分页读取、详情、取消和重试，并用本地队列保存 server task ID、服务端 0-100 progress 与脱敏状态作为 UI 投影；不提交 API Key、Authorization、Provider/base/target URL、对象 key、结果 URL 或远端 ID。模型设置只持久化模型元数据和 `modelId -> providerId` 绑定，服务商的显示名称、URL 与加密密钥统一由 `/api/v1/settings/providers` 按账号管理；浏览器工作区配置不再持久化 `ProviderProfileConfig` 密钥。任务创建按发起用户确认 Provider 配置存在，Worker 根据任务持久化的 `created_by_user_id` 解密该用户自己的凭据；同一用户的多个项目复用配置，同工作区其他用户不能借用。自定义 Provider 首发按 OpenAI Compatible 固定端点执行，任务仍不能覆盖服务商 URL。`TaskQueueRunner` 轮询与恢复、跨项目缓存、终态图刷新和两账号隔离语义保持不变；关闭页面不影响独立 Worker，重新登录后由可信 workspace 重新枚举任务。
+
+Cloud 首发把个人 workspace 作为后端隐式容器：注册流程自动创建且普通用户不选择、不切换，也不在账号菜单、设置、项目空状态或保存反馈中展示 workspace 名称。前端直接使用“项目、云端存储、账号配置”等产品概念；内部 `workspaceId`、成员授权、项目/资产/任务/配额关系和 API 路由保持不变，为未来团队空间保留领域边界。
 P5-11 在上述投影旁增加持久化脱敏任务事件：`generation_tasks` 触发器在同一事务写入 created/status/progress/terminal 事件，`GET /api/v1/tasks/events` 按工作区、项目或任务和单调游标读取。`TaskQueueRunner` 为每个项目保存事件游标，轮询恢复后仅将 terminal 事件投影到通知中心；通知以事件 UUID 去重，即使重复轮询、断线重试或页面恢复也不会重复计数。事件消费不改变任务、资产或项目图事实，终态仍通过任务列表和项目图恢复结果。P5-11 暂不启动 SSE。
 P7-7 的指标底座位于 `packages/shared/src/metrics.ts`，提供进程内 counter、gauge 和 histogram，并统一渲染 Prometheus 文本格式；registry 只接受固定低基数 label 名称，并拒绝 URL、邮箱、UUID、长值及换行。API `/metrics` 记录请求计数/延迟、错误、认证失败、限流、版本冲突、配额、迁移阶段、PostgreSQL/Redis/对象存储依赖和任务 backlog/running/lease/retry；Worker `/metrics` 记录 outbox、Consumer、lease recovery、重试、Provider 延迟和结果转存失败。`infra/deploy/staging/prometheus.yml` 与 `alerts.yml` 提供实际可加载的 staging 抓取和告警阈值。告警、健康检查和日志只保留固定枚举、状态和 Error 类型，不写 workspace/user/project/task/request ID、URL、邮箱、正文或密钥。
 重启演练已加入直接相关集成测试：API 任务服务对象重建后从 PostgreSQL 恢复任务/事件/命令，Worker 执行服务重建后继续 lease recovery、远端任务轮询和结果幂等收敛，Redis 发布客户端断开并重连后复用稳定 BullMQ job ID。维护窗口已在独立验收队列中完成 Redis 实例级重启，确认 AOF 恢复、固定 job ID 重复发布不重复和业务队列无遗留；若其他环境的 `REDIS_URL` 不可用或凭据被拒绝，测试仍按环境约定跳过。
@@ -226,7 +228,7 @@ prepare 在短事务中锁定 workspace，按 `(workspace_id, idempotency_key)` 
 
 ### P7-9 schema 发布兼容
 
-`server/db/migrations/release-manifest.json` 是每个 SQL 迁移的长期发布契约：版本/名称必须与文件一一对应，phase 只能按 `expand -> migrate -> contract` 前进；每项声明 `oldAppReadable`、`newAppReadable`、`oldAppWithNewSchema`、锁风险、statement timeout、回滚边界、前向修复和 `backupRequired`。`scripts/check-schema-release.mjs` 拒绝缺失/倒退/未声明迁移和未设置备份门槛的破坏性 SQL。当前 20 个迁移没有 contract 阶段，0020 的 `retry_count` 是 additive；API 对该列使用 `to_jsonb` 可选读取，旧 schema 上默认重试次数为 0，旧 Worker 可读取新 schema 未知列。
+`server/db/migrations/release-manifest.json` 是每个 SQL 迁移的长期发布契约：版本/名称必须与文件一一对应，phase 只能按 `expand -> migrate -> contract` 前进；每项声明 `oldAppReadable`、`newAppReadable`、`oldAppWithNewSchema`、锁风险、statement timeout、回滚边界、前向修复和 `backupRequired`。`scripts/check-schema-release.mjs` 拒绝缺失/倒退/未声明迁移和未设置备份门槛的破坏性 SQL。当前 24 个迁移没有 contract 阶段，0020 的 `retry_count` 是 additive；API 对该列使用 `to_jsonb` 可选读取，旧 schema 上默认重试次数为 0，旧 Worker 可读取新 schema 未知列。0023 的 `user_no` 是 additive 且旧应用可忽略；0024 的 `website_url` 是 nullable additive 展示字段，旧应用可忽略，新应用在迁移后读取并对旧行使用稳定回填值。
 
 发布顺序是：先备份并运行向后兼容 migration，再发布可读新旧 schema 的 API/Worker，观察 metrics/readiness 后才允许后续 contract。`npm run db:migrate:compat` 在随机 PostgreSQL schema 验证旧 schema + 新应用读取、新 schema + 旧应用读取、迁移事务中断回滚后重跑和最终连续 schema_migrations；失败事务不会留下版本记录或半成品约束。Worker 涉及 task claim/submission/lease 的迁移窗口必须先停 Consumer、保留 recovery 边界，再按恢复后的 outbox 重新启动；应用启动不自动迁移。
 

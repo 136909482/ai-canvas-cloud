@@ -10,7 +10,7 @@ import {
   resolveProviderTestEndpoint,
 } from '../../dist/modules/providers/registry.js'
 
-test('provider registry accepts only fixed HTTPS base URLs', () => {
+test('provider registry accepts configured public HTTPS base URLs', () => {
   assert.equal(normalizeProviderBaseUrl('openai'), 'https://api.openai.com')
   assert.equal(normalizeProviderBaseUrl('openai', 'https://api.openai.com/'), 'https://api.openai.com')
   assert.equal(
@@ -31,11 +31,11 @@ test('provider registry accepts only fixed HTTPS base URLs', () => {
   )
   assert.throws(() => resolveProviderTaskEndpoint('aliyun', '../unsafe'))
   assert.throws(() => normalizeProviderBaseUrl('openai', 'http://api.openai.com'))
-  assert.throws(() => normalizeProviderBaseUrl('openai', 'https://api.openai.com.evil.example'))
   assert.throws(() => normalizeProviderBaseUrl('openai', 'https://user:pass@api.openai.com'))
   assert.throws(() => normalizeProviderBaseUrl('openai', 'https://api.openai.com:8443'))
-  assert.throws(() => normalizeProviderBaseUrl('openai', 'https://api.openai.com/v1'))
-  assert.throws(() => normalizeProviderBaseUrl('custom', 'https://provider.example'))
+  assert.equal(normalizeProviderBaseUrl('openai', 'https://api.openai.com/v1'), 'https://api.openai.com/v1')
+  assert.equal(normalizeProviderBaseUrl('custom', 'https://provider.example/v1/'), 'https://provider.example/v1')
+  assert.throws(() => normalizeProviderBaseUrl('custom', 'https://127.0.0.1/v1'))
 })
 
 test('provider endpoint resolution uses registry-owned paths', () => {
@@ -49,14 +49,14 @@ test('provider endpoint resolution uses registry-owned paths', () => {
   )
   assert.throws(() => resolveProviderEndpoint('aliyun', 'image_edit'))
   assert.equal(resolveProviderTestEndpoint('openai'), 'https://api.openai.com/v1/models')
-  assert.equal(getCloudProviderDefinition('openai')?.supportsIdempotentSubmission, false)
+  assert.equal(getCloudProviderDefinition('openai')?.providerType, 'openai_compatible')
   assert.equal(isAllowedProviderResultUrl('openai', 'https://api.openai.com/result.png'), true)
   assert.equal(isAllowedProviderResultUrl('openai', 'http://api.openai.com/result.png'), false)
   assert.equal(isAllowedProviderResultUrl('openai', 'https://api.openai.com.evil.example/result.png'), false)
   assert.equal(isAllowedProviderResultUrl('openai', 'https://127.0.0.1/result.png'), false)
-  assert.equal(isProviderGenerationTaskEnabled({ providerId: 'openai', kind: 'image', model: 'gpt-image-2' }), true)
-  assert.equal(isProviderGenerationTaskEnabled({ providerId: 'openai', kind: 'video', model: 'gpt-image-2' }), false)
-  assert.equal(isProviderGenerationTaskEnabled({ providerId: 'aliyun', kind: 'image', model: 'wanx2.1-t2i-turbo' }), true)
-  assert.equal(isProviderGenerationTaskEnabled({ providerId: 'aliyun', kind: 'video', model: 'wan2.7-t2v' }), true)
-  assert.equal(isProviderGenerationTaskEnabled({ providerId: 'aliyun', kind: 'image', model: 'wanx' }), false)
+  assert.equal(isProviderGenerationTaskEnabled({ providerType: 'openai_compatible', kind: 'image', model: 'custom-image' }), true)
+  assert.equal(isProviderGenerationTaskEnabled({ providerType: 'openai_compatible', kind: 'video', model: 'custom-video' }), false)
+  assert.equal(isProviderGenerationTaskEnabled({ providerType: 'aliyun_dashscope', kind: 'image', model: 'wanx2.1-t2i-turbo' }), true)
+  assert.equal(isProviderGenerationTaskEnabled({ providerType: 'aliyun_dashscope', kind: 'video', model: 'wan2.7-t2v' }), true)
+  assert.equal(isProviderGenerationTaskEnabled({ providerType: 'aliyun_dashscope', kind: 'image', model: 'wanx' }), false)
 })

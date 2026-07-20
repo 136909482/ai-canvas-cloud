@@ -13,6 +13,7 @@ import { makeSelectGenerateMaskSourceNode, makeSelectGenerateReferenceSourceNode
 import { useHistoryStore } from '@/store/useHistoryStore'
 import { useProjectStore } from '@/store/useProjectStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
+import { useCloudProviderStore } from '@/store/useCloudProviderStore'
 import { getWorkspaceAssetThumbnailRelativePath } from '@/utils/workspaceImageAsset'
 import { recordComponentRender } from '@/utils/performanceDiagnostics'
 import { handleMenuKeyboard } from '@/utils/menuKeyboard'
@@ -127,11 +128,11 @@ export const GenerateNode = memo(function GenerateNode({ id, data, selected }: G
   const runTracked = useHistoryStore((s) => s.runTracked)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const updateNodeInternals = useUpdateNodeInternals()
-  const getModelConfig = useSettingsStore((s) => s.getModelConfig)
-  const getResolvedProviderProfile = useSettingsStore((s) => s.getResolvedProviderProfile)
-  const getProviderProfiles = useSettingsStore((s) => s.getProviderProfiles)
   const getEnabledCustomModels = useSettingsStore((s) => s.getEnabledCustomModels)
   const setModelProviderProfile = useSettingsStore((s) => s.setModelProviderProfile)
+  const modelProviderProfileIds = useSettingsStore((s) => s.config.modelProviderProfileIds)
+  const providerProfiles = useCloudProviderStore((s) => s.providers)
+  const loadCloudProviders = useCloudProviderStore((s) => s.load)
   const allReferenceImages = useMemo<ReferenceImageItem[]>(
     () => referenceImageKeys
       .map(decodeReferenceImageKey)
@@ -168,11 +169,11 @@ export const GenerateNode = memo(function GenerateNode({ id, data, selected }: G
   const imageModels = getEnabledCustomModels('image')
   const fallbackModelId = imageModels[0]?.modelId ?? DEFAULT_IMAGE_MODEL_ID
   const effectiveModel = imageModels.some((model) => model.modelId === data.model) ? data.model : fallbackModelId
+  const selectedModel = imageModels.find((model) => model.modelId === effectiveModel)
   const isGptImageSettingsModel = isGptImageModel(effectiveModel)
-  const selectedModel = getModelConfig(effectiveModel, 'image')
-  const selectedProviderProfile = getResolvedProviderProfile(effectiveModel, 'image')
-  const providerProfiles = getProviderProfiles('image')
-  const providerLabel = selectedProviderProfile?.name?.trim() || selectedModel?.provider || ''
+  const selectedProviderId = modelProviderProfileIds[effectiveModel] ?? ''
+  const selectedProviderProfile = providerProfiles.find((provider) => provider.providerId === selectedProviderId)
+  const providerLabel = selectedProviderProfile?.label ?? ''
   const modelOptions: InlineSelectOption[] = imageModels.length > 0
     ? imageModels.map((model) => ({
         value: model.modelId,
@@ -252,6 +253,10 @@ export const GenerateNode = memo(function GenerateNode({ id, data, selected }: G
   }
 
   useEffect(() => {
+    if (providerProfiles.length === 0) void loadCloudProviders()
+  }, [loadCloudProviders, providerProfiles.length])
+
+  useEffect(() => {
     if (providerMenuOpen) {
       window.requestAnimationFrame(() => providerListRef.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus())
     }
@@ -275,7 +280,7 @@ export const GenerateNode = memo(function GenerateNode({ id, data, selected }: G
       return
     }
 
-    if (hasMaskImage && selectedModel?.provider !== 'openai') {
+    if (hasMaskImage && selectedProviderId === 'aliyun') {
       updateNodeData(id, { status: 'error', errorMsg: UI_TEXT.maskUnsupportedModel, model: effectiveModel })
       return
     }
@@ -448,10 +453,10 @@ export const GenerateNode = memo(function GenerateNode({ id, data, selected }: G
                     </div>
                     <div className="node-menu-scrollbar nowheel flex max-h-56 flex-col gap-1 overflow-y-auto pr-1">
                       {providerProfiles.map((profile) => {
-                        const isActive = profile.id === selectedProviderProfile?.id
+                        const isActive = profile.providerId === selectedProviderProfile?.providerId
                         return (
                           <button
-                            key={profile.id}
+                            key={profile.providerId}
                             type="button"
                             className={`flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] transition ${
                               isActive
@@ -462,11 +467,11 @@ export const GenerateNode = memo(function GenerateNode({ id, data, selected }: G
                             aria-checked={isActive}
                             onClick={(event) => {
                               stopCanvasGesture(event)
-                              selectProviderProfile(profile.id)
+                              selectProviderProfile(profile.providerId)
                             }}
                           >
                             <Server className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
-                            <span className="min-w-0 flex-1 truncate">{profile.name}</span>
+                            <span className="min-w-0 flex-1 truncate">{profile.label}</span>
                             {isActive ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
                           </button>
                         )

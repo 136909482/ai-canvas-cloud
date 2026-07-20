@@ -83,6 +83,7 @@
 第一批说明：
 
 - Better Auth 核心表 `"user"`、`"session"`、`"account"`、`"verification"`，以及 Cloud 侧 `workspaces`、`workspace_members`、`workspace_user_state` 和 `auth_audit_events` 迁移已落地。
+- `0023_user_numbers.sql` 已为历史账号按注册顺序回填 `10001` 起的唯一用户编号，新注册账号自动递增；注册、登录和 session 用户摘要返回 `userNumber`，账号菜单与账号设置页展示该编号，但认证和资源授权仍使用 Better Auth 内部 `user.id`。
 - 认证、用户摘要、工作区摘要、会话摘要和注册/登录/验证/重置请求的共享契约已落地。
 - 认证纯逻辑已包含邮箱规范化、密码长度校验、不透明 token 生成、token 哈希、一次性 token 状态判断和个人工作区默认命名。
 - `server` 已纳入 workspace package，`apps/api` 已接入 `POST /api/v1/auth/register`、`POST /api/v1/auth/login`、`GET /api/v1/auth/session` 和 `POST /api/v1/auth/logout` 的最小路由骨架、AuthService 注入和 HttpOnly session Cookie 写入/清理。
@@ -266,16 +267,16 @@ P5-1 说明：
 
 P5-2 说明：
 
-- `0008_provider_credentials.sql` 已建立工作区 Provider 凭据表，以 `(workspace_id, provider_id)` 唯一，保存固定 HTTPS base URL、AES-256-GCM envelope、key version、末四位、状态和创建/更新用户；数据库约束 envelope 必需字段、算法和 JSON/关系 key version 一致性，不保存明文。
-- `server/modules/providers` 已建立 OpenAI/阿里百炼注册表、精确 base URL 和 endpoint allowlist，以及版本化密钥环。加密 AAD 绑定 workspace/provider，跨租户复制密文不能解密；新凭据用 active version 加密，旧版本只要仍在 keyring 即可读取，为后续后台重加密留出轮换路径。
-- `GET/PUT/DELETE /api/v1/settings/providers` 已接入。所有作用域来自可信 session；成员可读脱敏状态，只有 owner/admin 可写或删除。响应只含末四位，不返回 API Key、密文、key version、workspace 或 Worker 内部字段；跨工作区删除不影响其他租户。
-- Provider base URL 当前只允许 `https://api.openai.com` 和 `https://dashscope.aliyuncs.com/compatible-mode/v1`，拒绝 HTTP、凭据 URL、非标准端口、query/fragment、相似子域、自定义 host 和内网地址。本批未实现连接测试、重定向处理或真实 Provider 调用，`POST /test` 仍不可用。
-- 已覆盖 registry 绕过、AES-GCM 随机 envelope、AAD 篡改、密钥轮换、API 不回显、角色限制、真实 PostgreSQL 密文落库与两工作区隔离，以及 8 迁移连续升级。该切片当时未接任务 API；任务 API 已在 P5-3 补齐，Redis Worker 和用量账本继续拆分为后续切片。
+- `0008_provider_credentials.sql` 建立了初始工作区 Provider 凭据表；`0022_user_provider_credentials.sql` 已将当前唯一边界切换为 `(user_id, provider_id)`；`0024_provider_website_urls.sql` 增加可空官网展示字段并为旧行稳定回填。表保存供应商名称、协议类型、官网链接、公开 HTTPS API base URL、AES-256-GCM envelope、key version、末四位、状态和创建/更新用户，不保存明文；旧 `workspace_id` 仅作为迁移前密文的可空 AAD 兼容字段。
+- `server/modules/providers` 已建立 OpenAI/阿里百炼注册表、精确 base URL 和 endpoint allowlist，以及版本化密钥环。新密文 AAD 绑定 user/provider，跨账号复制密文不能解密；旧 workspace AAD 行可继续读取，用户更新密钥后转为 user scope。新凭据用 active version 加密，旧版本只要仍在 keyring 即可读取，为后续后台重加密留出轮换路径。
+- `GET/PUT/DELETE /api/v1/settings/providers` 已接入。所有作用域来自可信 session；每个已认证用户只能读取、写入、测试和删除自己的脱敏配置。响应包含供应商名称、官网链接、API 请求地址、状态与末四位，不返回 API Key、密文、key version、workspace/user 或 Worker 内部字段；Cloud 设置页按四行纵向编辑这四项。同一用户的多个项目复用配置，同一工作区其他用户不能看到或使用。
+- 官网链接只用于信息展示，连接测试和 Worker 调用绝不使用它。API base URL 按协议规范化为公开 HTTPS 地址，拒绝 HTTP、凭据 URL、非标准端口、query/fragment、本机、私网和相似子域绕过；连接测试与 Worker 只在该 base URL 下访问协议固定 endpoint，不接受任务覆盖 target URL。
+- 已覆盖 registry 绕过、AES-GCM 随机 envelope、AAD 篡改、密钥轮换、API 不回显、真实 PostgreSQL 密文落库、同工作区两用户隔离和同用户跨项目/工作区复用。该切片当时未接任务 API；任务 API 已在 P5-3 补齐，Redis Worker 和用量账本继续拆分为后续切片。
 
 P5-3 说明：
 
 - `POST/GET /api/v1/tasks`、`GET /api/v1/tasks/:taskId`、`POST /api/v1/tasks/:taskId/cancel` 和 `/retry` 已接入可信 session。创建/命令要求 owner/admin/editor，读取允许成员；响应只返回可恢复任务摘要，不暴露 workspace/user、request JSON、租约、远端任务 ID 或 Provider 凭据。列表按 `(created_at, id)` keyset 分页并支持项目/状态过滤。
-- 创建任务在 workspace 行锁下复用创建幂等键、校验活动项目和 source/preview node、共享锁确认 active BYOK 配置并限制同 workspace 最多 5 个 queued/running 任务；当前只开放 workspace_key。参数对象限制为 256 KiB/12 层，并拒绝任何层级的凭据、Authorization 和 target/base/api URL/endpoint 字段。成功插入才递增 `projects.task_count`，任一失败不修改当前图、version/sequence 或 change。
+- 创建任务在 workspace 行锁下复用创建幂等键、校验活动项目和 source/preview node、按任务发起用户共享锁确认 active BYOK 配置，并限制同 workspace 最多 5 个 queued/running 任务；当前计费枚举仍保留 `workspace_key` 兼容值，但凭据归属是 user scope。参数对象限制为 256 KiB/12 层，并拒绝任何层级的凭据、Authorization 和 target/base/api URL/endpoint 字段。成功插入才递增 `projects.task_count`，任一失败不修改当前图、version/sequence 或 change。
 - `0009_task_commands.sql` 持久化 cancel/retry 幂等命令，以 `(workspace_id, idempotency_key)` 唯一并通过复合外键绑定同租户任务。命令在 workspace/任务锁下与状态更新同事务提交；queued 取消直接终止，running 取消只记录请求，failed 且未达上限才能重试。重放不重复转换，跨任务/命令复用同键稳定冲突。
 - 已覆盖请求纯校验、API session actor/字段不泄漏、真实 PostgreSQL 创建/命令幂等、节点与两工作区隔离、running cancel、failed retry、并发上限和 9 迁移连续升级。Redis 队列、Worker claim/租约恢复、Provider 实际调用、结果资产转存、图结果提交、状态事件和用量账本继续拆分为后续切片；前端可在下一切片先接只读任务中心与创建后的服务端状态恢复，但不能把任务 API 视为已执行 Provider。
 
@@ -357,7 +358,7 @@ P5-8 说明：
 
 - 已启用 OpenAI `gpt-image-2` 的同步文生图和图片编辑：文生图只调用固定 `POST /v1/images/generations`；编辑调用固定 `POST /v1/images/edits`，其输入只能从 source node 的 completed 私有资产引用读取并以 multipart 上传。两者都只接受受限参数和单张 base64 图片响应，不接受自定义 endpoint、URL 或浏览器密钥。
 - 已启用阿里百炼 `wanx2.1-t2i-turbo` 异步文生图和 `wan2.7-t2v` 异步文生视频：分别只向固定 `POST /api/v1/services/aigc/text2image/image-synthesis` 与 `POST /api/v1/services/aigc/video-generation/video-synthesis` 提交受限参数，并通过固定 `GET /api/v1/tasks/:remoteTaskId` 轮询。视频只接受 `720P`/`1080P`、`16:9`/`9:16` 和 5/10 秒。提交返回的受限远端 ID 必须立刻经 `recordProviderSubmission` 写入当前 attempt；恢复时 `prepareProviderSubmission` 返回 poll，绝不重复提交付费任务。结果 URL 仍必须经过 Provider 精确 HTTPS allowlist、私有转存校验和 P5-8 成功事务。
-- Worker 在有效 lease 内先写 P5-7 submission stage，再短期解密当前工作区 BYOK、调用 Provider、转存校验后的图片或视频，并复用 P5-8 成功事务。Provider `429`/超时/网络错误会作为可重试失败收敛；认证、受限参数、未知 model、重定向、超限或无效响应为不可重试失败；取消信号不会继续解密凭据或调用 Provider。P5-9 验收范围的同步图片、编辑、异步图片与视频能力均已落地。
+- Worker 在有效 lease 内先写 P5-7 submission stage，再根据任务 `created_by_user_id` 短期解密发起用户自己的 BYOK、调用 Provider、转存校验后的图片或视频，并复用 P5-8 成功事务。Provider `429`/超时/网络错误会作为可重试失败收敛；认证、受限参数、未知 model、重定向、超限或无效响应为不可重试失败；取消信号不会继续解密凭据或调用 Provider。P5-9 验收范围的同步图片、编辑、异步图片与视频能力均已落地。
 
 ### P5-10：Web 服务端任务投影与切换（已完成）
 
@@ -372,7 +373,8 @@ P5-8 说明：
 - 已增加跨项目活跃任务缓存：非当前且未归档项目按轮转顺序只查询 `queued/running` 摘要，缓存也只保留活跃服务端任务，避免轮询完整历史。切回项目后先按项目 ID 合并缓存并更新当前节点投影，再以该项目完整任务查询校准；后台摘要从不写入当前项目画布，终态继续以项目图和当前项目查询恢复。
 - 任务面板合并当前项目投影与上述跨项目活跃缓存，可按全部、进行中和已结束筛选，并在失败项显示服务端脱敏错误；其他项目条目只显示项目名称、状态和进度并提供服务端取消，当前项目结果才提供画布定位、重试和本地移除，避免跨项目画布或快照误写。
 - 任务第一次进入终态时刷新项目图。Cloud platform 从 Worker 写入的 `generationResults.<taskId>.assets` 读取标准 asset ID，复用既有私有签名 URL 缓存填充图片/视频节点；不保存 Provider 临时 URL。检查点/项目快照仍只保留脱敏任务投影，不包含凭据或对象存储 key。
-- 设置中心已增加 Cloud 服务商配置入口，复用固定 `/settings/providers`、`/:providerId` 和 `/:providerId/test` API 显示脱敏状态、更新、测试和移除凭据。新 API Key 只在弹窗临时输入中存在，成功更新、移除或关闭时清空，绝不进入浏览器本地 Provider profile、任务投影、项目图或快照。
+- 设置中心的 Cloud 服务商入口已支持用户新增、编辑、测试和删除自定义服务商，统一保存显示名称、公开 HTTPS base URL 与服务端加密 API Key；模型管理只选择服务商，不再维护服务商详情。新 API Key 只在表单临时输入中存在，模型配置仅保存 `modelId -> providerId`，绝不进入任务投影、项目图或快照。
+- 个人 workspace 保留为后端隐式项目/资产/任务/配额容器，注册时自动创建；Cloud Web 已移除 workspace 名称、选择保存位置和个人空间展示，登录后直接进入项目体验。未来团队协作可继续复用既有 workspace 授权边界，当前普通用户无需理解或操作该概念。
 
 ### P5-11：任务事件、通知与 P5 验收（已完成）
 
@@ -436,7 +438,7 @@ P5-8 说明：
 
 - `0020_migration_lifecycle_retry.sql` 为导出增加 retry_count 和 retryable 索引；failed/canceled 导出支持 owner/admin/editor 最多 3 次 retry，保留冻结 payload，不重读新 project version。状态响应持久化阶段、文件/字节进度、retryCount、固定错误码和过期时间。
 - API 重启从 PostgreSQL 恢复 prepared/generating 导出；取消在上传、校验、归档和 commit 边界收敛，重复 cancel/retry 保持幂等结果。P6-3 资产上传继续支持失败重试和断点恢复。
-- 启动维护和延迟 GC 清理过期 import、failed/canceled/expired staging/归档对象；已完成上传、completed import 和带 `committed_asset_id` 的 staging 行不进入清理范围。真实 PostgreSQL 已覆盖导出 retry、上传重试/取消、20 个迁移升级和 API actor retry 路由。
+- 启动维护和延迟 GC 清理过期 import、failed/canceled/expired staging/归档对象；已完成上传、completed import 和带 `committed_asset_id` 的 staging 行不进入清理范围。真实 PostgreSQL 已覆盖导出 retry、上传重试/取消、24 个迁移升级和 API actor retry 路由。
 
 ### P6-8：Web 迁移中心（已完成）
 
@@ -547,7 +549,7 @@ P5-8 说明：
 
 ### P7-9：schema 发布、兼容窗口与前向修复（已完成）
 
-- 已将 20 个迁移登记到 `server/db/migrations/release-manifest.json`，phase 按 `expand -> migrate -> contract` 单调推进；每项声明旧/新应用兼容性、锁风险、statement timeout、回滚/前向修复和备份门槛。当前没有 contract migration，0020 additive retry 列由新 API 可选读取，旧 Worker 可读取新 schema。
+- 已将 24 个迁移登记到 `server/db/migrations/release-manifest.json`，phase 按 `expand -> migrate -> contract` 单调推进；每项声明旧/新应用兼容性、锁风险、statement timeout、回滚/前向修复和备份门槛。当前没有 contract migration，0020 additive retry 列由新 API 可选读取，旧 Worker 可读取新 schema；0023 additive 用户编号列由旧应用忽略；0024 nullable additive 官网展示列由旧应用忽略，新应用在迁移后使用稳定回填值。
 - `npm run db:migrate:compat` 已覆盖旧 schema + 新应用、新 schema + 旧应用、迁移事务中断回滚/重跑和连续 `schema_migrations`；Worker claim/submission/lease 窗口要求先停 Consumer，再运行恢复/前向修复，应用启动不自动迁移。
 - 破坏性或不可逆变更必须以 P7-8 加密备份和隔离恢复为回滚门槛；`check-schema-release.mjs` 拒绝未登记迁移、phase 倒退、缺失兼容声明和没有备份门槛的 DROP SQL。发布/回退只使用仓库真实命令。
 
