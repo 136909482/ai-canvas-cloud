@@ -120,10 +120,10 @@ if (['staging', 'production'].includes((process.env.NODE_ENV ?? '').trim().toLow
   validateProtectedDeploymentEnvironment(process.env)
 }
 
-const databaseUrl = process.env.DATABASE_URL
+const databaseUrl = process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL
 
 if (!databaseUrl) {
-  console.error('Missing DATABASE_URL. Copy .env.example to .env or export DATABASE_URL.')
+  console.error('Missing MIGRATION_DATABASE_URL or DATABASE_URL.')
   process.exit(1)
 }
 

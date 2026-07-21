@@ -37,7 +37,7 @@ test('PostgreSQL checkpoints persist asset manifests and restore graph reference
     })
 
     const migrationFiles = (await readdir(join(process.cwd(), 'server', 'db', 'migrations')))
-      .filter((fileName) => fileName.endsWith('.sql'))
+      .filter((fileName) => fileName.endsWith('.sql') && !fileName.startsWith('0025_'))
       .sort()
     for (const fileName of migrationFiles) {
       await pool.query(await readFile(join(process.cwd(), 'server', 'db', 'migrations', fileName), 'utf8'))

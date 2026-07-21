@@ -257,3 +257,4 @@ export function createJsonLogger(options?: { level?: LogLevel; service?: string 
 
 export * from './metrics.js'
 export * from './deployment.js'
+export * from './health.js'

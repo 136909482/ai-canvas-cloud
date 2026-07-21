@@ -5,11 +5,16 @@ export type DbClient = pg.PoolClient
 
 export interface PostgresPoolOptions {
   connectionString: string
+  schema?: string
 }
 
 export function createPostgresPool(options: PostgresPoolOptions) {
+  if (options.schema && !/^[a-z_][a-z0-9_]*$/.test(options.schema)) {
+    throw new Error('PostgreSQL schema name is invalid')
+  }
   return new pg.Pool({
     connectionString: options.connectionString,
+    options: options.schema ? `-c search_path=${options.schema}` : undefined,
   })
 }
 

@@ -1532,12 +1532,50 @@ async function assertUserNumberSchema(client, schemaName) {
   )
 }
 
+async function assertAdminSecuritySchema(client) {
+  const tables = await client.query(`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'admin'
+      AND table_name = ANY($1::text[])
+  `, [['user', 'session', 'account', 'verification', 'two_factor', 'audit_events']])
+  if (tables.rowCount !== 6) {
+    throw new Error('Admin security migration did not create all isolated tables')
+  }
+  const publicUsage = await client.query(`SELECT has_schema_privilege('public', 'admin', 'USAGE') AS allowed`)
+  if (publicUsage.rows[0]?.allowed !== false) {
+    throw new Error('Admin schema is accessible through PUBLIC privileges')
+  }
+  const administratorId = `migration-admin-${randomUUID()}`
+  const auditId = randomUUID()
+  await client.query(`
+    INSERT INTO admin."user" (id, name, email, role)
+    VALUES ($1, 'Migration Admin', $2, 'auditor')
+  `, [administratorId, `${administratorId}@example.invalid`])
+  await client.query(`
+    INSERT INTO admin.audit_events (id, admin_user_id, admin_role, action, result, request_id)
+    VALUES ($1, $2, 'auditor', 'migration.admin_schema.checked', 'success', $3)
+  `, [auditId, administratorId, `migration-${auditId}`])
+  await expectRejected(
+    client,
+    'UPDATE admin.audit_events SET result = \'failure\' WHERE id = $1',
+    [auditId],
+    'Admin audit events accepted an UPDATE',
+  )
+  await expectRejected(
+    client,
+    'DELETE FROM admin.audit_events WHERE id = $1',
+    [auditId],
+    'Admin audit events accepted a DELETE',
+  )
+}
+
 readDotEnv()
 const migrations = loadMigrations()
-const databaseUrl = process.env.DATABASE_URL
+const databaseUrl = process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL
 
 if (!databaseUrl) {
-  throw new Error('Missing DATABASE_URL. Migration tests require a disposable PostgreSQL schema.')
+  throw new Error('Missing MIGRATION_DATABASE_URL or DATABASE_URL. Migration tests require a disposable PostgreSQL schema.')
 }
 
 const schemaName = `migration_test_${randomUUID().replaceAll('-', '')}`
@@ -1594,6 +1632,7 @@ try {
   await assertMigrationCommitSchema(client, schemaName)
   await assertMigrationExportSchema(client, schemaName)
   await assertUserNumberSchema(client, schemaName)
+  await assertAdminSecuritySchema(client)
   await client.query('SET CONSTRAINTS ALL IMMEDIATE')
   await client.query('ROLLBACK')
   console.log(`Checked and upgraded ${migrations.length} migration file(s) in an isolated PostgreSQL schema.`)

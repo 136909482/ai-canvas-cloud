@@ -76,3 +76,17 @@ test('Redis outages fail closed for high-risk writes and recover without restart
   assert.equal(recovered.available, true)
   assert.equal(count, 1)
 })
+
+test('Redis readiness preserves the latest low-level connection failure for stable classification', async () => {
+  const connectionError = Object.assign(new Error('connect failed'), { code: 'ECONNREFUSED' })
+  const client: RedisRateLimitClient = {
+    status: 'ready',
+    async connect() {},
+    async eval() { return [1, 60] },
+    async ping() { throw new Error('Connection is closed') },
+    disconnect() {},
+  }
+  const limiter = createRateLimiterWithRedisClient(client, 'development', () => connectionError)
+
+  await assert.rejects(limiter.ping(), (error: Error & { code?: string }) => error.code === 'ECONNREFUSED')
+})

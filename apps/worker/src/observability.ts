@@ -1,24 +1,10 @@
 import http from 'node:http'
-import type { Logger, MetricsRegistry } from '@ai-canvas-cloud/shared'
+import { measureDependencyCheck, type Logger, type MetricsRegistry } from '@ai-canvas-cloud/shared'
 
 export interface WorkerDependencyChecks {
   postgres: () => Promise<void>
   redis: () => Promise<void>
   objectStorage: () => Promise<void>
-}
-
-async function measure(check: () => Promise<void>) {
-  const startedAt = performance.now()
-  try {
-    await check()
-    return { ok: true, latencyMs: Math.round(performance.now() - startedAt) }
-  } catch (error) {
-    return {
-      ok: false,
-      latencyMs: Math.round(performance.now() - startedAt),
-      error: error instanceof Error ? error.name : 'UnknownError',
-    }
-  }
 }
 
 export function createWorkerObservabilityServer(options: {
@@ -44,7 +30,7 @@ export function createWorkerObservabilityServer(options: {
     }
     if (pathname === '/health/ready') {
       const entries = await Promise.all(Object.entries(options.checks).map(async ([dependency, check]) => (
-        [dependency, await measure(check)] as const
+        [dependency, await measureDependencyCheck(check)] as const
       )))
       const dependencies = Object.fromEntries(entries)
       for (const [dependency, status] of entries) {

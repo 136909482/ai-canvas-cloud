@@ -105,15 +105,46 @@ export function createBullMqTaskQueuePublisher(
     }
   }
 
+  async function waitForRedisConnection(state: NonNullable<typeof connection>) {
+    if (state.redis.status === 'ready') return
+    if (state.redis.status === 'wait') {
+      await state.redis.connect()
+      return
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(timeout)
+        state.redis.off('ready', onReady)
+        state.redis.off('error', onError)
+      }
+      const onReady = () => {
+        cleanup()
+        resolve()
+      }
+      const onError = (error: Error) => {
+        cleanup()
+        reject(error)
+      }
+      const timeout = setTimeout(() => {
+        cleanup()
+        reject(new Error('Task queue Redis connection timed out'))
+      }, TASK_QUEUE_CONNECT_TIMEOUT_MS)
+      timeout.unref()
+      state.redis.once('ready', onReady)
+      state.redis.once('error', onError)
+    })
+  }
+
   return {
     async checkHealth() {
       const state = getConnection()
       try {
-        await waitUntilReady(state)
+        await waitForRedisConnection(state)
         await state.redis.ping()
       } catch (error) {
         resetConnection(state)
-        throw error
+        throw state.lastError ?? error
       }
     },
     async publish(job) {

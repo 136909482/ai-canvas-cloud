@@ -50,7 +50,7 @@ P7-6 的资源访问只使用可信 session actor 推导的 user/workspace，客
 GET /metrics
 ```
 
-`/metrics` 返回 Prometheus text exposition 格式的 API 指标，不要求浏览器会话，仅用于受控内网抓取。它包含请求计数/延迟、错误、认证失败、限流、项目版本冲突、配额、迁移阶段、PostgreSQL/Redis/对象存储依赖、PostgreSQL pool total/idle/waiting，以及 queued backlog、running task、过期租约和可重试失败 gauge。Worker 的内网 `GET /metrics` 还包含 outbox/Consumer/lease recovery、任务重试、Provider 请求耗时和结果转存失败。指标 registry 只允许固定低基数枚举标签，拒绝 workspace/user/project/task/request ID、URL、邮箱、请求正文、长值和凭据；健康检查错误只返回 Error 类型。
+`/metrics` 返回 Prometheus text exposition 格式的 API 指标，不要求浏览器会话，仅用于受控内网抓取。它包含请求计数/延迟、错误、认证失败、限流、项目版本冲突、配额、迁移阶段、PostgreSQL/Redis/对象存储依赖、PostgreSQL pool total/idle/waiting，以及 queued backlog、running task、过期租约和可重试失败 gauge。Worker 的内网 `GET /metrics` 还包含 outbox/Consumer/lease recovery、任务重试、Provider 请求耗时和结果转存失败。指标 registry 只允许固定低基数枚举标签，拒绝 workspace/user/project/task/request ID、URL、邮箱、请求正文、长值和凭据；健康检查响应只返回稳定故障分类，不返回底层 Error 名称或正文。
 
 ## 健康检查
 
@@ -61,7 +61,7 @@ GET /api/v1/health/live
 GET /api/v1/health/ready
 ```
 
-`live` 只表示 API 进程仍可响应，不触发数据库、Redis 或对象存储访问。`ready` 并行检查 PostgreSQL、Redis 和配置 Bucket：对象存储使用服务端 S3 凭据执行 `HeadBucket`，不调用 MinIO 专用路径。全部依赖可用时返回 `200` 与 `status=ok`；任一依赖停止时返回 `503`、`status=degraded` 和不含 URL/凭据的错误类别。健康检查不执行数据库迁移，迁移必须由独立发布步骤运行。
+`live` 只表示当前进程仍可响应，不触发数据库、Redis 或对象存储访问。API 与 Worker 的 `ready` 都并行执行 PostgreSQL `SELECT 1`、Redis `PING` 和配置 Bucket 的 S3 `HeadBucket`；`HeadBucket` 同时验证服务可达、Bucket 存在和服务端凭据的 Bucket 权限，不调用 MinIO 专用路径。全部依赖可用时返回 `200` 与 `status=ok`；任一依赖失败时返回 `503`、`status=degraded`，失败项的 `error` 只允许 `connection_refused`、`timeout`、`authentication_failed`、`permission_denied`、`bucket_unavailable` 或 `unknown`。响应不包含连接 URL、主机凭据、Bucket/object key 或底层错误正文。健康检查不执行数据库迁移，迁移必须由独立发布步骤运行。
 
 ## 认证
 
@@ -698,6 +698,64 @@ prepare 请求为 `{ idempotencyKey, expectedVersion?, expectedSequence? }`，�
 导出状态包含 `prepared`、`generating`、`completed`、`failed`、`canceled`、`expired` 及文件/字节/retryCount 进度。后台生成固定单项目 ZIP，payload 使用 `manifest.json`、`project.json`、`graph.json`、`assets.json` 和可选 `checkpoint.json`；逻辑资产 ID 与 `assets/<path>` 在生成时重写，归档完成后再次校验 P6-1 契约。生成失败只收敛导出行，不修改项目图、资产引用或检查点。download 仅对 completed 导出签发 5 分钟私有 URL，不返回对象 key；cancel 在生成边界使用 cancel request，重复调用保持同一终态；failed/canceled 导出可由 owner/admin/editor 调用 retry，最多 3 次，超过上限返回 `409 EXPORT_RETRY_EXHAUSTED`。跨 workspace、不存在或已删除项目不泄漏存在性。
 
 P6-8 Cloud Web 只通过以上固定接口编排迁移。导入先在浏览器读取目录包条目，再将 JSON 和 archive entry 元数据提交 prepare；服务端响应返回前不得开始资产直传，所有统计、冲突类型和允许策略以 prepare 摘要为准。replace UI 必须展示 `targetProject.expectedVersion/expectedSequence` 并取得单独确认；提交返回 `PROJECT_VERSION_CONFLICT` 时只能重新加载云端状态或使用允许的 copy 策略。multipart 直传必须使用对象存储响应中的 ETag，重新选择相同 package ID 时可以读取已有 upload 状态并续传缺失分片。导出先读取当前关系图 version/sequence 作为 expected 快照，再轮询 status；completed 后才请求 download URL。浏览器只持久化 import/export ID 用于刷新和重新登录后的 GET 恢复，不持久化目录包正文、媒体、签名 URL、object key、workspace/user 或凭据；通知中心只显示迁移摘要。
+
+## P8 公开配置、双模式与管理 API
+
+### 用户端公开读取
+
+`GET /api/v1/site-config` 无需登录，返回当前结构化站点修订的公开投影、品牌资产公开读取 URL 和 ETag。响应不包含管理 revision 备注、对象 key、Provider 配置或任何可执行 HTML/CSS/JavaScript；配置不可用时 Web 使用内置默认值。
+
+`GET /api/v1/models/official` 在可信 session 下返回当前启用的官方模型：`modelRef`、显示名、`chat|image|video` 类型、能力、受限参数范围、积分成本和排序。响应不返回 Provider base URL、真实 Provider model key、密钥版本或内部 revision ID。
+
+`GET /api/v1/workspaces/current/official-credits` 返回 UTC 月份、grant、adjustment、reserved、consumed 和 available。工作区来自 session，不接受客户端 workspace/user ID。
+
+### 官方任务创建
+
+P8 后 `POST /api/v1/tasks` 的新请求使用 `modelRef=official:<model-id>`、`sourceNodeId`、`resultNodeId`、`kind=chat|image|video`、参数和幂等键。客户端不得提交可信 `providerId`、Base URL、API Key、Provider endpoint、内部 model revision 或 billing mode。服务端解析当前模型修订并把具体 revision、真实 Provider/model、`billing_mode=platform` 和积分成本冻结到任务。
+
+历史 `previewNodeId` 和 `workspace_key` 仅在兼容窗口读取；新 API 不再创建用户 BYOK 服务端任务。官方任务状态、取消、重试和事件轮询沿用现有任务资源，聊天结果与媒体结果都通过项目图恢复，不在任务摘要中泄漏完整 Provider 响应。
+
+### 浏览器自定义模式
+
+自定义 Provider、Key、模型和模式没有服务端 CRUD 或同步 API。浏览器直接请求用户 Provider，并仅使用现有资产上传与项目图 API 保存结果。平台 API 不接收自定义 Base URL/Key，不提供任意 target URL 代理，也不把本机任务写入官方积分或服务端任务队列。
+
+### Admin API
+
+管理 API 独立部署并使用 `/admin/v1` 前缀、独立管理员 Cookie、精确 Admin Web Origin 和强制 MFA。普通用户 Cookie 在该入口无效。固定资源为：
+
+- `/admin/v1/auth/*`：登录、TOTP 启用/验证、恢复码、退出和管理员 session。
+- `/admin/v1/site-config`、`/admin/v1/site-assets`：结构化网站配置修订和品牌资产。
+- `/admin/v1/providers`、`/admin/v1/providers/:id/test`：官方 Provider、密钥轮换、连接测试和启停。
+- `/admin/v1/models`：官方模型修订、能力、积分成本、排序和启停。
+- `/admin/v1/users`：用户查询、详情、封禁/解封和 session/设备撤销，不返回项目正文或用户自定义 Key。
+- `/admin/v1/workspaces/:workspaceId/credits/adjust`：带原因和幂等键的人工积分调整。
+- `/admin/v1/audit-events`：按管理员、动作、目标、结果和时间读取脱敏审计。
+
+P8-2 当前已实现的认证/安全端点为：`GET /admin/v1/auth/csrf`、`POST /admin/v1/auth/login`、`GET /admin/v1/auth/session`、`POST /admin/v1/auth/mfa/setup`、`POST /admin/v1/auth/mfa/verify-totp`、`POST /admin/v1/auth/mfa/verify-recovery`、`POST /admin/v1/auth/mfa/recovery-codes`、`POST /admin/v1/auth/logout` 和 `GET /admin/v1/audit-events`。后续 P8 子阶段资源在对应数据/领域实现完成前返回 `404`，不提供空壳写接口。
+
+`GET /admin/v1/auth/csrf` 返回 `{ token }` 并设置同值、签名、两小时有效的 HttpOnly `ai_canvas_admin.csrf` Cookie。所有 POST 必须携带精确 allowlist Origin、非 `Sec-Fetch-Site: cross-site` 和 `X-CSRF-Token`；Cookie/Header 不一致、签名伪造或过期统一返回 `403 ADMIN_ACCESS_DENIED`。管理员认证 Cookie 使用独立 `ai_canvas_admin.*` 前缀、SameSite=Strict，staging/production 额外 Secure；不接受普通用户 Cookie。
+
+login 响应 state 为 `mfa_setup_required|mfa_required|authenticated`。首次未启用 MFA 的 session 只能访问 session、MFA setup/verify/recovery 和 logout；setup 以当前密码生成 `totpUri` 与只显示一次的 `recoveryCodes`，verify-totp 成功后才允许业务授权。已启用 MFA 的密码登录只建立 5 分钟 challenge，不建立业务 session；TOTP 或一次性恢复码验证成功后再设置 session，客户端不能启用 trust-device。被封禁管理员、已删除/过期 session、未完成 MFA 和 RBAC 不匹配分别稳定拒绝，不返回底层 Better Auth/数据库正文。
+
+Provider/模型保存立即生效，但服务端先完成 schema、URL 和能力校验，再创建不可变 revision 并原子切换 current。首次启用或 endpoint 变化必须对同一 revision 测试成功。Provider Key 写入/轮换响应只返回状态与末四位，任何 GET 都不返回明文。
+
+### 健康错误语义
+
+`/health/live` 只检查当前进程，不因 PostgreSQL、Redis、对象存储或 Provider 故障返回 degraded。`/health/ready` 执行真实依赖检查，依赖项只返回 `ok`、延迟和稳定错误分类：`connection_refused`、`timeout`、`authentication_failed`、`permission_denied`、`bucket_unavailable`、`unknown`。不得返回完整 host、连接串、数据库错误正文、Bucket key 或凭据。
+
+P8 新增稳定业务错误：
+
+```text
+OFFICIAL_MODE_DISABLED
+OFFICIAL_MODEL_UNAVAILABLE
+OFFICIAL_CREDIT_INSUFFICIENT
+MODEL_SOURCE_MISMATCH
+CUSTOM_PROVIDER_CORS_BLOCKED
+ADMIN_MFA_REQUIRED
+ADMIN_ACCESS_DENIED
+```
+
+`CUSTOM_PROVIDER_CORS_BLOCKED` 主要由浏览器本地映射，不要求平台 API 接收到 Provider 请求。积分不足和模型不可用返回 `409`，管理员未完成 MFA 返回 `403`，认证缺失仍使用既有认证错误。
 
 ## 主要错误码
 

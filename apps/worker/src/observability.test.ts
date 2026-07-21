@@ -14,15 +14,21 @@ async function get(server: http.Server, path: string) {
 }
 
 test('Worker readiness exposes dependency failure and recovery without diagnostic secrets', async () => {
-  let redisUp = false
+  let dependenciesUp = false
   const metrics = createMetricsRegistry()
   const server = createWorkerObservabilityServer({
     metrics,
     logger,
     checks: {
-      async postgres() {},
-      async redis() { if (!redisUp) throw new Error('redis://user:secret@private.example') },
-      async objectStorage() {},
+      async postgres() {
+        if (!dependenciesUp) throw Object.assign(new Error('private database refused'), { code: 'ECONNREFUSED' })
+      },
+      async redis() {
+        if (!dependenciesUp) throw new Error('WRONGPASS invalid username-password pair')
+      },
+      async objectStorage() {
+        if (!dependenciesUp) throw { name: 'NoSuchBucket', $metadata: { httpStatusCode: 404 } }
+      },
     },
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -30,10 +36,13 @@ test('Worker readiness exposes dependency failure and recovery without diagnosti
     const degraded = await get(server, '/health/ready')
     assert.equal(degraded.status, 503)
     assert.match(degraded.body, /"status":"degraded"/)
+    assert.match(degraded.body, /"postgres":\{"ok":false,"latencyMs":\d+,"error":"connection_refused"\}/)
+    assert.match(degraded.body, /"redis":\{"ok":false,"latencyMs":\d+,"error":"authentication_failed"\}/)
+    assert.match(degraded.body, /"objectStorage":\{"ok":false,"latencyMs":\d+,"error":"bucket_unavailable"\}/)
     assert.doesNotMatch(degraded.body, /secret|private\.example/)
     assert.match((await get(server, '/metrics')).body, /ai_canvas_dependency_up\{dependency="redis"\} 0/)
 
-    redisUp = true
+    dependenciesUp = true
     assert.equal((await get(server, '/health/ready')).status, 200)
     assert.match((await get(server, '/metrics')).body, /ai_canvas_dependency_up\{dependency="redis"\} 1/)
   } finally {

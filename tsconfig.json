@@ -7,6 +7,8 @@
     { "path": "./server" },
     { "path": "./apps/api" },
     { "path": "./apps/worker" },
-    { "path": "./apps/web" }
+    { "path": "./apps/web" },
+    { "path": "./apps/admin-api" },
+    { "path": "./apps/admin-web" }
   ]
 }

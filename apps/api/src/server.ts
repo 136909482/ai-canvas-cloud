@@ -1555,7 +1555,7 @@ export function createApiServer({
         return
       }
 
-      const dependencies = await checkReadinessDependencies(config, readinessChecks)
+      const dependencies = await checkReadinessDependencies(readinessChecks)
       for (const [dependency, status] of Object.entries(dependencies)) {
         metrics.setGauge('dependency_up', status.ok ? 1 : 0, { dependency })
       }

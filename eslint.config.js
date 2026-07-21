@@ -23,7 +23,7 @@ export default defineConfig([
     ],
   },
   {
-    files: ['apps/web/src/**/*.{ts,tsx}'],
+    files: ['apps/web/src/**/*.{ts,tsx}', 'apps/admin-web/src/**/*.{ts,tsx}'],
     extends: [
       reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
@@ -39,6 +39,7 @@ export default defineConfig([
   {
     files: [
       'apps/api/src/**/*.ts',
+      'apps/admin-api/src/**/*.ts',
       'apps/worker/src/**/*.ts',
       'packages/**/*.ts',
       'server/**/*.ts',

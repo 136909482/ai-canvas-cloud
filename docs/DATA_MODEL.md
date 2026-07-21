@@ -390,3 +390,47 @@ cancel/retry 同样先锁 workspace，再锁同 workspace 任务行并读取持�
 - saved/working snapshot -> import/manual 检查点和当前关系状态
 
 导出反向组装 `savedSnapshot` 与 `workingSnapshot`，保持 schema 版本和本地目录包契约。往返测试必须比较语义归一化结果，而不是依赖 JSON 属性顺序。
+
+## P8 管理控制面与双模式数据模型
+
+P8 数据迁移从 `0025` 开始，按 expand/migrate/contract 发布，不把 Admin 认证、官方目录、积分和旧 BYOK 清退挤入一个不可观察的大事务。
+
+### `admin` schema 与管理员认证（0025）
+
+同一 PostgreSQL 实例新增独立 `admin` schema 和独立数据库角色。Better Auth 管理员表位于该 schema，包含 `user`、`session`、`account`、`verification` 和 `two_factor`；管理员 user 增加固定角色、封禁状态和 `two_factor_enabled`，session 使用与普通用户不同的 Cookie 和 Auth Secret。普通 API/普通用户数据库角色不得读取这些表。
+
+`admin.user.role` 只接受 `super_admin|operator|support|auditor`，`status` 只接受 `active|banned`；邮箱规范化为小写唯一值。`admin.two_factor` 对管理员唯一，保存 Better Auth 加密后的 TOTP secret、加密恢复码、verified、连续失败次数和锁定时间，恢复码明文只在生成响应中出现一次。session token 只存在 Better Auth session 表和 HttpOnly Cookie，不进入 Admin HTTP 响应或审计。
+
+`admin.audit_events` 是追加式管理审计，保存管理员 ID、角色、动作、目标类型/ID、result、request ID、IP/User-Agent 哈希、脱敏 before/after JSON 和时间。运行角色不能 UPDATE/DELETE；事件不得保存 API Key、session token、恢复码、用户正文、Provider 响应或完整连接 URL。
+
+`0025` 创建固定 schema 后撤销 PUBLIC 的 schema/table/sequence/function 权限。部署脚本以 migration 角色分别授予普通应用角色 public 业务表权限和 Admin 角色 Admin 身份/MFA表权限；普通角色对 `admin` 无 USAGE，Admin 角色不获 public 普通身份表权限。`audit_events` 对 Admin 运行角色仅授予 INSERT/SELECT，并额外由 `BEFORE UPDATE OR DELETE` 触发器无条件拒绝修改。迁移发布清单从 `0025` 开启 `p8` release train 的新一轮 expand，相位单调性在各 train 内独立校验。
+
+### 站点配置与品牌资产（0026）
+
+`admin.site_config_revisions` 保存不可变结构配置，`admin.site_config_current` 只保存当前 revision 外键。配置包含网站名称/短名称、备案字段、帮助与法律链接、首页/Footer 文案、主题预设、导航枚举、功能开关和 Logo/Favicon asset ID；JSONB 必须满足版本化运行时 schema，不接受 HTML、JavaScript、任意 CSS。
+
+`admin.site_assets` 保存独立于 workspace 资产的品牌文件元数据、对象存储定位、MIME、字节数、SHA-256、尺寸、状态和时间。只接受 PNG/JPEG/WebP/ICO；对象 key 不进入公开配置。保存站点配置时先验证引用资产 completed，再写 revision 并原子切换 current。
+
+### 官方 Provider 与模型修订（0026）
+
+`admin.official_providers` 保存稳定逻辑 ID、显示名、状态和当前 endpoint revision。`admin.official_provider_revisions` 不可变保存协议类型、规范化 HTTPS base URL、允许能力和创建管理员。`admin.official_provider_secrets` 保存 AES-256-GCM envelope、密钥版本、末四位、状态和轮换时间；明文不落库且不能通过列表接口恢复。
+
+`admin.official_models` 保存稳定模型 ID、当前 revision、启用状态和排序。`admin.official_model_revisions` 不可变保存显示名、`chat|image|video` 类型、Provider revision、真实 Provider model key、能力/参数策略 JSONB 和正整数 `credit_cost`。保存立即创建 revision 并切换 current；任务必须引用具体 model revision，不能只在执行时读取 current。
+
+### 官方积分与任务扩展（0027）
+
+`workspace_official_credit_periods` 以 `(workspace_id, period_start)` 唯一，保存月度 grant、管理员 adjustment、reserved、consumed 和更新时间。`official_credit_ledger` 保存 `monthly_grant|admin_adjustment|reserve|consume|release`、整数 delta、幂等键、原因、可空 task ID 和操作者；同一业务幂等键不得重复影响余额。
+
+`generation_tasks` 增加官方 model revision、Provider revision、credit period、reserved cost 和通用 `result_node_id`；`task_kind` 扩展为 `chat|image|video`。历史 `preview_node_id` 保留兼容读取并回填 `result_node_id`，不在同一版本破坏旧 Worker。官方新任务固定 `billing_mode=platform`；历史 `workspace_key` 行可读取但不再创建。
+
+创建官方任务在一个事务中锁定 workspace 与 credit period，解析启用模型修订，验证项目/source/result node，检查 active task 限额和可用积分，再写 task、`reserve` 流水和 outbox。成功结果事务在项目图/资产/usage ledger 写入完成后把 reserve 转为 consume；最终失败/取消只释放一次。聊天结果使用受限 JSON 结构写入任务及目标节点的 task 专属结果子树，不覆盖位置、样式或后续用户编辑。
+
+### 旧用户 BYOK 清退（0028 contract）
+
+0028 只能在新代码停止 Provider 写入、停止创建 `workspace_key` 任务、旧 Worker 停止且所有活动旧任务收敛后执行。迁移删除 `provider_credentials` 及旧访问路径，不保留密文、末四位或可恢复导出；只允许审计记录各状态行数。随后销毁外部 `PROVIDER_CREDENTIAL_KEYS`，使历史备份密文不可解密并按保留周期淘汰。
+
+0028 是不可逆 contract，旧应用不能在新 schema 上恢复 BYOK 写入或执行。发布前必须有隔离恢复证据，但回滚不得重新启用已销毁的用户 Key；只能以前向修复恢复非凭据业务读取。
+
+### 浏览器本地状态
+
+`GenerationMode`、本地 Provider、API Key、本地模型和绑定不进入 PostgreSQL。浏览器以可信 session 用户 ID 和 Origin 作为 IndexedDB Vault 分区，使用不可导出 WebCrypto `CryptoKey` 加密单个版本化配置文档。项目节点只保存 `official:<model-id>` 或 `local:<provider-id>:<model-id>` 引用，不保存 Base URL、API Key 或完整本地配置。

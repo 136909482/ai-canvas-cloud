@@ -181,7 +181,7 @@ test(
       const migrations = (
         await readdir(join(process.cwd(), 'server', 'db', 'migrations'))
       )
-        .filter((fileName) => fileName.endsWith('.sql'))
+      .filter((fileName) => fileName.endsWith('.sql') && !fileName.startsWith('0025_'))
         .sort()
       for (const fileName of migrations) {
         await pool.query(

@@ -71,18 +71,25 @@ function normalizeRetryAfter(value: unknown, fallback: number) {
 }
 
 export function createRedisRateLimiter(redisUrl: string, environment: string): RateLimiter {
+  let lastError: Error | null = null
   const client = new Redis(redisUrl, {
     lazyConnect: true,
     enableOfflineQueue: false,
     maxRetriesPerRequest: 1,
     retryStrategy: (times) => Math.min(times * 100, 1_000),
   })
-  client.on('error', () => {})
+  client.on('error', (error) => {
+    lastError = error
+  })
 
-  return createRateLimiterWithRedisClient(client, environment)
+  return createRateLimiterWithRedisClient(client, environment, () => lastError)
 }
 
-export function createRateLimiterWithRedisClient(client: RedisRateLimitClient, environment: string): RateLimiter {
+export function createRateLimiterWithRedisClient(
+  client: RedisRateLimitClient,
+  environment: string,
+  getLastError?: () => Error | null,
+): RateLimiter {
   let initialConnectPromise: Promise<void> | undefined
 
   async function ensureConnected() {
@@ -137,8 +144,12 @@ export function createRateLimiterWithRedisClient(client: RedisRateLimitClient, e
       }
     },
     async ping() {
-      await ensureConnected()
-      await client.ping()
+      try {
+        await ensureConnected()
+        await client.ping()
+      } catch (error) {
+        throw getLastError?.() ?? error
+      }
     },
     async close() {
       if (client.status !== 'end') {

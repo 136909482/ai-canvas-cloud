@@ -71,9 +71,20 @@ PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION=2
 常用开发入口：
 
 ```bash
+npm run dev:start
+npm run dev:status
+npm run dev:restart
+npm run dev:stop
+```
+
+`dev:start` 在后台统一启动 Web、API、Worker、Admin Web 和 Admin API，运行记录与脱敏日志只写入已忽略的 `.codex-run/`。`dev:stop`/`dev:restart` 在停止前核对 PID、Node 可执行文件、仓库工作目录证明、管理脚本路径、服务名和随机所有权标记；任一身份不一致都会拒绝停止，不会按进程名结束其他 Node 进程。需要单独前台调试时仍可使用：
+
+```bash
 npm run dev:web
 npm run dev:api
 npm run dev:worker
+npm run dev:admin-web
+npm run dev:admin-api
 npm run db:migrate
 ```
 
@@ -82,6 +93,13 @@ npm run db:migrate
 ```bash
 npm run test
 npm run lint
+npm run dev:start
+npm run dev:stop
+npm run dev:restart
+npm run dev:status
+npm run db:roles:provision
+npm run db:roles:check
+npm run admin:bootstrap
 npm run db:migrate:test
 npm run db:migrate:compat
 npm run build
@@ -106,9 +124,24 @@ docker compose --env-file infra/deploy/staging/staging.env -f infra/deploy/stagi
 docker compose --env-file infra/deploy/staging/staging.env -f infra/deploy/staging/docker-compose.yml up -d
 ```
 
-`migrate` 是独立的一次性发布步骤；API/Worker 启动命令不执行迁移。Compose 使用独立的 staging PostgreSQL、Redis、MinIO Bucket、队列名、邮件/Provider/BYOK 配置和持久卷，Web 只通过同域反向代理访问 API。配置门禁会拒绝 staging/production 的 localhost、HTTP Web/Auth URL、默认 MinIO 凭据、占位认证密钥、开发管理员 seed、缺失来源白名单以及带有 local/production 标识的资源或凭据 ID。停止 PostgreSQL、Redis 或对象存储后，API `/health/ready` 返回 `503` 与 `degraded`；Worker 健康检查会反映 Redis 连接状态。
+`migrate` 是独立的一次性发布步骤；API/Worker 启动命令不执行迁移。Compose 使用独立的 staging PostgreSQL、Redis、MinIO Bucket、队列名、邮件/Provider/BYOK 配置和持久卷，Web 只通过同域反向代理访问 API。配置门禁会拒绝 staging/production 的 localhost、HTTP Web/Auth URL、默认 MinIO 凭据、占位认证密钥、开发管理员 seed、缺失来源白名单以及带有 local/production 标识的资源或凭据 ID。API 与 Worker readiness 都执行 PostgreSQL `SELECT 1`、Redis `PING` 和 S3 `HeadBucket`；任一依赖不可用时返回 `503` 与 `degraded`，并且只暴露稳定的脱敏分类。
 
-schema 发布使用 `expand -> migrate -> contract` 单调顺序，长期元数据位于 `server/db/migrations/release-manifest.json`。每个迁移声明旧/新应用可读性、锁风险、statement timeout、回滚边界、前向修复和备份门槛；`npm run db:migrate:compat` 会校验 24 个迁移的 manifest、旧 schema + 新应用的可选列读取、新 schema + 旧应用的列读取，以及中断事务重跑。当前没有 contract migration；删除列/表必须先经过备份与独立发布窗口。
+schema 发布在每个 release train 内使用 `expand -> migrate -> contract` 单调顺序，长期元数据位于 `server/db/migrations/release-manifest.json`。每个迁移声明 release train、旧/新应用可读性、锁风险、statement timeout、回滚边界、前向修复和备份门槛；`npm run db:migrate:compat` 会校验 25 个迁移的 manifest、旧 schema + 新应用的可选列读取、新 schema + 旧应用的列读取，以及中断事务重跑。当前没有 contract migration；删除列/表必须先经过备份与独立发布窗口。
+
+### Admin 安全底座（P8-2）
+
+Admin Web 与 Admin API 分别运行在 `http://127.0.0.1:5174` 和 `http://127.0.0.1:8788`，不从普通网站导航暴露入口。Admin 使用独立 Origin allowlist、`ai_canvas_admin.*` Cookie、Better Auth Secret、非超级用户数据库角色和固定 `admin` schema；普通应用角色不能读取管理员身份/MFA/审计表，Admin 角色也不能读取普通身份表。Admin Web 使用 Refine Core 组织审计资源与角色权限，页面为仓库自定义 React UI。
+
+首次配置按顺序执行，所有密码和 Secret 只写入已忽略的本机 `.env`：
+
+```bash
+npm run db:migrate
+npm run db:roles:provision
+npm run db:roles:check
+npm run admin:bootstrap
+```
+
+`db:roles:provision` 从 migration 连接创建独立普通应用/Admin 运行角色并生成随机本机凭据，终端不打印凭据；后续迁移使用 `MIGRATION_DATABASE_URL`。`admin:bootstrap` 必须在真实交互式 TTY 中输入并确认密码，只允许管理员表为空时创建首个 `super_admin`，不接受长期环境变量 seed。首次登录只能设置/验证 TOTP 或退出；启用后每次登录必须使用 TOTP 或消耗一个一次性恢复码。所有写请求先校验精确 Admin Origin 与签名 CSRF 双提交 token，管理审计在应用层移除凭据/正文并由数据库触发器禁止 UPDATE/DELETE。
 
 该定义是厂商无关的容器基线，不代表真实 staging 已配置域名/TLS、SMTP、Provider、密钥管理、备份或告警接收端；这些外部资源必须在部署前单独创建并填入密钥管理系统，不能提交到 Git。
 

@@ -9,22 +9,27 @@ import { loadSchemaReleaseManifest, validateSchemaReleaseManifest } from './chec
 
 test('schema release manifest covers every migration with monotonic release phases', () => {
   const result = validateSchemaReleaseManifest(loadSchemaReleaseManifest())
-  assert.equal(result.files.length, 24)
-  assert.equal(result.manifest.migrations.at(-1).version, '0024')
+  assert.equal(result.files.length, 25)
+  assert.equal(result.manifest.migrations.at(-1).version, '0025')
+  assert.equal(result.manifest.migrations.at(-1).releaseTrain, 'p8')
   assert.equal(result.manifest.migrations.some((migration) => migration.phase === 'contract'), false)
   assert.equal(result.manifest.migrations.filter((migration) => migration.backupRequired).length > 0, true)
 })
 
 loadDotEnv()
+const migrationDatabaseUrl = process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL
 
 test('migration interruption rollback and rerun leave a known schema version', {
-  skip: process.env.DATABASE_URL ? false : 'DATABASE_URL is not configured',
+  skip: migrationDatabaseUrl ? false : 'MIGRATION_DATABASE_URL or DATABASE_URL is not configured',
 }, async () => {
   const schema = `schema_release_${randomUUID().replaceAll('-', '')}`
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL })
+  const client = new pg.Client({ connectionString: migrationDatabaseUrl })
+  let adminSchemaExisted = true
   const migrationFiles = (await readdir(join(process.cwd(), 'server', 'db', 'migrations'))).filter((name) => name.endsWith('.sql')).sort()
   try {
     await client.connect()
+    const adminSchema = await client.query(`SELECT 1 FROM pg_namespace WHERE nspname = 'admin'`)
+    adminSchemaExisted = adminSchema.rowCount > 0
     await client.query(`CREATE SCHEMA "${schema}"`)
     await client.query(`SET search_path TO "${schema}", public`)
     for (const fileName of migrationFiles.slice(0, -1)) {
@@ -65,6 +70,7 @@ test('migration interruption rollback and rerun leave a known schema version', {
       await client.query('ROLLBACK').catch(() => undefined)
       await client.query('SET search_path TO public').catch(() => undefined)
       await client.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`).catch(() => undefined)
+      if (!adminSchemaExisted) await client.query('DROP SCHEMA IF EXISTS admin CASCADE').catch(() => undefined)
     }
     await client.end()
   }

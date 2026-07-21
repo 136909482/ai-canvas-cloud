@@ -46,7 +46,12 @@ export interface ApiErrorResponse {
 export interface HealthDependencyStatus {
   ok: boolean
   latencyMs?: number
-  error?: string
+  error?: 'connection_refused'
+    | 'timeout'
+    | 'authentication_failed'
+    | 'permission_denied'
+    | 'bucket_unavailable'
+    | 'unknown'
 }
 
 export interface HealthResponse {
@@ -549,6 +554,60 @@ export interface ApplyProjectGraphOperationsResponse {
   sequence: number
   acceptedBatchId: string
   updatedAt: string
+}
+
+export type AdminRole = 'super_admin' | 'operator' | 'support' | 'auditor'
+export type AdminStatus = 'active' | 'banned'
+
+export interface AdminPrincipal {
+  id: string
+  email: string
+  role: AdminRole
+  status: AdminStatus
+  twoFactorEnabled: boolean
+}
+
+export interface AdminSessionResponse {
+  admin: AdminPrincipal
+  expiresAt: string
+}
+
+export interface AdminLoginResponse {
+  state: 'mfa_setup_required' | 'mfa_required' | 'authenticated'
+  session?: AdminSessionResponse
+  methods?: Array<'totp' | 'backup_code'>
+}
+
+export interface AdminMfaSetupResponse {
+  totpUri: string
+  recoveryCodes: string[]
+}
+
+export interface AdminRecoveryCodesResponse {
+  recoveryCodes: string[]
+}
+
+export interface AdminAuditEvent {
+  id: string
+  adminUserId: string | null
+  adminRole: AdminRole | null
+  action: string
+  targetType: string | null
+  targetId: string | null
+  result: 'success' | 'failure'
+  requestId: string
+  before: Record<string, unknown>
+  after: Record<string, unknown>
+  createdAt: string
+}
+
+export interface AdminAuditEventsResponse {
+  items: AdminAuditEvent[]
+  nextCursor: string | null
+}
+
+export interface AdminCsrfResponse {
+  token: string
 }
 
 export function createServiceUnavailableError(requestId: string, message = 'Service unavailable'): ApiErrorResponse {

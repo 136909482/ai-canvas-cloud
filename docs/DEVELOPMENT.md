@@ -290,6 +290,10 @@ API 请求日志只记录 request ID、方法和固定路由组，不记录 quer
 ```bash
 npm run test
 npm run lint
+npm run dev:start
+npm run dev:stop
+npm run dev:restart
+npm run dev:status
 npm run db:migrate:test
 npm run db:migrate:compat
 npm run build
@@ -315,16 +319,70 @@ npm run db:maintain:assets -- --apply --batch-size=100 --grace-hours=168
 
 该命令先按数据库资产稳定游标诊断对象缺失，再按对象 key 稳定游标扫描 bucket 的 `workspaces/` 前缀。只有严格符合服务端 key 结构、数据库无对应行且超过宽限期的对象可作为 bucket 孤立对象删除；数据库侧只有 pending 已过期、failed、quarantined 或已软删除资产在超过宽限期、无 `asset_references`、无有效 checkpoint manifest 引用时才进入 GC。completed 资产即使暂时无引用也只保留，缺失对象只输出诊断，不因缺失本身静默改库；仅本来已满足 GC 条件的缺失对象会幂等收敛为 deleted。每个数据库候选使用独立短事务，先锁资产再用新的 SQL 语句复查保护引用；S3 删除成功但数据库提交失败时，下次运行会在对象已不存在的情况下完成状态收敛。
 
-`npm run db:migrate:test` 不写入业务 schema；它在当前 PostgreSQL 数据库创建随机隔离 schema，按顺序执行全部迁移、验证关键表/约束/索引和拒绝路径，然后回滚测试事务并删除隔离 schema。该命令需要可连接的 `DATABASE_URL`。
+`npm run db:migrate:test` 不写入普通业务 schema；它通过 `MIGRATION_DATABASE_URL`（未配置时兼容回退 `DATABASE_URL`）创建随机隔离 schema，在同一测试事务中按顺序执行全部迁移，并单独验证固定 `admin` schema 的表、PUBLIC 权限和追加式审计拒绝路径，最后整体回滚。普通领域集成 fixture 只重放 `0001-0024` 到随机 schema，避免并发触碰固定 Admin schema；`0025` 由专用 Admin 迁移与集成测试覆盖。
 
 开发入口：
+
+```bash
+npm run dev:start
+npm run dev:status
+npm run dev:restart
+npm run dev:stop
+```
+
+统一入口在后台管理 Web、API、Worker、Admin Web 和 Admin API，运行记录与日志位于 Git 忽略的 `.codex-run/`。每个服务由仓库内管理进程生成独立随机所有权标记并自报 PID、仓库工作目录和脚本路径；停止或重启前还会读取实时进程命令行，复核 Node 可执行文件、PID、工作目录证明、管理脚本、服务名和标记。无法读取或任一字段不匹配时必须拒绝停止，禁止按 `node` 进程名批量结束。单服务前台调试入口保留为：
 
 ```bash
 npm run dev:web
 npm run dev:api
 npm run dev:worker
+npm run dev:admin-web
+npm run dev:admin-api
 npm run db:migrate
+npm run db:roles:provision
+npm run db:roles:check
+npm run admin:bootstrap
 npm run deploy:staging:check
 ```
 
 每次新增或修改真实命令时，必须同步更新 README、AGENTS 和本文件。
+
+## P8 运营控制面与双生成模式
+
+P8 引入互斥的官方模式与自定义模式。模式是当前账号在当前浏览器设备上的偏好，不是 workspace 共享配置；新设备默认 `official`。模型引用必须携带来源命名空间：`official:<model-id>` 或 `local:<provider-id>:<model-id>`。切换模式不删除配置，也不改写项目节点；来源与当前模式不匹配的节点只能提示切换模式或显式替换模型。
+
+官方模式由普通 API 创建 PostgreSQL 任务、Redis 队列和 Worker 执行，支持 chat/image/video，关闭页面后继续。客户端只提交官方 `modelRef`、节点 ID 和受限参数；Provider、真实模型键、endpoint、模型修订、`billing_mode=platform` 和积分成本全部由服务端解析。聊天首期使用可恢复异步任务而非 token 流式输出。结果必须通过 tasks/project-graph/assets 领域事务收敛，不能由 Admin API、Worker 路由或前端直接修改图表。
+
+自定义模式由浏览器直接调用用户指定 Provider，复用现有 chat、OpenAI Compatible 图片和视频 adapter。API Key 不经过普通 API、Admin API、Worker、项目图、任务表、诊断或平台日志。Provider 必须支持浏览器 CORS，或由用户提供其自建的固定目标 CORS 网关；平台不提供接收任意 target URL 的代理。自定义媒体结果仍通过标准 Cloud 资产上传和项目图增量接口持久化，自定义聊天结果通过项目图增量保存；本机任务不写官方 `generation_tasks` 或积分账本，页面关闭后不保证继续执行。
+
+### 浏览器 Vault
+
+自定义 Provider、Key、模型、模型绑定和本机任务恢复元数据必须进入同一个 IndexedDB Vault，不能再让 Provider 存在 PostgreSQL 而模型只在浏览器缓存。Vault 以 Origin 和可信 session 用户 ID 分区；“仅本次会话”只使用内存，“记住此设备”使用 WebCrypto 生成的不可导出 AES-GCM `CryptoKey`、随机 IV 和版本化 AAD 加密。退出登录清除内存明文但不擅自删除用户选择保留的密文；“忘记此设备”同时删除密文、CryptoKey、模式和本地任务缓存。
+
+本地加密只保护离线缓存和普通磁盘读取，不作为抵御已运行 XSS 或恶意扩展的安全声明。生产自定义 endpoint 只允许 HTTPS，拒绝 URL 用户名、密码和 fragment；所有请求错误、Provider 响应、埋点和诊断必须在进入日志前移除 Authorization、API Key、query 凭据和用户正文。
+
+### Admin 隔离
+
+`admin-web` 与 `admin-api` 是独立部署面，使用独立域名、Origin allowlist、Cookie 名、Better Auth Secret、数据库连接角色和 `admin` schema。普通用户 session 不可用于管理端；普通 API 无权读取管理员 user/session/account/verification/two-factor 或审计表。管理员固定角色为 `super_admin`、`operator`、`support`、`auditor`，全部强制 TOTP MFA；未完成 MFA 的 session 只能访问 MFA 设置、验证和退出。
+
+首个 `super_admin` 只能通过一次性交互式 bootstrap CLI 创建，不通过长期环境变量自动 seed。管理端不提供用户模拟。站点设置、官方 Provider/模型、积分和用户状态写入都必须由 `server/modules/admin` 中的领域服务执行，并在同一业务事务或可靠审计边界写入脱敏审计事件；路由不得直接修改普通用户、workspace、任务、资产或项目图。
+
+P8-2 已落地 `0025_admin_security_foundation.sql`、`server/modules/admin`、`apps/admin-api` 和 `apps/admin-web`。本地先以 migration 连接执行 `db:migrate`，再执行 `db:roles:provision`；脚本创建独立非超级用户普通应用/Admin 角色，收回普通角色对 `admin` schema 的全部权限，只向 Admin 角色授予身份/MFA 表所需 CRUD 和审计 INSERT/SELECT，并把随机密码、独立 Auth Secret 与 URL 只写入 Git 忽略的 `.env`。`db:roles:check` 只输出角色名和权限布尔值，不输出连接信息。
+
+Admin Better Auth 使用 `ai_canvas_admin` Cookie 前缀、SameSite=Strict、独立 Secret 和 5 分钟 MFA challenge；不允许 trust-device，也不提供禁用 MFA 或用户模拟入口。未启用 MFA 的有效 session 只可调用 session、TOTP setup/verify、recovery 与 logout；业务授权每次重新读取 session、管理员 status、`two_factor_enabled` 和固定 RBAC。Admin API 所有非安全方法都要求精确 Admin Origin、非 cross-site Fetch Metadata、签名且限时的 HttpOnly CSRF Cookie 与同值请求头。审计 before/after 递归限深/限长，凭据字段替换、用户/Provider 内容字段丢弃、URL 只保留 Origin，IP/UA 只保存带 pepper 的 SHA-256。
+
+官方 Provider 密钥使用独立 `OFFICIAL_PROVIDER_CREDENTIAL_KEYS` 密钥环。Admin API 只能短期解密做连接测试，Worker 只能为绑定修订的官方任务解密执行；普通 API 不需要明文密钥。旧 `PROVIDER_CREDENTIAL_KEYS` 只服务于 P5 用户 BYOK，P8 contract 清退完成后必须从代码、部署 Secret 和备份恢复手册移除。
+
+### 官方配置与积分
+
+网站结构配置和官方 Provider/模型采用“保存立即生效”，但每次保存创建不可变修订并原子切换当前指针。已创建任务绑定当时模型和 Provider endpoint 修订，后续保存不能改变排队任务；执行密钥按 Provider 当前有效密钥版本读取，以支持安全轮换。公开站点配置不接受 HTML、JavaScript、任意 CSS 或可执行请求模板。
+
+官方额度使用 workspace UTC 自然月整数积分。创建任务在 workspace/月度余额行锁中写 `reserve`，成功事务写 `consume`，最终失败或取消写 `release`；重试沿用原预留，跨月任务仍结算创建月份。管理员调整必须包含原因和幂等键，减少额度不得让已消费加已预留超过总额。首期不接支付、订单、套餐、退款或自动续费。
+
+### NAS 与 readiness
+
+本地开发可通过未提交环境文件连接 `192.168.1.3` 上的 PostgreSQL、Redis 和 MinIO。PostgreSQL 必须同时满足监听地址、`pg_hba.conf`、账号和防火墙；Redis 必须满足 bind、ACL 和端口；MinIO 必须区分服务端 `S3_ENDPOINT` 与浏览器可达的 `S3_PUBLIC_ENDPOINT`，并为 Web Origin 配置私有 Bucket CORS。
+
+`/health/live` 不访问外部依赖，只说明进程事件循环仍可响应。`/health/ready` 执行真实 PostgreSQL query、Redis PING 和对象存储健康/Bucket 权限检查，失败只返回稳定分类 `connection_refused`、`timeout`、`authentication_failed`、`permission_denied`、`bucket_unavailable`、`unknown`。健康响应、指标和日志不得返回 NAS 密码、完整 URL、对象 key 或 Provider 凭据。
+
+API 与 Worker 生产入口都把 PostgreSQL `SELECT 1`、共享 Redis 客户端 `PING` 和 S3 `HeadBucket` 注入 readiness；共享测量层为单项检查设置有界超时并统一映射上述分类。未注入真实检查时 readiness 必须以 `unknown` degraded 失败，不能退化为只探测 TCP 端口或 MinIO 专用 HTTP 路径。`HeadBucket` 同时验证对象存储服务可达、目标 Bucket 存在和当前服务端凭据具备 Bucket 访问权限。

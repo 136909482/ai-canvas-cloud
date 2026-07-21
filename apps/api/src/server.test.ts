@@ -2555,6 +2555,7 @@ test('observability records bounded API metrics and readiness failure recovery',
     const degraded = await requestJson(port, { method: 'GET', path: '/health/ready' })
     assert.equal(degraded.statusCode, 503)
     assert.equal((degraded.body as { status: string }).status, 'degraded')
+    assert.equal((degraded.body as { dependencies: { redis: { error: string } } }).dependencies.redis.error, 'unknown')
     assert.doesNotMatch(JSON.stringify(degraded.body), /secret|private\.example/)
 
     redisUp = true

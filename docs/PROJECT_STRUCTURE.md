@@ -9,6 +9,8 @@ apps/
   web/                 Vite + React 画布网站
   api/                 HTTP 入口、路由、中间件和健康检查
   worker/              持久化队列消费者与后台任务
+  admin-web/           Refine Core + 自定义 React 运营管理前端（P8-2 已建立）
+  admin-api/           独立管理员认证、CSRF、MFA、RBAC 与管理 HTTP 入口（P8-2 已建立）
 
 packages/
   contracts/           API 请求/响应、错误码和运行时 schema
@@ -28,6 +30,7 @@ server/
     migrations/        本地/Cloud 导入导出会话、预检、归档生成、状态与事务编排（P6-2/P6-6 建立）
     tasks/             任务状态机、任务 HTTP、尝试/命令与提交防重复持久化边界（P5-1/P5-3/P5-7 建立）
     providers/         Provider 注册表、BYOK 加解密、配置持久化、执行 adapter 与幂等能力声明（P5-2/P5-6/P5-7 建立）
+    admin/             Admin Better Auth、MFA、RBAC 与追加式脱敏审计；后续扩展站点/官方目录/积分/用户运营
   shared/              仅服务端使用的配置、日志和基础设施适配（后续按需建立）
 
 infra/
@@ -60,6 +63,16 @@ apps/worker
   -> server/modules/assets
   -> server/modules/project-graph
   -> packages/provider-adapters
+
+apps/admin-web
+  -> packages/contracts
+  -> packages/shared
+
+apps/admin-api
+  -> server/modules/admin
+  -> server/modules/auth（只通过受控用户管理能力）
+  -> packages/contracts
+  -> packages/provider-adapters
 ```
 
 禁止反向依赖：
@@ -69,6 +82,22 @@ apps/worker
 - `server/` 不 import React 组件、Zustand store 或浏览器对象。
 - `apps/web` 不 import `server/`、数据库驱动、Redis 或对象存储管理 SDK。
 - Provider adapter 不直接修改项目图；结果通过 tasks/project-graph 领域服务提交。
+- `apps/admin-api` 不直接修改项目图、资产、任务或普通认证表；用户封禁、session 撤销、积分和官方目录操作通过对应领域服务。
+- `apps/api` 不读取 Admin 认证/MFA/审计表，也不解密官方 Provider Key。
+
+## P8 应用与权限方向
+
+`apps/admin-web` 使用 Refine Core 组织资源、权限和数据请求，但页面组件保持仓库自定义设计。它只调用独立 `admin-api`，不复用普通用户 API Cookie，不 import 普通 Web Zustand store，也不接触数据库或 Provider 密钥。管理端不从普通网站导航暴露入口，真实安全依赖独立认证、MFA 和授权，而不是隐藏 URL。
+
+`apps/admin-api` 负责管理员 HTTP、Cookie/CSRF、MFA 门禁、RBAC、请求 schema 和错误映射。站点设置、官方 Provider/模型、积分、用户状态和审计实现在 `server/modules/admin`；用户 session 撤销通过普通 auth 模块公开的受控管理能力，不能由路由直接 SQL。官方 Provider 连接测试只能使用已保存 revision 的固定 endpoint 和 adapter，不能接受请求体 target URL。
+
+数据库角色至少区分 migration、普通 API、Worker 和 Admin API。普通 API 只可读取已发布站点配置、官方模型公开投影和积分所需业务表；Worker 只可读取任务绑定的官方 revision/密文并写任务领域结果；Admin API 可管理 `admin` schema 和经领域服务批准的用户/工作区字段。Admin 认证表和审计表不授予普通 API/Worker 读取权限。
+
+`apps/web` 的 P8 客户端新增三条内部边界：generation mode 只决定模型来源和任务分流；本地 Vault 独占 IndexedDB/WebCrypto 和明文生命周期；现有 Cloud platform adapter 继续独占资产上传和图增量。组件不能自行读写 IndexedDB 密文、拼接官方 endpoint 或把本地 Key 放入 Zustand 持久化。
+
+`apps/worker` 的 P8 官方执行不再按任务创建用户读取 `provider_credentials`。它根据任务冻结的官方 model/provider revision 读取固定 endpoint，并用独立官方密钥环短期解密当前有效 Provider secret。chat/image/video processor 都只能通过 tasks 领域服务完成状态、积分、结果资产和项目图事务。
+
+P8 contract 清退后，`server/modules/providers` 的用户 BYOK 持久化职责删除；可复用的协议 adapter、URL 校验和结果安全能力迁入/保留在不依赖用户凭据表的服务端 Provider 边界。浏览器自定义 adapter 留在 Web 客户端，服务端不得为其新增任意 URL 代理。
 
 ## Web 应用
 

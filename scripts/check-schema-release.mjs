@@ -20,6 +20,8 @@ export function validateSchemaReleaseManifest(manifest = loadSchemaReleaseManife
   const files = readdirSync(migrationsDirectory).filter((name) => name.endsWith('.sql')).sort()
   if (files.length !== manifest.migrations.length) throw new Error('Schema release manifest does not cover every SQL migration')
   let previousPhase = 0
+  let previousTrain = 'legacy'
+  const completedTrains = new Set()
   const seen = new Set()
   for (const [index, migration] of manifest.migrations.entries()) {
     const fileName = files[index]
@@ -29,6 +31,14 @@ export function validateSchemaReleaseManifest(manifest = loadSchemaReleaseManife
     }
     if (seen.has(migration.version) || phases.get(migration.phase) === undefined) throw new Error(`Invalid schema release entry ${migration.version}`)
     seen.add(migration.version)
+    const releaseTrain = migration.releaseTrain ?? 'legacy'
+    if (!/^[a-z][a-z0-9_-]{0,31}$/.test(releaseTrain)) throw new Error(`Invalid schema release train at ${migration.version}`)
+    if (releaseTrain !== previousTrain) {
+      completedTrains.add(previousTrain)
+      if (completedTrains.has(releaseTrain)) throw new Error(`Schema release train reappeared at ${migration.version}`)
+      previousTrain = releaseTrain
+      previousPhase = 0
+    }
     const phase = phases.get(migration.phase)
     if (phase < previousPhase) throw new Error(`Schema release phase moved backwards at ${migration.version}`)
     previousPhase = phase
