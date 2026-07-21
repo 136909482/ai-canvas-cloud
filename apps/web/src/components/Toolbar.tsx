@@ -160,10 +160,10 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
     setDraftModels((current) =>
       current.map((model) =>
         model.id === id
-          ? sanitizeDraftModel({
+          ? {
             ...model,
             ...patch,
-          })
+          }
           : model,
       ),
     )
