@@ -14,20 +14,21 @@ const releaseManifest = readFileSync('server/db/migrations/release-manifest.json
 
 test('deployment artifacts keep runtime targets non-root and migration explicit', () => {
   assert.match(dockerfile, /FROM node:24\.13\.0-alpine3\.22 AS api/)
-  assert.match(dockerfile, /FROM node:24\.13\.0-alpine3\.22 AS worker/)
+  assert.doesNotMatch(dockerfile, / AS worker/)
   assert.match(dockerfile, /FROM nginxinc\/nginx-unprivileged:1\.29\.1-alpine AS web/)
-  assert.equal((dockerfile.match(/USER node/g) ?? []).length, 4)
+  assert.equal((dockerfile.match(/USER node/g) ?? []).length, 3)
   assert.match(dockerignore, /infra\/deploy\/staging\/staging\.env/)
   assert.match(compose, /profiles: \["release"\]/)
   assert.match(compose, /staging-postgres-data/)
   assert.match(compose, /staging-redis-data/)
   assert.match(compose, /staging-object-storage-data/)
-  assert.doesNotMatch(compose, /npm run db:migrate|apply-migrations\.mjs.*api|apply-migrations\.mjs.*worker/)
+  assert.doesNotMatch(compose, /npm run db:migrate|apply-migrations\.mjs.*api/)
 })
 
 test('staging environment template contains placeholders and no local defaults', () => {
   assert.match(template, /replace-with-staging-random-secret/)
-  assert.match(template, /ai-canvas-cloud-staging-generation/)
+  assert.doesNotMatch(template, /WORKER_DATABASE_URL|PROVIDER_CREDENTIAL_KEYS|OFFICIAL_PROVIDER_CREDENTIAL_KEYS/)
+  assert.doesNotMatch(compose, /\n  worker:/)
   assert.doesNotMatch(template, /minioadmin|localhost:|127\.0\.0\.1|DEV_SEED_ADMIN=/)
 })
 
@@ -45,14 +46,13 @@ test('staging web and object storage boundaries are explicit and origin-scoped',
   assert.match(template, /S3_PUBLIC_ORIGIN=https:\/\/staging-storage\.replace-with-real-domain/)
 })
 
-test('staging monitoring scrapes API and Worker and keeps alerts low-cardinality', () => {
+test('staging monitoring scrapes API and keeps alerts low-cardinality', () => {
   assert.match(compose, /prom\/prometheus:v3\.5\.0/)
   assert.match(compose, /staging-prometheus-data/)
   assert.match(prometheus, /targets: \[api:8787\]/)
-  assert.match(prometheus, /targets: \[worker:8790\]/)
+  assert.doesNotMatch(prometheus, /job_name: worker|worker:8790/)
   assert.match(alerts, /AiCanvasDependencyDown/)
-  assert.match(alerts, /AiCanvasTaskBacklogHigh/)
-  assert.match(alerts, /AiCanvasProviderFailures/)
+  assert.doesNotMatch(alerts, /AiCanvasTaskBacklogHigh|AiCanvasProviderFailures|AiCanvasWorkerFailures/)
   assert.doesNotMatch(alerts, /workspace_id|user_id|project_id|task_id|request_id|email|url=/i)
 })
 

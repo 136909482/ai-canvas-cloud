@@ -15,11 +15,9 @@ function baseEnv() {
     S3_PUBLIC_ENDPOINT: 'https://staging-storage.example.com',
     S3_PUBLIC_ORIGIN: 'https://staging-storage.example.com',
     S3_BUCKET: 'ai-canvas-cloud-staging-assets',
-    WORKER_TASK_QUEUE_NAME: 'ai-canvas-cloud-staging-generation',
     BETTER_AUTH_SECRET: 'a'.repeat(48),
     S3_ACCESS_KEY_ID: 'staging-access-key',
     S3_SECRET_ACCESS_KEY: 'staging-object-secret',
-    PROVIDER_CREDENTIAL_KEYS: `1:${Buffer.alloc(32, 1).toString('base64')}`,
     AUTH_EMAIL_TRANSPORT: 'smtp',
     SMTP_HOST: 'smtp.staging.example.com',
     SMTP_PORT: '465',
@@ -30,7 +28,7 @@ function baseEnv() {
     DEPLOYMENT_RESOURCE_NAMESPACE: 'ai-canvas-cloud-staging',
     DEPLOYMENT_CREDENTIAL_NAMESPACE: 'ai-canvas-cloud-staging-credentials',
   }
-  for (const key of ['DATABASE_RESOURCE_ID', 'REDIS_RESOURCE_ID', 'S3_RESOURCE_ID', 'MAIL_RESOURCE_ID', 'PROVIDER_RESOURCE_ID', 'PERSISTENCE_RESOURCE_ID', 'DATABASE_CREDENTIAL_ID', 'REDIS_CREDENTIAL_ID', 'S3_CREDENTIAL_ID', 'MAIL_CREDENTIAL_ID', 'PROVIDER_CREDENTIAL_ID', 'BYOK_KEYRING_ID']) {
+  for (const key of ['DATABASE_RESOURCE_ID', 'REDIS_RESOURCE_ID', 'S3_RESOURCE_ID', 'MAIL_RESOURCE_ID', 'PERSISTENCE_RESOURCE_ID', 'DATABASE_CREDENTIAL_ID', 'REDIS_CREDENTIAL_ID', 'S3_CREDENTIAL_ID', 'MAIL_CREDENTIAL_ID']) {
     env[key] = `ai-canvas-cloud-staging-${key.toLowerCase()}`
   }
   return env

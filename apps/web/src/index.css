@@ -359,7 +359,7 @@ textarea::-webkit-scrollbar-thumb:hover {
 .home-hero {
   position: relative;
   display: flex;
-  min-height: 100svh;
+  min-height: calc(100svh - 48px);
   padding: 112px 24px 76px;
   align-items: center;
   justify-content: center;
@@ -799,7 +799,8 @@ textarea::-webkit-scrollbar-thumb:hover {
 }
 
 .home-footer__links button,
-.home-footer__links span {
+.home-footer__links span,
+.home-footer__links a {
   color: rgba(255, 255, 255, 0.68);
   font-size: 12px;
   line-height: 1.5;
@@ -808,6 +809,15 @@ textarea::-webkit-scrollbar-thumb:hover {
 
 .home-footer__links button {
   transition: color 160ms ease, transform 160ms ease;
+}
+
+.home-footer__links a {
+  transition: color 160ms ease, transform 160ms ease;
+}
+
+.home-footer__links a:hover {
+  color: var(--accent-violet);
+  transform: translateX(3px);
 }
 
 .home-footer__links button:hover {
@@ -1183,7 +1193,7 @@ textarea::-webkit-scrollbar-thumb:hover {
   }
 
   .home-hero {
-    min-height: 100svh;
+    min-height: calc(100svh - 40px);
     padding: 98px 18px 64px;
   }
 

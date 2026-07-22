@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -135,7 +136,6 @@ async function assertAssetGovernanceSchema(client, schemaName) {
     'assets_workspace_status_updated_idx',
     'asset_uploads_workspace_pending_expiry_idx',
     'asset_references_node_unique_idx',
-    'asset_references_task_unique_idx',
   ]
   const indexResult = await client.query(
     `
@@ -1538,20 +1538,63 @@ async function assertAdminSecuritySchema(client) {
     FROM information_schema.tables
     WHERE table_schema = 'admin'
       AND table_name = ANY($1::text[])
-  `, [['user', 'session', 'account', 'verification', 'two_factor', 'audit_events']])
-  if (tables.rowCount !== 6) {
+  `, [['user', 'session', 'account', 'verification', 'two_factor', 'audit_events', 'login_security_settings', 'login_captcha_challenges']])
+  if (tables.rowCount !== 8) {
     throw new Error('Admin security migration did not create all isolated tables')
   }
   const publicUsage = await client.query(`SELECT has_schema_privilege('public', 'admin', 'USAGE') AS allowed`)
   if (publicUsage.rows[0]?.allowed !== false) {
     throw new Error('Admin schema is accessible through PUBLIC privileges')
   }
+  const captchaSetting = await client.query(`
+    SELECT captcha_enabled
+    FROM admin.login_security_settings
+    WHERE singleton_id = 1
+  `)
+  if (captchaSetting.rowCount !== 1 || captchaSetting.rows[0]?.captcha_enabled !== false) {
+    throw new Error('Admin login CAPTCHA is not disabled by default')
+  }
+  const publicCaptchaRead = await client.query(`
+    SELECT has_table_privilege('public', 'admin.login_captcha_challenges', 'SELECT') AS allowed
+  `)
+  if (publicCaptchaRead.rows[0]?.allowed !== false) {
+    throw new Error('Admin CAPTCHA challenges are readable through PUBLIC privileges')
+  }
+  await expectRejected(
+    client,
+    `INSERT INTO admin.login_captcha_challenges (code_hash, failed_attempts, expires_at)
+     VALUES ('plaintext', 0, now() + interval '5 minutes')`,
+    [],
+    'Admin CAPTCHA challenges accepted a non-hash code',
+  )
+  await expectRejected(
+    client,
+    `INSERT INTO admin.login_captcha_challenges (code_hash, failed_attempts, expires_at)
+     VALUES ($1, 6, now() + interval '5 minutes')`,
+    ['a'.repeat(64)],
+    'Admin CAPTCHA challenges accepted too many failed attempts',
+  )
   const administratorId = `migration-admin-${randomUUID()}`
+  const administratorUsername = `audit_${randomUUID().replaceAll('-', '').slice(0, 20)}`
   const auditId = randomUUID()
   await client.query(`
-    INSERT INTO admin."user" (id, name, email, role)
-    VALUES ($1, 'Migration Admin', $2, 'auditor')
-  `, [administratorId, `${administratorId}@example.invalid`])
+    INSERT INTO admin."user" (id, name, email, username, display_username, role)
+    VALUES ($1, 'Migration Admin', $2, $3, $3, 'auditor')
+  `, [administratorId, `${administratorId}@example.invalid`, administratorUsername])
+  await expectRejected(
+    client,
+    `INSERT INTO admin."user" (id, name, email, username, display_username, role)
+     VALUES ('duplicate-admin', 'Duplicate Admin', 'duplicate-admin@example.invalid', $1, $1, 'auditor')`,
+    [administratorUsername],
+    'Admin username migration accepted a duplicate username',
+  )
+  await expectRejected(
+    client,
+    `INSERT INTO admin."user" (id, name, email, username, display_username, role)
+     VALUES ('invalid-admin', 'Invalid Admin', 'invalid-admin@example.invalid', 'INVALID USER', 'INVALID USER', 'auditor')`,
+    [],
+    'Admin username migration accepted an invalid username',
+  )
   await client.query(`
     INSERT INTO admin.audit_events (id, admin_user_id, admin_role, action, result, request_id)
     VALUES ($1, $2, 'auditor', 'migration.admin_schema.checked', 'success', $3)
@@ -1568,6 +1611,91 @@ async function assertAdminSecuritySchema(client) {
     [auditId],
     'Admin audit events accepted a DELETE',
   )
+}
+
+async function assertSiteConfigurationSchema(client) {
+  const adminTables = await client.query(`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'admin'
+      AND table_name = ANY($1::text[])
+  `, [[
+    'site_assets',
+    'site_config_revisions',
+    'site_config_current',
+  ]])
+  if (adminTables.rowCount !== 3) {
+    throw new Error('Site configuration migration did not create the Admin configuration tables')
+  }
+  const publication = await client.query(`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'site_config_publications'
+  `)
+  if (publication.rowCount !== 1) {
+    throw new Error('Site configuration migration did not create the public projection table')
+  }
+  const publicRead = await client.query(`SELECT has_table_privilege('public', 'public.site_config_publications', 'SELECT') AS allowed`)
+  if (publicRead.rows[0]?.allowed !== false) {
+    throw new Error('Site configuration publication is readable through PUBLIC privileges')
+  }
+  const administratorId = `site-config-admin-${randomUUID()}`
+  const revisionId = randomUUID()
+  await client.query(`
+    INSERT INTO admin."user" (id, name, email, username, display_username, role)
+    VALUES ($1, 'Site Config Admin', $2, $3, $3, 'operator')
+  `, [administratorId, `${administratorId}@example.invalid`, `site_${randomUUID().replaceAll('-', '').slice(0, 20)}`])
+  await client.query(`
+    INSERT INTO admin.site_config_revisions (id, schema_version, config_json, created_by_admin_id)
+    VALUES ($1, 1, '{"schemaVersion":1}'::jsonb, $2)
+  `, [revisionId, administratorId])
+  await expectRejected(
+    client,
+    'UPDATE admin.site_config_revisions SET note = \'mutated\' WHERE id = $1',
+    [revisionId],
+    'Site configuration revisions accepted an UPDATE',
+  )
+  await client.query(`
+    INSERT INTO public.site_config_publications (revision_id, etag, config_json)
+    VALUES ($1, $2, '{"schemaVersion":1}'::jsonb)
+    ON CONFLICT (singleton_id) DO UPDATE
+    SET revision_id = EXCLUDED.revision_id,
+        etag = EXCLUDED.etag,
+        config_json = EXCLUDED.config_json
+  `, [revisionId, `"${'a'.repeat(64)}"`])
+  await expectRejected(
+    client,
+    `INSERT INTO admin.site_assets (
+       asset_kind, object_key, original_file_name, mime_type, byte_size, sha256,
+       width, height, idempotency_key, request_fingerprint, uploaded_by_admin_id, upload_expires_at
+     ) VALUES ('logo', 'site-assets/invalid.svg', 'invalid.svg', 'image/svg+xml', 100, $1, 10, 10, 'site-asset-test', $1, $2, now() + interval '1 hour')`,
+    ['b'.repeat(64), administratorId],
+    'Site assets accepted an executable MIME type',
+  )
+}
+
+async function assertServerGenerationRemoved(client, schemaName) {
+  const removedTables = await client.query(`
+    SELECT table_schema, table_name
+    FROM information_schema.tables
+    WHERE (table_schema = $1 AND table_name = ANY($2::text[]))
+       OR (table_schema = 'admin' AND table_name LIKE 'official_%')
+       OR (table_schema = 'public' AND table_name LIKE 'official_%')
+  `, [schemaName, [
+    'generation_tasks', 'task_attempts', 'task_commands', 'task_queue_outbox',
+    'generation_task_events', 'usage_ledger', 'provider_credentials',
+  ]])
+  assert.equal(removedTables.rowCount, 0, 'server generation tables still exist after contract migration')
+  const taskColumn = await client.query(`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = $1 AND table_name = 'asset_references' AND column_name = 'task_id'
+  `, [schemaName])
+  assert.equal(taskColumn.rowCount, 0, 'asset_references.task_id still exists after contract migration')
+  const nodeColumn = await client.query(`
+    SELECT is_nullable FROM information_schema.columns
+    WHERE table_schema = $1 AND table_name = 'asset_references' AND column_name = 'node_id'
+  `, [schemaName])
+  assert.equal(nodeColumn.rows[0]?.is_nullable, 'NO')
 }
 
 readDotEnv()
@@ -1620,19 +1748,15 @@ try {
   await assertProjectGraphSchema(client, schemaName)
   await assertAssetGovernanceSchema(client, schemaName)
   await assertWorkspaceStorageQuotaMigration(client)
-  await assertGenerationTaskSchema(client, schemaName)
-  await assertProviderCredentialSchema(client, schemaName)
-  await assertTaskCommandSchema(client, schemaName)
   await assertAuthDeviceSchema(client, schemaName)
-  await assertTaskQueueOutboxSchema(client, schemaName)
-  await assertProviderSubmissionSchema(client, schemaName)
-  await assertGenerationTaskEventSchema(client, schemaName)
   await assertMigrationImportSchema(client, schemaName)
   await assertMigrationAssetUploadSchema(client, schemaName)
   await assertMigrationCommitSchema(client, schemaName)
   await assertMigrationExportSchema(client, schemaName)
   await assertUserNumberSchema(client, schemaName)
   await assertAdminSecuritySchema(client)
+  await assertSiteConfigurationSchema(client)
+  await assertServerGenerationRemoved(client, schemaName)
   await client.query('SET CONSTRAINTS ALL IMMEDIATE')
   await client.query('ROLLBACK')
   console.log(`Checked and upgraded ${migrations.length} migration file(s) in an isolated PostgreSQL schema.`)

@@ -10,14 +10,10 @@ import {
   createS3ObjectStorage,
   createWorkspaceAuthorizationService,
   createPostgresWorkspaceUsageService,
-  createPostgresProviderCredentialService,
-  createProviderAdapter,
-  createProviderCredentialCipher,
-  parseProviderCredentialKeyring,
-  createPostgresGenerationTaskService,
   createPostgresMigrationImportService,
   createPostgresMigrationAssetUploadService,
   createPostgresMigrationExportService,
+  createPostgresPublicSiteConfigService,
   loadDotEnv,
   seedDevelopmentAdminAccount,
 } from '@ai-canvas-cloud/server'
@@ -72,17 +68,6 @@ const projectGraphService = createPostgresProjectGraphService(dbPool, { authoriz
 const projectSnapshotService = createPostgresProjectSnapshotService(dbPool, { authorizationService: workspaceAuthorizationService })
 const projectService = createPostgresProjectService(dbPool, { authorizationService: workspaceAuthorizationService })
 const workspaceUsageService = createPostgresWorkspaceUsageService(dbPool, { authorizationService: workspaceAuthorizationService })
-const providerCredentialService = createPostgresProviderCredentialService(dbPool, {
-  authorizationService: workspaceAuthorizationService,
-  adapter: createProviderAdapter({ logger, metrics }),
-  cipher: createProviderCredentialCipher(parseProviderCredentialKeyring(
-    config.providerCredentialKeys,
-    config.providerCredentialActiveKeyVersion,
-  )),
-})
-const generationTaskService = createPostgresGenerationTaskService(dbPool, {
-  authorizationService: workspaceAuthorizationService,
-})
 const migrationImportService = createPostgresMigrationImportService(dbPool, {
   authorizationService: workspaceAuthorizationService,
 })
@@ -92,6 +77,7 @@ const migrationAssetUploadService = createPostgresMigrationAssetUploadService(db
 const migrationExportService = createPostgresMigrationExportService(dbPool, objectStorage, {
   authorizationService: workspaceAuthorizationService,
 })
+const siteConfigService = createPostgresPublicSiteConfigService(dbPool, objectStorage)
 const server = createApiServer({
   config,
   logger,
@@ -101,11 +87,10 @@ const server = createApiServer({
   projectSnapshotService,
   projectService,
   workspaceUsageService,
-  providerCredentialService,
-  generationTaskService,
   migrationImportService,
   migrationAssetUploadService,
   migrationExportService,
+  siteConfigService,
   metrics,
   postgresPoolStats: () => ({
     total: dbPool.totalCount,

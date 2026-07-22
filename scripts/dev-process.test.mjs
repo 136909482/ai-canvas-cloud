@@ -3,7 +3,12 @@ import test from 'node:test'
 import { createHash, randomUUID } from 'node:crypto'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { REPO_ROOT, SERVICE_NAMES, validateManagedProcess } from './dev-process.mjs'
+import {
+  LEGACY_STOP_SERVICE_NAMES,
+  REPO_ROOT,
+  SERVICE_NAMES,
+  validateManagedProcess,
+} from './dev-process.mjs'
 
 const scriptPath = fileURLToPath(new URL('./dev-process.mjs', import.meta.url))
 
@@ -41,7 +46,8 @@ test('managed process identity requires PID, repository cwd, command line, and o
 })
 
 test('managed services include both isolated Admin applications', () => {
-  assert.deepEqual(SERVICE_NAMES, ['web', 'api', 'worker', 'admin-web', 'admin-api'])
+  assert.deepEqual(SERVICE_NAMES, ['web', 'api', 'admin-web', 'admin-api'])
+  assert.deepEqual(LEGACY_STOP_SERVICE_NAMES, ['worker'])
 })
 
 test('managed process identity rejects a different working directory or command line', () => {

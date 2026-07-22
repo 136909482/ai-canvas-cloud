@@ -4,7 +4,6 @@ const RESOURCE_KEYS = [
   'REDIS_RESOURCE_ID',
   'S3_RESOURCE_ID',
   'MAIL_RESOURCE_ID',
-  'PROVIDER_RESOURCE_ID',
   'PERSISTENCE_RESOURCE_ID',
 ] as const
 const CREDENTIAL_KEYS = [
@@ -12,8 +11,6 @@ const CREDENTIAL_KEYS = [
   'REDIS_CREDENTIAL_ID',
   'S3_CREDENTIAL_ID',
   'MAIL_CREDENTIAL_ID',
-  'PROVIDER_CREDENTIAL_ID',
-  'BYOK_KEYRING_ID',
 ] as const
 
 function required(env: NodeJS.ProcessEnv, key: string) {
@@ -120,9 +117,10 @@ export function validateProtectedDeploymentEnvironment(
     }
   }
 
-  const databaseUrl = rejectLocalHost(required(env, 'DATABASE_URL'), 'DATABASE_URL')
+  const databaseUrlKey = 'DATABASE_URL'
+  const databaseUrl = rejectLocalHost(required(env, databaseUrlKey), databaseUrlKey)
   if (!['postgres:', 'postgresql:'].includes(databaseUrl.protocol)) {
-    throw new Error('DATABASE_URL must use PostgreSQL')
+    throw new Error(`${databaseUrlKey} must use PostgreSQL`)
   }
   const redisUrl = rejectLocalHost(required(env, 'REDIS_URL'), 'REDIS_URL')
   if (!['redis:', 'rediss:'].includes(redisUrl.protocol)) {
@@ -133,11 +131,6 @@ export function validateProtectedDeploymentEnvironment(
   if (!bucket.includes(environment)) {
     throw new Error(`S3_BUCKET must be scoped to ${environment}`)
   }
-  const queue = required(env, 'WORKER_TASK_QUEUE_NAME').toLowerCase()
-  if (!queue.includes(environment)) {
-    throw new Error(`WORKER_TASK_QUEUE_NAME must be scoped to ${environment}`)
-  }
-
   if (options.requireWeb !== false) {
     rejectPlaceholder(required(env, 'BETTER_AUTH_SECRET'), 'BETTER_AUTH_SECRET')
     if (env.BETTER_AUTH_SECRET!.trim().length < 32) {
@@ -146,7 +139,6 @@ export function validateProtectedDeploymentEnvironment(
   }
   rejectPlaceholder(required(env, 'S3_ACCESS_KEY_ID'), 'S3_ACCESS_KEY_ID')
   rejectPlaceholder(required(env, 'S3_SECRET_ACCESS_KEY'), 'S3_SECRET_ACCESS_KEY')
-  rejectPlaceholder(required(env, 'PROVIDER_CREDENTIAL_KEYS'), 'PROVIDER_CREDENTIAL_KEYS')
   if (truthy(env.DEV_SEED_ADMIN) || env.DEV_SEED_ADMIN_EMAIL?.trim() || env.DEV_SEED_ADMIN_PASSWORD?.trim()) {
     throw new Error('Development administrator seed must be disabled and unset in a protected environment')
   }

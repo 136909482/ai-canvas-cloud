@@ -11,29 +11,24 @@ import {
 
 const activeAdmin = {
   id: 'admin-1',
-  email: 'admin@example.invalid',
+  username: 'admin',
   role: 'auditor' as const,
   status: 'active' as const,
-  twoFactorEnabled: true,
 }
 
-test('administrator access requires active status, completed MFA, and matching role permission', () => {
+test('administrator access requires active status and matching role permission', () => {
   assert.doesNotThrow(() => assertAdminAccess(activeAdmin, 'audit.read'))
   assert.equal(hasAdminPermission('auditor', 'user.write'), false)
   assert.equal(hasAdminPermission('support', 'user.write'), true)
-  assert.equal(hasAdminPermission('operator', 'provider.write'), true)
-  assert.equal(hasAdminPermission('super_admin', 'credits.write'), true)
-
-  assert.throws(
-    () => assertAdminAccess({ ...activeAdmin, twoFactorEnabled: false }, 'audit.read'),
-    (error) => error instanceof AdminAccessError && error.code === 'ADMIN_MFA_REQUIRED',
-  )
+  assert.equal(hasAdminPermission('operator', 'site_config.write'), true)
+  assert.equal(hasAdminPermission('super_admin', 'security.write'), true)
+  assert.equal(hasAdminPermission('operator', 'security.write'), false)
   assert.throws(
     () => assertAdminAccess({ ...activeAdmin, status: 'banned' }, 'audit.read'),
     (error) => error instanceof AdminAccessError && error.code === 'ADMIN_ACCESS_DENIED',
   )
   assert.throws(
-    () => assertAdminAccess(activeAdmin, 'provider.write'),
+    () => assertAdminAccess(activeAdmin, 'security.write'),
     (error) => error instanceof AdminAccessError && error.code === 'ADMIN_ACCESS_DENIED',
   )
 })

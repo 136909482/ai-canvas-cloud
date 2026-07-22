@@ -29,7 +29,6 @@ export function assertRestoreIsolation(env) {
     ['REDIS_RESOURCE_ID', 'RESTORE_REDIS_RESOURCE_ID'],
     ['S3_RESOURCE_ID', 'RESTORE_S3_RESOURCE_ID'],
     ['S3_BUCKET', 'RESTORE_S3_BUCKET'],
-    ['WORKER_TASK_QUEUE_NAME', 'RESTORE_TASK_QUEUE_NAME'],
   ]
   for (const [sourceKey, restoreKey] of pairs) {
     const source = requiredEnv(env, sourceKey)
@@ -139,7 +138,7 @@ export async function createRecoveryFingerprint(client) {
   const tables = [
     'workspaces', 'workspace_members', 'projects', 'project_nodes', 'project_edges',
     'project_changes', 'project_snapshots', 'assets', 'asset_references',
-    'generation_tasks', 'task_attempts', 'usage_ledger', 'migration_imports', 'migration_exports',
+    'migration_imports', 'migration_exports',
   ]
   const counts = {}
   for (const table of tables) {
@@ -151,7 +150,6 @@ export async function createRecoveryFingerprint(client) {
     FROM (
       SELECT 'p:' || id::text || ':' || workspace_id::text || ':' || version::text || ':' || last_sequence::text AS item FROM projects
       UNION ALL SELECT 'a:' || id::text || ':' || workspace_id::text || ':' || status || ':' || COALESCE(sha256, '') FROM assets
-      UNION ALL SELECT 't:' || id::text || ':' || workspace_id::text || ':' || status || ':' || attempt_count::text FROM generation_tasks
       UNION ALL SELECT 'm:' || id::text || ':' || workspace_id::text || ':' || status FROM migration_imports
       UNION ALL SELECT 'e:' || id::text || ':' || workspace_id::text || ':' || status FROM migration_exports
     ) fingerprint_items

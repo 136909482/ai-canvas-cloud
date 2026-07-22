@@ -26,8 +26,6 @@ export interface ApiConfig {
   s3Region: string
   s3AccessKeyId: string
   s3SecretAccessKey: string
-  providerCredentialKeys: string
-  providerCredentialActiveKeyVersion: number
   devSeedAdmin: boolean
   devSeedAdminEmail: string
   devSeedAdminPassword?: string
@@ -113,8 +111,6 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     s3Region: readRequiredEnv(env, 'S3_REGION'),
     s3AccessKeyId: readRequiredEnv(env, 'S3_ACCESS_KEY_ID'),
     s3SecretAccessKey: readRequiredEnv(env, 'S3_SECRET_ACCESS_KEY'),
-    providerCredentialKeys: readRequiredEnv(env, 'PROVIDER_CREDENTIAL_KEYS'),
-    providerCredentialActiveKeyVersion: readPositiveIntegerEnv(env, 'PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION', 1),
     devSeedAdmin: appEnv !== 'production' && readBooleanEnv(env, 'DEV_SEED_ADMIN', false),
     devSeedAdminEmail: readOptionalEnv(env, 'DEV_SEED_ADMIN_EMAIL', 'admin@example.com'),
     devSeedAdminPassword: env.DEV_SEED_ADMIN_PASSWORD?.trim() || undefined,

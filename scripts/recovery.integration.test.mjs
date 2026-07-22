@@ -20,7 +20,7 @@ test('recovery audit SQL is read-only and valid against the configured PostgreSQ
     await client.query(`CREATE SCHEMA "${schema}"`)
     await client.query(`SET search_path TO "${schema}", public`)
     const migrations = (await readdir(join(process.cwd(), 'server', 'db', 'migrations')))
-      .filter((name) => name.endsWith('.sql') && !name.startsWith('0025_'))
+      .filter((name) => name.endsWith('.sql') && !/^(?:002[5-9]|0030)_/.test(name))
       .sort()
     for (const migration of migrations) {
       await client.query(await readFile(join(process.cwd(), 'server', 'db', 'migrations', migration), 'utf8'))

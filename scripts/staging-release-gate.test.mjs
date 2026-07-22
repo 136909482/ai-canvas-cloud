@@ -15,7 +15,7 @@ function bundle(content) {
 
 test('web bundle rejects local dev endpoints and secret markers', () => {
   assert.throws(() => scanWebBundle(bundle('fetch("http://127.0.0.1:8787")')), /forbidden/)
-  assert.throws(() => scanWebBundle(bundle('const key = PROVIDER_CREDENTIAL_KEYS')), /forbidden/)
+  assert.throws(() => scanWebBundle(bundle('const key = OPENAI_API_KEY')), /forbidden/)
 })
 
 test('web bundle accepts production-safe static content', () => {

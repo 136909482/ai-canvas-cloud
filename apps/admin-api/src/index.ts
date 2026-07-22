@@ -1,5 +1,11 @@
 import { createJsonLogger, measureDependencyCheck } from '@ai-canvas-cloud/shared'
-import { createPostgresAdminService, createPostgresPool, loadDotEnv } from '@ai-canvas-cloud/server'
+import {
+  createPostgresAdminService,
+  createPostgresAdminSiteConfigService,
+  createPostgresPool,
+  createS3ObjectStorage,
+  loadDotEnv,
+} from '@ai-canvas-cloud/server'
 import { loadAdminApiConfig } from './config.js'
 import { closeAdminApiServer, createAdminApiServer } from './server.js'
 
@@ -14,11 +20,29 @@ const adminService = createPostgresAdminService(pool, {
   trustedOrigins: config.allowedOrigins,
   environment: config.env,
 })
+const objectStorage = createS3ObjectStorage({
+  endpoint: config.s3Endpoint,
+  publicEndpoint: config.s3PublicEndpoint,
+  bucket: config.s3Bucket,
+  region: config.s3Region,
+  accessKeyId: config.s3AccessKeyId,
+  secretAccessKey: config.s3SecretAccessKey,
+  forcePathStyle: true,
+})
+const siteConfigService = createPostgresAdminSiteConfigService(pool, {
+  adminService,
+  objectStorage,
+  auditSecret: config.betterAuthSecret,
+})
 const server = createAdminApiServer({
   config,
   adminService,
+  siteConfigService,
   logger,
-  readinessCheck: () => measureDependencyCheck(async () => { await pool.query('SELECT 1') }),
+  readinessChecks: {
+    postgres: () => measureDependencyCheck(async () => { await pool.query('SELECT 1') }),
+    objectStorage: () => measureDependencyCheck(objectStorage.checkHealth),
+  },
 })
 
 let closing = false

@@ -6,7 +6,7 @@ import type { AdminApiConfig } from './config.js'
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 const CSRF_COOKIE = 'ai_canvas_admin.csrf'
 const CSRF_MAX_AGE_SECONDS = 2 * 60 * 60
-const ALLOWED_METHODS = 'GET, HEAD, POST, OPTIONS'
+const ALLOWED_METHODS = 'GET, HEAD, POST, DELETE, OPTIONS'
 const ALLOWED_HEADERS = 'content-type, x-csrf-token, x-request-id'
 
 function cookieAttributes(config: Pick<AdminApiConfig, 'env'>) {

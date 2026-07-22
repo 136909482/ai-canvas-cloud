@@ -21,7 +21,8 @@ const STOP_TIMEOUT_MS = 15_000
 const START_TIMEOUT_MS = 10_000
 const POLL_INTERVAL_MS = 100
 
-export const SERVICE_NAMES = ['web', 'api', 'worker', 'admin-web', 'admin-api']
+export const SERVICE_NAMES = ['web', 'api', 'admin-web', 'admin-api']
+export const LEGACY_STOP_SERVICE_NAMES = ['worker']
 
 function normalizePath(value) {
   const normalized = resolve(value).replaceAll('\\', '/').replace(/\/$/, '')
@@ -335,14 +336,13 @@ async function startAll() {
   }
   console.log(`web: http://${process.env.WEB_HOST ?? '127.0.0.1'}:${process.env.WEB_PORT ?? '5173'}`)
   console.log(`api: http://${process.env.API_HOST ?? '127.0.0.1'}:${process.env.API_PORT ?? '8787'}`)
-  console.log(`worker health: http://${process.env.WORKER_OBSERVABILITY_HOST ?? '127.0.0.1'}:${process.env.WORKER_OBSERVABILITY_PORT ?? '8790'}/health/ready`)
   console.log(`admin web: http://${process.env.ADMIN_WEB_HOST ?? '127.0.0.1'}:${process.env.ADMIN_WEB_PORT ?? '5174'}`)
   console.log(`admin api: http://${process.env.ADMIN_API_HOST ?? '127.0.0.1'}:${process.env.ADMIN_API_PORT ?? '8788'}`)
 }
 
 async function stopAll() {
   const failures = []
-  for (const service of [...SERVICE_NAMES].reverse()) {
+  for (const service of [...SERVICE_NAMES, ...LEGACY_STOP_SERVICE_NAMES].reverse()) {
     try { await stopService(service) } catch (error) { failures.push(error) }
   }
   if (failures.length > 0) throw failures[0]

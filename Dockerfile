@@ -5,7 +5,6 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
-COPY apps/worker/package.json apps/worker/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/project-graph/package.json packages/project-graph/package.json
 COPY packages/shared/package.json packages/shared/package.json
@@ -37,23 +36,6 @@ COPY --from=build --chown=node:node /app/server/dist server/dist
 USER node
 EXPOSE 8787
 CMD ["node", "apps/api/dist/index.js"]
-
-FROM node:24.13.0-alpine3.22 AS worker
-ENV NODE_ENV=production
-WORKDIR /app
-COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
-COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
-COPY --from=build --chown=node:node /app/apps/worker/package.json apps/worker/package.json
-COPY --from=build --chown=node:node /app/apps/worker/dist apps/worker/dist
-COPY --from=build --chown=node:node /app/packages/contracts/package.json packages/contracts/package.json
-COPY --from=build --chown=node:node /app/packages/contracts/dist packages/contracts/dist
-COPY --from=build --chown=node:node /app/packages/shared/package.json packages/shared/package.json
-COPY --from=build --chown=node:node /app/packages/shared/dist packages/shared/dist
-COPY --from=build --chown=node:node /app/server/package.json server/package.json
-COPY --from=build --chown=node:node /app/server/dist server/dist
-COPY --from=build --chown=node:node /app/scripts/check-redis-health.mjs scripts/check-redis-health.mjs
-USER node
-CMD ["node", "apps/worker/dist/index.js"]
 
 FROM node:24.13.0-alpine3.22 AS migrate
 ENV NODE_ENV=production

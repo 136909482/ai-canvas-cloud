@@ -4,21 +4,21 @@ import { createMetricsRegistry } from './metrics.ts'
 
 test('metrics registry renders stable counters, gauges, and histograms without sensitive labels', () => {
   const metrics = createMetricsRegistry({ histogramBuckets: [0.1, 1] })
-  metrics.increment('task_retries_total', 2, { outcome: 'requeued' })
-  metrics.setGauge('task_queue_backlog', 3)
-  metrics.observe('provider_request_duration_seconds', 0.25, { provider: 'openai', operation: 'generate', outcome: 'success' })
+  metrics.increment('api_requests_total', 2, { outcome: 'success' })
+  metrics.setGauge('dependency_up', 1)
+  metrics.observe('api_request_duration_seconds', 0.25, { operation: 'read', outcome: 'success' })
 
-  assert.match(metrics.renderPrometheus(), /ai_canvas_task_retries_total\{outcome="requeued"\} 2/)
-  assert.match(metrics.renderPrometheus(), /ai_canvas_task_queue_backlog 3/)
-  assert.match(metrics.renderPrometheus(), /ai_canvas_provider_request_duration_seconds_bucket\{operation="generate",outcome="success",provider="openai",le="1"\} 1/)
+  assert.match(metrics.renderPrometheus(), /ai_canvas_api_requests_total\{outcome="success"\} 2/)
+  assert.match(metrics.renderPrometheus(), /ai_canvas_dependency_up 1/)
+  assert.match(metrics.renderPrometheus(), /ai_canvas_api_request_duration_seconds_bucket\{operation="read",outcome="success",le="1"\} 1/)
   assert.equal(metrics.snapshot().histograms[0]?.count, 1)
 })
 
 test('metrics registry rejects incompatible shapes and invalid values', () => {
   const metrics = createMetricsRegistry()
-  metrics.increment('task_retries_total')
-  assert.throws(() => metrics.setGauge('task_retries_total', 1), /incompatible shape/)
-  assert.throws(() => metrics.observe('provider_latency_seconds', Number.NaN), /finite/)
+  metrics.increment('api_requests_total')
+  assert.throws(() => metrics.setGauge('api_requests_total', 1), /incompatible shape/)
+  assert.throws(() => metrics.observe('api_latency_seconds', Number.NaN), /finite/)
   assert.throws(() => metrics.increment('bad metric name'), /metric name/)
 })
 

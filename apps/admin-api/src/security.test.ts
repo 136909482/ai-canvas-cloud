@@ -9,6 +9,7 @@ function responseDouble() {
     statusCode: 200,
     ended: false,
     body: '',
+    headers,
     setHeader(name: string, value: string | string[]) { headers.set(name.toLowerCase(), value) },
     end(body = '') { this.ended = true; this.body = body },
   }
@@ -54,4 +55,21 @@ test('Admin security boundary accepts only a signed, unexpired double-submit tok
   assert.equal(verifyCsrf(request, config.betterAuthSecret, now), true)
   assert.equal(handleAdminSecurityBoundary(request, responseDouble() as unknown as http.ServerResponse, config, 'request-3'), false)
   assert.equal(verifyCsrf(request, config.betterAuthSecret, now + 2 * 60 * 60 * 1000 + 1_000), false)
+})
+
+test('Admin security boundary allows DELETE during an allowed Origin preflight', () => {
+  const response = responseDouble()
+  const request = requestDouble({
+    method: 'OPTIONS',
+    headers: {
+      origin: 'https://admin.example.com',
+      'access-control-request-method': 'DELETE',
+      'access-control-request-headers': 'x-csrf-token',
+    },
+  })
+
+  assert.equal(handleAdminSecurityBoundary(request, response as unknown as http.ServerResponse, config, 'request-4'), true)
+  assert.equal(response.statusCode, 204)
+  assert.equal(response.ended, true)
+  assert.equal(response.headers.get('access-control-allow-methods'), 'GET, HEAD, POST, DELETE, OPTIONS')
 })

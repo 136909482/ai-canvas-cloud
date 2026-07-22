@@ -15,7 +15,8 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { AssetMaintenanceObjectStorage } from './assetMaintenance.js'
 import type { AssetObjectStorage } from './service.js'
-import type { TaskInputObjectStorage, TaskResultObjectStorage } from '../tasks/resultTransfer.js'
+import type { SiteAssetObjectStorage } from '../admin/siteConfigService.js'
+import type { MigrationExportObjectStorage } from '../migrations/exportService.js'
 import type { MigrationImportObjectStorage } from '../migrations/service.js'
 
 export interface S3ObjectStorageOptions {
@@ -44,7 +45,7 @@ function isObjectNotFound(error: unknown) {
   return name === 'NotFound' || name === 'NoSuchKey' || statusCode === 404
 }
 
-export function createS3ObjectStorage(options: S3ObjectStorageOptions): AssetObjectStorage & AssetMaintenanceObjectStorage & TaskResultObjectStorage & TaskInputObjectStorage & MigrationImportObjectStorage & S3ObjectStorageHealth {
+export function createS3ObjectStorage(options: S3ObjectStorageOptions): AssetObjectStorage & AssetMaintenanceObjectStorage & SiteAssetObjectStorage & MigrationExportObjectStorage & MigrationImportObjectStorage & S3ObjectStorageHealth {
   const client = new S3Client({
     endpoint: options.endpoint,
     region: options.region,

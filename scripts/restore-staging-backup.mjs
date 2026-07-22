@@ -82,37 +82,6 @@ export async function restoreStagingBackup(env = process.env) {
       env: { ...env, NODE_ENV: 'development', DEPLOYMENT_ENV: 'restore', DATABASE_URL: databaseUrl },
     })
 
-    const restored = new pg.Client({ connectionString: databaseUrl })
-    try {
-      await restored.connect()
-      await restored.query('BEGIN')
-      await restored.query(`
-        UPDATE task_queue_outbox outbox
-        SET published_at = NULL, publish_attempt_count = 0, claim_owner = NULL,
-            claim_token = NULL, claim_expires_at = NULL, last_error = NULL,
-            available_at = GREATEST(task.available_at, now()), updated_at = now()
-        FROM generation_tasks task
-        WHERE task.workspace_id = outbox.workspace_id AND task.id = outbox.task_id
-          AND task.status = 'queued'
-          AND outbox.dispatch_key = 'run:' || task.id::text || ':' || (task.attempt_count + 1)::text
-      `)
-      await restored.query(`
-        INSERT INTO task_queue_outbox (workspace_id, task_id, dispatch_kind, dispatch_key, available_at)
-        SELECT task.workspace_id, task.id, 'run',
-               'run:' || task.id::text || ':' || (task.attempt_count + 1)::text,
-               GREATEST(task.available_at, now())
-        FROM generation_tasks task
-        WHERE task.status = 'queued'
-        ON CONFLICT (workspace_id, dispatch_key) DO NOTHING
-      `)
-      await restored.query('COMMIT')
-    } catch (error) {
-      await restored.query('ROLLBACK').catch(() => undefined)
-      throw error
-    } finally {
-      await restored.end()
-    }
-
     await runCommand('mc', [
       'mirror', '--overwrite', '--preserve',
       `backup/${requiredEnv(env, 'BACKUP_S3_BUCKET')}/${manifest.objects.prefix}`,

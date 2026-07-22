@@ -4,6 +4,10 @@ import type { LegacyConfigShape } from './settingsConfig.ts'
 
 const LEGACY_SETTINGS_STORAGE_KEY = 'ai-canvas-settings'
 const WORKSPACE_CONFIG_CACHE_KEY = 'ai-canvas-workspace-config-cache'
+const DEVICE_ONLY_STORAGE_KEYS = [
+  'ai-canvas-generation-mode',
+  'ai-canvas-custom-task-cache',
+] as const
 
 type PersistedSettingsShape = {
   state?: {
@@ -65,5 +69,25 @@ export function writeWorkspaceConfigCache(config: WorkspaceConfigFile) {
     window.localStorage.setItem(WORKSPACE_CONFIG_CACHE_KEY, JSON.stringify(redactWorkspaceConfigSecretsForCache(config)))
   } catch {
     // Ignore cache write failures; workspace persistence remains authoritative.
+  }
+}
+
+export function clearLegacyPersistedConfig() {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(LEGACY_SETTINGS_STORAGE_KEY)
+  } catch {
+    // The in-memory Vault remains usable when localStorage is unavailable.
+  }
+}
+
+export function clearDeviceOnlySettingsCache() {
+  if (typeof window === 'undefined') return
+  try {
+    for (const key of DEVICE_ONLY_STORAGE_KEYS) {
+      window.localStorage.removeItem(key)
+    }
+  } catch {
+    // Best effort only. IndexedDB deletion remains authoritative for credentials.
   }
 }

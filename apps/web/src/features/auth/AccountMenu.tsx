@@ -3,7 +3,6 @@ import {
   ChevronRight,
   HardDrive,
   IdCard,
-  KeyRound,
   LogOut,
   Mail,
   MonitorCheck,
@@ -55,7 +54,7 @@ export function AccountMenu() {
     return null
   }
 
-  const openSettingsCategory = (category: 'devices' | 'models' | 'providers' | 'storage') => {
+  const openSettingsCategory = (category: 'devices' | 'models' | 'storage') => {
     setIsOpen(false)
     openSettings(category)
   }
@@ -125,16 +124,6 @@ export function AccountMenu() {
               <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
             </button>
 
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => openSettingsCategory('providers')}
-              className={menuItemClass}
-            >
-              <KeyRound className="h-3 w-3 shrink-0" />
-              <span className="min-w-0 flex-1">Cloud 服务商</span>
-              <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
-            </button>
 
             <button
               type="button"

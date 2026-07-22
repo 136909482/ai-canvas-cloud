@@ -6,10 +6,8 @@ export type AdminAuditResult = 'success' | 'failure'
 
 export const ADMIN_PERMISSIONS = [
   'audit.read',
+  'security.write',
   'site_config.write',
-  'provider.write',
-  'model.write',
-  'credits.write',
   'user.read',
   'user.write',
 ] as const
@@ -18,10 +16,9 @@ export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number]
 
 export interface AdminPrincipal {
   id: string
-  email: string
+  username: string
   role: AdminRole
   status: AdminStatus
-  twoFactorEnabled: boolean
 }
 
 export interface AdminSession {
@@ -42,14 +39,8 @@ export interface AdminAuthResult<T> {
 }
 
 export interface AdminLoginResponse {
-  state: 'mfa_setup_required' | 'mfa_required' | 'authenticated'
-  session?: AdminSession
-  methods?: Array<'totp' | 'backup_code'>
-}
-
-export interface AdminMfaSetupResponse {
-  totpUri: string
-  recoveryCodes: string[]
+  state: 'authenticated'
+  session: AdminSession
 }
 
 export interface AdminAuditEventInput {

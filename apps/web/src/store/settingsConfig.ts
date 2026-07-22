@@ -333,17 +333,11 @@ export function toWorkspaceConfigFile(config: ApiConfig): WorkspaceConfigFile {
 
   return {
     version: 1,
-    model: normalized.model,
-    customModels: normalized.customModels.map((model) => ({
-      id: model.id,
-      name: model.name,
-      modelId: model.modelId,
-      kind: model.kind,
-      enabled: model.enabled,
-    })),
+    model: '',
+    customModels: [],
     providerProfiles: [],
     activeProviderProfileIds: {},
-    modelProviderProfileIds: normalized.modelProviderProfileIds,
+    modelProviderProfileIds: {},
     storage: {
       autosaveIntervalMs: normalized.storage.autosaveIntervalMs,
       canvasTopBarCollapsed: normalized.storage.canvasTopBarCollapsed,
@@ -363,21 +357,11 @@ export function fromWorkspaceConfigFile(configFile: WorkspaceConfigFile | null |
   }
 
   return normalizeConfig({
-    model: configFile.model,
-    customModels: configFile.customModels.map((model) => ({
-      ...model,
-      testStatus: 'idle',
-      testMessage: '',
-      lastTestedAt: null,
-    })),
-    providerProfiles: configFile.providerProfiles?.map((profile) => ({
-      ...profile,
-      testStatus: 'idle',
-      testMessage: '',
-      lastTestedAt: null,
-    })),
-    activeProviderProfileIds: configFile.activeProviderProfileIds,
-    modelProviderProfileIds: configFile.modelProviderProfileIds,
+    model: '',
+    customModels: [],
+    providerProfiles: [],
+    activeProviderProfileIds: {},
+    modelProviderProfileIds: {},
     storage: {
       autosaveIntervalMs: configFile.storage?.autosaveIntervalMs,
       canvasTopBarCollapsed: configFile.storage?.canvasTopBarCollapsed,

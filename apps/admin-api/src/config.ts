@@ -12,6 +12,12 @@ export interface AdminApiConfig {
   betterAuthSecret: string
   webPublicUrl: string
   allowedOrigins: string[]
+  s3Endpoint: string
+  s3PublicEndpoint: string
+  s3Bucket: string
+  s3Region: string
+  s3AccessKeyId: string
+  s3SecretAccessKey: string
 }
 
 const LOG_LEVELS = new Set<LogLevel>(['debug', 'info', 'warn', 'error'])
@@ -76,5 +82,11 @@ export function loadAdminApiConfig(env: NodeJS.ProcessEnv = process.env): AdminA
     betterAuthSecret,
     webPublicUrl,
     allowedOrigins,
+    s3Endpoint: readRequiredEnv(env, 'S3_ENDPOINT'),
+    s3PublicEndpoint: readOptionalEnv(env, 'S3_PUBLIC_ENDPOINT', readRequiredEnv(env, 'S3_ENDPOINT')),
+    s3Bucket: readRequiredEnv(env, 'S3_BUCKET'),
+    s3Region: readRequiredEnv(env, 'S3_REGION'),
+    s3AccessKeyId: readRequiredEnv(env, 'S3_ACCESS_KEY_ID'),
+    s3SecretAccessKey: readRequiredEnv(env, 'S3_SECRET_ACCESS_KEY'),
   }
 }

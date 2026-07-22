@@ -1,15 +1,26 @@
 import { randomUUID } from 'node:crypto'
 import http from 'node:http'
+import type { CreateSiteAssetRequest, PublishSiteConfigRequest } from '@ai-canvas-cloud/contracts'
 import { hasDuplicateJsonObjectKeys, type Logger, type MeasuredDependencyStatus } from '@ai-canvas-cloud/shared'
-import { AdminAccessError, type AdminRequestContext, type AdminService } from '@ai-canvas-cloud/server/modules/admin'
+import {
+  AdminAccessError,
+  createUnavailableAdminSiteConfigService,
+  type AdminRequestContext,
+  type AdminService,
+  type AdminSiteConfigService,
+} from '@ai-canvas-cloud/server/modules/admin'
 import type { AdminApiConfig } from './config.js'
 import { clearCsrfCookie, createCsrfCookie, createCsrfToken, getAdminClientIp, handleAdminSecurityBoundary } from './security.js'
 
 interface AdminServerOptions {
   config: AdminApiConfig
   adminService: AdminService
+  siteConfigService?: AdminSiteConfigService
   logger: Logger
-  readinessCheck?: () => Promise<MeasuredDependencyStatus>
+  readinessChecks?: {
+    postgres?: () => Promise<MeasuredDependencyStatus>
+    objectStorage?: () => Promise<MeasuredDependencyStatus>
+  }
 }
 
 function sendJson(response: http.ServerResponse, status: number, payload: unknown, requestId: string) {
@@ -50,6 +61,19 @@ function stringField(body: Record<string, unknown>, key: string) {
   return value
 }
 
+function optionalStringField(body: Record<string, unknown>, key: string) {
+  const value = body[key]
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') throw new AdminAccessError(400, 'VALIDATION_FAILED', `${key} must be a string`)
+  return value
+}
+
+function booleanField(body: Record<string, unknown>, key: string) {
+  const value = body[key]
+  if (typeof value !== 'boolean') throw new AdminAccessError(400, 'VALIDATION_FAILED', `${key} must be a boolean`)
+  return value
+}
+
 function requestContext(request: http.IncomingMessage, config: AdminApiConfig, requestId: string): AdminRequestContext {
   return {
     requestId,
@@ -68,7 +92,13 @@ function sendError(response: http.ServerResponse, error: unknown, requestId: str
   }, requestId)
 }
 
-export function createAdminApiServer({ config, adminService, logger, readinessCheck }: AdminServerOptions) {
+export function createAdminApiServer({
+  config,
+  adminService,
+  siteConfigService = createUnavailableAdminSiteConfigService(),
+  logger,
+  readinessChecks,
+}: AdminServerOptions) {
   return http.createServer(async (request, response) => {
     const requestId = randomUUID()
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
@@ -81,17 +111,18 @@ export function createAdminApiServer({ config, adminService, logger, readinessCh
       }
       if (url.pathname === '/health/ready' && request.method === 'GET') {
         try {
-          if (!readinessCheck) throw new Error()
-          const postgres = await readinessCheck()
-          sendJson(response, postgres.ok ? 200 : 503, {
-            status: postgres.ok ? 'ok' : 'degraded',
+          if (!readinessChecks?.postgres || !readinessChecks.objectStorage) throw new Error()
+          const [postgres, objectStorage] = await Promise.all([readinessChecks.postgres(), readinessChecks.objectStorage()])
+          const ok = postgres.ok && objectStorage.ok
+          sendJson(response, ok ? 200 : 503, {
+            status: ok ? 'ok' : 'degraded',
             service: 'admin-api',
             requestId,
-            dependencies: { postgres },
+            dependencies: { postgres, objectStorage },
             checkedAt: new Date().toISOString(),
           }, requestId)
         } catch {
-          sendJson(response, 503, { status: 'degraded', service: 'admin-api', requestId, dependencies: { postgres: { ok: false, latencyMs: 0, error: 'unknown' } }, checkedAt: new Date().toISOString() }, requestId)
+          sendJson(response, 503, { status: 'degraded', service: 'admin-api', requestId, dependencies: { postgres: { ok: false, latencyMs: 0, error: 'unknown' }, objectStorage: { ok: false, latencyMs: 0, error: 'unknown' } }, checkedAt: new Date().toISOString() }, requestId)
         }
         return
       }
@@ -102,9 +133,18 @@ export function createAdminApiServer({ config, adminService, logger, readinessCh
         return
       }
       const context = requestContext(request, config, requestId)
+      if (url.pathname === '/admin/v1/auth/captcha' && request.method === 'GET') {
+        sendJson(response, 200, await adminService.createLoginCaptcha(), requestId)
+        return
+      }
       if (url.pathname === '/admin/v1/auth/login' && request.method === 'POST') {
         const body = await readJson(request)
-        const result = await adminService.login({ email: stringField(body, 'email'), password: stringField(body, 'password') }, context)
+        const result = await adminService.login({
+          username: stringField(body, 'username'),
+          password: stringField(body, 'password'),
+          captchaChallengeId: optionalStringField(body, 'captchaChallengeId'),
+          captchaCode: optionalStringField(body, 'captchaCode'),
+        }, context)
         appendCookies(response, result.setCookieHeaders)
         sendJson(response, 200, result.response, requestId)
         return
@@ -113,32 +153,30 @@ export function createAdminApiServer({ config, adminService, logger, readinessCh
         sendJson(response, 200, await adminService.getSession(context), requestId)
         return
       }
-      if (url.pathname === '/admin/v1/auth/mfa/setup' && request.method === 'POST') {
+      if (url.pathname === '/admin/v1/auth/username' && request.method === 'POST') {
         const body = await readJson(request)
-        const result = await adminService.setupTotp({ password: stringField(body, 'password') }, context)
+        sendJson(response, 200, await adminService.updateUsername({ username: stringField(body, 'username') }, context), requestId)
+        return
+      }
+      if (url.pathname === '/admin/v1/auth/password' && request.method === 'POST') {
+        const body = await readJson(request)
+        const result = await adminService.changePassword({
+          currentPassword: stringField(body, 'currentPassword'),
+          newPassword: stringField(body, 'newPassword'),
+        }, context)
         appendCookies(response, result.setCookieHeaders)
         sendJson(response, 200, result.response, requestId)
         return
       }
-      if (url.pathname === '/admin/v1/auth/mfa/verify-totp' && request.method === 'POST') {
-        const body = await readJson(request)
-        const result = await adminService.verifyTotp({ code: stringField(body, 'code') }, context)
-        appendCookies(response, result.setCookieHeaders)
-        sendJson(response, 200, result.response, requestId)
+      if (url.pathname === '/admin/v1/auth/login-security' && request.method === 'GET') {
+        sendJson(response, 200, await adminService.getLoginSecuritySettings(context), requestId)
         return
       }
-      if (url.pathname === '/admin/v1/auth/mfa/verify-recovery' && request.method === 'POST') {
+      if (url.pathname === '/admin/v1/auth/login-security' && request.method === 'POST') {
         const body = await readJson(request)
-        const result = await adminService.verifyRecoveryCode({ code: stringField(body, 'code') }, context)
-        appendCookies(response, result.setCookieHeaders)
-        sendJson(response, 200, result.response, requestId)
-        return
-      }
-      if (url.pathname === '/admin/v1/auth/mfa/recovery-codes' && request.method === 'POST') {
-        const body = await readJson(request)
-        const result = await adminService.regenerateRecoveryCodes({ password: stringField(body, 'password') }, context)
-        appendCookies(response, result.setCookieHeaders)
-        sendJson(response, 200, result.response, requestId)
+        sendJson(response, 200, await adminService.updateLoginSecuritySettings({
+          captchaEnabled: booleanField(body, 'captchaEnabled'),
+        }, context), requestId)
         return
       }
       if (url.pathname === '/admin/v1/auth/logout' && request.method === 'POST') {
@@ -157,6 +195,29 @@ export function createAdminApiServer({ config, adminService, logger, readinessCh
           result,
           limit: limitValue === null ? undefined : Number(limitValue),
         }, context), requestId)
+        return
+      }
+      if (url.pathname === '/admin/v1/site-config' && request.method === 'GET') {
+        sendJson(response, 200, await siteConfigService.getCurrent(context), requestId)
+        return
+      }
+      if (url.pathname === '/admin/v1/site-config' && request.method === 'POST') {
+        const body = await readJson(request, 32 * 1024)
+        sendJson(response, 200, await siteConfigService.publish(body as unknown as PublishSiteConfigRequest, context), requestId)
+        return
+      }
+      if (url.pathname === '/admin/v1/site-assets' && request.method === 'GET') {
+        sendJson(response, 200, await siteConfigService.listAssets(context), requestId)
+        return
+      }
+      if (url.pathname === '/admin/v1/site-assets' && request.method === 'POST') {
+        const body = await readJson(request)
+        sendJson(response, 201, await siteConfigService.createAsset(body as unknown as CreateSiteAssetRequest, context), requestId)
+        return
+      }
+      const siteAssetCompletion = /^\/admin\/v1\/site-assets\/([0-9a-f-]{36})\/complete$/i.exec(url.pathname)
+      if (siteAssetCompletion && request.method === 'POST') {
+        sendJson(response, 200, await siteConfigService.completeAsset(siteAssetCompletion[1]!, context), requestId)
         return
       }
       sendJson(response, 404, { error: { code: 'RESOURCE_NOT_FOUND', message: 'Route not found', retryable: false, requestId } }, requestId)

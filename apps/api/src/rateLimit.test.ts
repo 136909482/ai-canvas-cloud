@@ -25,13 +25,13 @@ test('memory rate limiter enforces a window and recovers after expiry', async ()
 
 test('session limits follow one account across IP changes', async () => {
   const limiter = createMemoryRateLimiter()
-  for (let attempt = 0; attempt < RATE_LIMIT_POLICIES.task_create.maxRequests; attempt += 1) {
-    assert.equal((await limiter.consume('task_create', [
+  for (let attempt = 0; attempt < RATE_LIMIT_POLICIES.asset_prepare.maxRequests; attempt += 1) {
+    assert.equal((await limiter.consume('asset_prepare', [
       'session:session-a',
       `ip:198.51.100.${attempt + 1}`,
     ])).allowed, true)
   }
-  assert.equal((await limiter.consume('task_create', [
+  assert.equal((await limiter.consume('asset_prepare', [
     'session:session-a',
     'ip:203.0.113.1',
   ])).allowed, false)
@@ -39,13 +39,13 @@ test('session limits follow one account across IP changes', async () => {
 
 test('network limits cover multiple accounts sharing one IP', async () => {
   const limiter = createMemoryRateLimiter()
-  for (let attempt = 0; attempt < RATE_LIMIT_POLICIES.task_create.maxRequests; attempt += 1) {
-    assert.equal((await limiter.consume('task_create', [
+  for (let attempt = 0; attempt < RATE_LIMIT_POLICIES.asset_prepare.maxRequests; attempt += 1) {
+    assert.equal((await limiter.consume('asset_prepare', [
       `session:session-${attempt}`,
       'ip:198.51.100.20',
     ])).allowed, true)
   }
-  assert.equal((await limiter.consume('task_create', [
+  assert.equal((await limiter.consume('asset_prepare', [
     'session:another-account',
     'ip:198.51.100.20',
   ])).allowed, false)
@@ -62,7 +62,7 @@ test('Redis outages fail closed for high-risk writes and recover without restart
   }
   const limiter = createRateLimiterWithRedisClient(client, 'staging-test')
 
-  const closed = await limiter.consume('task_create', ['session:trusted-session'])
+  const closed = await limiter.consume('asset_prepare', ['session:trusted-session'])
   assert.equal(closed.allowed, false)
   assert.equal(closed.available, false)
 
@@ -71,7 +71,7 @@ test('Redis outages fail closed for high-risk writes and recover without restart
   assert.equal(open.available, false)
 
   client.status = 'ready'
-  const recovered = await limiter.consume('task_create', ['session:trusted-session'])
+  const recovered = await limiter.consume('asset_prepare', ['session:trusted-session'])
   assert.equal(recovered.allowed, true)
   assert.equal(recovered.available, true)
   assert.equal(count, 1)

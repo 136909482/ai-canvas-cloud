@@ -1,12 +1,10 @@
 import { generateImage, submitAsyncImageGeneration, waitForAsyncImageGeneration } from '@/api/imageAdapter'
 import { submitAliyunTextToVideoGeneration, waitForAliyunVideoGeneration, type GenerateVideoParams } from '@/api/videoAdapter'
-import { cloudGenerationTaskApi } from '@/api/generationTasks'
 import { DEFAULT_IMAGE_MODEL_ID } from '@/config/modelCatalog'
 import { resolveRuntimeModelConfig } from '@/features/settings/providerConfig'
 import { useCanvasStore } from '@/store/useCanvasStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useTaskQueueStore } from '@/store/useTaskQueueStore'
-import { platformRuntime } from '@/platform'
 import { reportDiagnostic } from '@/store/useDiagnosticsStore'
 import type { GenerateTask, GptImageQuality, ImageInputFidelity, ImageOperationType, VideoGenerateMode, VideoGenerateNodeData, WorkspaceImageAsset } from '@/types'
 import { getPreviewNodeSize, loadImageDimensions } from './previewUtils'
@@ -43,7 +41,6 @@ type EnqueueGenerateTaskInput = {
   referenceImageUrls?: string[]
   inputFidelity?: ImageInputFidelity | null
   quality?: GptImageQuality | null
-  officialFallback?: boolean
   googleSearch?: boolean
   googleImageSearch?: boolean
 }
@@ -389,7 +386,6 @@ export function enqueueGenerateTask(input: EnqueueGenerateTaskInput) {
     referenceImageUrls: input.referenceImageUrls ?? [],
     inputFidelity: null,
     quality: input.quality ?? null,
-    officialFallback: Boolean(input.officialFallback),
     googleSearch: Boolean(input.googleSearch),
     googleImageSearch: Boolean(input.googleImageSearch),
   })
@@ -503,7 +499,6 @@ export function enqueueImageEditTask(input: EnqueueGenerateTaskInput) {
     referenceImageUrls,
     inputFidelity: null,
     quality: input.quality ?? null,
-    officialFallback: Boolean(input.officialFallback),
     googleSearch: Boolean(input.googleSearch),
     googleImageSearch: Boolean(input.googleImageSearch),
   })
@@ -528,16 +523,6 @@ export function retryGenerateTask(taskId: string) {
 
   if (!task) {
     return null
-  }
-
-  if (platformRuntime === 'cloud' && task.serverTaskId) {
-    void cloudGenerationTaskApi.retry(task.serverTaskId, `cloud-retry:${task.serverTaskId}:${crypto.randomUUID()}`)
-      .then((response) => useTaskQueueStore.getState().syncServerTask(response.task))
-      .catch((error) => useTaskQueueStore.getState().markTaskError(
-        task.id,
-        error instanceof Error ? error.message : String(error),
-      ))
-    return taskId
   }
 
   if (task.remoteTaskId && (task.kind === 'video' || task.kind === 'image')) {
@@ -582,7 +567,6 @@ export function retryGenerateTask(taskId: string) {
     referenceImageUrls: task.referenceImageUrls,
     inputFidelity: task.inputFidelity ?? null,
     quality: task.quality ?? null,
-    officialFallback: Boolean(task.officialFallback),
     googleSearch: Boolean(task.googleSearch),
     googleImageSearch: Boolean(task.googleImageSearch),
     videoMode: task.videoMode ?? null,
@@ -606,20 +590,6 @@ export function retryGenerateTask(taskId: string) {
     syncPreviewNodeWithTask(nextTask, 'queued')
   }
 
-  return taskId
-}
-
-export function cancelGenerateTask(taskId: string) {
-  const task = useTaskQueueStore.getState().tasks.find((item) => item.id === taskId)
-  if (!task || platformRuntime !== 'cloud' || !task.serverTaskId) {
-    return null
-  }
-  void cloudGenerationTaskApi.cancel(task.serverTaskId, `cloud-cancel:${task.serverTaskId}:${crypto.randomUUID()}`)
-    .then((response) => useTaskQueueStore.getState().syncServerTask(response.task))
-    .catch((error) => useTaskQueueStore.getState().markTaskError(
-      task.id,
-      error instanceof Error ? error.message : String(error),
-    ))
   return taskId
 }
 
@@ -696,7 +666,6 @@ function buildTaskRequestParams(task: GenerateTask) {
       resolution: task.resolution,
       inputFidelity: task.inputFidelity ?? null,
       quality: task.quality ?? null,
-      officialFallback: Boolean(task.officialFallback),
       googleSearch: Boolean(task.googleSearch),
       googleImageSearch: Boolean(task.googleImageSearch),
       editImageUrl: task.operationType === 'image-edit' ? resolveTaskSourceImageUrl(task.sourceImageNodeId) : null,
@@ -1035,7 +1004,6 @@ export async function restoreTaskQueueAfterSnapshotLoad() {
       referenceImageUrls: task.referenceImageUrls,
       inputFidelity: task.inputFidelity ?? null,
       quality: task.quality ?? null,
-      officialFallback: Boolean(task.officialFallback),
       googleSearch: Boolean(task.googleSearch),
       googleImageSearch: Boolean(task.googleImageSearch),
       videoMode: task.videoMode ?? null,

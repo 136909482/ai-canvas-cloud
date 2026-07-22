@@ -11,6 +11,12 @@ const baseEnv = {
   ADMIN_BETTER_AUTH_SECRET: 'admin-auth-secret-that-is-independent-and-long',
   ADMIN_WEB_PUBLIC_URL: 'http://localhost:5174',
   ADMIN_WEB_ALLOWED_ORIGINS: 'http://localhost:5174',
+  S3_ENDPOINT: 'http://localhost:9000',
+  S3_PUBLIC_ENDPOINT: 'http://localhost:9000',
+  S3_BUCKET: 'site-assets-test',
+  S3_REGION: 'us-east-1',
+  S3_ACCESS_KEY_ID: 'test-access-key',
+  S3_SECRET_ACCESS_KEY: 'test-secret-key',
 }
 
 test('Admin API config requires independent database role, secret, and origin', () => {

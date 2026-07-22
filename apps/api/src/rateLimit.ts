@@ -4,8 +4,6 @@ import { Redis } from 'ioredis'
 export type RateLimitBucket =
   | 'auth_attempt'
   | 'password_email'
-  | 'provider_test'
-  | 'task_create'
   | 'asset_prepare'
   | 'migration_prepare'
   | 'read'
@@ -41,8 +39,6 @@ export interface RedisRateLimitClient {
 export const RATE_LIMIT_POLICIES: Record<RateLimitBucket, RateLimitPolicy> = {
   auth_attempt: { windowSeconds: 60, maxRequests: 10, failureMode: 'closed' },
   password_email: { windowSeconds: 300, maxRequests: 5, failureMode: 'closed' },
-  provider_test: { windowSeconds: 60, maxRequests: 10, failureMode: 'closed' },
-  task_create: { windowSeconds: 60, maxRequests: 30, failureMode: 'closed' },
   asset_prepare: { windowSeconds: 60, maxRequests: 30, failureMode: 'closed' },
   migration_prepare: { windowSeconds: 300, maxRequests: 10, failureMode: 'closed' },
   read: { windowSeconds: 60, maxRequests: 240, failureMode: 'open' },

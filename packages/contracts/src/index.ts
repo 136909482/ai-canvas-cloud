@@ -15,10 +15,6 @@ export const apiErrorCodes = [
   'ASSET_NOT_READY',
   'ASSET_VALIDATION_FAILED',
   'QUOTA_EXCEEDED',
-  'TASK_CONCURRENCY_LIMIT',
-  'PROVIDER_CAPABILITY_UNSUPPORTED',
-  'PROVIDER_CONFIG_INVALID',
-  'PROVIDER_UNAVAILABLE',
   'IMPORT_CONFLICT',
   'IMPORT_INVALID',
   'EXPORT_CONFLICT',
@@ -29,6 +25,7 @@ export const apiErrorCodes = [
   'EXPORT_RETRY_EXHAUSTED',
   'PACKAGE_LIMIT_EXCEEDED',
   'SERVICE_UNAVAILABLE',
+  'ADMIN_ACCESS_DENIED',
 ] as const
 
 export type ApiErrorCode = typeof apiErrorCodes[number]
@@ -430,116 +427,6 @@ export interface AssetUrlResponse {
   expiresAt: string
 }
 
-export type GenerationTaskKind = 'image' | 'video'
-export type GenerationTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
-export type GenerationTaskBillingMode = 'workspace_key' | 'platform'
-
-export interface CreateGenerationTaskRequest {
-  projectId: string
-  sourceNodeId: string
-  previewNodeId?: string | null
-  kind: GenerationTaskKind
-  providerId: string
-  model: string
-  billingMode?: GenerationTaskBillingMode
-  parameters: Record<string, unknown>
-  idempotencyKey: string
-}
-
-export interface GenerationTaskSummary {
-  id: string
-  projectId: string
-  sourceNodeId: string
-  previewNodeId: string | null
-  kind: GenerationTaskKind
-  providerId: string
-  model: string
-  billingMode: GenerationTaskBillingMode
-  status: GenerationTaskStatus
-  progress: number
-  attemptCount: number
-  maxAttempts: number
-  errorCode: string | null
-  errorMessage: string | null
-  cancelRequestedAt: string | null
-  startedAt: string | null
-  finishedAt: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-export interface GenerationTaskResponse {
-  task: GenerationTaskSummary
-}
-
-export interface GenerationTasksResponse {
-  tasks: GenerationTaskSummary[]
-  nextCursor: string | null
-}
-
-export type GenerationTaskEventType = 'created' | 'status' | 'progress' | 'terminal'
-
-export interface GenerationTaskEvent {
-  id: string
-  taskId: string
-  projectId: string
-  type: GenerationTaskEventType
-  status: GenerationTaskStatus
-  progress: number
-  errorCode: string | null
-  errorMessage: string | null
-  createdAt: string
-}
-
-export interface GenerationTaskEventsResponse {
-  events: GenerationTaskEvent[]
-  nextCursor: string | null
-  hasMore: boolean
-}
-
-export interface GenerationTaskCommandRequest {
-  idempotencyKey: string
-}
-
-export type CloudProviderId = string
-export type ProviderCredentialStatus = 'active' | 'disabled'
-
-export interface ProviderSettingSummary {
-  providerId: CloudProviderId
-  label: string
-  websiteUrl: string
-  baseUrl: string
-  configured: boolean
-  status: ProviderCredentialStatus | 'not_configured'
-  secretLastFour: string | null
-  updatedAt: string | null
-}
-
-export interface ProviderSettingsResponse {
-  providers: ProviderSettingSummary[]
-}
-
-export interface PutProviderCredentialRequest {
-  label?: string
-  websiteUrl?: string
-  apiKey?: string
-  baseUrl?: string
-}
-
-export interface ProviderSettingResponse {
-  provider: ProviderSettingSummary
-}
-
-export interface ProviderConnectionTestResponse {
-  providerId: CloudProviderId
-  ok: true
-  checkedAt: string
-}
-
-export interface DeleteProviderCredentialResponse {
-  ok: true
-}
-
 export interface ApplyProjectGraphOperationsRequest {
   baseVersion: number
   clientId: string
@@ -561,10 +448,9 @@ export type AdminStatus = 'active' | 'banned'
 
 export interface AdminPrincipal {
   id: string
-  email: string
+  username: string
   role: AdminRole
   status: AdminStatus
-  twoFactorEnabled: boolean
 }
 
 export interface AdminSessionResponse {
@@ -573,18 +459,31 @@ export interface AdminSessionResponse {
 }
 
 export interface AdminLoginResponse {
-  state: 'mfa_setup_required' | 'mfa_required' | 'authenticated'
-  session?: AdminSessionResponse
-  methods?: Array<'totp' | 'backup_code'>
+  state: 'authenticated'
+  session: AdminSessionResponse
 }
 
-export interface AdminMfaSetupResponse {
-  totpUri: string
-  recoveryCodes: string[]
+export interface AdminCaptchaResponse {
+  enabled: boolean
+  challenge: {
+    id: string
+    imageDataUrl: string
+    expiresAt: string
+  } | null
 }
 
-export interface AdminRecoveryCodesResponse {
-  recoveryCodes: string[]
+export interface AdminLoginSecuritySettingsResponse {
+  captchaEnabled: boolean
+  updatedAt: string
+}
+
+export interface AdminUsernameUpdateRequest {
+  username: string
+}
+
+export interface AdminPasswordUpdateRequest {
+  currentPassword: string
+  newPassword: string
 }
 
 export interface AdminAuditEvent {
@@ -623,3 +522,4 @@ export function createServiceUnavailableError(requestId: string, message = 'Serv
 
 export * from './migrationPackage.ts'
 export * from './migrationExport.ts'
+export * from './siteConfig.ts'

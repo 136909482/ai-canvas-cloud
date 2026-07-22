@@ -12,8 +12,6 @@
     "./modules/project-graph": "./dist/modules/project-graph/index.js",
     "./modules/project-snapshots": "./dist/modules/project-snapshots/index.js",
     "./modules/projects": "./dist/modules/projects/index.js",
-    "./modules/providers": "./dist/modules/providers/index.js",
-    "./modules/tasks": "./dist/modules/tasks/index.js",
     "./modules/workspaces": "./dist/modules/workspaces/index.js"
   },
   "scripts": {

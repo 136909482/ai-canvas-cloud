@@ -24,8 +24,6 @@ function restoreEnv(overrides = {}) {
     RESTORE_S3_RESOURCE_ID: 'staging-restore-bucket',
     S3_BUCKET: 'staging-assets',
     RESTORE_S3_BUCKET: 'staging-restore-assets',
-    WORKER_TASK_QUEUE_NAME: 'staging-generation',
-    RESTORE_TASK_QUEUE_NAME: 'staging-restore-generation',
     RESTORE_DATABASE_URL: 'postgres://restore_user:secret@restore-postgres:5432/staging_restore',
     RESTORE_RESET_CONFIRMED: 'true',
     ...overrides,
@@ -53,7 +51,7 @@ test('backup encryption is authenticated and detects tampering', async () => {
   }
 })
 
-test('restore isolation requires distinct restore-only database, Redis, bucket and queue resources', () => {
+test('restore isolation requires distinct restore-only database, Redis, and bucket resources', () => {
   assert.equal(assertRestoreIsolation(restoreEnv()), true)
   assert.throws(() => assertRestoreIsolation(restoreEnv({ RESTORE_S3_BUCKET: 'staging-assets' })), /restore-only/)
   assert.throws(() => assertRestoreIsolation(restoreEnv({ RESTORE_DATABASE_URL: 'postgres://user:secret@postgres:5432/staging' })), /restore-only/)

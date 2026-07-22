@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type SettingsCategoryId = 'account' | 'devices' | 'models' | 'providers' | 'storage' | 'canvas' | 'appearance' | 'tasks'
+export type SettingsCategoryId = 'account' | 'devices' | 'models' | 'storage' | 'canvas' | 'appearance' | 'tasks'
 
 interface SettingsDialogStore {
   isOpen: boolean

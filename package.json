@@ -13,7 +13,6 @@
   "scripts": {
     "dev:web": "npm run dev -w @ai-canvas-cloud/web",
     "dev:api": "npm run dev -w @ai-canvas-cloud/api",
-    "dev:worker": "npm run dev -w @ai-canvas-cloud/worker",
     "dev:admin-web": "npm run dev -w @ai-canvas-cloud/admin-web",
     "dev:admin-api": "npm run dev -w @ai-canvas-cloud/admin-api",
     "dev:start": "node scripts/dev-process.mjs start",
@@ -22,7 +21,7 @@
     "dev:status": "node scripts/dev-process.mjs status",
     "test": "node scripts/run-tests.mjs",
     "lint": "eslint .",
-    "build": "npm run build -w @ai-canvas-cloud/shared && npm run build -w @ai-canvas-cloud/contracts && npm run build -w @ai-canvas-cloud/project-graph && npm run build -w @ai-canvas-cloud/server && npm run build -w @ai-canvas-cloud/api && npm run build -w @ai-canvas-cloud/worker && npm run build -w @ai-canvas-cloud/admin-api && npm run build -w @ai-canvas-cloud/web && npm run build -w @ai-canvas-cloud/admin-web",
+    "build": "npm run build -w @ai-canvas-cloud/shared && npm run build -w @ai-canvas-cloud/contracts && npm run build -w @ai-canvas-cloud/project-graph && npm run build -w @ai-canvas-cloud/server && npm run build -w @ai-canvas-cloud/api && npm run build -w @ai-canvas-cloud/admin-api && npm run build -w @ai-canvas-cloud/web && npm run build -w @ai-canvas-cloud/admin-web",
     "db:migrate": "node scripts/apply-migrations.mjs",
     "db:roles:provision": "node scripts/provision-database-roles.mjs",
     "db:roles:check": "node scripts/check-admin-role-isolation.mjs",

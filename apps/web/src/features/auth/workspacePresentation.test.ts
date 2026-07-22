@@ -5,7 +5,6 @@ import test from 'node:test'
 
 const presentationFiles = [
   'apps/web/src/App.tsx',
-  'apps/web/src/components/CloudProviderSettingsPanel.tsx',
   'apps/web/src/components/ProjectManagerDialog.tsx',
   'apps/web/src/components/StorageSettingsDialog.tsx',
   'apps/web/src/features/auth/AccountMenu.tsx',

@@ -7,7 +7,7 @@ test('administrator bootstrap refuses non-interactive input and never accepts an
     cwd: process.cwd(),
     env: { ...process.env, ADMIN_BOOTSTRAP_PASSWORD: 'must-never-be-read' },
     encoding: 'utf8',
-    input: 'admin@example.invalid\npassword-from-stdin\n',
+    input: 'admin\npassword-from-stdin\n',
     timeout: 10_000,
   })
   assert.notEqual(result.status, 0)

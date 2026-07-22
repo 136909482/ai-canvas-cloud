@@ -103,71 +103,6 @@ services:
       timeout: 3s
       retries: 6
 
-  worker:
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-      target: worker
-    environment:
-      NODE_ENV: ${NODE_ENV:?set NODE_ENV in staging.env}
-      DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:?set DEPLOYMENT_ENV in staging.env}
-      DEPLOYMENT_RESOURCE_NAMESPACE: ${DEPLOYMENT_RESOURCE_NAMESPACE:?set DEPLOYMENT_RESOURCE_NAMESPACE in staging.env}
-      DEPLOYMENT_CREDENTIAL_NAMESPACE: ${DEPLOYMENT_CREDENTIAL_NAMESPACE:?set DEPLOYMENT_CREDENTIAL_NAMESPACE in staging.env}
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in staging.env}
-      REDIS_URL: ${REDIS_URL:?set REDIS_URL in staging.env}
-      S3_ENDPOINT: ${S3_ENDPOINT:?set S3_ENDPOINT in staging.env}
-      S3_REGION: ${S3_REGION:?set S3_REGION in staging.env}
-      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in staging.env}
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in staging.env}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in staging.env}
-      PROVIDER_CREDENTIAL_KEYS: ${PROVIDER_CREDENTIAL_KEYS:?set PROVIDER_CREDENTIAL_KEYS in staging.env}
-      PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION: ${PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION:?set PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION in staging.env}
-      WORKER_INSTANCE_ID: ${WORKER_INSTANCE_ID:?set WORKER_INSTANCE_ID in staging.env}
-      WORKER_OBSERVABILITY_HOST: 0.0.0.0
-      WORKER_OBSERVABILITY_PORT: 8790
-      WORKER_TASK_QUEUE_NAME: ${WORKER_TASK_QUEUE_NAME:?set WORKER_TASK_QUEUE_NAME in staging.env}
-      WORKER_OUTBOX_DISPATCH_INTERVAL_MS: ${WORKER_OUTBOX_DISPATCH_INTERVAL_MS:?set WORKER_OUTBOX_DISPATCH_INTERVAL_MS in staging.env}
-      WORKER_OUTBOX_BATCH_SIZE: ${WORKER_OUTBOX_BATCH_SIZE:?set WORKER_OUTBOX_BATCH_SIZE in staging.env}
-      WORKER_OUTBOX_CLAIM_TTL_MS: ${WORKER_OUTBOX_CLAIM_TTL_MS:?set WORKER_OUTBOX_CLAIM_TTL_MS in staging.env}
-      WORKER_OUTBOX_RETRY_BASE_MS: ${WORKER_OUTBOX_RETRY_BASE_MS:?set WORKER_OUTBOX_RETRY_BASE_MS in staging.env}
-      WORKER_OUTBOX_RETRY_MAX_MS: ${WORKER_OUTBOX_RETRY_MAX_MS:?set WORKER_OUTBOX_RETRY_MAX_MS in staging.env}
-      WORKER_TASK_CONCURRENCY: ${WORKER_TASK_CONCURRENCY:?set WORKER_TASK_CONCURRENCY in staging.env}
-      WORKER_TASK_LEASE_TTL_MS: ${WORKER_TASK_LEASE_TTL_MS:?set WORKER_TASK_LEASE_TTL_MS in staging.env}
-      WORKER_TASK_LEASE_HEARTBEAT_MS: ${WORKER_TASK_LEASE_HEARTBEAT_MS:?set WORKER_TASK_LEASE_HEARTBEAT_MS in staging.env}
-      WORKER_TASK_RECOVERY_INTERVAL_MS: ${WORKER_TASK_RECOVERY_INTERVAL_MS:?set WORKER_TASK_RECOVERY_INTERVAL_MS in staging.env}
-      WORKER_TASK_RECOVERY_BATCH_SIZE: ${WORKER_TASK_RECOVERY_BATCH_SIZE:?set WORKER_TASK_RECOVERY_BATCH_SIZE in staging.env}
-      WORKER_TASK_RETRY_BASE_MS: ${WORKER_TASK_RETRY_BASE_MS:?set WORKER_TASK_RETRY_BASE_MS in staging.env}
-      WORKER_TASK_RETRY_MAX_MS: ${WORKER_TASK_RETRY_MAX_MS:?set WORKER_TASK_RETRY_MAX_MS in staging.env}
-      DATABASE_RESOURCE_ID: ${DATABASE_RESOURCE_ID:?set DATABASE_RESOURCE_ID in staging.env}
-      REDIS_RESOURCE_ID: ${REDIS_RESOURCE_ID:?set REDIS_RESOURCE_ID in staging.env}
-      S3_RESOURCE_ID: ${S3_RESOURCE_ID:?set S3_RESOURCE_ID in staging.env}
-      MAIL_RESOURCE_ID: ${MAIL_RESOURCE_ID:?set MAIL_RESOURCE_ID in staging.env}
-      PROVIDER_RESOURCE_ID: ${PROVIDER_RESOURCE_ID:?set PROVIDER_RESOURCE_ID in staging.env}
-      PERSISTENCE_RESOURCE_ID: ${PERSISTENCE_RESOURCE_ID:?set PERSISTENCE_RESOURCE_ID in staging.env}
-      DATABASE_CREDENTIAL_ID: ${DATABASE_CREDENTIAL_ID:?set DATABASE_CREDENTIAL_ID in staging.env}
-      REDIS_CREDENTIAL_ID: ${REDIS_CREDENTIAL_ID:?set REDIS_CREDENTIAL_ID in staging.env}
-      S3_CREDENTIAL_ID: ${S3_CREDENTIAL_ID:?set S3_CREDENTIAL_ID in staging.env}
-      MAIL_CREDENTIAL_ID: ${MAIL_CREDENTIAL_ID:?set MAIL_CREDENTIAL_ID in staging.env}
-      PROVIDER_CREDENTIAL_ID: ${PROVIDER_CREDENTIAL_ID:?set PROVIDER_CREDENTIAL_ID in staging.env}
-      BYOK_KEYRING_ID: ${BYOK_KEYRING_ID:?set BYOK_KEYRING_ID in staging.env}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      object-storage:
-        condition: service_healthy
-    expose: ["8790"]
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'node -e "fetch(''http://127.0.0.1:8790/health/ready'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
-        ]
-      interval: 10s
-      timeout: 3s
-      retries: 6
-
   web:
     build:
       context: ../..
@@ -217,8 +152,6 @@ services:
       - staging-prometheus-data:/prometheus
     depends_on:
       api:
-        condition: service_healthy
-      worker:
         condition: service_healthy
     expose: ["9090"]
     restart: unless-stopped
@@ -403,11 +336,9 @@ services:
       REDIS_RESOURCE_ID: ${REDIS_RESOURCE_ID:?set REDIS_RESOURCE_ID in staging.env}
       S3_RESOURCE_ID: ${S3_RESOURCE_ID:?set S3_RESOURCE_ID in staging.env}
       S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in staging.env}
-      WORKER_TASK_QUEUE_NAME: ${WORKER_TASK_QUEUE_NAME:?set WORKER_TASK_QUEUE_NAME in staging.env}
       RESTORE_DATABASE_RESOURCE_ID: ${RESTORE_DATABASE_RESOURCE_ID:?set RESTORE_DATABASE_RESOURCE_ID in staging.env}
       RESTORE_REDIS_RESOURCE_ID: ${RESTORE_REDIS_RESOURCE_ID:?set RESTORE_REDIS_RESOURCE_ID in staging.env}
       RESTORE_S3_RESOURCE_ID: ${RESTORE_S3_RESOURCE_ID:?set RESTORE_S3_RESOURCE_ID in staging.env}
-      RESTORE_TASK_QUEUE_NAME: ${RESTORE_TASK_QUEUE_NAME:?set RESTORE_TASK_QUEUE_NAME in staging.env}
       RESTORE_AUDIT_MIN_WORKSPACES: ${RESTORE_AUDIT_MIN_WORKSPACES:-2}
       RESTORE_RESET_CONFIRMED: ${RESTORE_RESET_CONFIRMED:?set RESTORE_RESET_CONFIRMED in staging.env}
     volumes:

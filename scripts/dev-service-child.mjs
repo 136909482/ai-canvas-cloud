@@ -3,8 +3,8 @@ import { pathToFileURL } from 'node:url'
 import { REPO_ROOT } from './dev-process.mjs'
 
 const service = process.argv[2]
-if (service !== 'api' && service !== 'worker' && service !== 'admin-api') {
-  throw new Error('Managed service child must be api, worker, or admin-api')
+if (service !== 'api' && service !== 'admin-api') {
+  throw new Error('Managed service child must be api or admin-api')
 }
 
 process.on('message', (message) => {

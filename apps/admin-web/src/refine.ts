@@ -33,10 +33,10 @@ export const adminDataProvider: DataProvider = {
 
 export const adminAuthProvider: AuthProvider = {
   async login(params) {
-    const email = typeof params?.email === 'string' ? params.email : ''
+    const username = typeof params?.username === 'string' ? params.username : ''
     const password = typeof params?.password === 'string' ? params.password : ''
-    const response = await adminApi.login(email, password)
-    if (response.session) setAdminIdentity(response.session)
+    const response = await adminApi.login(username, password)
+    setAdminIdentity(response.session)
     return { success: true, state: response.state, response }
   },
   async logout() {
@@ -48,7 +48,7 @@ export const adminAuthProvider: AuthProvider = {
     try {
       const session = await adminApi.session()
       setAdminIdentity(session)
-      return { authenticated: session.admin.twoFactorEnabled }
+      return { authenticated: true }
     } catch {
       setAdminIdentity(null)
       return { authenticated: false }
@@ -69,8 +69,8 @@ export const adminAuthProvider: AuthProvider = {
 }
 
 const PERMISSIONS: Record<AdminRole, ReadonlySet<string>> = {
-  super_admin: new Set(['audit.read', 'site_config.write', 'provider.write', 'model.write', 'credits.write', 'user.read', 'user.write']),
-  operator: new Set(['audit.read', 'site_config.write', 'provider.write', 'model.write', 'credits.write']),
+  super_admin: new Set(['audit.read', 'security.write', 'site_config.write', 'user.read', 'user.write']),
+  operator: new Set(['audit.read', 'site_config.write']),
   support: new Set(['audit.read', 'user.read', 'user.write']),
   auditor: new Set(['audit.read']),
 }

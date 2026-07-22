@@ -24,10 +24,8 @@ import { useAuthStore } from '@/features/auth/useAuthStore'
 import { useFeedbackStore } from '@/store/useFeedbackStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useSettingsDialogStore } from '@/store/useSettingsDialogStore'
-import { useCloudProviderStore } from '@/store/useCloudProviderStore'
 import { useDialogFocus } from '@/hooks/useDialogFocus'
 import { StorageSettingsPanel } from '@/components/StorageSettingsDialog'
-import { CloudProviderSettingsPanel } from '@/components/CloudProviderSettingsPanel'
 import { AccountSettingsPanel } from '@/features/auth/AccountMenu'
 import { DeviceSettingsPanel } from '@/features/auth/DeviceSettingsPanel'
 import { TaskQueueButton } from '@/components/TaskQueueButton'
@@ -95,8 +93,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const savedModels = config.customModels
-  const cloudProviders = useCloudProviderStore((state) => state.providers)
-  const loadCloudProviders = useCloudProviderStore((state) => state.load)
+  const localProviderProfiles = config.providerProfiles
 
   const visibleDraftModels = draftModels.filter((model) => {
     if (model.kind !== activeTab) {
@@ -123,8 +120,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
     setDraftModels(savedModels.map(toDraftModel))
     setDraftModelProviderProfileIds(config.modelProviderProfileIds)
     setSearchQuery('')
-    void loadCloudProviders()
-  }, [config.modelProviderProfileIds, loadCloudProviders, savedModels, showSettings])
+  }, [config.modelProviderProfileIds, savedModels, showSettings])
 
   useEffect(() => {
     if (!showSettings || activeCategory !== 'models') {
@@ -144,7 +140,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
 
   const selectedModel = draftModels.find((model) => model.id === selectedModelId) ?? null
   const selectedProviderId = selectedModel ? draftModelProviderProfileIds[selectedModel.modelId] ?? '' : ''
-  const selectedProvider = cloudProviders.find((provider) => provider.providerId === selectedProviderId) ?? null
+  const selectedProvider = localProviderProfiles.find((provider) => provider.id === selectedProviderId) ?? null
 
   const closeSettingsPanel = () => {
     closeSettings()
@@ -503,7 +499,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                           </button>
                         </div>
                         <div className="flex min-h-0 flex-1 overflow-y-auto px-5 py-3 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--border-subtle)] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5">
-                    <div key={`${activeTab}-${selectedModel.id}-${selectedProvider?.providerId ?? 'no-provider'}`} className="mx-auto grid w-full max-w-4xl self-start overflow-hidden rounded-[10px] border border-[var(--border-subtle)] bg-[var(--control-bg)]">
+                    <div key={`${activeTab}-${selectedModel.id}-${selectedProvider?.id ?? 'no-provider'}`} className="mx-auto grid w-full max-w-4xl self-start overflow-hidden rounded-[10px] border border-[var(--border-subtle)] bg-[var(--control-bg)]">
                         <DetailRow label={MODEL_NAME_LABEL} hint="给模型起一个更容易识别的名字。">
                           <input
                             type="text"
@@ -546,17 +542,17 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                             className={FIELD_INPUT_CLASS}
                           />
                         </DetailRow>
-                        <DetailRow label="服务商" hint="模型只绑定 Cloud 服务商；URL 和 Key 请到 Cloud 服务商页面管理。">
+                        <DetailRow label="服务商" hint="模型绑定当前设备中的本地服务商配置。">
                           <select
                             value={selectedProviderId}
                             onChange={(event) => updateSelectedModelProvider(selectedModel, event.target.value || null)}
                             className={FIELD_SELECT_CLASS}
                             aria-label="服务商"
                           >
-                            <option value="">请选择 Cloud 服务商</option>
-                            {cloudProviders.map((provider) => (
-                              <option key={provider.providerId} value={provider.providerId} className="bg-[var(--panel-bg-strong)] text-[var(--text-primary)]">
-                                {provider.label}
+                            <option value="">请选择本地服务商</option>
+                            {localProviderProfiles.map((provider) => (
+                              <option key={provider.id} value={provider.id} className="bg-[var(--panel-bg-strong)] text-[var(--text-primary)]">
+                                {provider.name}
                               </option>
                             ))}
                           </select>
@@ -595,7 +591,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                       <button
                         type="button"
                         onClick={() => {
-                          void handleSaveModel(selectedModel, selectedProvider?.providerId ?? null)
+                          void handleSaveModel(selectedModel, selectedProvider?.id ?? null)
                         }}
                         className="h-8 rounded-[9px] bg-[var(--text-primary)] px-3 text-xs font-semibold text-[var(--canvas-bg)] transition hover:opacity-90"
                       >
@@ -635,7 +631,6 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                   <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--border-subtle)] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5">
                     {activeCategory === 'account' ? <AccountSettingsPanel onSignedOut={closeSettingsPanel} /> : null}
                     {activeCategory === 'devices' ? <DeviceSettingsPanel /> : null}
-                    {activeCategory === 'providers' ? <CloudProviderSettingsPanel active={showSettings && activeCategory === 'providers'} /> : null}
                     {activeCategory === 'storage' ? <StorageSettingsPanel active={showSettings && activeCategory === 'storage'} /> : null}
                     {activeCategory === 'canvas' ? (
                       <section className="overflow-hidden rounded-[14px] border border-[var(--border-subtle)] bg-[var(--control-bg)]">

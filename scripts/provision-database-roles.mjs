@@ -19,8 +19,14 @@ function parseEnv(text) {
 
 function updateEnv(text, updates) {
   const remaining = new Map(Object.entries(updates))
-  const lines = text.split(/\r?\n/).map((line) => {
+  const removed = new Set([
+    'WORKER_DATABASE_ROLE', 'WORKER_DATABASE_PASSWORD', 'WORKER_DATABASE_URL',
+    'PROVIDER_CREDENTIAL_KEYS', 'PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION',
+    'OFFICIAL_PROVIDER_CREDENTIAL_KEYS', 'OFFICIAL_PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION',
+  ])
+  const lines = text.split(/\r?\n/).flatMap((line) => {
     const match = /^([A-Z][A-Z0-9_]*)=/.exec(line.trim())
+    if (match && removed.has(match[1])) return []
     if (!match || !remaining.has(match[1])) return line
     const value = remaining.get(match[1])
     remaining.delete(match[1])
@@ -65,19 +71,22 @@ const migrationUrl = env.get('MIGRATION_DATABASE_URL') || env.get('DATABASE_URL'
 if (!migrationUrl) throw new Error('Missing DATABASE_URL or MIGRATION_DATABASE_URL')
 const appRole = safeRole(env.get('APP_DATABASE_ROLE'), 'ai_canvas_cloud_app')
 const adminRole = safeRole(env.get('ADMIN_DATABASE_ROLE'), 'ai_canvas_cloud_admin')
+const legacyWorkerRole = env.get('WORKER_DATABASE_ROLE')
+  ? safeRole(env.get('WORKER_DATABASE_ROLE'), 'ai_canvas_cloud_worker')
+  : 'ai_canvas_cloud_worker'
 if (appRole === adminRole) throw new Error('Application and Admin database roles must be different')
 const appPassword = env.get('APP_DATABASE_PASSWORD') || secret()
 const adminPassword = env.get('ADMIN_DATABASE_PASSWORD') || secret()
 const adminAuthSecret = env.get('ADMIN_BETTER_AUTH_SECRET') || secret() + secret()
 const client = new pg.Client({ connectionString: migrationUrl })
 
-async function ensureRole(role, password) {
+async function ensureRole(role, password, passwordEnvironmentKey) {
   const exists = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role])
   const roleSql = quoteIdentifier(role)
   const passwordSql = quoteLiteral(password)
   if (exists.rowCount === 0) {
     await client.query(`CREATE ROLE ${roleSql} LOGIN PASSWORD ${passwordSql} NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT`)
-  } else if (!env.get(role === appRole ? 'APP_DATABASE_PASSWORD' : 'ADMIN_DATABASE_PASSWORD')) {
+  } else if (!env.get(passwordEnvironmentKey)) {
     await client.query(`ALTER ROLE ${roleSql} PASSWORD ${passwordSql}`)
   }
 }
@@ -88,8 +97,8 @@ try {
   const databaseName = database.rows[0]?.name
   const ownerRole = database.rows[0]?.owner
   if (!databaseName || !ownerRole || !IDENTIFIER.test(ownerRole)) throw new Error('Could not resolve migration database owner')
-  await ensureRole(appRole, appPassword)
-  await ensureRole(adminRole, adminPassword)
+  await ensureRole(appRole, appPassword, 'APP_DATABASE_PASSWORD')
+  await ensureRole(adminRole, adminPassword, 'ADMIN_DATABASE_PASSWORD')
   const app = quoteIdentifier(appRole)
   const admin = quoteIdentifier(adminRole)
   const owner = quoteIdentifier(ownerRole)
@@ -102,6 +111,8 @@ try {
   await client.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${app}`)
   await client.query(`ALTER DEFAULT PRIVILEGES FOR ROLE ${owner} IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${app}`)
   await client.query(`ALTER DEFAULT PRIVILEGES FOR ROLE ${owner} IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ${app}`)
+  await client.query(`REVOKE INSERT, UPDATE, DELETE ON public.site_config_publications FROM ${app}`)
+  await client.query(`GRANT SELECT ON public.site_config_publications TO ${app}`)
   await client.query(`REVOKE ALL ON SCHEMA admin FROM ${app}`)
   await client.query(`REVOKE ALL ON ALL TABLES IN SCHEMA admin FROM ${app}`)
   await client.query(`REVOKE ALL ON ALL SEQUENCES IN SCHEMA admin FROM ${app}`)
@@ -109,10 +120,19 @@ try {
   await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA admin TO ${admin}`)
   await client.query(`REVOKE UPDATE, DELETE ON admin.audit_events FROM ${admin}`)
   await client.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA admin TO ${admin}`)
+  await client.query(`GRANT USAGE ON SCHEMA public TO ${admin}`)
+  await client.query(`GRANT SELECT, INSERT, UPDATE ON public.site_config_publications TO ${admin}`)
   await client.query(`ALTER DEFAULT PRIVILEGES FOR ROLE ${owner} IN SCHEMA admin GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${admin}`)
   await client.query(`ALTER DEFAULT PRIVILEGES FOR ROLE ${owner} IN SCHEMA admin GRANT USAGE, SELECT ON SEQUENCES TO ${admin}`)
   await client.query(`ALTER ROLE ${app} SET search_path = public`)
   await client.query(`ALTER ROLE ${admin} SET search_path = admin`)
+  const legacyWorker = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [legacyWorkerRole])
+  if (legacyWorker.rowCount > 0 && legacyWorkerRole !== appRole && legacyWorkerRole !== adminRole && legacyWorkerRole !== ownerRole) {
+    const worker = quoteIdentifier(legacyWorkerRole)
+    await client.query(`REVOKE CONNECT ON DATABASE ${databaseIdentifier} FROM ${worker}`)
+    await client.query(`DROP OWNED BY ${worker}`)
+    await client.query(`DROP ROLE ${worker}`)
+  }
   await client.query('COMMIT')
 
   const updates = {
@@ -133,7 +153,7 @@ try {
     ADMIN_WEB_ALLOWED_ORIGINS: env.get('ADMIN_WEB_ALLOWED_ORIGINS') || 'http://localhost:5174,http://127.0.0.1:5174',
   }
   writeFileSync(envPath, updateEnv(text, updates), { encoding: 'utf8', flag: 'w' })
-  console.log(`Database role isolation configured for ${appRole} and ${adminRole}; secret values were not printed.`)
+  console.log(`Database role isolation configured for ${appRole} and ${adminRole}; legacy Worker role removed when present; secret values were not printed.`)
 } catch (error) {
   await client.query('ROLLBACK').catch(() => undefined)
   throw error

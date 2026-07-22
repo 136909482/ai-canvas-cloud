@@ -221,7 +221,6 @@ export function buildManualGenerateNode(
       model: DEFAULT_IMAGE_MODEL_ID,
       resolution: '1K',
       quality: 'auto',
-      officialFallback: false,
       googleSearch: false,
       googleImageSearch: false,
       connectedTextNode: null,

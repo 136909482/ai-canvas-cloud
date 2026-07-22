@@ -187,7 +187,6 @@ export function cloneNodeForDuplicate(
         model: typeof node.data?.model === 'string' ? node.data.model : DEFAULT_IMAGE_MODEL_ID,
         resolution: typeof node.data?.resolution === 'string' ? node.data.resolution : '1K',
         quality: sanitizeGptImageQuality(node.data?.quality),
-        officialFallback: node.data?.officialFallback === true,
         googleSearch: node.data?.googleSearch === true,
         googleImageSearch: node.data?.googleImageSearch === true,
         connectedTextNode: null,

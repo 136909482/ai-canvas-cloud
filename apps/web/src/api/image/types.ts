@@ -19,7 +19,6 @@ export interface GenerateImageParams {
   operationType?: ImageOperationType
   inputFidelity?: ImageInputFidelity | null
   quality?: GptImageQuality | null
-  officialFallback?: boolean
   googleSearch?: boolean
   googleImageSearch?: boolean
 }

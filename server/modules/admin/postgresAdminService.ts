@@ -1,14 +1,20 @@
+import { createHash, randomInt, randomUUID } from 'node:crypto'
 import { APIError, betterAuth } from 'better-auth'
 import { splitSetCookieHeader } from 'better-auth/cookies'
-import { twoFactor } from 'better-auth/plugins'
-import type { DbPool } from '../../db/postgres.js'
-import { AdminAccessError, assertAdminAccess, hashAdminRequestIdentity, redactAdminAuditPayload } from './security.js'
+import { username } from 'better-auth/plugins'
+import type { DbClient, DbPool } from '../../db/postgres.js'
+import { withTransaction } from '../../db/postgres.js'
+import { insertAdminAuditEvent } from './adminAudit.js'
+import { AdminAccessError, assertAdminAccess, safeTokenEqual } from './security.js'
 import type { AdminAuditQuery, AdminService } from './service.js'
 import { ADMIN_ROLES, type AdminAuditEvent, type AdminPrincipal, type AdminRequestContext, type AdminRole, type AdminSession } from './types.js'
 
 const COOKIE_PREFIX = 'ai_canvas_admin'
 const DEFAULT_PAGE_SIZE = 50
 const MAX_PAGE_SIZE = 100
+const CAPTCHA_TTL_SECONDS = 5 * 60
+const CAPTCHA_LENGTH = 5
+const CAPTCHA_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 export interface PostgresAdminServiceOptions {
   baseURL: string
@@ -22,9 +28,9 @@ export interface PostgresAdminServiceOptions {
 interface BetterAuthUser {
   id: string
   email: string
+  username?: unknown
   role?: unknown
   status?: unknown
-  twoFactorEnabled?: unknown
 }
 
 interface BetterAuthSession {
@@ -41,45 +47,24 @@ interface EndpointResult<T> {
 
 export interface AdminBetterAuthApi {
   signUpEmail(input: {
-    body: { email: string; password: string; name: string; rememberMe?: boolean }
+    body: { email: string; password: string; name: string; username?: string; displayUsername?: string; rememberMe?: boolean }
     headers?: Headers
     returnHeaders?: boolean
   }): Promise<EndpointResult<{ token: string | null; user: BetterAuthUser }>>
-  signInEmail(input: {
-    body: { email: string; password: string; rememberMe?: boolean }
+  signInUsername(input: {
+    body: { username: string; password: string; rememberMe?: boolean }
     headers?: Headers
     returnHeaders?: boolean
-  }): Promise<EndpointResult<
-    | { token: string; user: BetterAuthUser; twoFactorRedirect?: false }
-    | { twoFactorRedirect: true; twoFactorMethods: string[] }
-  >>
+  }): Promise<EndpointResult<{ token: string; user: BetterAuthUser }>>
   getSession(input: {
     headers: Headers
     query?: { disableCookieCache?: boolean; disableRefresh?: boolean }
   }): Promise<{ session: BetterAuthSession; user: BetterAuthUser } | null>
-  enableTwoFactor(input: {
-    body: { password: string; issuer?: string }
+  changePassword(input: {
+    body: { currentPassword: string; newPassword: string; revokeOtherSessions?: boolean }
     headers: Headers
     returnHeaders?: boolean
-  }): Promise<EndpointResult<{ totpURI: string; backupCodes: string[] }>>
-  verifyTOTP(input: {
-    body: { code: string; trustDevice?: boolean }
-    headers: Headers
-    returnHeaders?: boolean
-  }): Promise<EndpointResult<{ token: string; user: BetterAuthUser }>>
-  verifyBackupCode(input: {
-    body: { code: string; trustDevice?: boolean; disableSession?: boolean }
-    headers: Headers
-    returnHeaders?: boolean
-  }): Promise<EndpointResult<{ token?: string; user: BetterAuthUser }>>
-  generateBackupCodes(input: {
-    body: { password: string }
-    headers: Headers
-    returnHeaders?: boolean
-  }): Promise<EndpointResult<{ status: boolean; backupCodes: string[] }>>
-  generateTOTP(input: {
-    body: { secret: string }
-  }): Promise<{ code: string }>
+  }): Promise<EndpointResult<{ token: string | null; user: BetterAuthUser }>>
   signOut(input: {
     headers: Headers
     returnHeaders?: boolean
@@ -88,10 +73,9 @@ export interface AdminBetterAuthApi {
 
 interface AdminUserRow {
   id: string
-  email: string
+  username: string
   role: AdminRole
   status: 'active' | 'banned'
-  two_factor_enabled: boolean
 }
 
 interface AdminSessionRow extends AdminUserRow {
@@ -134,10 +118,9 @@ function parseRole(value: unknown): AdminRole {
 function toPrincipal(row: AdminUserRow): AdminPrincipal {
   return {
     id: row.id,
-    email: row.email,
+    username: row.username,
     role: parseRole(row.role),
     status: row.status,
-    twoFactorEnabled: row.two_factor_enabled,
   }
 }
 
@@ -164,24 +147,54 @@ function toAuditEvent(row: AdminAuditRow): AdminAuditEvent {
   }
 }
 
-function normalizeEmail(value: string) {
-  const email = value.trim().toLowerCase()
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320) {
-    throw new AdminAccessError(400, 'VALIDATION_FAILED', 'Administrator email is invalid')
+function normalizeUsername(value: string) {
+  const normalized = value.trim().toLowerCase()
+  if (!/^[a-z0-9_.]{3,30}$/.test(normalized)) {
+    throw new AdminAccessError(400, 'VALIDATION_FAILED', 'Administrator username must be 3 to 30 letters, numbers, underscores, or dots')
   }
-  return email
+  return normalized
 }
 
-function validatePassword(value: string) {
+interface LoginSecuritySettingRow {
+  captcha_enabled: boolean
+  updated_at: Date | string
+}
+
+interface LoginCaptchaRow {
+  code_hash: string
+  failed_attempts: number
+  expires_at: Date | string
+  consumed_at: Date | string | null
+}
+
+const CAPTCHA_DIGITS: Readonly<Record<string, readonly string[]>> = {
+  '0': ['11111', '10001', '10011', '10101', '11001', '10001', '11111'],
+  '1': ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
+  '2': ['11110', '00001', '00001', '11110', '10000', '10000', '11111'],
+  '3': ['11110', '00001', '00001', '01110', '00001', '00001', '11110'],
+  '4': ['10010', '10010', '10010', '11111', '00010', '00010', '00010'],
+  '5': ['11111', '10000', '10000', '11110', '00001', '00001', '11110'],
+  '6': ['01111', '10000', '10000', '11110', '10001', '10001', '01110'],
+  '7': ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
+  '8': ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
+  '9': ['01110', '10001', '10001', '01111', '00001', '00001', '11110'],
+}
+
+function validateNewPassword(value: string) {
   if (value.length < 12 || value.length > 256) {
     throw new AdminAccessError(400, 'VALIDATION_FAILED', 'Administrator password must be 12 to 256 characters')
   }
 }
 
-function validateCode(value: string, pattern: RegExp, message: string) {
-  const code = value.trim()
-  if (!pattern.test(code)) throw new AdminAccessError(400, 'VALIDATION_FAILED', message)
-  return code
+function validateCurrentPassword(value: string) {
+  if (value.length < 1 || value.length > 256) {
+    throw new AdminAccessError(400, 'VALIDATION_FAILED', 'Administrator password is invalid')
+  }
+}
+
+function validateBootstrapPassword(value: string, environment: string) {
+  if (environment === 'development' && value.length >= 5 && value.length <= 256) return
+  validateNewPassword(value)
 }
 
 function mapAuthError(error: unknown) {
@@ -193,6 +206,88 @@ function mapAuthError(error: unknown) {
     }
   }
   return new AdminAccessError(503, 'SERVICE_UNAVAILABLE', 'Administrator authentication service failed')
+}
+
+export function hashAdminCaptchaCode(secret: string, challengeId: string, code: string) {
+  return createHash('sha256').update(secret).update('\0').update(challengeId).update('\0').update(code).digest('hex')
+}
+
+function createCaptchaCode() {
+  return Array.from({ length: CAPTCHA_LENGTH }, () => String(randomInt(0, 10))).join('')
+}
+
+function renderCaptchaSvg(code: string) {
+  const colors = ['#173c2b', '#244d38', '#315f47', '#49705a']
+  const shapes: string[] = []
+  for (let index = 0; index < code.length; index += 1) {
+    const rows = CAPTCHA_DIGITS[code[index]!]!
+    const originX = 10 + index * 31
+    const angle = randomInt(-7, 8)
+    const pixels: string[] = []
+    for (let row = 0; row < rows.length; row += 1) {
+      for (let column = 0; column < rows[row]!.length; column += 1) {
+        if (rows[row]![column] === '1') {
+          pixels.push(`<rect x="${originX + column * 5}" y="${10 + row * 6}" width="4" height="5" rx="1"/>`)
+        }
+      }
+    }
+    shapes.push(`<g fill="${colors[randomInt(0, colors.length)]}" transform="rotate(${angle} ${originX + 12} 31)">${pixels.join('')}</g>`)
+  }
+  const noise = Array.from({ length: 7 }, () => {
+    const y1 = randomInt(5, 55)
+    const y2 = randomInt(5, 55)
+    return `<path d="M0 ${y1} C45 ${randomInt(0, 60)}, 110 ${randomInt(0, 60)}, 170 ${y2}" fill="none" stroke="${colors[randomInt(0, colors.length)]}" stroke-opacity="0.2" stroke-width="1"/>`
+  }).join('')
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="170" height="60" viewBox="0 0 170 60"><rect width="170" height="60" rx="4" fill="#edf1ee"/>${noise}${shapes.join('')}</svg>`
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
+}
+
+async function readLoginSecuritySetting(database: Pick<DbPool | DbClient, 'query'>) {
+  const result = await database.query<LoginSecuritySettingRow>(`
+    SELECT captcha_enabled, updated_at
+    FROM login_security_settings
+    WHERE singleton_id = 1
+  `)
+  const row = result.rows[0]
+  if (!row) throw new AdminAccessError(503, 'SERVICE_UNAVAILABLE', 'Administrator login security settings are unavailable')
+  return row
+}
+
+async function verifyLoginCaptcha(
+  pool: DbPool,
+  secret: string,
+  input: { captchaChallengeId?: string; captchaCode?: string },
+) {
+  const valid = await withTransaction(pool, async (client) => {
+    const setting = await readLoginSecuritySetting(client)
+    if (!setting.captcha_enabled) return true
+    const challengeId = input.captchaChallengeId?.trim().toLowerCase()
+    const code = input.captchaCode?.trim()
+    if (!challengeId || !CAPTCHA_ID_PATTERN.test(challengeId) || !code || !/^\d{5}$/.test(code)) return false
+    const challenge = await client.query<LoginCaptchaRow>(`
+      SELECT code_hash, failed_attempts, expires_at, consumed_at
+      FROM login_captcha_challenges
+      WHERE id = $1
+      FOR UPDATE
+    `, [challengeId])
+    const row = challenge.rows[0]
+    if (!row || row.consumed_at || new Date(row.expires_at).getTime() <= Date.now() || row.failed_attempts >= 5) {
+      return false
+    }
+    const matches = safeTokenEqual(row.code_hash, hashAdminCaptchaCode(secret, challengeId, code))
+    if (matches) {
+      await client.query('UPDATE login_captcha_challenges SET consumed_at = now() WHERE id = $1', [challengeId])
+      return true
+    }
+    await client.query(`
+      UPDATE login_captcha_challenges
+      SET failed_attempts = LEAST(failed_attempts + 1, 5),
+          consumed_at = CASE WHEN failed_attempts + 1 >= 5 THEN now() ELSE consumed_at END
+      WHERE id = $1
+    `, [challengeId])
+    return false
+  })
+  if (!valid) throw new AdminAccessError(400, 'VALIDATION_FAILED', 'Administrator CAPTCHA is invalid or expired')
 }
 
 function cookieSecurityOptions(environment: string) {
@@ -218,7 +313,7 @@ export function createAdminBetterAuthApi(pool: DbPool, options: PostgresAdminSer
     database: pool,
     emailAndPassword: {
       enabled: true,
-      minPasswordLength: 12,
+      minPasswordLength: options.environment === 'development' ? 5 : 12,
       maxPasswordLength: 256,
       autoSignIn: true,
     },
@@ -264,23 +359,11 @@ export function createAdminBetterAuthApi(pool: DbPool, options: PostgresAdminSer
         updatedAt: 'updated_at',
       },
     },
-    plugins: [twoFactor({
-      issuer: options.issuer ?? 'AI Canvas Admin',
-      twoFactorTable: 'two_factor',
-      twoFactorCookieMaxAge: 300,
-      trustDeviceMaxAge: 0,
-      accountLockout: { enabled: true, maxFailedAttempts: 5, durationSeconds: 900 },
-      schema: {
-        user: { fields: { twoFactorEnabled: 'two_factor_enabled' } },
-        twoFactor: {
-          fields: {
-            backupCodes: 'backup_codes',
-            userId: 'user_id',
-            failedVerificationCount: 'failed_verification_count',
-            lockedUntil: 'locked_until',
-          },
-        },
-      },
+    plugins: [username({
+      minUsernameLength: 3,
+      maxUsernameLength: 30,
+      usernameValidator: (value) => /^[a-zA-Z0-9_.]+$/.test(value),
+      schema: { user: { fields: { username: 'username', displayUsername: 'display_username' } } },
     })],
     rateLimit: { enabled: options.environment !== 'test', window: 60, max: 10 },
     advanced: cookieSecurityOptions(options.environment),
@@ -288,10 +371,10 @@ export function createAdminBetterAuthApi(pool: DbPool, options: PostgresAdminSer
   return auth.api as unknown as AdminBetterAuthApi
 }
 
-async function findAdminByEmail(pool: DbPool, email: string) {
+async function findAdminByUsername(pool: DbPool, usernameValue: string) {
   const result = await pool.query<AdminUserRow>(
-    'SELECT id, email, role, status, two_factor_enabled FROM "user" WHERE email = $1',
-    [email],
+    'SELECT id, username, role, status FROM "user" WHERE username = $1',
+    [usernameValue],
   )
   return result.rows[0] ?? null
 }
@@ -299,7 +382,7 @@ async function findAdminByEmail(pool: DbPool, email: string) {
 async function getSessionByToken(pool: DbPool, token: string) {
   const result = await pool.query<AdminSessionRow>(
     `
-      SELECT u.id, u.email, u.role, u.status, u.two_factor_enabled, s.expires_at
+      SELECT u.id, u.username, u.role, u.status, s.expires_at
       FROM "session" s
       JOIN "user" u ON u.id = s.user_id
       WHERE s.token = $1 AND s.expires_at > now()
@@ -355,34 +438,55 @@ export function createPostgresAdminService(pool: DbPool, options: PostgresAdminS
   const authApi = options.authApi ?? createAdminBetterAuthApi(pool, options)
 
   const service: AdminService = {
+    async createLoginCaptcha() {
+      const id = randomUUID()
+      const code = createCaptchaCode()
+      const expiresAt = new Date(Date.now() + CAPTCHA_TTL_SECONDS * 1000)
+      return withTransaction(pool, async (client) => {
+        const setting = await client.query<LoginSecuritySettingRow>(`
+          SELECT captcha_enabled, updated_at
+          FROM login_security_settings
+          WHERE singleton_id = 1
+          FOR SHARE
+        `)
+        const row = setting.rows[0]
+        if (!row) throw new AdminAccessError(503, 'SERVICE_UNAVAILABLE', 'Administrator login security settings are unavailable')
+        if (!row.captcha_enabled) return { enabled: false, challenge: null }
+        await client.query(`
+          DELETE FROM login_captcha_challenges
+          WHERE expires_at < now() - interval '1 day'
+             OR consumed_at < now() - interval '1 day'
+        `)
+        await client.query(`
+          INSERT INTO login_captcha_challenges (id, code_hash, expires_at)
+          VALUES ($1, $2, $3)
+        `, [id, hashAdminCaptchaCode(options.secret, id, code), expiresAt])
+        return {
+          enabled: true,
+          challenge: { id, imageDataUrl: renderCaptchaSvg(code), expiresAt: expiresAt.toISOString() },
+        }
+      })
+    },
+
     async login(input, context) {
       try {
-        const email = normalizeEmail(input.email)
-        validatePassword(input.password)
-        const existing = await findAdminByEmail(pool, email)
+        await verifyLoginCaptcha(pool, options.secret, input)
+        const usernameValue = normalizeUsername(input.username)
+        validateCurrentPassword(input.password)
+        const existing = await findAdminByUsername(pool, usernameValue)
         if (existing?.status === 'banned') {
           throw new AdminAccessError(403, 'ADMIN_ACCESS_DENIED', 'Administrator access is disabled')
         }
-        const result = await authApi.signInEmail({
-          body: { email, password: input.password, rememberMe: false },
+        const result = await authApi.signInUsername({
+          body: { username: usernameValue, password: input.password, rememberMe: false },
           headers: createRequestHeaders(context),
           returnHeaders: true,
         })
-        const setCookieHeaders = getSetCookieHeaders(result.headers)
-        if ('twoFactorRedirect' in result.response && result.response.twoFactorRedirect) {
-          return {
-            response: { state: 'mfa_required', methods: ['totp', 'backup_code'] },
-            setCookieHeaders,
-          }
-        }
         const session = await getSessionByToken(pool, result.response.token)
         if (!session) throw new Error('Created administrator session was not found')
         return {
-          response: {
-            state: session.admin.twoFactorEnabled ? 'authenticated' : 'mfa_setup_required',
-            session,
-          },
-          setCookieHeaders,
+          response: { state: 'authenticated', session },
+          setCookieHeaders: getSetCookieHeaders(result.headers),
         }
       } catch (error) {
         throw mapAuthError(error)
@@ -397,124 +501,59 @@ export function createPostgresAdminService(pool: DbPool, options: PostgresAdminS
       }
     },
 
-    async setupTotp(input, context) {
-      try {
-        validatePassword(input.password)
-        const session = await requireRawSession(pool, authApi, context)
-        if (session.admin.twoFactorEnabled) {
-          throw new AdminAccessError(409, 'VALIDATION_FAILED', 'Multi-factor authentication is already enabled')
-        }
-        const result = await authApi.enableTwoFactor({
-          body: { password: input.password, issuer: options.issuer ?? 'AI Canvas Admin' },
-          headers: createRequestHeaders(context),
-          returnHeaders: true,
-        })
-        await service.appendAuditEvent({
-          actor: session.admin,
-          action: 'admin.mfa.setup_started',
-          targetType: 'admin_user',
-          targetId: session.admin.id,
-          result: 'success',
-          requestId: context.requestId,
-          ipAddress: context.ipAddress,
-          userAgent: context.userAgent,
-        })
-        return {
-          response: { totpUri: result.response.totpURI, recoveryCodes: result.response.backupCodes },
-          setCookieHeaders: getSetCookieHeaders(result.headers),
-        }
-      } catch (error) {
-        throw mapAuthError(error)
-      }
+    async getLoginSecuritySettings(context) {
+      await service.requirePermission(context, 'security.write')
+      const setting = await readLoginSecuritySetting(pool)
+      return { captchaEnabled: setting.captcha_enabled, updatedAt: new Date(setting.updated_at).toISOString() }
     },
 
-    async verifyTotp(input, context) {
-      try {
-        const code = validateCode(input.code, /^\d{6}$/, 'TOTP code is invalid')
-        const result = await authApi.verifyTOTP({
-          body: { code, trustDevice: false },
-          headers: createRequestHeaders(context),
-          returnHeaders: true,
-        })
-        const session = await getSessionByToken(pool, result.response.token)
-        if (!session) throw new Error('Verified administrator session was not found')
-        assertAdminAccess(session.admin)
-        await service.appendAuditEvent({
-          actor: session.admin,
-          action: 'admin.mfa.totp_verified',
-          targetType: 'admin_user',
-          targetId: session.admin.id,
-          result: 'success',
-          requestId: context.requestId,
-          ipAddress: context.ipAddress,
-          userAgent: context.userAgent,
-        })
-        return { response: session, setCookieHeaders: getSetCookieHeaders(result.headers) }
-      } catch (error) {
-        throw mapAuthError(error)
+    async updateLoginSecuritySettings(input, context) {
+      if (typeof input.captchaEnabled !== 'boolean') {
+        throw new AdminAccessError(400, 'VALIDATION_FAILED', 'captchaEnabled must be a boolean')
       }
-    },
-
-    async verifyRecoveryCode(input, context) {
-      try {
-        const code = validateCode(input.code, /^[a-z0-9-]{6,64}$/i, 'Recovery code is invalid')
-        const result = await authApi.verifyBackupCode({
-          body: { code, trustDevice: false, disableSession: false },
-          headers: createRequestHeaders(context),
-          returnHeaders: true,
-        })
-        if (!result.response.token) throw new Error('Recovery verification did not create a session')
-        const session = await getSessionByToken(pool, result.response.token)
-        if (!session) throw new Error('Verified administrator session was not found')
-        assertAdminAccess(session.admin)
-        await service.appendAuditEvent({
-          actor: session.admin,
-          action: 'admin.mfa.recovery_verified',
-          targetType: 'admin_user',
-          targetId: session.admin.id,
-          result: 'success',
-          requestId: context.requestId,
-          ipAddress: context.ipAddress,
-          userAgent: context.userAgent,
-        })
-        return { response: session, setCookieHeaders: getSetCookieHeaders(result.headers) }
-      } catch (error) {
-        throw mapAuthError(error)
-      }
-    },
-
-    async regenerateRecoveryCodes(input, context) {
-      try {
-        validatePassword(input.password)
-        const session = await requireRawSession(pool, authApi, context)
-        assertAdminAccess(session.admin)
-        const result = await authApi.generateBackupCodes({
-          body: { password: input.password },
-          headers: createRequestHeaders(context),
-          returnHeaders: true,
-        })
-        await service.appendAuditEvent({
-          actor: session.admin,
-          action: 'admin.mfa.recovery_regenerated',
-          targetType: 'admin_user',
-          targetId: session.admin.id,
-          result: 'success',
-          requestId: context.requestId,
-          ipAddress: context.ipAddress,
-          userAgent: context.userAgent,
-        })
-        return {
-          response: { recoveryCodes: result.response.backupCodes },
-          setCookieHeaders: getSetCookieHeaders(result.headers),
+      const session = await service.requirePermission(context, 'security.write')
+      return withTransaction(pool, async (client) => {
+        const before = await client.query<LoginSecuritySettingRow>(`
+          SELECT captcha_enabled, updated_at
+          FROM login_security_settings
+          WHERE singleton_id = 1
+          FOR UPDATE
+        `)
+        const current = before.rows[0]
+        if (!current) throw new AdminAccessError(503, 'SERVICE_UNAVAILABLE', 'Administrator login security settings are unavailable')
+        const updated = await client.query<LoginSecuritySettingRow>(`
+          UPDATE login_security_settings
+          SET captcha_enabled = $1, updated_by_admin_id = $2, updated_at = now()
+          WHERE singleton_id = 1
+          RETURNING captcha_enabled, updated_at
+        `, [input.captchaEnabled, session.admin.id])
+        if (!input.captchaEnabled) {
+          await client.query(`
+            UPDATE login_captcha_challenges
+            SET consumed_at = now()
+            WHERE consumed_at IS NULL
+          `)
         }
-      } catch (error) {
-        throw mapAuthError(error)
-      }
+        await insertAdminAuditEvent(client, {
+          actor: session.admin,
+          action: 'admin.security.captcha_updated',
+          targetType: 'admin_login_security',
+          targetId: 'singleton',
+          result: 'success',
+          requestId: context.requestId,
+          ipAddress: context.ipAddress,
+          userAgent: context.userAgent,
+          before: { captchaEnabled: current.captcha_enabled },
+          after: { captchaEnabled: input.captchaEnabled },
+        }, options.secret)
+        const row = updated.rows[0]!
+        return { captchaEnabled: row.captcha_enabled, updatedAt: new Date(row.updated_at).toISOString() }
+      })
     },
 
     async logout(context) {
       const secureAttribute = options.environment === 'production' || options.environment === 'staging' ? '; Secure' : ''
-      const clearHeaders = ['session_token', 'session_data', 'dont_remember', 'two_factor', 'trust_device'].flatMap(
+      const clearHeaders = ['session_token', 'session_data', 'dont_remember'].flatMap(
         (name) => ['', '__Secure-'].map((prefix) => `${prefix}${COOKIE_PREFIX}.${name}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secureAttribute}`),
       )
       try {
@@ -572,30 +611,89 @@ export function createPostgresAdminService(pool: DbPool, options: PostgresAdminS
     },
 
     async appendAuditEvent(input) {
-      if (!/^[a-z0-9_.:-]{1,96}$/i.test(input.action) || !/^.{1,128}$/.test(input.requestId)) {
-        throw new AdminAccessError(400, 'VALIDATION_FAILED', 'Audit event identifiers are invalid')
+      try {
+        await insertAdminAuditEvent(pool, input, options.secret)
+      } catch (error) {
+        if (error instanceof AdminAccessError) throw error
+        if (error instanceof Error && error.message === 'Audit event identifiers are invalid') {
+          throw new AdminAccessError(400, 'VALIDATION_FAILED', error.message)
+        }
+        throw error
       }
-      await pool.query(
-        `
-          INSERT INTO audit_events (
-            admin_user_id, admin_role, action, target_type, target_id, result,
-            request_id, ip_hash, user_agent_hash, before_json, after_json
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb)
-        `,
-        [
-          input.actor?.id ?? null,
-          input.actor?.role ?? null,
-          input.action,
-          input.targetType?.slice(0, 64) ?? null,
-          input.targetId?.slice(0, 128) ?? null,
-          input.result,
-          input.requestId,
-          hashAdminRequestIdentity(input.ipAddress, options.secret),
-          hashAdminRequestIdentity(input.userAgent, options.secret),
-          JSON.stringify(redactAdminAuditPayload(input.before)),
-          JSON.stringify(redactAdminAuditPayload(input.after)),
-        ],
-      )
+    },
+
+    async updateUsername(input, context) {
+      try {
+        const usernameValue = normalizeUsername(input.username)
+        const session = await requireRawSession(pool, authApi, context)
+        assertAdminAccess(session.admin)
+        if (session.admin.username === usernameValue) return session
+        await withTransaction(pool, async (client) => {
+          const updated = await client.query<{ username: string }>(`
+            UPDATE "user"
+            SET username = $1, display_username = $1, updated_at = now()
+            WHERE id = $2
+            RETURNING username
+          `, [usernameValue, session.admin.id])
+          if (!updated.rows[0]) throw new AdminAccessError(401, 'AUTH_REQUIRED', 'Administrator session is missing or expired')
+          await insertAdminAuditEvent(client, {
+            actor: session.admin,
+            action: 'admin.credentials.username_changed',
+            targetType: 'admin_user',
+            targetId: session.admin.id,
+            result: 'success',
+            requestId: context.requestId,
+            ipAddress: context.ipAddress,
+            userAgent: context.userAgent,
+            before: { username: session.admin.username },
+            after: { username: usernameValue },
+          }, options.secret)
+        })
+        return { ...session, admin: { ...session.admin, username: usernameValue } }
+      } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
+          throw new AdminAccessError(409, 'VALIDATION_FAILED', 'Administrator username is already in use')
+        }
+        throw mapAuthError(error)
+      }
+    },
+
+    async changePassword(input, context) {
+      try {
+        validateCurrentPassword(input.currentPassword)
+        validateNewPassword(input.newPassword)
+        const session = await requireRawSession(pool, authApi, context)
+        assertAdminAccess(session.admin)
+        const result = await authApi.changePassword({
+          body: {
+            currentPassword: input.currentPassword,
+            newPassword: input.newPassword,
+            revokeOtherSessions: true,
+          },
+          headers: createRequestHeaders(context),
+          returnHeaders: true,
+        })
+        if (!result.response.token) throw new Error('Password change did not rotate the administrator session')
+        const updatedSession = await getSessionByToken(pool, result.response.token)
+        if (!updatedSession) throw new Error('Rotated administrator session was not found')
+        await service.appendAuditEvent({
+          actor: session.admin,
+          action: 'admin.credentials.password_changed',
+          targetType: 'admin_user',
+          targetId: session.admin.id,
+          result: 'success',
+          requestId: context.requestId,
+          ipAddress: context.ipAddress,
+          userAgent: context.userAgent,
+          after: { otherSessionsRevoked: true },
+        })
+        return {
+          response: updatedSession,
+          setCookieHeaders: getSetCookieHeaders(result.headers),
+        }
+      } catch (error) {
+        throw mapAuthError(error)
+      }
     },
   }
 
@@ -605,10 +703,11 @@ export function createPostgresAdminService(pool: DbPool, options: PostgresAdminS
 export async function bootstrapFirstSuperAdmin(
   pool: DbPool,
   options: PostgresAdminServiceOptions,
-  input: { email: string; password: string; requestId: string },
+  input: { username: string; password: string; requestId: string },
 ) {
-  const email = normalizeEmail(input.email)
-  validatePassword(input.password)
+  const usernameValue = normalizeUsername(input.username)
+  validateBootstrapPassword(input.password, options.environment)
+  const internalEmail = `${usernameValue}@admin.invalid`
   const authApi = options.authApi ?? createAdminBetterAuthApi(pool, options)
   const lockClient = await pool.connect()
   try {
@@ -618,7 +717,14 @@ export async function bootstrapFirstSuperAdmin(
       throw new AdminAccessError(409, 'ADMIN_ACCESS_DENIED', 'Administrator bootstrap has already been completed')
     }
     const result = await authApi.signUpEmail({
-      body: { email, password: input.password, name: email.split('@')[0] || 'Administrator', rememberMe: false },
+      body: {
+        email: internalEmail,
+        password: input.password,
+        name: usernameValue,
+        username: usernameValue,
+        displayUsername: usernameValue,
+        rememberMe: false,
+      },
       returnHeaders: true,
     })
     await pool.query(
@@ -634,9 +740,9 @@ export async function bootstrapFirstSuperAdmin(
       targetId: result.response.user.id,
       result: 'success',
       requestId: input.requestId,
-      after: { role: 'super_admin', status: 'active', email },
+      after: { role: 'super_admin', status: 'active', username: usernameValue },
     })
-    return { id: result.response.user.id, email, role: 'super_admin' as const }
+    return { id: result.response.user.id, username: usernameValue, role: 'super_admin' as const }
   } catch (error) {
     throw mapAuthError(error)
   } finally {

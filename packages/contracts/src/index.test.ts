@@ -22,16 +22,11 @@ import {
   type ProjectGraphResponse,
   type ProjectResponse,
   type ProjectsResponse,
-  type CreateGenerationTaskRequest,
-  type GenerationTaskCommandRequest,
-  type GenerationTaskResponse,
-  type GenerationTaskEventsResponse,
-  type ProviderSettingsResponse,
 } from './index.ts'
 
 test('contracts expose stable API error codes', () => {
   assert(apiErrorCodes.includes('PROJECT_VERSION_CONFLICT'))
-  assert(apiErrorCodes.includes('PROVIDER_CAPABILITY_UNSUPPORTED'))
+  assert.equal(apiErrorCodes.includes('PROVIDER_CAPABILITY_UNSUPPORTED' as never), false)
   assert.equal(createServiceUnavailableError('req_1').error.requestId, 'req_1')
 })
 
@@ -437,94 +432,6 @@ test('asset read contracts expose metadata and expiring URLs without storage int
   assert.equal('objectKey' in metadata.asset, false)
   assert.equal('accessKeyId' in read, false)
   assert.equal('secretAccessKey' in read, false)
-})
-
-test('generation task contracts expose resumable state without tenant or lease internals', () => {
-  const request: CreateGenerationTaskRequest = {
-    projectId: '11111111-1111-4111-8111-111111111111',
-    sourceNodeId: 'source-node',
-    previewNodeId: 'preview-node',
-    kind: 'image',
-    providerId: 'openai',
-    model: 'gpt-image-2',
-    parameters: { prompt: 'product render' },
-    idempotencyKey: 'task-create-1',
-  }
-  const response: GenerationTaskResponse = {
-    task: {
-      id: '77777777-7777-4777-8777-777777777777',
-      projectId: request.projectId,
-      sourceNodeId: request.sourceNodeId,
-      previewNodeId: request.previewNodeId ?? null,
-      kind: request.kind,
-      providerId: request.providerId,
-      model: request.model,
-      billingMode: 'workspace_key',
-      status: 'queued',
-      progress: 0,
-      attemptCount: 0,
-      maxAttempts: 3,
-      errorCode: null,
-      errorMessage: null,
-      cancelRequestedAt: null,
-      startedAt: null,
-      finishedAt: null,
-      createdAt: '2026-07-16T00:00:00.000Z',
-      updatedAt: '2026-07-16T00:00:00.000Z',
-    },
-  }
-  const command: GenerationTaskCommandRequest = { idempotencyKey: 'task-cancel-1' }
-
-  assert.equal(response.task.status, 'queued')
-  assert.equal(command.idempotencyKey, 'task-cancel-1')
-  assert.equal('workspaceId' in response.task, false)
-  assert.equal('createdByUserId' in response.task, false)
-  assert.equal('leaseOwner' in response.task, false)
-  assert.equal('leaseToken' in response.task, false)
-  assert.equal('remoteTaskId' in response.task, false)
-})
-
-test('generation task events expose only durable sanitized projection fields', () => {
-  const response: GenerationTaskEventsResponse = {
-    events: [{
-      id: '88888888-8888-4888-8888-888888888888',
-      taskId: '77777777-7777-4777-8777-777777777777',
-      projectId: '11111111-1111-4111-8111-111111111111',
-      type: 'terminal',
-      status: 'failed',
-      progress: 75,
-      errorCode: 'PROVIDER_UNAVAILABLE',
-      errorMessage: 'Provider request failed',
-      createdAt: '2026-07-18T00:00:00.000Z',
-    }],
-    nextCursor: '42',
-    hasMore: false,
-  }
-
-  assert.equal(response.events[0]?.type, 'terminal')
-  assert.equal('workspaceId' in response.events[0]!, false)
-  assert.equal('requestJson' in response.events[0]!, false)
-  assert.equal('remoteTaskId' in response.events[0]!, false)
-})
-
-test('provider settings expose only configuration state and secret hints', () => {
-  const response: ProviderSettingsResponse = {
-    providers: [{
-      providerId: 'openai',
-      label: 'OpenAI',
-      websiteUrl: 'https://openai.com',
-      baseUrl: 'https://api.openai.com',
-      configured: true,
-      status: 'active',
-      secretLastFour: '1234',
-      updatedAt: '2026-07-16T00:00:00.000Z',
-    }],
-  }
-
-  assert.equal(response.providers[0]?.secretLastFour, '1234')
-  assert.equal('apiKey' in response.providers[0]!, false)
-  assert.equal('encryptedSecret' in response.providers[0]!, false)
-  assert.equal('workspaceId' in response.providers[0]!, false)
 })
 
 function neverValue(): never {

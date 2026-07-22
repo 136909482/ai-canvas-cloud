@@ -36,11 +36,11 @@ function readSecret(prompt) {
   })
 }
 
+if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('Administrator bootstrap requires an interactive TTY')
 loadDotEnv()
 const config = loadAdminApiConfig()
-if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('Administrator bootstrap requires an interactive TTY')
 const prompt = createInterface({ input: process.stdin, output: process.stdout })
-const email = (await prompt.question('首个 super_admin 邮箱: ')).trim()
+const username = (await prompt.question('首个 super_admin 账号: ')).trim()
 prompt.close()
 const password = await readSecret('密码（至少 12 位）: ')
 const confirmation = await readSecret('再次输入密码: ')
@@ -52,8 +52,8 @@ try {
     secret: config.betterAuthSecret,
     trustedOrigins: config.allowedOrigins,
     environment: config.env,
-  }, { email, password, requestId: `bootstrap-${randomUUID()}` })
-  console.log('首个 super_admin 已创建；首次登录必须立即完成 TOTP 设置。')
+  }, { username, password, requestId: `bootstrap-${randomUUID()}` })
+  console.log('首个 super_admin 已创建；可使用管理员账号和密码登录。')
 } finally {
   await pool.end()
 }

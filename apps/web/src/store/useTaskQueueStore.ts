@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import type { GenerationTaskSummary } from '@ai-canvas-cloud/contracts'
 import type {
   GenerateTask,
   GptImageQuality,
@@ -30,7 +29,6 @@ export interface GenerateTaskSnapshot {
   referenceImageUrls?: string[]
   inputFidelity?: ImageInputFidelity | null
   quality?: GptImageQuality | null
-  officialFallback?: boolean
   googleSearch?: boolean
   googleImageSearch?: boolean
   videoMode?: VideoGenerateMode | null
@@ -41,12 +39,12 @@ export interface GenerateTaskSnapshot {
 
 interface TaskQueueStore {
   tasks: GenerateTask[]
-  cachedServerTasks: GenerateTask[]
   runtimeVersion: number
   createTask: (input: GenerateTaskSnapshot) => string
   getSnapshot: () => TaskQueueSnapshot
   replaceSnapshot: (snapshot: TaskQueueSnapshot, projectId?: string | null) => void
   resetToEmpty: () => void
+  clearDeviceCache: () => void
   markTaskQueued: (id: string, patch?: Partial<GenerateTaskSnapshot>) => void
   markTaskRunning: (id: string, previewNodeId?: string | null) => void
   resumeRemoteTask: (id: string) => void
@@ -54,11 +52,6 @@ interface TaskQueueStore {
   setRemoteTaskStatus: (id: string, remoteStatus: GenerateTaskRemoteStatus) => void
   markTaskDone: (id: string, patch?: Partial<GenerateTaskSnapshot>) => void
   markTaskError: (id: string, errorMsg: string) => void
-  markServerTaskSubmitted: (id: string, serverTask: GenerationTaskSummary) => void
-  cacheServerTask: (serverTask: GenerationTaskSummary) => void
-  replaceCachedServerTasks: (projectId: string, serverTasks: GenerationTaskSummary[]) => void
-  restoreCachedServerTasks: (projectId: string) => void
-  syncServerTask: (serverTask: GenerationTaskSummary) => void
   removeTask: (id: string) => void
   clearFinishedTasks: () => void
 }
@@ -110,7 +103,6 @@ function sanitizeTask(task: GenerateTask, projectId?: string | null): GenerateTa
     referenceImageUrls: Array.isArray(task.referenceImageUrls) ? [...task.referenceImageUrls] : [],
     inputFidelity: task.inputFidelity ?? null,
     quality: task.quality ?? null,
-    officialFallback: Boolean(task.officialFallback),
     googleSearch: Boolean(task.googleSearch),
     googleImageSearch: Boolean(task.googleImageSearch),
     videoMode: task.videoMode ?? null,
@@ -118,10 +110,6 @@ function sanitizeTask(task: GenerateTask, projectId?: string | null): GenerateTa
     resultImageAsset: task.resultImageAsset ?? null,
     resultVideoAsset: task.resultVideoAsset ?? null,
     errorMsg: task.errorMsg ?? '',
-    serverTaskId: task.serverTaskId ?? null,
-    serverProgress: typeof task.serverProgress === 'number' && Number.isFinite(task.serverProgress)
-      ? Math.max(0, Math.min(100, Math.round(task.serverProgress)))
-      : null,
     remoteTaskId: task.remoteTaskId ?? null,
     remoteStatus: task.remoteStatus ?? null,
     finishedAt: task.finishedAt ?? null,
@@ -134,15 +122,6 @@ function sanitizeTasks(tasks: GenerateTask[], projectId?: string | null): Genera
 
 export function recoverTaskAfterSnapshotLoad(task: GenerateTask, projectId?: string | null): GenerateTask {
   const sanitizedTask = sanitizeTask(task, projectId)
-
-  if (sanitizedTask.serverTaskId && (sanitizedTask.status === 'queued' || sanitizedTask.status === 'running')) {
-    return {
-      ...sanitizedTask,
-      errorMsg: '',
-      remoteTaskId: null,
-      remoteStatus: null,
-    }
-  }
 
   if (sanitizedTask.status === 'running' && sanitizedTask.remoteTaskId) {
     return {
@@ -231,10 +210,6 @@ function mergeTaskSnapshot(task: GenerateTask, patch?: Partial<GenerateTaskSnaps
       patch && 'quality' in patch
         ? patch.quality ?? null
         : task.quality ?? null,
-    officialFallback:
-      patch && 'officialFallback' in patch
-        ? Boolean(patch.officialFallback)
-        : Boolean(task.officialFallback),
     googleSearch:
       patch && 'googleSearch' in patch
         ? Boolean(patch.googleSearch)
@@ -262,65 +237,8 @@ function mergeTaskSnapshot(task: GenerateTask, patch?: Partial<GenerateTaskSnaps
   }
 }
 
-function createServerTaskProjection(serverTask: GenerationTaskSummary): GenerateTask {
-  const now = Date.now()
-  return applyServerTask({
-    id: `server-${serverTask.id}`,
-    displayId: createTaskDisplayId(serverTask.id),
-    projectId: serverTask.projectId,
-    kind: serverTask.kind,
-    sourceNodeId: serverTask.sourceNodeId,
-    previewNodeId: serverTask.previewNodeId,
-    model: serverTask.model,
-    prompt: '',
-    negativePrompt: '',
-    ratio: '1:1',
-    resolution: '1K',
-    operationType: 'text-to-image',
-    sourceImageNodeId: null,
-    maskImageUrl: null,
-    apiProfileId: null,
-    apiProfileName: null,
-    provider: serverTask.providerId === 'openai' || serverTask.providerId === 'aliyun' ? serverTask.providerId : null,
-    referenceImageUrls: [],
-    inputFidelity: null,
-    quality: null,
-    officialFallback: false,
-    googleSearch: false,
-    googleImageSearch: false,
-    videoMode: null,
-    videoDuration: null,
-    resultImageAsset: null,
-    resultVideoAsset: null,
-    status: 'queued',
-    errorMsg: '',
-    serverTaskId: null,
-    serverProgress: null,
-    remoteTaskId: null,
-    remoteStatus: null,
-    createdAt: now,
-    startedAt: 0,
-    finishedAt: null,
-  }, serverTask)
-}
-
-function mergeServerTaskProjection(tasks: GenerateTask[], serverTask: GenerationTaskSummary): GenerateTask[] {
-  if (tasks.some((task) => task.serverTaskId === serverTask.id)) {
-    return tasks.map((task) => task.serverTaskId === serverTask.id ? applyServerTask(task, serverTask) : task)
-  }
-  return [...tasks, createServerTaskProjection(serverTask)]
-}
-
-function mergeCachedServerTask(tasks: GenerateTask[], serverTask: GenerationTaskSummary): GenerateTask[] {
-  if (serverTask.status === 'succeeded' || serverTask.status === 'failed' || serverTask.status === 'canceled') {
-    return tasks.filter((task) => task.serverTaskId !== serverTask.id)
-  }
-  return mergeServerTaskProjection(tasks, serverTask)
-}
-
 export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
   tasks: [],
-  cachedServerTasks: [],
   runtimeVersion: 0,
 
   createTask: (input) => {
@@ -352,7 +270,6 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
           referenceImageUrls: input.referenceImageUrls ?? [],
           inputFidelity: input.inputFidelity ?? null,
           quality: input.quality ?? null,
-          officialFallback: Boolean(input.officialFallback),
           googleSearch: Boolean(input.googleSearch),
           googleImageSearch: Boolean(input.googleImageSearch),
           videoMode: input.videoMode ?? null,
@@ -361,8 +278,6 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
           resultVideoAsset: input.resultVideoAsset ?? null,
           status: 'queued',
           errorMsg: '',
-          serverTaskId: null,
-          serverProgress: null,
           remoteTaskId: null,
           remoteStatus: null,
           createdAt: now,
@@ -395,10 +310,15 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
       taskIdCounter = 1
       return {
         tasks: [],
-        cachedServerTasks: [],
         runtimeVersion: state.runtimeVersion + 1,
       }
     }),
+
+  clearDeviceCache: () =>
+    set((state) => ({
+      tasks: [],
+      runtimeVersion: state.runtimeVersion + 1,
+    })),
 
   markTaskQueued: (id, patch) =>
     set((state) => ({
@@ -410,8 +330,6 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
               errorMsg: '',
               remoteTaskId: null,
               remoteStatus: null,
-              serverTaskId: null,
-              serverProgress: null,
               createdAt: Date.now(),
               startedAt: 0,
               finishedAt: null,
@@ -509,40 +427,6 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
       ),
     })),
 
-  markServerTaskSubmitted: (id, serverTask) =>
-    set((state) => ({
-      tasks: state.tasks.map((task) => task.id === id ? applyServerTask(task, serverTask) : task),
-      cachedServerTasks: mergeCachedServerTask(state.cachedServerTasks, serverTask),
-    })),
-
-  cacheServerTask: (serverTask) =>
-    set((state) => ({
-      cachedServerTasks: mergeCachedServerTask(state.cachedServerTasks, serverTask),
-    })),
-
-  replaceCachedServerTasks: (projectId, serverTasks) =>
-    set((state) => ({
-      cachedServerTasks: [
-        ...state.cachedServerTasks.filter((task) => task.projectId !== projectId),
-        ...serverTasks.map(createServerTaskProjection),
-      ],
-    })),
-
-  restoreCachedServerTasks: (projectId) =>
-    set((state) => {
-      const cached = state.cachedServerTasks.filter((task) => task.projectId === projectId)
-      if (cached.length === 0) return state
-      const taskIds = new Set(cached.map((task) => task.serverTaskId))
-      const retained = state.tasks.filter((task) => !task.serverTaskId || !taskIds.has(task.serverTaskId))
-      return { tasks: [...retained, ...cached.map((task) => ({ ...task }))] }
-    }),
-
-  syncServerTask: (serverTask) =>
-    set((state) => ({
-      tasks: mergeServerTaskProjection(state.tasks, serverTask),
-      cachedServerTasks: mergeCachedServerTask(state.cachedServerTasks, serverTask),
-    })),
-
   removeTask: (id) =>
     set((state) => ({
       tasks: state.tasks.filter((task) => task.id !== id),
@@ -553,38 +437,3 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
       tasks: state.tasks.filter((task) => task.status === 'queued' || task.status === 'running'),
     })),
 }))
-
-function toTaskTimestamp(value: string | null) {
-  if (!value) return null
-  const timestamp = Date.parse(value)
-  return Number.isFinite(timestamp) ? timestamp : null
-}
-
-function applyServerTask(task: GenerateTask, serverTask: GenerationTaskSummary): GenerateTask {
-  const startedAt = toTaskTimestamp(serverTask.startedAt)
-  const finishedAt = toTaskTimestamp(serverTask.finishedAt)
-  const createdAt = toTaskTimestamp(serverTask.createdAt)
-  const status = serverTask.status === 'succeeded'
-    ? 'done'
-    : serverTask.status === 'failed' || serverTask.status === 'canceled'
-      ? 'error'
-      : serverTask.status === 'running'
-        ? 'running'
-        : 'queued'
-  return {
-    ...task,
-    projectId: serverTask.projectId,
-    kind: serverTask.kind,
-    previewNodeId: serverTask.previewNodeId,
-    model: serverTask.model,
-    serverTaskId: serverTask.id,
-    serverProgress: Math.max(0, Math.min(100, Math.round(serverTask.progress))),
-    status,
-    errorMsg: status === 'error' ? (serverTask.errorMessage ?? '任务已取消') : '',
-    remoteTaskId: null,
-    remoteStatus: null,
-    startedAt: startedAt ?? 0,
-    finishedAt,
-    createdAt: createdAt ?? task.createdAt,
-  }
-}

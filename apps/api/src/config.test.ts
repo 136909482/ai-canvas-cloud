@@ -12,8 +12,6 @@ const baseEnv = {
   S3_REGION: 'us-east-1',
   S3_ACCESS_KEY_ID: 'access',
   S3_SECRET_ACCESS_KEY: 'secret',
-  PROVIDER_CREDENTIAL_KEYS: `1:${Buffer.alloc(32, 1).toString('base64')}`,
-  PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION: '1',
 }
 
 test('API config validates required cloud dependencies', () => {
@@ -29,13 +27,11 @@ test('API config validates required cloud dependencies', () => {
   assert.equal(config.devSeedAdminEmail, 'admin@example.com')
   assert.equal(config.s3Bucket, 'bucket')
   assert.equal(config.s3PublicEndpoint, 'http://localhost:9000')
-  assert.equal(config.providerCredentialActiveKeyVersion, 1)
 })
 
 test('API config rejects missing secrets and invalid log level', () => {
   assert.throws(() => loadApiConfig({ ...baseEnv, DATABASE_URL: '' }), /DATABASE_URL/)
   assert.throws(() => loadApiConfig({ ...baseEnv, LOG_LEVEL: 'trace' }), /LOG_LEVEL/)
-  assert.throws(() => loadApiConfig({ ...baseEnv, PROVIDER_CREDENTIAL_KEYS: '' }), /PROVIDER_CREDENTIAL_KEYS/)
 })
 
 test('API config reads development admin seed options outside production', () => {
@@ -59,7 +55,6 @@ test('API config reads development admin seed options outside production', () =>
     S3_PUBLIC_ENDPOINT: 'https://prod-storage.example.com',
     S3_PUBLIC_ORIGIN: 'https://prod-storage.example.com',
     S3_BUCKET: 'ai-canvas-cloud-production-assets',
-    WORKER_TASK_QUEUE_NAME: 'ai-canvas-cloud-production-generation',
     BETTER_AUTH_SECRET: 'a'.repeat(48),
     S3_ACCESS_KEY_ID: 'production-access-key',
     S3_SECRET_ACCESS_KEY: 'production-object-secret',
@@ -76,8 +71,8 @@ test('API config reads development admin seed options outside production', () =>
     DEV_SEED_ADMIN_EMAIL: undefined,
     DEV_SEED_ADMIN_PASSWORD: undefined,
     ...Object.fromEntries([
-      'DATABASE_RESOURCE_ID', 'REDIS_RESOURCE_ID', 'S3_RESOURCE_ID', 'MAIL_RESOURCE_ID', 'PROVIDER_RESOURCE_ID', 'PERSISTENCE_RESOURCE_ID',
-      'DATABASE_CREDENTIAL_ID', 'REDIS_CREDENTIAL_ID', 'S3_CREDENTIAL_ID', 'MAIL_CREDENTIAL_ID', 'PROVIDER_CREDENTIAL_ID', 'BYOK_KEYRING_ID',
+      'DATABASE_RESOURCE_ID', 'REDIS_RESOURCE_ID', 'S3_RESOURCE_ID', 'MAIL_RESOURCE_ID', 'PERSISTENCE_RESOURCE_ID',
+      'DATABASE_CREDENTIAL_ID', 'REDIS_CREDENTIAL_ID', 'S3_CREDENTIAL_ID', 'MAIL_CREDENTIAL_ID',
     ].map((key) => [key, `ai-canvas-cloud-production-${key.toLowerCase()}`])),
   }).devSeedAdmin, false)
 })

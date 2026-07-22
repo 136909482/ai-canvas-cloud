@@ -2,12 +2,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useReactFlow } from '@xyflow/react'
 import { AlertCircle, CheckCircle2, ImageIcon, LocateFixed, ListTodo, LoaderCircle, RotateCcw, Trash2, Video, X } from 'lucide-react'
 import { TooltipIconButton } from '@/components/TooltipIconButton'
-import { cloudGenerationTaskApi } from '@/api/generationTasks'
-import { cancelGenerateTask, retryGenerateTask } from '@/features/generateQueue/orchestrator'
+import { retryGenerateTask } from '@/features/generateQueue/orchestrator'
 import { filterTaskQueueTasks, type TaskQueueFilter } from '@/features/generateQueue/taskQueueView'
-import { platformRuntime } from '@/platform'
 import { useCanvasStore } from '@/store/useCanvasStore'
-import { useFeedbackStore } from '@/store/useFeedbackStore'
 import { useProjectStore } from '@/store/useProjectStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useTaskQueueStore } from '@/store/useTaskQueueStore'
@@ -63,9 +60,6 @@ function formatDuration(task: GenerateTask, now: number) {
 }
 
 function formatTaskMetric(task: GenerateTask, now: number) {
-  if (task.serverTaskId && (task.status === 'queued' || task.status === 'running')) {
-    return `${task.serverProgress ?? 0}%`
-  }
   return formatDuration(task, now)
 }
 
@@ -140,21 +134,15 @@ export function TaskQueueButton() {
   const selectNode = useCanvasStore((s) => s.selectNode)
   const customModels = useSettingsStore((s) => s.config.customModels)
   const tasks = useTaskQueueStore((s) => s.tasks)
-  const cachedServerTasks = useTaskQueueStore((s) => s.cachedServerTasks)
   const clearFinishedTasks = useTaskQueueStore((s) => s.clearFinishedTasks)
   const removeTask = useTaskQueueStore((s) => s.removeTask)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const projects = useProjectStore((s) => s.projects)
-  const notify = useFeedbackStore((s) => s.notify)
   const projectNameById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.name])),
     [projects],
   )
-  const visibleTasks = useMemo(() => {
-    if (platformRuntime !== 'cloud') return tasks
-    const currentServerTaskIds = new Set(tasks.map((task) => task.serverTaskId).filter((id): id is string => Boolean(id)))
-    return [...tasks, ...cachedServerTasks.filter((task) => !currentServerTaskIds.has(task.serverTaskId ?? ''))]
-  }, [cachedServerTasks, tasks])
+  const visibleTasks = tasks
   const activeTaskCount = visibleTasks.filter((task) => task.status === 'queued' || task.status === 'running').length
   const hasFinishedTask = tasks.some((task) => task.status === 'done' || task.status === 'error')
   const sortedTasks = useMemo(
@@ -227,21 +215,6 @@ export function TaskQueueButton() {
     }
 
     setOpen(false)
-  }
-
-  const handleCancelTask = (task: GenerateTask) => {
-    if (!task.serverTaskId) return
-    if (task.projectId === activeProjectId) {
-      cancelGenerateTask(task.id)
-      return
-    }
-    void cloudGenerationTaskApi.cancel(task.serverTaskId, `cloud-cancel:${task.serverTaskId}:${crypto.randomUUID()}`)
-      .then((response) => useTaskQueueStore.getState().cacheServerTask(response.task))
-      .catch((error) => notify({
-        tone: 'error',
-        title: '取消任务失败',
-        message: error instanceof Error ? error.message : String(error),
-      }))
   }
 
   return (
@@ -403,15 +376,6 @@ export function TaskQueueButton() {
                               testId={`retry-task-${task.id}`}
                               showTooltip={false}
                               icon={<RotateCcw className="h-3.5 w-3.5" />}
-                            />
-                          ) : platformRuntime === 'cloud' && task.serverTaskId ? (
-                            <ToolbarIconButton
-                              label="取消任务"
-                              onClick={() => handleCancelTask(task)}
-                              testId={`cancel-task-${task.id}`}
-                              showTooltip={false}
-                              className="hover:border-red-400/20 hover:bg-red-500/10 hover:text-red-500 dark:hover:text-red-200"
-                              icon={<X className="h-3.5 w-3.5" />}
                             />
                           ) : null}
                         </span>

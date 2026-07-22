@@ -25,10 +25,6 @@ import {
   type RemoveDeviceResponse,
   type RestoreProjectRevisionRequest,
   type RevokeSessionResponse,
-  type PutProviderCredentialRequest,
-  type ProviderConnectionTestResponse,
-  type CreateGenerationTaskRequest,
-  type GenerationTaskCommandRequest,
 } from '@ai-canvas-cloud/contracts'
 import {
   createUnavailableAssetService,
@@ -62,17 +58,13 @@ import {
   type ProjectService,
 } from '@ai-canvas-cloud/server/modules/projects'
 import {
-  createUnavailableProviderCredentialService,
-  type ProviderCredentialService,
-} from '@ai-canvas-cloud/server/modules/providers'
-import {
-  createUnavailableGenerationTaskService,
-  type GenerationTaskService,
-} from '@ai-canvas-cloud/server/modules/tasks'
-import {
   createUnavailableWorkspaceUsageService,
   type WorkspaceUsageService,
 } from '@ai-canvas-cloud/server/modules/workspaces'
+import {
+  createUnavailablePublicSiteConfigService,
+  type PublicSiteConfigService,
+} from '@ai-canvas-cloud/server/modules/admin'
 import {
   createJsonLogger,
   createMetricsRegistry,
@@ -95,11 +87,10 @@ interface ServerOptions {
   projectSnapshotService?: ProjectSnapshotService
   projectService?: ProjectService
   workspaceUsageService?: WorkspaceUsageService
-  providerCredentialService?: ProviderCredentialService
-  generationTaskService?: GenerationTaskService
   migrationImportService?: MigrationImportService
   migrationAssetUploadService?: MigrationAssetUploadService
   migrationExportService?: MigrationExportService
+  siteConfigService?: PublicSiteConfigService
   metrics?: MetricsRegistry
   postgresPoolStats?: () => { total: number; idle: number; waiting: number }
   readinessChecks?: {
@@ -139,7 +130,7 @@ function isReadyPath(pathname: string) {
   return pathname === '/health/ready' || pathname === `${API_V1_PREFIX}/health/ready`
 }
 
-const API_ROUTE_GROUPS = new Set(['account', 'assets', 'auth', 'migrations', 'projects', 'settings', 'tasks', 'workspaces'])
+const API_ROUTE_GROUPS = new Set(['account', 'assets', 'auth', 'migrations', 'models', 'projects', 'settings', 'tasks', 'workspaces'])
 const HTTP_METHODS = new Set(['DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT'])
 
 function requestMethodGroup(method: string | undefined) {
@@ -240,66 +231,6 @@ function getAuthDeviceIdFromPath(pathname: string) {
 
   const deviceId = pathname.slice(prefix.length)
   return deviceId ? decodeURIComponent(deviceId) : null
-}
-
-function getProviderSettingsRoute(pathname: string): {
-  providerId: string | null
-  action: 'test' | null
-} | null {
-  const collectionPath = `${API_V1_PREFIX}/settings/providers`
-  if (pathname === collectionPath) {
-    return { providerId: null, action: null }
-  }
-  const prefix = `${collectionPath}/`
-  if (!pathname.startsWith(prefix)) {
-    return null
-  }
-  const segments = pathname.slice(prefix.length).split('/')
-  if (!segments[0] || segments.length > 2 || (segments[1] && segments[1] !== 'test')) {
-    return null
-  }
-  try {
-    return {
-      providerId: decodeURIComponent(segments[0]),
-      action: segments[1] === 'test' ? 'test' : null,
-    }
-  } catch {
-    throw new AuthServiceError({
-      statusCode: 400,
-      apiCode: 'VALIDATION_FAILED',
-      message: 'Invalid provider path',
-    })
-  }
-}
-
-function getGenerationTaskRoute(pathname: string): { taskId: string | null; action: 'cancel' | 'retry' | 'events' | null } | null {
-  const collectionPath = `${API_V1_PREFIX}/tasks`
-  if (pathname === collectionPath) {
-    return { taskId: null, action: null }
-  }
-  const prefix = `${collectionPath}/`
-  if (!pathname.startsWith(prefix)) {
-    return null
-  }
-  const segments = pathname.slice(prefix.length).split('/')
-  if (segments[0] === 'events' && segments.length === 1) {
-    return { taskId: null, action: 'events' }
-  }
-  if (!segments[0] || segments.length > 2 || (segments[1] && !['cancel', 'retry'].includes(segments[1]))) {
-    return null
-  }
-  try {
-    return {
-      taskId: decodeURIComponent(segments[0]),
-      action: (segments[1] as 'cancel' | 'retry' | undefined) ?? null,
-    }
-  } catch {
-    throw new AuthServiceError({
-      statusCode: 400,
-      apiCode: 'VALIDATION_FAILED',
-      message: 'Invalid task path',
-    })
-  }
 }
 
 function getMigrationImportRoute(pathname: string): {
@@ -1038,154 +969,6 @@ async function handleAssetRoute(
   }
 }
 
-async function handleProviderSettingsRoute(
-  request: http.IncomingMessage,
-  response: http.ServerResponse,
-  requestUrl: URL,
-  requestId: string,
-  authService: AuthService,
-  providerCredentialService: ProviderCredentialService,
-) {
-  const route = getProviderSettingsRoute(requestUrl.pathname)
-  if (!route) {
-    return false
-  }
-  const context = getAuthContext(request, requestId)
-  try {
-    if (!context.cookieHeader) {
-      throw new AuthServiceError({
-        statusCode: 401,
-        apiCode: 'AUTH_REQUIRED',
-        message: 'Authentication required',
-      })
-    }
-    const session = await authService.getSession(context)
-    const actor = { userId: session.user.id, workspaceId: session.workspace.id }
-
-    if (request.method === 'GET' && route.providerId === null) {
-      sendJson(response, 200, await providerCredentialService.listProviders(actor), requestId)
-      return true
-    }
-    if (request.method === 'PUT' && route.providerId && route.action === null) {
-      const payload = await providerCredentialService.putProvider(
-        route.providerId,
-        await readJsonBody<PutProviderCredentialRequest>(request),
-        actor,
-      )
-      sendJson(response, 200, payload, requestId)
-      return true
-    }
-    if (request.method === 'DELETE' && route.providerId && route.action === null) {
-      sendJson(response, 200, await providerCredentialService.deleteProvider(route.providerId, actor), requestId)
-      return true
-    }
-    if (request.method === 'POST' && route.providerId && route.action === 'test') {
-      const input = await readJsonBody<unknown>(request)
-      if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length > 0) {
-        throw new AuthServiceError({
-          statusCode: 400,
-          apiCode: 'VALIDATION_FAILED',
-          message: 'Provider connection test does not accept request fields',
-        })
-      }
-      const payload: ProviderConnectionTestResponse = await providerCredentialService.testConnection(route.providerId, actor)
-      sendJson(response, 200, payload, requestId)
-      return true
-    }
-    return false
-  } catch (error) {
-    if (error instanceof AuthServiceError) {
-      sendApiError(response, error.statusCode, createErrorResponse(requestId, error), requestId)
-      return true
-    }
-    throw error
-  }
-}
-
-async function handleGenerationTaskRoute(
-  request: http.IncomingMessage,
-  response: http.ServerResponse,
-  requestUrl: URL,
-  requestId: string,
-  authService: AuthService,
-  generationTaskService: GenerationTaskService,
-) {
-  const route = getGenerationTaskRoute(requestUrl.pathname)
-  if (!route) {
-    return false
-  }
-  const context = getAuthContext(request, requestId)
-  try {
-    if (!context.cookieHeader) {
-      throw new AuthServiceError({
-        statusCode: 401,
-        apiCode: 'AUTH_REQUIRED',
-        message: 'Authentication required',
-      })
-    }
-    const session = await authService.getSession(context)
-    const actor = { userId: session.user.id, workspaceId: session.workspace.id }
-
-    if (request.method === 'POST' && route.taskId === null && route.action === null) {
-      const payload = await generationTaskService.createTask(
-        await readJsonBody<CreateGenerationTaskRequest>(request, 320 * 1024),
-        actor,
-      )
-      sendJson(response, 201, payload, requestId)
-      return true
-    }
-    if (request.method === 'GET' && route.taskId === null) {
-      if (route.action === 'events') {
-        if (!generationTaskService.listEvents) {
-          throw new AuthServiceError({
-            statusCode: 503,
-            apiCode: 'SERVICE_UNAVAILABLE',
-            message: 'Generation task event service is not configured',
-            retryable: true,
-          })
-        }
-        sendJson(response, 200, await generationTaskService.listEvents({
-          projectId: requestUrl.searchParams.get('projectId'),
-          taskId: requestUrl.searchParams.get('taskId'),
-          after: requestUrl.searchParams.get('after'),
-          limit: requestUrl.searchParams.has('limit')
-            ? Number(requestUrl.searchParams.get('limit'))
-            : undefined,
-        }, actor), requestId)
-        return true
-      }
-      const rawLimit = requestUrl.searchParams.get('limit')
-      const limit = rawLimit === null ? undefined : Number(rawLimit)
-      sendJson(response, 200, await generationTaskService.listTasks({
-        projectId: requestUrl.searchParams.get('projectId'),
-        status: requestUrl.searchParams.get('status'),
-        cursor: requestUrl.searchParams.get('cursor'),
-        ...(limit === undefined ? {} : { limit }),
-      }, actor), requestId)
-      return true
-    }
-    if (request.method === 'GET' && route.taskId && route.action === null) {
-      sendJson(response, 200, await generationTaskService.getTask(route.taskId, actor), requestId)
-      return true
-    }
-    if (request.method === 'POST' && route.taskId && route.action) {
-      const input = await readJsonBody<GenerationTaskCommandRequest>(request)
-      const payload = route.action === 'cancel'
-        ? await generationTaskService.cancelTask(route.taskId, input, actor)
-        : await generationTaskService.retryTask(route.taskId, input, actor)
-      sendJson(response, 200, payload, requestId)
-      return true
-    }
-    return false
-  } catch (error) {
-    if (error instanceof AuthServiceError) {
-      sendApiError(response, error.statusCode, createErrorResponse(requestId, error), requestId)
-      return true
-    }
-    throw error
-  }
-}
-
 function getRateLimitBucket(request: http.IncomingMessage, pathname: string): RateLimitBucket | null {
   const method = request.method ?? 'GET'
   if (pathname === '/metrics' || isLivePath(pathname) || isReadyPath(pathname) || method === 'OPTIONS') {
@@ -1196,12 +979,6 @@ function getRateLimitBucket(request: http.IncomingMessage, pathname: string): Ra
   }
   if (pathname.startsWith(`${API_V1_PREFIX}/auth/password/`) || pathname === `${API_V1_PREFIX}/auth/email/verify` || pathname === `${API_V1_PREFIX}/auth/email/resend`) {
     return 'password_email'
-  }
-  if (pathname.includes('/settings/providers/') && pathname.endsWith('/test')) {
-    return 'provider_test'
-  }
-  if (pathname === `${API_V1_PREFIX}/tasks` && method === 'POST') {
-    return 'task_create'
   }
   if (pathname === `${API_V1_PREFIX}/migrations/imports/prepare` || pathname.endsWith('/exports/prepare')) {
     return 'migration_prepare'
@@ -1450,11 +1227,10 @@ export function createApiServer({
   projectSnapshotService = createUnavailableProjectSnapshotService(),
   projectService = createUnavailableProjectService(),
   workspaceUsageService = createUnavailableWorkspaceUsageService(),
-  providerCredentialService = createUnavailableProviderCredentialService(),
-  generationTaskService = createUnavailableGenerationTaskService(),
   migrationImportService = createUnavailableMigrationImportService(),
   migrationAssetUploadService = createUnavailableMigrationAssetUploadService(),
   migrationExportService = createUnavailableMigrationExportService(),
+  siteConfigService = createUnavailablePublicSiteConfigService(),
   metrics = createMetricsRegistry(),
   postgresPoolStats,
   readinessChecks,
@@ -1511,17 +1287,6 @@ export function createApiServer({
         sendJson(response, 404, createServiceUnavailableError(requestId, 'Route not found'), requestId)
         return
       }
-      if (generationTaskService.getOperationalMetrics) {
-        try {
-          const snapshot = await generationTaskService.getOperationalMetrics()
-          metrics.setGauge('task_queue_backlog', snapshot.queueBacklog)
-          metrics.setGauge('task_running', snapshot.runningTasks)
-          metrics.setGauge('task_expired_leases', snapshot.expiredLeases)
-          metrics.setGauge('task_retryable_failures', snapshot.retryableFailures)
-        } catch {
-          metrics.increment('metrics_collection_errors_total', 1, { source: 'task_service' })
-        }
-      }
       if (postgresPoolStats) {
         const pool = postgresPoolStats()
         metrics.setGauge('postgres_pool_connections', pool.total, { state: 'total' })
@@ -1572,6 +1337,28 @@ export function createApiServer({
       return
     }
 
+    if (requestUrl.pathname === `${API_V1_PREFIX}/site-config`) {
+      if (request.method !== 'GET') {
+        sendJson(response, 404, createServiceUnavailableError(requestId, 'Route not found'), requestId)
+        return
+      }
+      try {
+        const payload = await siteConfigService.getCurrent()
+        response.setHeader('etag', payload.etag)
+        response.setHeader('cache-control', 'public, max-age=60, stale-if-error=300')
+        if (request.headers['if-none-match'] === payload.etag) {
+          response.statusCode = 304
+          response.setHeader('x-request-id', requestId)
+          response.end()
+          return
+        }
+        sendJson(response, 200, payload, requestId)
+      } catch {
+        sendApiError(response, 503, createServiceUnavailableError(requestId, 'Site configuration is unavailable'), requestId)
+      }
+      return
+    }
+
     if (rateLimiter) {
       const bucket = getRateLimitBucket(request, requestUrl.pathname)
       if (bucket) {
@@ -1611,28 +1398,6 @@ export function createApiServer({
     }
 
     if (await handleAssetRoute(request, response, requestUrl, requestId, requestAuthService, assetService)) {
-      return
-    }
-
-    if (await handleProviderSettingsRoute(
-      request,
-      response,
-      requestUrl,
-      requestId,
-      requestAuthService,
-      providerCredentialService,
-    )) {
-      return
-    }
-
-    if (await handleGenerationTaskRoute(
-      request,
-      response,
-      requestUrl,
-      requestId,
-      requestAuthService,
-      generationTaskService,
-    )) {
       return
     }
 

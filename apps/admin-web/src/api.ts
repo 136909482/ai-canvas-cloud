@@ -1,10 +1,18 @@
 import type {
   AdminAuditEventsResponse,
+  AdminCaptchaResponse,
   AdminCsrfResponse,
+  AdminLoginSecuritySettingsResponse,
   AdminLoginResponse,
-  AdminMfaSetupResponse,
-  AdminRecoveryCodesResponse,
+  AdminPasswordUpdateRequest,
   AdminSessionResponse,
+  AdminSiteConfigResponse,
+  AdminUsernameUpdateRequest,
+  PublishSiteConfigRequest,
+  SiteAssetKind,
+  SiteAssetResponse,
+  SiteAssetsResponse,
+  SiteAssetUploadResponse,
 } from '@ai-canvas-cloud/contracts'
 
 const API_URL = (import.meta.env.VITE_ADMIN_API_URL as string | undefined)?.replace(/\/$/, '') ?? 'http://127.0.0.1:8788'
@@ -75,23 +83,30 @@ function post<T>(path: string, body: Record<string, unknown> = {}) {
 }
 
 export const adminApi = {
-  login(email: string, password: string) {
-    return post<AdminLoginResponse>('/admin/v1/auth/login', { email, password })
+  captcha() {
+    return request<AdminCaptchaResponse>('/admin/v1/auth/captcha')
+  },
+  login(username: string, password: string, captcha?: { challengeId: string; code: string }) {
+    return post<AdminLoginResponse>('/admin/v1/auth/login', {
+      username,
+      password,
+      ...(captcha ? { captchaChallengeId: captcha.challengeId, captchaCode: captcha.code } : {}),
+    })
   },
   session() {
     return request<AdminSessionResponse>('/admin/v1/auth/session')
   },
-  setupTotp(password: string) {
-    return post<AdminMfaSetupResponse>('/admin/v1/auth/mfa/setup', { password })
+  loginSecuritySettings() {
+    return request<AdminLoginSecuritySettingsResponse>('/admin/v1/auth/login-security')
   },
-  verifyTotp(code: string) {
-    return post<AdminSessionResponse>('/admin/v1/auth/mfa/verify-totp', { code })
+  updateLoginSecuritySettings(captchaEnabled: boolean) {
+    return post<AdminLoginSecuritySettingsResponse>('/admin/v1/auth/login-security', { captchaEnabled })
   },
-  verifyRecoveryCode(code: string) {
-    return post<AdminSessionResponse>('/admin/v1/auth/mfa/verify-recovery', { code })
+  updateUsername(input: AdminUsernameUpdateRequest) {
+    return post<AdminSessionResponse>('/admin/v1/auth/username', input as unknown as Record<string, unknown>)
   },
-  regenerateRecoveryCodes(password: string) {
-    return post<AdminRecoveryCodesResponse>('/admin/v1/auth/mfa/recovery-codes', { password })
+  changePassword(input: AdminPasswordUpdateRequest) {
+    return post<AdminSessionResponse>('/admin/v1/auth/password', input as unknown as Record<string, unknown>)
   },
   async logout() {
     await post<{ success: true }>('/admin/v1/auth/logout')
@@ -104,5 +119,43 @@ export const adminApi = {
     if (params.action) query.set('action', params.action)
     if (params.result) query.set('result', params.result)
     return request<AdminAuditEventsResponse>(`/admin/v1/audit-events${query.size ? `?${query}` : ''}`)
+  },
+  siteConfig() {
+    return request<AdminSiteConfigResponse>('/admin/v1/site-config')
+  },
+  publishSiteConfig(input: PublishSiteConfigRequest) {
+    return post<AdminSiteConfigResponse>('/admin/v1/site-config', input as unknown as Record<string, unknown>)
+  },
+  siteAssets() {
+    return request<SiteAssetsResponse>('/admin/v1/site-assets')
+  },
+  async uploadSiteAsset(kind: SiteAssetKind, file: File) {
+    const bytes = await file.arrayBuffer()
+    const mimeType = file.type === 'image/vnd.microsoft.icon' || (!file.type && file.name.toLowerCase().endsWith('.ico'))
+      ? 'image/x-icon'
+      : file.type
+    const sha256 = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('')
+    const bitmap = await createImageBitmap(file)
+    const dimensions = { width: bitmap.width, height: bitmap.height }
+    bitmap.close()
+    const created = await post<SiteAssetUploadResponse>('/admin/v1/site-assets', {
+      kind,
+      originalFileName: file.name,
+      mimeType,
+      byteSize: file.size,
+      sha256,
+      ...dimensions,
+      idempotencyKey: `site-${kind}-${crypto.randomUUID()}`,
+    })
+    const uploaded = await fetch(created.directUpload.url, {
+      method: created.directUpload.method,
+      headers: created.directUpload.headers,
+      body: file,
+      credentials: 'omit',
+    })
+    if (!uploaded.ok) throw new AdminApiError(uploaded.status, 'SITE_ASSET_UPLOAD_FAILED', '品牌资产上传失败')
+    return post<SiteAssetResponse>(`/admin/v1/site-assets/${created.asset.id}/complete`)
   },
 }

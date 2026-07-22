@@ -11,7 +11,7 @@ createRoot(document.getElementById('root')!).render(
       dataProvider={adminDataProvider}
       authProvider={adminAuthProvider}
       accessControlProvider={adminAccessControlProvider}
-      resources={[{ name: 'audit-events', list: '/audit-events' }]}
+      resources={[{ name: 'audit-events', list: '/audit-events' }, { name: 'site-config', list: '/site-config' }]}
       options={{ reactQuery: { clientConfig: { defaultOptions: { queries: { retry: false } } } } }}
     >
       <AdminApp />

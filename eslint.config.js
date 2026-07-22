@@ -40,7 +40,6 @@ export default defineConfig([
     files: [
       'apps/api/src/**/*.ts',
       'apps/admin-api/src/**/*.ts',
-      'apps/worker/src/**/*.ts',
       'packages/**/*.ts',
       'server/**/*.ts',
       'scripts/**/*.mjs',

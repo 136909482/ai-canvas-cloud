@@ -594,7 +594,7 @@ GET  /api/v1/tasks/events
 
 P5-3 已实现任务 HTTP 路由，P5-11 增加事件轮询路径。所有作用域来自可信 session；读取允许当前工作区成员，创建、取消和重试要求 owner/admin/editor。创建返回 `201`，其余成功返回 `200`。跨工作区任务、项目或节点统一按不存在处理，响应不包含 workspace/user、请求参数、Worker 租约、远端任务 ID 或 Provider 凭据。
 
-创建请求携带项目、source node、可选 preview node、image/video kind、Provider/model、参数对象和幂等键。当前只接受 `billingMode="workspace_key"`，且对应 Provider 必须已配置并为 active；服务端只锁定并确认配置，不在 API 路径解密密钥。`parameters` 最大 256 KiB、嵌套深度最大 12，不接受非 JSON 值，也拒绝任何层级的 apiKey、Authorization、base/api/target URL 或 endpoint 字段。客户端不能指定任意 Provider URL。创建幂等键在同一 workspace 唯一；同键同输入返回原任务，不同输入返回 `409 VALIDATION_FAILED`。同一 workspace 最多 5 个 queued/running 任务，超限返回 `409 TASK_CONCURRENCY_LIMIT` 和 `details.activeLimit=5`。P5-7 的 submission key、提交阶段、远端任务 ID 和 `PROVIDER_SUBMISSION_UNCERTAIN` 只属于 Worker/attempt 内部状态，不由本 API 接收或响应；不确定的非幂等提交不得被 API 重试入口伪装成普通重试。P5-8 的结果 URL、对象 key、SHA-256、用量账本和 worker 图变更同样没有浏览器 HTTP 写入接口：只由持有有效 lease 的 Worker 领域服务在私有转存成功后收敛，任务查询仍不返回这些内部字段。P5-9 已使能力矩阵中的 OpenAI `gpt-image-2` 同步图片、阿里百炼 `wanx2.1-t2i-turbo` 异步图片与 `wan2.7-t2v` 异步视频 task 由 Worker 消费；视频参数只接受服务端固定的分辨率、比例和时长，其他 Provider/model/kind 组合在创建时返回 `409 PROVIDER_CAPABILITY_UNSUPPORTED`。未新增任务 HTTP 字段或响应字段，浏览器仍不能提交 Provider endpoint、密钥、远端任务 ID、结果字节或用量。
+P8-5 起创建请求是互斥 union。兼容 BYOK 分支携带项目、source node、可选 preview node、image/video kind、Provider/model、`billingMode="workspace_key"`、参数对象和幂等键；对应用户 Provider 必须已配置并为 active，且该分支在 P8-8 contract 清退前继续可创建。官方分支的完整契约见本节后文，只接受 `modelRef` 和 result node，不接受 Provider 或 billing mode。两分支的 `parameters` 最大 256 KiB、嵌套深度最大 12，不接受非 JSON 值，也拒绝任何层级的 apiKey、Authorization、base/api/target URL 或 endpoint 字段。创建幂等键在同一 workspace 唯一；同键同输入返回原任务，不同输入返回 `409 VALIDATION_FAILED`。同一 workspace 最多 5 个 queued/running 任务，超限返回 `409 TASK_CONCURRENCY_LIMIT` 和 `details.activeLimit=5`。P5-7 的 submission key、提交阶段、远端任务 ID 和 `PROVIDER_SUBMISSION_UNCERTAIN` 只属于 Worker/attempt 内部状态，不由本 API 接收或响应；结果 URL、对象 key、SHA-256、用量账本和 worker 图变更同样没有浏览器 HTTP 写入接口。
 
 P5-10 Cloud Web 已使用上述 task API：创建请求的幂等键由当前项目和本地 UI task ID 派生，浏览器分页读取当前项目任务并把返回 `GenerationTaskSummary` 的 server task ID、0-100 `progress`、状态和脱敏错误映射为投影；非当前项目只使用同一固定列表路由附带 `status=queued` 或 `status=running` 做轮转式活跃任务缓存。取消/重试命令从浏览器生成新的命令幂等键；浏览器不把 `remoteTaskId`、attempt、结果 URL 或对象 key 写入请求。任务终态的媒体恢复不扩展 task response，而是重新读取项目图并按其中的 asset ID 请求既有 `GET /assets/:assetId/url`。
 
@@ -705,15 +705,31 @@ P6-8 Cloud Web 只通过以上固定接口编排迁移。导入先在浏览器�
 
 `GET /api/v1/site-config` 无需登录，返回当前结构化站点修订的公开投影、品牌资产公开读取 URL 和 ETag。响应不包含管理 revision 备注、对象 key、Provider 配置或任何可执行 HTML/CSS/JavaScript；配置不可用时 Web 使用内置默认值。
 
-`GET /api/v1/models/official` 在可信 session 下返回当前启用的官方模型：`modelRef`、显示名、`chat|image|video` 类型、能力、受限参数范围、积分成本和排序。响应不返回 Provider base URL、真实 Provider model key、密钥版本或内部 revision ID。
+P8-3 已实现该端点。响应头包含当前修订 `ETag` 与短期公开缓存策略；`If-None-Match` 命中返回 `304`。正文为 `{ etag, config, assets }`：`config.schemaVersion=1`，只包含网站/短名称、首页与 Footer 纯文本、主体/备案纯文本、HTTP(S) 帮助与法律链接、`system|light|dark` 主题、`home|help|legal` 导航枚举、布尔功能开关和 Logo/Favicon asset ID；`assets.logo/favicon` 只包含 asset ID、MIME、短期签名 URL 和过期时间。无已发布修订时返回内置默认配置，不返回对象 key、管理员 ID、修订备注或管理时间。
 
-`GET /api/v1/workspaces/current/official-credits` 返回 UTC 月份、grant、adjustment、reserved、consumed 和 available。工作区来自 session，不接受客户端 workspace/user ID。
+`GET /api/v1/models/official` 已在 P8-4 实现，仅在可信 session 下返回当前启用的官方模型：`modelRef`、显示名、`chat|image|video` 类型、受控能力、参数策略、整数积分成本和排序。响应从 `public.official_model_publications` 读取，不返回 Provider ID/base URL、真实 Provider model key、密钥版本或内部 revision ID。能力固定为五个布尔字段；参数策略固定为 prompt 上限、允许比例、最大输出数、视频时长和聊天温度范围，不接受任意请求模板。
+
+`GET /api/v1/workspaces/current/official-credits` 返回 `{ credits: { periodStart, grant, adjustment, reserved, consumed, available } }`。`periodStart` 是 UTC 自然月首日 `YYYY-MM-01`，其余字段是安全整数；工作区来自 session，不接受客户端 workspace/user ID。
 
 ### 官方任务创建
 
-P8 后 `POST /api/v1/tasks` 的新请求使用 `modelRef=official:<model-id>`、`sourceNodeId`、`resultNodeId`、`kind=chat|image|video`、参数和幂等键。客户端不得提交可信 `providerId`、Base URL、API Key、Provider endpoint、内部 model revision 或 billing mode。服务端解析当前模型修订并把具体 revision、真实 Provider/model、`billing_mode=platform` 和积分成本冻结到任务。
+P8-5 的官方 `POST /api/v1/tasks` 请求如下；字段集合是精确白名单，额外的 `providerId`、`model`、`previewNodeId` 以外执行字段、Base URL、API Key、Provider endpoint、内部 revision、secret 或 billing mode 均返回 `400 VALIDATION_FAILED`：
 
-历史 `previewNodeId` 和 `workspace_key` 仅在兼容窗口读取；新 API 不再创建用户 BYOK 服务端任务。官方任务状态、取消、重试和事件轮询沿用现有任务资源，聊天结果与媒体结果都通过项目图恢复，不在任务摘要中泄漏完整 Provider 响应。
+```json
+{
+  "projectId": "11111111-1111-4111-8111-111111111111",
+  "sourceNodeId": "source-node",
+  "resultNodeId": "result-node",
+  "kind": "chat",
+  "modelRef": "official:22222222-2222-4222-8222-222222222222",
+  "parameters": { "prompt": "..." },
+  "idempotencyKey": "client-generated-key"
+}
+```
+
+服务端按公开模型参数策略校验请求，在单事务中解析并冻结具体 model revision、Provider revision、Provider secret、真实 Provider/model、`billing_mode=platform`、UTC 月份和积分成本，再写任务、`reserve` 流水及 outbox。模型/Provider/secret 不可执行返回 `409 OFFICIAL_MODEL_UNAVAILABLE`；可用积分不足返回 `409 OFFICIAL_CREDITS_INSUFFICIENT`；并发上限仍返回 `409 TASK_CONCURRENCY_LIMIT`。
+
+官方任务状态、取消、重试和事件轮询沿用现有任务资源。任务摘要对官方任务只返回 `providerId="official"`、官方 `model/modelRef`、通用 `resultNodeId`、状态和脱敏错误，不返回真实 Provider ID、model key、endpoint、secret/revision、积分月份/成本、lease 或完整 Provider 响应。聊天文本和媒体结果都通过 tasks/project-graph/assets 领域事务进入当前项目；自动重试沿用原预留，手动重试在已释放时重新校验余额。旧 `previewNodeId` 和 `workspace_key` 请求在 P8-8 前继续兼容，且不产生官方积分流水。
 
 ### 浏览器自定义模式
 
@@ -721,9 +737,9 @@ P8 后 `POST /api/v1/tasks` 的新请求使用 `modelRef=official:<model-id>`、
 
 ### Admin API
 
-管理 API 独立部署并使用 `/admin/v1` 前缀、独立管理员 Cookie、精确 Admin Web Origin 和强制 MFA。普通用户 Cookie 在该入口无效。固定资源为：
+管理 API 独立部署并使用 `/admin/v1` 前缀、独立管理员 Cookie和精确 Admin Web Origin。普通用户 Cookie 在该入口无效。固定资源为：
 
-- `/admin/v1/auth/*`：登录、TOTP 启用/验证、恢复码、退出和管理员 session。
+- `/admin/v1/auth/*`：验证码挑战、账号密码登录、登录安全设置、账号/密码修改、退出和管理员 session。
 - `/admin/v1/site-config`、`/admin/v1/site-assets`：结构化网站配置修订和品牌资产。
 - `/admin/v1/providers`、`/admin/v1/providers/:id/test`：官方 Provider、密钥轮换、连接测试和启停。
 - `/admin/v1/models`：官方模型修订、能力、积分成本、排序和启停。
@@ -731,11 +747,43 @@ P8 后 `POST /api/v1/tasks` 的新请求使用 `modelRef=official:<model-id>`、
 - `/admin/v1/workspaces/:workspaceId/credits/adjust`：带原因和幂等键的人工积分调整。
 - `/admin/v1/audit-events`：按管理员、动作、目标、结果和时间读取脱敏审计。
 
-P8-2 当前已实现的认证/安全端点为：`GET /admin/v1/auth/csrf`、`POST /admin/v1/auth/login`、`GET /admin/v1/auth/session`、`POST /admin/v1/auth/mfa/setup`、`POST /admin/v1/auth/mfa/verify-totp`、`POST /admin/v1/auth/mfa/verify-recovery`、`POST /admin/v1/auth/mfa/recovery-codes`、`POST /admin/v1/auth/logout` 和 `GET /admin/v1/audit-events`。后续 P8 子阶段资源在对应数据/领域实现完成前返回 `404`，不提供空壳写接口。
+P8-2/P8-3 当前已实现：既有认证/安全端点、`POST /admin/v1/auth/username`、`POST /admin/v1/auth/password`、`GET /admin/v1/audit-events`、`GET|POST /admin/v1/site-config`、`GET|POST /admin/v1/site-assets` 和 `POST /admin/v1/site-assets/:assetId/complete`。后续 P8 子阶段资源在对应数据/领域实现完成前返回 `404`，不提供空壳写接口。
+
+P8-4 已实现以下官方目录接口：
+
+```text
+GET    /admin/v1/providers
+POST   /admin/v1/providers
+POST   /admin/v1/providers/:providerId
+POST   /admin/v1/providers/:providerId/secret
+DELETE /admin/v1/providers/:providerId/secret
+POST   /admin/v1/providers/:providerId/test
+GET    /admin/v1/models
+POST   /admin/v1/models
+POST   /admin/v1/models/:modelId
+```
+
+P8-5 已实现 `POST /admin/v1/workspaces/:workspaceId/credits/adjust`。请求为 `{ "delta": 10, "reason": "...", "idempotencyKey": "..." }`，`delta` 必须是非零安全整数，reason 和幂等键必须是去除首尾空白后的受限字符串；响应为 `{ credits, replayed }`，其中 `credits` 与普通余额接口同结构。同 workspace 同键同输入返回 `replayed=true` 且不重复调整；同键不同输入或负调整导致透支返回 `409 VALIDATION_FAILED`。路由只做认证、CSRF 和 schema 解析，调整、余额锁与 `admin.official_credits.adjusted` 脱敏审计由 Admin 领域服务在同一事务完成。
+
+Provider 保存接受 `{ displayName, protocolType, baseUrl, capabilities, status, apiKey? }`，`protocolType` 只允许 `openai_compatible|aliyun_dashscope`，capabilities 是去重的 `chat|image|video` 数组。创建时可提交初始 Key；后续轮换只通过 `/secret` 的 `{ apiKey }`。GET 和所有保存响应只返回 Key 的 `configured|missing` 与末四位，不返回请求明文、密文、key version 或 Authorization。删除 Key 会幂等退役当前 Key、停用 Provider并下架关联公开模型。
+
+Provider 启用保存先创建候选不可变 revision，再对同 revision/当前 Key 的固定 models endpoint 完成连接测试，成功后才原子切换 current；失败保留上一 current，不接受客户端 target URL。显式 `/test` 请求体必须为 `{}`，DNS 解析到回环、链路本地或私网时在 adapter 调用前拒绝。连接响应只返回 `{ providerId, ok, checkedAt }`，错误只使用脱敏分类。
+
+模型保存接受显示名、`chat|image|video`、稳定 Provider ID、真实模型键、受控 capabilities/parameterPolicy、正整数 `creditCost`、`sortOrder` 和 `enabled`。服务端从 Provider current 解析具体 revision；启用要求 Provider active、当前 Key 存在且同 revision/Key 有成功测试。每次保存创建 model revision并原子更新 `public.official_model_publications`；Admin 列表可见 Provider/模型 revision number，但不返回 Provider Key，用户目录不返回任何内部 revision。
+
+`POST /admin/v1/site-assets` 接受 `kind=logo|favicon`、文件名、允许 MIME、字节数、SHA-256、声明尺寸和幂等键，返回无 Cookie 的短期对象存储直传信息；只允许 PNG/JPEG/WebP/ICO，最大 4 MiB、单边最大 4096。`complete` 在标记 completed 前重新读取对象并复核 metadata、完整 hash、魔数与真实尺寸。`GET /admin/v1/site-assets` 最多返回最近 100 个未删除资产和 completed 资产短期预览 URL，不返回对象 key。
+
+`POST /admin/v1/site-config` 接受 `{ config, note? }`。运行时 schema 拒绝未知字段、HTML、JavaScript、任意 CSS、URL 凭据/fragment、重复导航、非布尔开关和错误资产类型；保存要求 `site_config.write`，在单事务中写不可变 revision、当前指针、公开投影和 `admin.site_config.published` 审计。引用的 Logo/Favicon 必须分别是 completed 且类型匹配的站点资产；失败不改变当前公开修订。
 
 `GET /admin/v1/auth/csrf` 返回 `{ token }` 并设置同值、签名、两小时有效的 HttpOnly `ai_canvas_admin.csrf` Cookie。所有 POST 必须携带精确 allowlist Origin、非 `Sec-Fetch-Site: cross-site` 和 `X-CSRF-Token`；Cookie/Header 不一致、签名伪造或过期统一返回 `403 ADMIN_ACCESS_DENIED`。管理员认证 Cookie 使用独立 `ai_canvas_admin.*` 前缀、SameSite=Strict，staging/production 额外 Secure；不接受普通用户 Cookie。
 
-login 响应 state 为 `mfa_setup_required|mfa_required|authenticated`。首次未启用 MFA 的 session 只能访问 session、MFA setup/verify/recovery 和 logout；setup 以当前密码生成 `totpUri` 与只显示一次的 `recoveryCodes`，verify-totp 成功后才允许业务授权。已启用 MFA 的密码登录只建立 5 分钟 challenge，不建立业务 session；TOTP 或一次性恢复码验证成功后再设置 session，客户端不能启用 trust-device。被封禁管理员、已删除/过期 session、未完成 MFA 和 RBAC 不匹配分别稳定拒绝，不返回底层 Better Auth/数据库正文。
+`GET /admin/v1/auth/captcha` 公开返回 `{ enabled, challenge }`。验证码关闭时 `challenge=null`；开启时 challenge 包含 UUID、`data:image/svg+xml;base64,...` 图片和过期时间。验证码为 5 位数字、5 分钟有效、验证成功即消费，连续 5 次失败后作废。服务端只保存使用 Admin Secret、challenge ID 和验证码计算的 SHA-256，不保存或记录验证码明文。
+
+`POST /admin/v1/auth/login` 接受 `{ username, password, captchaChallengeId?, captchaCode? }`，不接受邮箱作为管理端登录标识。验证码关闭时只校验账号和密码；开启时必须先提交当前 challenge 和 5 位验证码。成功响应固定为 `{ state: "authenticated", session }`，管理员摘要只返回 `username`、角色和状态，不返回 Better Auth 内部兼容邮箱或 session token。
+
+`GET /admin/v1/auth/login-security` 与 `POST /admin/v1/auth/login-security` 仅允许 `super_admin`；POST 接受 `{ captchaEnabled: boolean }`。关闭时同时消费全部未完成 challenge，设置变更写 `admin.security.captcha_updated` 脱敏审计。验证码默认关闭。
+
+`POST /admin/v1/auth/username` 接受 `{ username }`，要求有效管理会话，账号规范化为小写且只允许 3–30 位字母、数字、下划线或点；重复账号返回 `409 VALIDATION_FAILED`。`POST /admin/v1/auth/password` 接受 `{ currentPassword, newPassword }`，由 Better Auth 校验当前密码，新密码要求 12–256 位，成功后保留当前会话、撤销其他管理会话并写脱敏审计。被封禁管理员、已删除/过期 session 和 RBAC 不匹配稳定拒绝，不返回底层 Better Auth/数据库正文。
 
 Provider/模型保存立即生效，但服务端先完成 schema、URL 和能力校验，再创建不可变 revision 并原子切换 current。首次启用或 endpoint 变化必须对同一 revision 测试成功。Provider Key 写入/轮换响应只返回状态与末四位，任何 GET 都不返回明文。
 
@@ -751,11 +799,10 @@ OFFICIAL_MODEL_UNAVAILABLE
 OFFICIAL_CREDIT_INSUFFICIENT
 MODEL_SOURCE_MISMATCH
 CUSTOM_PROVIDER_CORS_BLOCKED
-ADMIN_MFA_REQUIRED
 ADMIN_ACCESS_DENIED
 ```
 
-`CUSTOM_PROVIDER_CORS_BLOCKED` 主要由浏览器本地映射，不要求平台 API 接收到 Provider 请求。积分不足和模型不可用返回 `409`，管理员未完成 MFA 返回 `403`，认证缺失仍使用既有认证错误。
+`CUSTOM_PROVIDER_CORS_BLOCKED` 主要由浏览器本地映射，不要求平台 API 接收到 Provider 请求。积分不足和模型不可用返回 `409`；管理员权限不足返回 `403 ADMIN_ACCESS_DENIED`，认证缺失仍使用既有认证错误。
 
 ## 主要错误码
 

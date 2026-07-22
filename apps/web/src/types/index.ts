@@ -188,7 +188,6 @@ export interface GenerateNodeData extends Record<string, unknown> {
   model: string
   resolution: string
   quality: GptImageQuality
-  officialFallback: boolean
   googleSearch: boolean
   googleImageSearch: boolean
   connectedTextNode: string | null
@@ -373,7 +372,6 @@ export interface GenerateTask {
   referenceImageUrls: string[]
   inputFidelity?: ImageInputFidelity | null
   quality?: GptImageQuality | null
-  officialFallback?: boolean
   googleSearch?: boolean
   googleImageSearch?: boolean
   videoMode?: VideoGenerateMode | null
@@ -382,8 +380,6 @@ export interface GenerateTask {
   resultVideoAsset?: WorkspaceImageAsset | null
   status: GenerateTaskStatus
   errorMsg: string
-  serverTaskId?: string | null
-  serverProgress?: number | null
   remoteTaskId: string | null
   remoteStatus: GenerateTaskRemoteStatus | null
   createdAt: number

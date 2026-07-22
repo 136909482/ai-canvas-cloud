@@ -8,13 +8,6 @@ groups:
         annotations:
           summary: API metrics target is unavailable
           runbook: Check the API container, then PostgreSQL, Redis, and object storage readiness.
-      - alert: AiCanvasWorkerUnavailable
-        expr: up{job="worker"} == 0
-        for: 2m
-        labels: { severity: critical }
-        annotations:
-          summary: Worker metrics target is unavailable
-          runbook: Check the Worker container and Redis queue connectivity.
       - alert: AiCanvasDependencyDown
         expr: ai_canvas_dependency_up == 0
         for: 2m
@@ -81,58 +74,6 @@ groups:
         annotations:
           summary: Migration operations are failing
           runbook: Use the phase label to locate the failing stage; never log package contents.
-
-  - name: ai-canvas-cloud-staging-tasks
-    rules:
-      - alert: AiCanvasTaskBacklogHigh
-        expr: ai_canvas_task_queue_backlog > 100
-        for: 10m
-        labels: { severity: warning }
-        annotations:
-          summary: Generation task backlog exceeds 100
-          runbook: Check Worker availability, queue dispatch failures, and Provider health.
-      - alert: AiCanvasTaskLeaseFailures
-        expr: increase(ai_canvas_task_lease_expired_total[15m]) > 5 or ai_canvas_task_expired_leases > 5
-        for: 5m
-        labels: { severity: warning }
-        annotations:
-          summary: Task leases are expiring repeatedly
-          runbook: Check Worker saturation and database latency; task IDs are intentionally absent.
-      - alert: AiCanvasTaskRetriesHigh
-        expr: increase(ai_canvas_task_retries_total[15m]) > 10 or ai_canvas_task_retryable_failures > 10
-        for: 5m
-        labels: { severity: warning }
-        annotations:
-          summary: Task retries exceed the staging threshold
-          runbook: Compare low-cardinality outcome labels and Provider health.
-      - alert: AiCanvasQueueDispatchFailures
-        expr: increase(ai_canvas_task_queue_dispatch_total{outcome="failed"}[10m]) > 3
-        for: 5m
-        labels: { severity: critical }
-        annotations:
-          summary: PostgreSQL outbox delivery to Redis is failing
-          runbook: Restore Redis, then confirm failed dispatches stop and backlog drains.
-      - alert: AiCanvasWorkerFailures
-        expr: increase(ai_canvas_worker_failures_total[10m]) > 3
-        for: 5m
-        labels: { severity: critical }
-        annotations:
-          summary: Worker operational failures exceed threshold
-          runbook: Use only the component label to isolate outbox, lease recovery, or consumer startup.
-      - alert: AiCanvasProviderFailures
-        expr: sum(rate(ai_canvas_provider_request_duration_seconds_count{outcome!="success"}[10m])) > 0.1
-        for: 10m
-        labels: { severity: warning }
-        annotations:
-          summary: Provider requests are failing
-          runbook: Check Provider status and credential configuration without exposing prompts or keys.
-      - alert: AiCanvasResultTransferFailures
-        expr: increase(ai_canvas_task_result_transfer_failures_total[10m]) > 3
-        for: 5m
-        labels: { severity: critical }
-        annotations:
-          summary: Provider results cannot be transferred to private object storage
-          runbook: Check object storage readiness and low-cardinality failure code.
 
   - name: ai-canvas-cloud-staging-recovery
     rules:

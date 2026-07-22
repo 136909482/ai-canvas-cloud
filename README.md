@@ -2,7 +2,7 @@
 
 AI Canvas Cloud 是 AI Canvas 的独立网站端仓库，面向长期运营的账号制 SaaS。用户登录后进入个人空间，项目图、任务和资产元数据保存在云端，图片与视频存入私有对象存储。
 
-P0 至 P6 已完成账号、云端项目图、资产、服务端任务及本地/Cloud 目录包迁移闭环；P7-1 来源边界、P7-2 staging 制品与隔离基线、P7-3 Cookie CSRF 与分层速率限制、P7-4 Web 页面 CSP/对象存储 CORS/上传边界、P7-5 安全攻击面回归矩阵、P7-6 两账号云端 E2E 与授权矩阵、P7-7 指标告警与脱敏诊断、P7-8 加密备份与隔离恢复、P7-9 schema 发布兼容与前向修复已落地，后续 P7 全链路发布节点仍按路线推进。仓库采用 npm workspaces monorepo，包含迁移后的 React/Vite 画布前端、API/Worker、服务端领域模块、共享 packages、本地云依赖配置和迁移检查。实现顺序以 `docs/ROADMAP.md` 为准。
+P0 至 P6 已完成账号、云端项目图、资产、服务端任务及本地/Cloud 目录包迁移闭环；P7-1 至 P7-9 的来源边界、部署隔离、安全、两账号 E2E、可观测性、备份恢复和 schema 兼容已落地；P8-2 与 P8-3 已完成独立管理端和结构化网站设置。后续生成能力已调整为浏览器本地 BYOK：用户 Provider、模型和 API Key 不进入平台服务器，生成结果仍保存到云端项目与私有对象存储。仓库采用 npm workspaces monorepo，实现顺序以 `docs/ROADMAP.md` 为准。
 
 ## 核心架构
 
@@ -126,11 +126,11 @@ docker compose --env-file infra/deploy/staging/staging.env -f infra/deploy/stagi
 
 `migrate` 是独立的一次性发布步骤；API/Worker 启动命令不执行迁移。Compose 使用独立的 staging PostgreSQL、Redis、MinIO Bucket、队列名、邮件/Provider/BYOK 配置和持久卷，Web 只通过同域反向代理访问 API。配置门禁会拒绝 staging/production 的 localhost、HTTP Web/Auth URL、默认 MinIO 凭据、占位认证密钥、开发管理员 seed、缺失来源白名单以及带有 local/production 标识的资源或凭据 ID。API 与 Worker readiness 都执行 PostgreSQL `SELECT 1`、Redis `PING` 和 S3 `HeadBucket`；任一依赖不可用时返回 `503` 与 `degraded`，并且只暴露稳定的脱敏分类。
 
-schema 发布在每个 release train 内使用 `expand -> migrate -> contract` 单调顺序，长期元数据位于 `server/db/migrations/release-manifest.json`。每个迁移声明 release train、旧/新应用可读性、锁风险、statement timeout、回滚边界、前向修复和备份门槛；`npm run db:migrate:compat` 会校验 25 个迁移的 manifest、旧 schema + 新应用的可选列读取、新 schema + 旧应用的列读取，以及中断事务重跑。当前没有 contract migration；删除列/表必须先经过备份与独立发布窗口。
+schema 发布在每个 release train 内使用 `expand -> migrate -> contract` 单调顺序，长期元数据位于 `server/db/migrations/release-manifest.json`。每个迁移声明 release train、旧/新应用可读性、锁风险、statement timeout、回滚边界、前向修复和备份门槛；`npm run db:migrate:compat` 会校验 30 个迁移的 manifest、旧 schema + 新应用的可选列读取、新 schema + 旧应用的列读取，以及中断事务重跑。当前没有 contract migration；删除列/表必须先经过备份与独立发布窗口。
 
 ### Admin 安全底座（P8-2）
 
-Admin Web 与 Admin API 分别运行在 `http://127.0.0.1:5174` 和 `http://127.0.0.1:8788`，不从普通网站导航暴露入口。Admin 使用独立 Origin allowlist、`ai_canvas_admin.*` Cookie、Better Auth Secret、非超级用户数据库角色和固定 `admin` schema；普通应用角色不能读取管理员身份/MFA/审计表，Admin 角色也不能读取普通身份表。Admin Web 使用 Refine Core 组织审计资源与角色权限，页面为仓库自定义 React UI。
+Admin Web 与 Admin API 分别运行在 `http://127.0.0.1:5174` 和 `http://127.0.0.1:8788`，不从普通网站导航暴露入口。Admin 使用独立 Origin allowlist、`ai_canvas_admin.*` Cookie、Better Auth Secret、非超级用户数据库角色和固定 `admin` schema；普通应用角色不能读取管理员身份、登录安全或审计表，Admin 角色也不能读取普通身份表。Admin Web 使用 Refine Core 组织审计资源与角色权限，页面为仓库自定义 React UI。
 
 首次配置按顺序执行，所有密码和 Secret 只写入已忽略的本机 `.env`：
 
@@ -141,7 +141,9 @@ npm run db:roles:check
 npm run admin:bootstrap
 ```
 
-`db:roles:provision` 从 migration 连接创建独立普通应用/Admin 运行角色并生成随机本机凭据，终端不打印凭据；后续迁移使用 `MIGRATION_DATABASE_URL`。`admin:bootstrap` 必须在真实交互式 TTY 中输入并确认密码，只允许管理员表为空时创建首个 `super_admin`，不接受长期环境变量 seed。首次登录只能设置/验证 TOTP 或退出；启用后每次登录必须使用 TOTP 或消耗一个一次性恢复码。所有写请求先校验精确 Admin Origin 与签名 CSRF 双提交 token，管理审计在应用层移除凭据/正文并由数据库触发器禁止 UPDATE/DELETE。
+`db:roles:provision` 从 migration 连接创建相互独立的普通 API、Worker 和 Admin 运行角色并生成随机本机凭据，终端不打印凭据；后续迁移使用 `MIGRATION_DATABASE_URL`。Worker 只使用脚本写入未跟踪 `.env` 的 `WORKER_DATABASE_URL`，不能复用普通 API 连接。`admin:bootstrap` 必须在真实交互式 TTY 中输入管理员账号并确认密码，只允许管理员表为空时创建首个 `super_admin`，不接受长期环境变量 seed。管理员使用账号和密码登录；图片验证码默认关闭，`super_admin` 可在安全状态页开启，开启后登录页要求一次性 5 位验证码。安全状态页也可修改账号和密码，密码修改会撤销其他管理会话。所有写请求先校验精确 Admin Origin 与签名 CSRF 双提交 token，管理审计在应用层移除凭据/正文并由数据库触发器禁止 UPDATE/DELETE。
+
+P8 后续不提供官方模型、积分、计费或平台代生成。用户在浏览器本地加密保存 Provider、endpoint、模型 ID 和 API Key，由 Web 端直接调用受控协议接口，再通过现有短期签名 URL 将媒体结果上传到私有对象存储。平台 API 不接收用户 Key 或任意 Provider target URL。旧服务器 BYOK、生成 Worker 和任务表将在显式 contract migration 中清理；Redis 保留用于 API 安全限流。
 
 该定义是厂商无关的容器基线，不代表真实 staging 已配置域名/TLS、SMTP、Provider、密钥管理、备份或告警接收端；这些外部资源必须在部署前单独创建并填入密钥管理系统，不能提交到 Git。
 

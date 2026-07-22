@@ -82,7 +82,7 @@ test('migration export freezes one project version and produces an import-compat
     await admin.connect()
     await admin.query(`CREATE SCHEMA "${schemaName}"`)
     pool = new pg.Pool({ connectionString: databaseUrl, connectionTimeoutMillis: 30_000, max: 4, options: `-c search_path=${schemaName},public` })
-    const migrations = (await readdir(join(process.cwd(), 'server', 'db', 'migrations'))).filter((fileName) => fileName.endsWith('.sql') && !fileName.startsWith('0025_')).sort()
+    const migrations = (await readdir(join(process.cwd(), 'server', 'db', 'migrations'))).filter((fileName) => fileName.endsWith('.sql') && !/^(?:002[5-9]|0030)_/.test(fileName)).sort()
     for (const fileName of migrations) {
       await pool.query(await readFile(join(process.cwd(), 'server', 'db', 'migrations', fileName), 'utf8'))
     }

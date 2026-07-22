@@ -6,7 +6,7 @@ import { validateProtectedDeploymentEnvironment } from '../packages/shared/dist/
 const WEB_FORBIDDEN = [
   /https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i,
   /(?:__vite_(?:client|hmr)|\/@vite|vite\/client|import\.meta\.hot|webpack-dev-server)/i,
-  /(?:BETTER_AUTH_SECRET|S3_SECRET_ACCESS_KEY|PROVIDER_CREDENTIAL_KEYS|OPENAI_API_KEY|ANTHROPIC_API_KEY|GOOGLE_API_KEY)/i,
+  /(?:BETTER_AUTH_SECRET|S3_SECRET_ACCESS_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|GOOGLE_API_KEY)/i,
   /(?:[A-Z]:\\|\/app\/|node_modules\/)/i,
 ]
 
@@ -56,7 +56,6 @@ export function validateReleaseArtifacts(root = process.cwd()) {
     'infra/deploy/staging/alerts.yml',
     'server/db/migrations/release-manifest.json',
     'apps/api/dist/index.js',
-    'apps/worker/dist/index.js',
     'server/dist/index.js',
   ]
   for (const file of required) if (!existsSync(resolve(root, file))) throw new Error(`Release artifact is missing: ${file}`)
@@ -64,8 +63,8 @@ export function validateReleaseArtifacts(root = process.cwd()) {
   const dockerfile = readFileSync(resolve(root, 'Dockerfile'), 'utf8')
   const nginx = readFileSync(resolve(root, 'infra/deploy/staging/web.nginx.conf'), 'utf8')
   const alerts = readFileSync(resolve(root, 'infra/deploy/staging/alerts.yml'), 'utf8')
-  if (!/profiles:\s*\["release"\]/.test(compose) || /apply-migrations\.mjs.*(?:api|worker)/.test(compose)) throw new Error('Migrations must be an explicit release-only step')
-  if (!/AS api[\s\S]*USER node/.test(dockerfile) || !/AS worker[\s\S]*USER node/.test(dockerfile) || !/AS web/.test(dockerfile)) throw new Error('API, Worker and Web runtime artifacts must run as non-root images')
+  if (!/profiles:\s*\["release"\]/.test(compose) || /apply-migrations\.mjs.*api/.test(compose)) throw new Error('Migrations must be an explicit release-only step')
+  if (!/AS api[\s\S]*USER node/.test(dockerfile) || !/AS web/.test(dockerfile)) throw new Error('API and Web runtime artifacts must run as non-root images')
   if (!/Content-Security-Policy/.test(nginx) || !/frame-ancestors 'none'/.test(nginx) || /unsafe-eval/.test(nginx)) throw new Error('Web security headers are incomplete')
   if (!/AiCanvasDependencyDown/.test(alerts) || !/AiCanvasBackupMissing/.test(alerts)) throw new Error('Dependency and backup alerts are required')
   return { requiredArtifacts: required.length }
@@ -90,7 +89,7 @@ async function probe(url, path, expectedStatus = 200) {
   return response.status
 }
 
-export async function runGate({ root = process.cwd(), envFile, webUrl, apiUrl, workerUrl, auditFile } = {}) {
+export async function runGate({ root = process.cwd(), envFile, webUrl, apiUrl, auditFile } = {}) {
   const env = readEnvFile(resolve(root, envFile ?? 'infra/deploy/staging/staging.env'))
   validateProtectedDeploymentEnvironment(env)
   const artifacts = validateReleaseArtifacts(root)
@@ -100,7 +99,6 @@ export async function runGate({ root = process.cwd(), envFile, webUrl, apiUrl, w
   if (webUrl) probes.push(await probe(webUrl, '/'))
   if (apiUrl) probes.push(await probe(apiUrl, '/health/live'))
   if (apiUrl) probes.push(await probe(apiUrl, '/health/ready'))
-  if (workerUrl) probes.push(await probe(workerUrl, '/health/ready'))
   return { artifacts, web, probes }
 }
 
@@ -122,7 +120,6 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     envFile: args['env-file'],
     webUrl: args['web-url'],
     apiUrl: args['api-url'],
-    workerUrl: args['worker-url'],
     auditFile: args['audit-file'],
   }).then((result) => {
     console.log(JSON.stringify({ event: 'staging_release_gate_passed', artifactCount: result.artifacts.requiredArtifacts, webFiles: result.web.files, probes: result.probes.length }))

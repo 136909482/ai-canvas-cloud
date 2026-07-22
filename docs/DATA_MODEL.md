@@ -395,15 +395,19 @@ cancel/retry 同样先锁 workspace，再锁同 workspace 任务行并读取持�
 
 P8 数据迁移从 `0025` 开始，按 expand/migrate/contract 发布，不把 Admin 认证、官方目录、积分和旧 BYOK 清退挤入一个不可观察的大事务。
 
-### `admin` schema 与管理员认证（0025）
+### `admin` schema 与管理员认证（0025、0027、0028）
 
-同一 PostgreSQL 实例新增独立 `admin` schema 和独立数据库角色。Better Auth 管理员表位于该 schema，包含 `user`、`session`、`account`、`verification` 和 `two_factor`；管理员 user 增加固定角色、封禁状态和 `two_factor_enabled`，session 使用与普通用户不同的 Cookie 和 Auth Secret。普通 API/普通用户数据库角色不得读取这些表。
+同一 PostgreSQL 实例新增独立 `admin` schema 和独立数据库角色。Better Auth 管理员表位于该 schema，包含 `user`、`session`、`account` 和 `verification`；session 使用与普通用户不同的 Cookie 和 Auth Secret。`0025` 曾创建的 `two_factor` 与 `two_factor_enabled` 作为不可改写的迁移兼容历史保留，当前运行时不读取、不写入，也不作为授权条件。普通 API/普通用户数据库角色不得读取这些表。
 
-`admin.user.role` 只接受 `super_admin|operator|support|auditor`，`status` 只接受 `active|banned`；邮箱规范化为小写唯一值。`admin.two_factor` 对管理员唯一，保存 Better Auth 加密后的 TOTP secret、加密恢复码、verified、连续失败次数和锁定时间，恢复码明文只在生成响应中出现一次。session token 只存在 Better Auth session 表和 HttpOnly Cookie，不进入 Admin HTTP 响应或审计。
+`admin.user.role` 只接受 `super_admin|operator|support|auditor`，`status` 只接受 `active|banned`。`0027_admin_usernames.sql` 增加唯一小写 `username` 和 `display_username`；账号只允许 3–30 位字母、数字、下划线或点，是 Admin 唯一对外登录标识。`email` 继续作为 Better Auth credential provider 的内部兼容字段，不进入 Admin session/login 响应或界面。session token 只存在 Better Auth session 表和 HttpOnly Cookie，不进入 Admin HTTP 响应或审计。
 
-`admin.audit_events` 是追加式管理审计，保存管理员 ID、角色、动作、目标类型/ID、result、request ID、IP/User-Agent 哈希、脱敏 before/after JSON 和时间。运行角色不能 UPDATE/DELETE；事件不得保存 API Key、session token、恢复码、用户正文、Provider 响应或完整连接 URL。
+`0028_admin_login_captcha.sql` 增加单行 `admin.login_security_settings` 和短期 `admin.login_captcha_challenges`。`captcha_enabled` 默认 `false`，只允许 `super_admin` 通过领域服务修改；变更记录操作者和时间并追加 `admin.security.captcha_updated`。challenge 保存 UUID、绑定 Admin Secret/ID/验证码的 SHA-256、失败次数、过期/消费时间，不保存验证码明文；有效期 5 分钟，成功一次性消费，失败 5 次后消费。关闭验证码时消费全部未完成 challenge。
 
-`0025` 创建固定 schema 后撤销 PUBLIC 的 schema/table/sequence/function 权限。部署脚本以 migration 角色分别授予普通应用角色 public 业务表权限和 Admin 角色 Admin 身份/MFA表权限；普通角色对 `admin` 无 USAGE，Admin 角色不获 public 普通身份表权限。`audit_events` 对 Admin 运行角色仅授予 INSERT/SELECT，并额外由 `BEFORE UPDATE OR DELETE` 触发器无条件拒绝修改。迁移发布清单从 `0025` 开启 `p8` release train 的新一轮 expand，相位单调性在各 train 内独立校验。
+账号修改由 Admin 认证领域服务更新 `username/display_username` 并在同一事务追加 `admin.credentials.username_changed`；密码哈希仍只由 Better Auth 修改，必须校验当前密码，成功后撤销其他 session 并追加不含密码内容的 `admin.credentials.password_changed`。迁移为已有管理员生成确定性不冲突的临时账号，管理员登录后可显式修改。
+
+`admin.audit_events` 是追加式管理审计，保存管理员 ID、角色、动作、目标类型/ID、result、request ID、IP/User-Agent 哈希、脱敏 before/after JSON 和时间。运行角色不能 UPDATE/DELETE；事件不得保存 API Key、session token、密码、验证码、用户正文、Provider 响应或完整连接 URL。
+
+`0025` 创建固定 schema 后撤销 PUBLIC 的 schema/table/sequence/function 权限。部署脚本以 migration 角色分别授予普通应用角色 public 业务表权限和 Admin 角色 Admin 身份/登录安全表权限；普通角色对 `admin` 无 USAGE，Admin 角色不获 public 普通身份表权限。`audit_events` 对 Admin 运行角色仅授予 INSERT/SELECT，并额外由 `BEFORE UPDATE OR DELETE` 触发器无条件拒绝修改。迁移发布清单从 `0025` 开启 `p8` release train 的新一轮 expand，相位单调性在各 train 内独立校验。
 
 ### 站点配置与品牌资产（0026）
 
@@ -411,25 +415,37 @@ P8 数据迁移从 `0025` 开始，按 expand/migrate/contract 发布，不把 A
 
 `admin.site_assets` 保存独立于 workspace 资产的品牌文件元数据、对象存储定位、MIME、字节数、SHA-256、尺寸、状态和时间。只接受 PNG/JPEG/WebP/ICO；对象 key 不进入公开配置。保存站点配置时先验证引用资产 completed，再写 revision 并原子切换 current。
 
-### 官方 Provider 与模型修订（0026）
+`public.site_config_publications` 是普通 API 唯一可读的单行派生投影，保存当前 revision ID、ETag、已校验公开配置和为签名所需的 Logo/Favicon asset ID、MIME、内部 object key。object key 只由普通 API 服务端读取，不进入 HTTP 配置正文；普通应用角色不获得 `admin` schema USAGE，Admin 角色只对该投影获得精确 `SELECT/INSERT/UPDATE`。发布事务同时切换 `admin.site_config_current` 和该投影，避免普通 API 跨 Admin 身份表读取或出现半发布状态。
+
+`admin.site_assets` 以 `(uploaded_by_admin_id, idempotency_key)` 幂等，`pending` 行携带 15 分钟上传过期时间；`completed` 必须有完成时间，`deleted` 必须有软删除时间。首期单文件上限 4 MiB、尺寸 `1..4096`，完成确认重新验证对象 metadata、完整 SHA-256、文件魔数和真实尺寸。`admin.site_config_revisions` 由触发器拒绝 UPDATE/DELETE；修订 JSON 仍必须通过 contracts 的 schemaVersion 1 运行时校验，数据库 JSONB object 约束不是替代品。
+
+### 官方 Provider 与模型修订（0026、0029）
 
 `admin.official_providers` 保存稳定逻辑 ID、显示名、状态和当前 endpoint revision。`admin.official_provider_revisions` 不可变保存协议类型、规范化 HTTPS base URL、允许能力和创建管理员。`admin.official_provider_secrets` 保存 AES-256-GCM envelope、密钥版本、末四位、状态和轮换时间；明文不落库且不能通过列表接口恢复。
 
 `admin.official_models` 保存稳定模型 ID、当前 revision、启用状态和排序。`admin.official_model_revisions` 不可变保存显示名、`chat|image|video` 类型、Provider revision、真实 Provider model key、能力/参数策略 JSONB 和正整数 `credit_cost`。保存立即创建 revision 并切换 current；任务必须引用具体 model revision，不能只在执行时读取 current。
 
-### 官方积分与任务扩展（0027）
+`0029_official_catalog_control_plane.sql` 把 Provider 显示名/状态以及模型启用/排序复制到各自不可变修订，使修订本身足以重放创建时配置；稳定表继续保存 current 指针和当前查询状态。`admin.official_provider_revision_tests` 追加保存具体 Provider revision、具体 secret、成功/失败分类和测试管理员，UPDATE/DELETE 与 Provider/模型修订一样由触发器拒绝。启用 Provider 必须存在同 revision、当前 active secret 的成功测试；Key 轮换/删除会停用 Provider并撤下关联投影。
 
-`workspace_official_credit_periods` 以 `(workspace_id, period_start)` 唯一，保存月度 grant、管理员 adjustment、reserved、consumed 和更新时间。`official_credit_ledger` 保存 `monthly_grant|admin_adjustment|reserve|consume|release`、整数 delta、幂等键、原因、可空 task ID 和操作者；同一业务幂等键不得重复影响余额。
+`public.official_model_publications` 是普通 API 唯一可读的官方模型投影。每行只保存稳定 model ID/ref、展示名、类型、受控 capabilities/parameter policy、整数积分成本、排序和发布时间；不保存 Provider ID/base URL、真实模型键、secret/key version 或内部 revision ID。Admin 目录事务按模型/Provider 当前状态 upsert 或删除投影，普通应用角色只有 SELECT。
 
-`generation_tasks` 增加官方 model revision、Provider revision、credit period、reserved cost 和通用 `result_node_id`；`task_kind` 扩展为 `chat|image|video`。历史 `preview_node_id` 保留兼容读取并回填 `result_node_id`，不在同一版本破坏旧 Worker。官方新任务固定 `billing_mode=platform`；历史 `workspace_key` 行可读取但不再创建。
+`0029` 仅新增列、测试事实表、公开投影、索引与不可变触发器，旧应用忽略这些对象。发布前可事务回滚；写入正式目录后不删除历史，回退应用时停用公开投影，前向重跑迁移、恢复角色授权、重测当前 Provider 修订并从 current model 重建投影。
+
+### 官方积分与任务扩展（0030，P8-5）
+
+`workspace_official_credit_periods` 以 `(workspace_id, period_start)` 唯一，保存月度 grant、管理员 adjustment、reserved、consumed 和更新时间；约束保证 grant、reserved、consumed 非负，且 grant + adjustment 不得低于 reserved + consumed。`official_credit_ledger` 保存 `monthly_grant|admin_adjustment|reserve|consume|release`、整数 delta、幂等键、原因、可空 task ID 和操作者；同一 workspace 业务幂等键唯一，触发器拒绝 UPDATE/DELETE，使流水保持追加式。
+
+`generation_tasks` 增加官方 model revision、Provider revision、Provider secret、credit period、reserved cost、credit state、公开 `model_ref`、请求指纹和通用 `result_node_id`；`task_kind` 扩展为 `chat|image|video`。`billing_mode=platform` 必须同时具备全部冻结字段，`workspace_key` 行不得伪造任何官方绑定。历史 `preview_node_id` 保留兼容读取并回填 `result_node_id`，不在同一版本破坏旧 Worker。P8-8 contract 清退前，既有 `workspace_key` 创建/读取继续兼容，但它不使用官方目录、官方 secret 或积分账本。
 
 创建官方任务在一个事务中锁定 workspace 与 credit period，解析启用模型修订，验证项目/source/result node，检查 active task 限额和可用积分，再写 task、`reserve` 流水和 outbox。成功结果事务在项目图/资产/usage ledger 写入完成后把 reserve 转为 consume；最终失败/取消只释放一次。聊天结果使用受限 JSON 结构写入任务及目标节点的 task 专属结果子树，不覆盖位置、样式或后续用户编辑。
 
-### 旧用户 BYOK 清退（0028 contract）
+普通 API 只能执行任务预留和余额读取函数；Worker 只能执行租约绑定的官方任务凭据读取函数并通过 tasks 领域服务结算；Admin 只能执行积分调整和余额读取，不能直接写任务。`0030` 是 additive expand 并已登记 release manifest：发布前可事务回滚；正式写入积分/任务后若应用回退，必须停止新 Worker claim 并保留新增表列，前向修复为重跑迁移、重新授予三角色精确权限、核对账本与余额聚合、再恢复 Worker。
 
-0028 只能在新代码停止 Provider 写入、停止创建 `workspace_key` 任务、旧 Worker 停止且所有活动旧任务收敛后执行。迁移删除 `provider_credentials` 及旧访问路径，不保留密文、末四位或可恢复导出；只允许审计记录各状态行数。随后销毁外部 `PROVIDER_CREDENTIAL_KEYS`，使历史备份密文不可解密并按保留周期淘汰。
+### 旧用户 BYOK 清退（0031 contract，P8-8 预留）
 
-0028 是不可逆 contract，旧应用不能在新 schema 上恢复 BYOK 写入或执行。发布前必须有隔离恢复证据，但回滚不得重新启用已销毁的用户 Key；只能以前向修复恢复非凭据业务读取。
+0031 只能在新代码停止 Provider 写入、停止创建 `workspace_key` 任务、旧 Worker 停止且所有活动旧任务收敛后执行。迁移删除 `provider_credentials` 及旧访问路径，不保留密文、末四位或可恢复导出；只允许审计记录各状态行数。随后销毁外部 `PROVIDER_CREDENTIAL_KEYS`，使历史备份密文不可解密并按保留周期淘汰。
+
+0031 是不可逆 contract，旧应用不能在新 schema 上恢复 BYOK 写入或执行。发布前必须有隔离恢复证据，但回滚不得重新启用已销毁的用户 Key；只能以前向修复恢复非凭据业务读取。
 
 ### 浏览器本地状态
 

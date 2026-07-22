@@ -3,7 +3,6 @@ import type {
   AdminAuditPage,
   AdminAuthResult,
   AdminLoginResponse,
-  AdminMfaSetupResponse,
   AdminPermission,
   AdminRequestContext,
   AdminSession,
@@ -17,12 +16,13 @@ export interface AdminAuditQuery {
 }
 
 export interface AdminService {
-  login(input: { email: string; password: string }, context: AdminRequestContext): Promise<AdminAuthResult<AdminLoginResponse>>
+  login(input: { username: string; password: string; captchaChallengeId?: string; captchaCode?: string }, context: AdminRequestContext): Promise<AdminAuthResult<AdminLoginResponse>>
+  createLoginCaptcha(): Promise<{ enabled: boolean; challenge: { id: string; imageDataUrl: string; expiresAt: string } | null }>
+  getLoginSecuritySettings(context: AdminRequestContext): Promise<{ captchaEnabled: boolean; updatedAt: string }>
+  updateLoginSecuritySettings(input: { captchaEnabled: boolean }, context: AdminRequestContext): Promise<{ captchaEnabled: boolean; updatedAt: string }>
   getSession(context: AdminRequestContext): Promise<AdminSession>
-  setupTotp(input: { password: string }, context: AdminRequestContext): Promise<AdminAuthResult<AdminMfaSetupResponse>>
-  verifyTotp(input: { code: string }, context: AdminRequestContext): Promise<AdminAuthResult<AdminSession>>
-  verifyRecoveryCode(input: { code: string }, context: AdminRequestContext): Promise<AdminAuthResult<AdminSession>>
-  regenerateRecoveryCodes(input: { password: string }, context: AdminRequestContext): Promise<AdminAuthResult<{ recoveryCodes: string[] }>>
+  updateUsername(input: { username: string }, context: AdminRequestContext): Promise<AdminSession>
+  changePassword(input: { currentPassword: string; newPassword: string }, context: AdminRequestContext): Promise<AdminAuthResult<AdminSession>>
   logout(context: AdminRequestContext): Promise<AdminAuthResult<{ success: true }>>
   requirePermission(context: AdminRequestContext, permission: AdminPermission): Promise<AdminSession>
   listAuditEvents(query: AdminAuditQuery, context: AdminRequestContext): Promise<AdminAuditPage>
@@ -35,11 +35,12 @@ export function createUnavailableAdminService(): AdminService {
   }
   return {
     login: unavailable,
+    createLoginCaptcha: unavailable,
+    getLoginSecuritySettings: unavailable,
+    updateLoginSecuritySettings: unavailable,
     getSession: unavailable,
-    setupTotp: unavailable,
-    verifyTotp: unavailable,
-    verifyRecoveryCode: unavailable,
-    regenerateRecoveryCodes: unavailable,
+    updateUsername: unavailable,
+    changePassword: unavailable,
     logout: unavailable,
     requirePermission: unavailable,
     listAuditEvents: unavailable,

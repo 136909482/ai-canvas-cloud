@@ -5,12 +5,13 @@
 ## 已确定架构
 
 - 独立账号网站仓库，不把 Cloud 代码混入本地 Web/Electron 仓库。
-- PostgreSQL 关系化保存项目、节点、连线、任务、资产和权限。
+- PostgreSQL 关系化保存项目、节点、连线、资产和权限；浏览器生成任务不写数据库。
 - 节点类型专属数据使用 JSONB。
 - 自动保存采用增量图操作和项目版本控制。
 - `project_changes` 保存有序变更，`project_snapshots` 保存手动/定期完整检查点。
 - 私有 OSS/S3 保存图片、视频、缩略图和预览图。
-- Redis 持久化队列与独立 Worker 执行模型任务。
+- Redis 只用于 API 分布式安全限流，不承载模型生成队列。
+- 用户 Provider、模型和 API Key 只保存在浏览器加密 Vault，结果通过 Cloud 资产和项目图 API 入云。
 - 完整 `ProjectRecord` 只用于检查点、恢复和与本地版导入导出。
 
 ## 执行顺序
@@ -20,10 +21,10 @@
 3. P2：用户系统与个人空间。
 4. P3：关系化项目图与增量保存。
 5. P4：对象存储与资产治理。
-6. P5：服务端模型网关与任务 Worker。
+6. P5：服务端模型网关与任务 Worker（历史实现，P8 清退）。
 7. P6：本地/云端导入导出。
 8. P7：staging、安全、可观测性和恢复演练。
-9. P8：运营管理端、官方/自定义双生成模式与旧 BYOK 清退。
+9. P8：运营管理端、浏览器本地生成与旧服务端生成清退。
 10. P9：生产灰度与正式上线。
 11. P10：团队与协作。
 
@@ -565,7 +566,7 @@ P5-8 说明：
 - 检查 CSP/CORS/CSRF/限流/对象存储权限、指标告警、日志脱敏和资源隔离；清理测试资源后确认无孤立正式资产、永久 running、重复扣费或不可回收 staging 对象。
 - P7 完成状态只在全部门禁有可复现证据后更新；未配置真实邮件、域名/TLS、备份或告警接收端时必须保持未完成，不用本地 fake 代替 staging 验收。
 
-验收：满足本节总验收标准后才进入 P8 控制面与双模式开发，任何跨租户、凭据泄漏、恢复不一致或发布不可回退问题均阻断进入 P8。
+验收：满足本节总验收标准后才进入 P8 管理端与浏览器本地生成，任何跨租户、凭据泄漏、恢复不一致或发布不可回退问题均阻断进入 P8。
 
 交付物：
 
@@ -584,114 +585,83 @@ P5-8 说明：
 - 告警通过 request/task ID 定位，不依赖查看用户正文或密钥。
 - 所有单测、集成、E2E、安全回归、迁移和生产构建通过。
 
-## P8：运营管理端与双生成模式
+## P8：运营管理端与浏览器本地生成
 
-P8 按依赖顺序执行，不允许先做表面模式开关再补安全和数据一致性。固定顺序为：NAS/健康基线 -> Admin 安全底座 -> 网站设置 -> 官方 Provider/模型 -> 积分账本 -> 官方聊天/图片/视频任务 -> 浏览器 Vault -> 双模式 UI -> 自定义浏览器执行 -> 旧 BYOK 清退 -> 用户管理 -> staging 重验。
+P8 已取消官方模型、积分、计费和平台代生成路线。平台只提供账号、项目图、资产存储和管理能力；用户自己的 Provider、模型和 API Key 只保存在浏览器，生成结果通过既有资产上传与项目图 API 写入云端。
 
-### P8-1：NAS 环境、健康诊断与开发进程（已完成）
+固定顺序：保留已完成管理能力 -> 清理官方/服务器生成路径 -> 浏览器 Vault -> 浏览器协议适配与结果入云 -> 本地任务恢复与双设备验收 -> 用户管理与运营闭环。
 
-- 本机未提交环境使用 `192.168.1.3` 连接 PostgreSQL、Redis 和 S3/MinIO；密码、ACL 和对象存储密钥不得写入仓库。
-- `S3_ENDPOINT` 供 API/Worker 管理访问，`S3_PUBLIC_ENDPOINT` 必须能被浏览器访问并配置精确 Web Origin CORS。
-- `/health/live` 只表示进程存活；`/health/ready` 执行真实依赖操作并把失败归类为 `connection_refused`、`timeout`、`authentication_failed`、`permission_denied`、`bucket_unavailable` 或 `unknown`，不返回连接串、主机凭据或底层响应正文。
-- 增加只管理本仓库子进程的统一启动、停止和重启入口；停止前核对 PID、工作目录和命令行，不误杀其他 Node 进程。真实命令落地后再同步 README、AGENTS 和开发指南。
+### P8-1：NAS、健康诊断与开发进程（已完成）
 
-实现结果：API 与 Worker 生产入口均使用真实 PostgreSQL `SELECT 1`、Redis `PING` 和 S3 `HeadBucket`，共享健康层提供 1.5 秒有界测量及六类稳定脱敏错误；未注入真实检查时不再退化为 TCP 端口探测。Redis/BullMQ 连接边界保留底层 socket 错误供分类，但响应、指标和日志不包含连接串、凭据或底层正文。
-
-仓库已提供 `dev:start`、`dev:stop`、`dev:restart` 与 `dev:status`。每个后台服务使用独立随机所有权标记和 Git 忽略的运行记录；停止前同时核对 PID、Node 可执行文件、仓库工作目录证明、管理脚本路径、服务名和实时命令行，无法读取或任一不一致时拒绝停止。隔离端口已完成 start/status/restart/stop 实测，重启后 PID 全部更新，未触碰无所有权记录的既有 Node 进程。
-
-验收结果：本机未提交环境中的 PostgreSQL、Redis 和 MinIO 均通过 API/Worker readiness 实际检查，MinIO public endpoint 对 `http://localhost:5173` 的无凭据 Bucket `PUT` 预检返回 `204` 和精确 Origin/方法。隔离故障注入逐项验证 PostgreSQL/Redis 关闭端口为 `connection_refused`、PostgreSQL 错误密码为 `authentication_failed`、无权限对象存储凭据为 `permission_denied`、不存在 Bucket 为 `bucket_unavailable`，超时与未知错误由共享单测固定；每轮恢复真实配置后 API/Worker 都从 `503 degraded` 回到 `200 ok`。全量 328 项测试、Lint 和生产 TypeScript/Vite 构建通过；本节点没有 schema 变更，不运行迁移测试。
-
-验收：三项 NAS 依赖分别 down/up 时 API/Worker readiness 能准确 degraded -> ok；连接拒绝、超时、认证和 Bucket 权限问题有不同的脱敏原因。
+- PostgreSQL、Redis 和私有对象存储使用真实 readiness 检查并返回稳定脱敏错误分类。
+- 统一开发进程管理只停止本仓库拥有的进程。
+- Redis 后续只用于 API 安全限流，不再承载生成任务队列。
 
 ### P8-2：独立 Admin 安全底座（已完成）
 
-- 当前 monorepo 新增独立部署的 `admin-web` 和 `admin-api`；管理前端采用 Refine Core 与自定义 React UI，使用独立域名、Origin、Cookie、Auth Secret 和数据库连接角色。
-- 同一 PostgreSQL 实例建立独立 `admin` schema。管理员身份、session、account、verification 和 two-factor 数据不得被普通 API 读取；普通用户身份不能登录管理端。
-- Better Auth 管理员体系强制 TOTP MFA 和一次性恢复码。首个 `super_admin` 由一次性 CLI 交互创建，首次登录未完成 MFA 前只能访问 MFA 设置、验证和退出。
-- 固定角色为 `super_admin`、`operator`、`support`、`auditor`；不提供管理员模拟普通用户。所有管理写操作写入不可修改的脱敏审计事件。
+- Admin Web 与 Admin API 使用独立 Origin、Cookie、Auth Secret、数据库角色和 `admin` schema。
+- 管理员使用账号和密码登录；图片验证码默认关闭，可由 `super_admin` 开启。
+- 固定 RBAC、CSRF、登录限流、session 撤销和不可修改脱敏审计已落地。
 
-实现结果：新增独立 `admin-web`、`admin-api` 与固定 `admin` schema；Better Auth 管理员身份域强制 TOTP 和一次性恢复码，不支持 trusted-device 绕过。管理请求采用精确 Origin CORS、签名双提交 CSRF、独立严格 Cookie，并在 session 解析后检查 MFA、固定 RBAC、封禁和撤销状态。审计事件在写入前递归脱敏，数据库触发器拒绝 UPDATE/DELETE；普通 API 与 Admin API 使用互斥的非超级用户数据库角色。首个 `super_admin` 只能通过拒绝非 TTY 输入的 `admin:bootstrap` 交互创建，本阶段未创建永久管理员。
+### P8-3：结构化网站设置（已完成）
 
-验收结果：真实 NAS PostgreSQL 上完成 `0025_admin_security_foundation.sql`，25 个迁移的空库/升级/重跑测试与 release manifest 兼容测试通过；实测普通角色不能使用或读取 `admin` schema，Admin 角色不能读取普通身份表。真实 Better Auth 集成验证 TOTP 登录挑战、恢复码一次性消费、被封禁管理员拒绝、session 撤销、审计脱敏及不可修改，临时管理员清理后计数为 0。全量 341 项测试、Lint 和生产 TypeScript/Vite 构建通过；五项服务由统一管理器启动并完成 PID、工作目录证明和命令行核对，API/Worker readiness 对 PostgreSQL、Redis、MinIO 均返回 `200 ok`，Admin API 独立数据库 readiness 返回 `200 ok`。Admin Web 在桌面和移动视口均无空白、错误覆盖层、控制台错误或移动横向溢出。
+- 网站品牌、文案、链接、主题和功能开关使用版本化结构配置。
+- Logo/Favicon 通过受控直传、文件内容校验和不可变修订发布。
+- 公开 Web 只读取最小发布投影，失败时使用内置安全默认值。
 
-验收：未启用 MFA、角色不匹配、跨 Origin、伪造 CSRF、被封禁管理员和已撤销 session 均无法访问管理业务接口；审计不含 Key、Token、用户正文或 Provider 响应。
+### P8-4：清理官方与服务器生成路径
 
-### P8-3：结构化网站设置
+- 删除未提交的官方 Provider、官方模型、积分和平台任务代码、页面、契约、配置与文档。
+- 停止旧服务器 BYOK 写入和任务创建；移除 Provider 密文、生成 Worker、BullMQ 队列和生成任务 API。
+- 保留 Redis 服务用于 API 限流；不再恢复或备份生成队列。
+- 整理 P8 迁移：`0026` 只保留网站设置，`0027`/`0028` 保留；新增 contract migration 删除旧 Provider/任务表和授权。
+- 当前没有真实 Provider 或任务数据，可重建本地开发数据库；迁移仍需登记 release manifest、兼容边界和前向修复。
 
-- 网站名称、短名称、Logo、Favicon、备案、帮助/法律链接、首页与 Footer 文案、主题预设、导航枚举和功能开关使用版本化结构配置。
-- Logo/Favicon 使用独立站点资产，只接受经 MIME、文件魔数、大小和尺寸校验的 PNG/JPEG/WebP/ICO；不接受 SVG、HTML、任意 JavaScript、CSS 或可视化页面搭建数据。
-- 保存先校验并创建不可变修订，再原子切换当前修订；公开 Web 只读取当前发布字段，失败时回退内置安全默认值。
+验收：普通 API、Admin API、部署环境、数据库和新备份均不存在可用的用户 Provider 密文、官方目录、积分或服务器生成入口。
 
-验收：任意保存失败不影响上一发布修订；公开配置不携带管理字段、对象 key、凭据或可执行内容。
+### P8-5：浏览器本地 Vault
 
-### P8-4：官方 Provider 与模型目录
+- Provider、endpoint、API Key、模型和绑定关系进入同一个版本化 IndexedDB Vault，按 Origin 与可信用户 ID 隔离。
+- 默认使用不可导出的 WebCrypto AES-GCM Key 加密并记住此设备，同时支持仅本次会话和忘记此设备。
+- 登出清空内存明文；忘记设备删除密文、CryptoKey、绑定和本地任务缓存。
+- 旧本地配置一次性迁入 Vault，成功后删除旧明文缓存。
+- 生产 endpoint 强制 HTTPS，拒绝 URL 凭据和 fragment；连接测试由浏览器直连。
 
-- 官方 Provider 使用独立于旧用户 BYOK 的密钥环；Admin API 只能录入、轮换、测试和删除 Key，列表只返回状态及末四位，明文不可再次读取。
-- Provider 协议、HTTPS endpoint 和能力使用受控 adapter；拒绝 URL 凭据、fragment、回环、链路本地和未显式允许的内网地址，客户端不能提交 target URL。
-- 官方模型首期支持 `chat`、`image`、`video`。模型保存立即生效，但每次保存创建不可变 Provider/模型修订，已排队任务绑定创建时修订，不受后续修改影响。
-- 模型修订保存显示名、类型、能力、真实模型键、参数策略、整数积分成本、排序和启用状态。首次启用或执行 endpoint 变化后，必须对同一修订连接测试成功。
+验收：IndexedDB 密文、localStorage、项目图、Cloud API 请求、诊断和日志均不包含 Key 明文。
 
-验收：用户目录只返回启用模型的展示信息、能力和积分成本，不返回真实 endpoint、Provider Key 或内部密钥版本。
+### P8-6：浏览器生成与结果入云
 
-### P8-5：官方积分与任务执行
+- 首期只支持受控的 OpenAI Compatible 与阿里 DashScope chat/image/video adapter；允许自定义 endpoint 和模型 ID，不支持任意脚本或请求模板。
+- 浏览器读取 Vault 并调用第三方 Provider，平台 API 不接收 Key、endpoint、真实模型 ID 或任意 target URL。
+- Base64/二进制结果转换为 Blob；结果 URL 必须允许浏览器 CORS 下载，或由用户使用自己的固定 CORS 网关。
+- 媒体沿用创建上传会话、签名 URL 直传、完成确认和项目图领域写入；聊天文本通过正常图增量保存。
+- 云端节点只保存匿名 `local:<uuid>` 引用，不保存真实 Provider、endpoint、模型 ID 或显示名。
 
-- 官方额度使用工作区 UTC 自然月整数积分，不接支付、订单、套餐、退款或自动续费；管理员可带原因和幂等键人工调整。
-- 任务创建事务锁定当月余额并写 `reserve`；成功写入项目结果后转为 `consume`，最终失败或取消写 `release`，重试沿用原预留，跨月任务绑定创建时月份。
-- 官方任务请求只提交 `official:<model-id>`、节点和参数；服务端解析 Provider、真实模型、修订、`billing_mode=platform` 和积分成本，拒绝客户端 Provider、Base URL、Key 或计费模式。
-- 图片/视频复用现有租约、重试、结果转存、资产引用和 worker 图事务。聊天新增可恢复的服务端异步 processor，首期不做 token 流式输出；页面关闭和 API/Worker 重启后仍能恢复。
+验收：生成结果可稳定进入私有对象存储和当前项目；拦截所有 Cloud 请求时不出现用户 Provider 配置。
 
-验收：并发创建不能透支，成功/失败/取消/重试不重复消费或释放；模型修订更新不改变已排队任务；聊天、图片、视频结果都通过领域事务进入当前项目。
+### P8-7：本地任务恢复与双设备绑定
 
-### P8-6：浏览器本地密钥 Vault
+- 生成任务只保存在内存或加密 IndexedDB，不写 PostgreSQL。
+- 同步任务关闭页面即中断；异步 Provider 已取得 remote task ID 时，同一设备可重新打开并继续轮询。
+- 新设备缺少匿名模型引用时明确显示不可用，并允许用户手动绑定本机 Provider/模型；不得自动按名称或 ID 替换。
+- 项目导入导出不携带 Provider 配置、Key 或本地任务缓存。
 
-- 自定义模式的 Provider、API Key、模型和绑定关系放在同一个版本化 IndexedDB Vault，按 Origin 与登录用户 ID 隔离，修复现有服务商云端同步而模型只在本机缓存的生命周期分裂。
-- “仅本次会话”只保存在内存；“记住此设备”使用不可导出的 WebCrypto AES-GCM `CryptoKey`、随机 IV 和版本化 AAD 加密后保存。退出清空内存明文，“忘记此设备”删除密文、CryptoKey、模式和本地任务缓存。
-- 生产环境自定义 endpoint 只允许 HTTPS，拒绝 URL 用户名/密码和 fragment。连接测试由浏览器直连；Provider 必须支持 CORS，或用户使用其自建的固定目标 CORS 网关，平台不提供任意公网代理。
-- Vault 加密保护离线缓存，不宣称抵御正在页面中执行的 XSS 或恶意浏览器扩展；P8 同步收紧 CSP、依赖审计和前端日志脱敏。
+验收：两个账号、两个浏览器设备之间不泄露或隐式同步 Vault；手动绑定后可继续使用同一云端项目。
 
-验收：IndexedDB、Zustand 持久化、项目图、服务端请求和诊断中都不存在 Key 明文；同一设备 Provider 与模型总是一起恢复，不同设备不会隐式同步自定义配置。
+### P8-8：用户管理、运营与最终安全验收
 
-### P8-7：互斥模式、模型命名空间与浏览器执行
-
-- 固定 `GenerationMode = official | custom`，按账号和设备保存，新设备默认官方模式。设置页使用互斥分段控制，当前模式只展示并使用对应模型，切换不删除另一模式配置。
-- 模型引用使用 `official:<model-id>` 与 `local:<provider-id>:<model-id>`。项目节点来源与当前模式不匹配时显示不可用，并提供切换模式或显式替换模型；不得自动替换。
-- 旧裸模型 ID 只在能唯一匹配官方目录或当前设备本地配置时迁移；歧义或无法匹配时保留并要求用户选择。
-- `TaskQueueRunner` 按任务冻结的生成模式分流。自定义聊天、图片、视频复用现有浏览器 adapter；媒体结果仍通过 Cloud 资产上传和项目图领域 API 收敛，聊天结果通过正常图增量保存。
-- 自定义任务不创建官方服务端任务、不使用官方积分；页面关闭后不继续执行，同设备重新打开仅在 Provider 支持查询且本地 remote task ID 完整时尝试恢复。
-
-验收：官方与自定义模型不混排；官方任务关闭页面后继续，自定义任务停止；公司电脑保存的自定义 Provider 和模型不会出现在家中设备，也不会出现只同步其中一类的状态。
-
-### P8-8：旧服务端 BYOK 一次性清退
-
-- 新代码先停止创建 `workspace_key` 任务并关闭旧 Provider 写入/测试入口；维护窗口停止旧 Worker，取消或收敛全部 queued/running `workspace_key` 任务。
-- contract migration 删除 `provider_credentials` 及旧访问路径，只保留不含末四位和密文的数量审计；随后从 API、Worker 和部署 Secret 销毁 `PROVIDER_CREDENTIAL_KEYS`。
-- 官方 Provider 使用全新独立密钥环。历史备份中的旧密文因旧密钥销毁而不可解密，并按既有保留周期淘汰；不宣称备份介质已即时物理擦除。
-- 该清退不提供数据回滚。旧应用回退只能读取历史项目/任务，不能恢复旧 Key 或重新执行旧 BYOK 任务。
-
-验收：数据库、运行环境和新备份均不存在可解密用户 BYOK；旧客户端不能重新写入旧表或创建第三种执行模式。
-
-### P8-9：用户管理与运营闭环
-
-- 管理端可按用户编号、邮箱、状态查询注册、验证、工作区、官方积分和任务统计，但不读取项目正文、Prompt、资产内容或自定义 Key。
-- `support`/`super_admin` 可带原因封禁、解封用户并撤销其全部 session/设备；操作必须经过认证领域服务和审计，不由路由直接改表。
-- 积分调整、Provider/模型启停、站点设置和用户操作均可按管理员、动作、目标、结果和时间查询脱敏审计。
-- 仪表盘只展示注册、活跃用户、任务、失败率、积分、队列和依赖健康聚合，不展示用户内容。
-
-### P8-10：迁移、安全与双设备验收
-
-- 数据库迁移至少覆盖从 0024 升级、空库、中断重跑、新旧应用兼容窗口、Admin schema 权限、积分并发和最终 BYOK contract 清退；每项登记 release manifest。
-- 管理安全测试覆盖 MFA、恢复码、RBAC、CSRF、CORS、Cookie 隔离、登录限流、封禁、session 撤销、审计不可修改和秘密脱敏。
-- 官方任务测试覆盖 chat/image/video 成功、失败、取消、重试、节点删除、Worker 重启、模型修订更新、Key 轮换、积分幂等和页面关闭恢复。
-- 双设备 E2E 验证设备 A 的本地 Provider/模型不出现在设备 B；双模式 E2E 验证列表不混合、切换不删配置、节点不自动换模型、Key 不进入服务器。
-- 完成桌面/移动视觉检查、NAS 故障注入、全量 test/lint/build、迁移测试、schema 兼容测试、两账号隔离和 staging 恢复演练后，才允许进入 P9。
+- Admin 可查询用户、验证状态、工作区和存储用量，但不读取项目正文、Prompt、资产内容或本地 Provider 配置。
+- 支持带原因的封禁、解封和 session 撤销，并写不可修改脱敏审计。
+- 仪表盘只展示注册、活跃、存储、认证安全和基础设施健康聚合。
+- 完成全量测试、迁移/角色检查、依赖审计、两账号与双设备 E2E、桌面/390px 浏览器检查和 staging 恢复演练后进入 P9。
 
 ## P9：生产灰度与正式上线
 
 交付物：
 
-- 正式域名、HTTPS、Web CDN、API、Worker、PostgreSQL、Redis、对象存储和邮件服务。
+- 正式域名、HTTPS、Web CDN、API、Admin、PostgreSQL、Redis、对象存储和邮件服务。
 - 部署平台密钥管理和环境隔离。
-- 邀请制/灰度开关、用户配额和紧急停用 Provider 开关。
+- 邀请制/灰度开关、用户存储配额和紧急停写开关。
 - 最小运营诊断能力。
 - 用户协议、隐私政策、数据导出与账号删除流程。
 - 面向中国大陆运营时的备案、内容安全和适用合规检查。
@@ -700,9 +670,9 @@ P8 按依赖顺序执行，不允许先做表面模式开关再补安全和数�
 上线门槛：
 
 - 两个真实账号在不同浏览器完成全链路隔离验证。
-- 生产域名官方模型调用不依赖 Vite 开发代理或浏览器密钥；自定义模式只依赖当前设备 Vault，并且 Key 不经过平台服务器。
+- 生产域名的浏览器生成不依赖 Vite 开发代理；用户 Key 只存在当前设备 Vault，Cloud 请求不携带 Provider 配置。
 - 数据库自动备份与恢复演练通过，对象存储具备误删恢复策略。
-- 关闭页面任务继续、服务重启恢复、失败重试和用量幂等通过。
+- 同设备异步任务恢复、浏览器中断处理、失败重试和结果上传幂等通过。
 - 回滚应用能够读取发布前数据，不可逆迁移不与首发应用同时发布。
 
 ## P10：团队与协作（P9 后评估）

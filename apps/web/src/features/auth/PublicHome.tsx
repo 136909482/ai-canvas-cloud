@@ -9,28 +9,29 @@ import {
   Sparkles,
   WandSparkles,
 } from 'lucide-react'
+import { FALLBACK_SITE_CONFIG, fetchPublicSiteConfig } from '@/api/siteConfig'
 
 interface PublicHomeProps {
   onLogin: () => void
   onRegister: () => void
 }
 
-function Brand() {
+function Brand({ config, logoUrl }: { config: SiteConfigDocument; logoUrl: string }) {
   return (
-    <a href="/" className="home-brand" aria-label="AI Canvas 首页">
+    <a href="/" className="home-brand" aria-label={`${config.shortName} 首页`}>
       <img
-        src="/brand/ai-canvas-mark.png"
+        src={logoUrl}
         alt=""
         className="home-brand__mark"
         width="36"
         height="36"
       />
-      <span className="home-brand__name">AI Canvas</span>
+      <span className="home-brand__name">{config.shortName}</span>
     </a>
   )
 }
 
-function CanvasScene() {
+function CanvasScene({ logoUrl }: { logoUrl: string }) {
   return (
     <div className="home-canvas-scene" aria-hidden="true">
       <div className="home-canvas-scene__grid" />
@@ -43,7 +44,7 @@ function CanvasScene() {
           <span>参考图</span>
         </div>
         <div className="home-scene-source-image">
-          <img src="/brand/ai-canvas-mark.png" alt="" />
+          <img src={logoUrl} alt="" />
         </div>
         <span className="home-scene-handle home-scene-handle--right" />
       </div>
@@ -69,7 +70,7 @@ function CanvasScene() {
         </div>
         <div className="home-scene-result-image">
           <div className="home-scene-result-object">
-            <img src="/brand/ai-canvas-mark.png" alt="" />
+            <img src={logoUrl} alt="" />
           </div>
         </div>
         <span className="home-scene-handle home-scene-handle--left" />
@@ -79,37 +80,60 @@ function CanvasScene() {
 }
 
 export function PublicHome({ onLogin, onRegister }: PublicHomeProps) {
+  const [site, setSite] = useState<PublicSiteConfigResponse>(FALLBACK_SITE_CONFIG)
+  useEffect(() => {
+    let active = true
+    let refreshTimer: number | undefined
+    const refresh = async () => {
+      const value = await fetchPublicSiteConfig()
+      if (!active) return
+      setSite(value)
+      if (value.assets.favicon?.url) {
+        const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link')
+        icon.rel = 'icon'
+        icon.href = value.assets.favicon.url
+        icon.type = value.assets.favicon.mimeType
+        if (!icon.parentNode) document.head.appendChild(icon)
+      }
+      document.title = value.config.siteName
+      document.documentElement.dataset.siteThemePreset = value.config.themePreset
+      const expiries = [value.assets.logo?.expiresAt, value.assets.favicon?.expiresAt]
+        .filter((item): item is string => Boolean(item))
+        .map((item) => new Date(item).getTime())
+      const delay = expiries.length > 0 ? Math.max(60_000, Math.min(...expiries) - Date.now() - 30_000) : 5 * 60_000
+      refreshTimer = window.setTimeout(() => void refresh(), delay)
+    }
+    void refresh()
+    return () => { active = false; if (refreshTimer) window.clearTimeout(refreshTimer) }
+  }, [])
+  const config = site.config
+  const logoUrl = site.assets.logo?.url ?? '/brand/ai-canvas-mark.png'
   return (
     <main className="home-shell">
       <header className="home-header">
         <div className="home-header__inner">
-          <Brand />
+          <Brand config={config} logoUrl={logoUrl} />
           <div className="home-header__actions">
             <button type="button" className="home-login-button" onClick={onLogin}>
               <LogIn aria-hidden="true" />
               <span>登录</span>
             </button>
-            <button type="button" className="home-register-button" onClick={onRegister}>
-              免费注册
-              <ArrowRight aria-hidden="true" />
-            </button>
+            {config.features.registrationEnabled ? <button type="button" className="home-register-button" onClick={onRegister}>免费注册<ArrowRight aria-hidden="true" /></button> : null}
           </div>
         </div>
       </header>
 
       <section className="home-hero">
-        <CanvasScene />
+        <CanvasScene logoUrl={logoUrl} />
         <div className="home-hero__shade" />
         <div className="home-hero__content">
-          <h1>AI Canvas</h1>
-          <p className="home-hero__lead">让创意，在画布上自然生长</p>
-          <p className="home-hero__description">
-            把灵感、素材与 AI 生成工作流放进同一张画布，随时回来，继续创作。
-          </p>
+          <h1>{config.home.headline}</h1>
+          <p className="home-hero__lead">{config.home.lead}</p>
+          <p className="home-hero__description">{config.home.description}</p>
           <div className="home-hero__actions">
             <button type="button" className="home-primary-action" onClick={onLogin}>
               <WandSparkles aria-hidden="true" />
-              开始创作
+              {config.home.primaryActionLabel}
               <ArrowRight aria-hidden="true" />
             </button>
           </div>
@@ -152,43 +176,44 @@ export function PublicHome({ onLogin, onRegister }: PublicHomeProps) {
       <footer className="home-footer">
         <div className="home-footer__main">
           <div className="home-footer__brand">
-            <a href="/" aria-label="AI Canvas 首页">
-              <img src="/brand/ai-canvas-mark.png" alt="" width="42" height="42" />
-              <span>AI Canvas</span>
+            <a href="/" aria-label={`${config.shortName} 首页`}>
+              <img src={logoUrl} alt="" width="42" height="42" />
+              <span>{config.shortName}</span>
               <small>Cloud</small>
             </a>
-            <p>面向创作者的云端 AI 画布。</p>
+            <p>{config.footer.description}</p>
           </div>
 
           <div className="home-footer__links">
-            <div>
+            {config.navigation.includes('home') ? <div>
               <h3>产品</h3>
               <button type="button" onClick={onLogin}>开始创作</button>
-            </div>
-            <div>
+            </div> : null}
+            {config.navigation.includes('help') ? <div>
               <h3>支持</h3>
-              <span>帮助中心</span>
-              <span>问题反馈</span>
-              <span className="home-footer__pending">联系方式待补充</span>
-            </div>
-            <div>
+              {config.links.helpUrl ? <a href={config.links.helpUrl}>帮助中心</a> : null}
+              {config.features.feedbackEnabled && config.links.feedbackUrl ? <a href={config.links.feedbackUrl}>问题反馈</a> : null}
+            </div> : null}
+            {config.navigation.includes('legal') ? <div>
               <h3>法律</h3>
-              <span>用户协议</span>
-              <span>隐私政策</span>
-              <span>账号注销说明</span>
-            </div>
+              {config.links.termsUrl ? <a href={config.links.termsUrl}>用户协议</a> : null}
+              {config.links.privacyUrl ? <a href={config.links.privacyUrl}>隐私政策</a> : null}
+              {config.links.accountDeletionUrl ? <a href={config.links.accountDeletionUrl}>账号注销说明</a> : null}
+            </div> : null}
           </div>
         </div>
 
         <div className="home-footer__bottom">
-          <span>© 2026 AI Canvas Cloud</span>
+          <span>{config.footer.copyright}</span>
           <div className="home-footer__records">
-            <span>企业主体信息待补充</span>
-            <span>ICP备案号待补充</span>
-            <span>公安备案号待补充</span>
+            {config.records.companyName ? <span>{config.records.companyName}</span> : null}
+            {config.records.icpNumber ? <span>{config.records.icpNumber}</span> : null}
+            {config.records.publicSecurityNumber ? <span>{config.records.publicSecurityNumber}</span> : null}
           </div>
         </div>
       </footer>
     </main>
   )
 }
+import { useEffect, useState } from 'react'
+import type { PublicSiteConfigResponse, SiteConfigDocument } from '@ai-canvas-cloud/contracts'

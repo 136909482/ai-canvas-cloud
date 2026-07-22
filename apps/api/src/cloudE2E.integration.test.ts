@@ -12,17 +12,13 @@ import {
 import {
   createPostgresAssetService,
   createPostgresAuthService,
-  createPostgresGenerationTaskService,
   createPostgresMigrationAssetUploadService,
   createPostgresMigrationExportService,
   createPostgresMigrationImportService,
   createPostgresProjectGraphService,
   createPostgresProjectService,
   createPostgresProjectSnapshotService,
-  createPostgresProviderCredentialService,
   createPostgresWorkspaceUsageService,
-  createProviderAdapter,
-  createProviderCredentialCipher,
   createS3ObjectStorage,
   createWorkspaceAuthorizationService,
   loadDotEnv,
@@ -133,7 +129,7 @@ function errorCode(response: JsonResponse) {
   return (response.body as { error?: { code?: string } }).error?.code
 }
 
-test('cloud API two-account E2E keeps projects, graph, assets, tasks, providers, sessions and devices isolated', {
+test('cloud API two-account E2E keeps projects, graph, assets, sessions and devices isolated', {
   skip: databaseUrl && s3Endpoint && s3Bucket && s3Region && s3AccessKeyId && s3SecretAccessKey
     ? false
     : 'DATABASE_URL and S3 test dependencies are not configured',
@@ -154,7 +150,7 @@ test('cloud API two-account E2E keeps projects, graph, assets, tasks, providers,
       options: `-c search_path=${schemaName},public`,
     })
     const migrations = (await readdir(join(process.cwd(), 'server', 'db', 'migrations')))
-      .filter((fileName) => fileName.endsWith('.sql') && !fileName.startsWith('0025_'))
+      .filter((fileName) => fileName.endsWith('.sql') && !/^002[5-9]_/.test(fileName))
       .sort()
     for (const fileName of migrations) {
       await pool.query(await readFile(join(process.cwd(), 'server', 'db', 'migrations', fileName), 'utf8'))
@@ -183,15 +179,6 @@ test('cloud API two-account E2E keeps projects, graph, assets, tasks, providers,
     const projectGraphService = createPostgresProjectGraphService(pool, { authorizationService: authorization })
     const projectSnapshotService = createPostgresProjectSnapshotService(pool, { authorizationService: authorization })
     const workspaceUsageService = createPostgresWorkspaceUsageService(pool, { authorizationService: authorization })
-    const providerService = createPostgresProviderCredentialService(pool, {
-      authorizationService: authorization,
-      adapter: createProviderAdapter({ fetch: async () => new Response('', { status: 200 }) }),
-      cipher: createProviderCredentialCipher({
-        activeVersion: 1,
-        keys: new Map([[1, Buffer.alloc(32, 7)]]),
-      }),
-    })
-    const taskService = createPostgresGenerationTaskService(pool, { authorizationService: authorization })
     const migrationImportService = createPostgresMigrationImportService(pool, { authorizationService: authorization })
     const migrationAssetUploadService = createPostgresMigrationAssetUploadService(pool, objectStorage, { authorizationService: authorization })
     const migrationExportService = createPostgresMigrationExportService(pool, objectStorage, { authorizationService: authorization })
@@ -215,8 +202,6 @@ test('cloud API two-account E2E keeps projects, graph, assets, tasks, providers,
       s3Region: s3Region!,
       s3AccessKeyId: s3AccessKeyId!,
       s3SecretAccessKey: s3SecretAccessKey!,
-      providerCredentialKeys: `1:${Buffer.alloc(32, 7).toString('base64')}`,
-      providerCredentialActiveKeyVersion: 1,
       devSeedAdmin: false,
       devSeedAdminEmail: 'disabled@example.invalid',
       authEmailTransport: 'development',
@@ -231,8 +216,6 @@ test('cloud API two-account E2E keeps projects, graph, assets, tasks, providers,
       projectGraphService,
       projectSnapshotService,
       workspaceUsageService,
-      providerCredentialService: providerService,
-      generationTaskService: taskService,
       migrationImportService,
       migrationAssetUploadService,
       migrationExportService,
@@ -321,31 +304,8 @@ test('cloud API two-account E2E keeps projects, graph, assets, tasks, providers,
     assert.equal(checkpoint.statusCode, 201)
     assert.equal((await accountB.request(port, 'GET', `/api/v1/projects/${projectA}/revisions`)).statusCode, 404)
 
-    const provider = await accountA.request(port, 'PUT', '/api/v1/settings/providers/openai', {
-      websiteUrl: 'https://openai.com',
-      apiKey: `e2e-provider-${runId}`,
-    })
-    assert.equal(provider.statusCode, 200)
-    assert.equal((provider.body as { provider: { websiteUrl: string } }).provider.websiteUrl, 'https://openai.com')
-    const providerListB = await accountB.request(port, 'GET', '/api/v1/settings/providers')
-    assert.equal(providerListB.statusCode, 200)
-    assert.equal((providerListB.body as { providers: Array<{ providerId: string; configured: boolean }> }).providers.length, 0)
-
-    const task = await accountA.request(port, 'POST', '/api/v1/tasks', {
-      projectId: projectA,
-      sourceNodeId,
-      previewNodeId,
-      kind: 'image',
-      providerId: 'openai',
-      model: 'gpt-image-2',
-      parameters: { prompt: `task-${runId}` },
-      idempotencyKey: `task-${runId}`,
-    })
-    assert.equal(task.statusCode, 201)
-    const taskId = (task.body as { task: { id: string } }).task.id
-    assert.equal((await accountB.request(port, 'GET', `/api/v1/tasks/${taskId}`)).statusCode, 404)
-    assert.equal((await accountB.request(port, 'POST', `/api/v1/tasks/${taskId}/cancel`, { idempotencyKey: `forged-cancel-${runId}` })).statusCode, 404)
-    assert.equal((await accountA.request(port, 'GET', `/api/v1/tasks/${taskId}`)).statusCode, 200)
+    assert.equal((await accountA.request(port, 'GET', '/api/v1/settings/providers')).statusCode, 404)
+    assert.equal((await accountA.request(port, 'GET', '/api/v1/tasks')).statusCode, 404)
 
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
     const asset = await accountA.request(port, 'POST', '/api/v1/assets/uploads', {
@@ -384,7 +344,6 @@ test('cloud API two-account E2E keeps projects, graph, assets, tasks, providers,
     server = createServer()
     port = await listen(server)
     assert.equal((await accountA.request(port, 'GET', '/api/v1/auth/session')).statusCode, 200)
-    assert.equal((await accountA.request(port, 'GET', `/api/v1/tasks/${taskId}`)).statusCode, 200)
     assert.equal((await accountB.request(port, 'GET', `/api/v1/projects/${projectA}`)).statusCode, 404)
 
     const takeover = new BrowserContext(`cloud-e2e-a-takeover/${runId}`, `device-a-takeover-${runId}`)

@@ -4,14 +4,12 @@ import type { AdminPermission, AdminPrincipal, AdminRole } from './types.js'
 const ROLE_PERMISSIONS: Readonly<Record<AdminRole, ReadonlySet<AdminPermission>>> = {
   super_admin: new Set([
     'audit.read',
+    'security.write',
     'site_config.write',
-    'provider.write',
-    'model.write',
-    'credits.write',
     'user.read',
     'user.write',
   ]),
-  operator: new Set(['audit.read', 'site_config.write', 'provider.write', 'model.write', 'credits.write']),
+  operator: new Set(['audit.read', 'site_config.write']),
   support: new Set(['audit.read', 'user.read', 'user.write']),
   auditor: new Set(['audit.read']),
 }
@@ -25,7 +23,12 @@ const MAX_AUDIT_STRING = 256
 
 export class AdminAccessError extends Error {
   readonly statusCode: number
-  readonly code: 'AUTH_REQUIRED' | 'ADMIN_MFA_REQUIRED' | 'ADMIN_ACCESS_DENIED' | 'VALIDATION_FAILED' | 'SERVICE_UNAVAILABLE'
+  readonly code:
+    | 'AUTH_REQUIRED'
+    | 'ADMIN_ACCESS_DENIED'
+    | 'RESOURCE_NOT_FOUND'
+    | 'VALIDATION_FAILED'
+    | 'SERVICE_UNAVAILABLE'
 
   constructor(
     statusCode: number,
@@ -45,9 +48,6 @@ export function assertAdminAccess(
 ) {
   if (principal.status === 'banned') {
     throw new AdminAccessError(403, 'ADMIN_ACCESS_DENIED', 'Administrator access is disabled')
-  }
-  if (!principal.twoFactorEnabled) {
-    throw new AdminAccessError(403, 'ADMIN_MFA_REQUIRED', 'Multi-factor authentication is required')
   }
   if (permission && !ROLE_PERMISSIONS[principal.role].has(permission)) {
     throw new AdminAccessError(403, 'ADMIN_ACCESS_DENIED', 'Administrator role is not permitted')

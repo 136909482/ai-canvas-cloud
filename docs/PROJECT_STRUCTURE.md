@@ -10,7 +10,7 @@ apps/
   api/                 HTTP 入口、路由、中间件和健康检查
   worker/              持久化队列消费者与后台任务
   admin-web/           Refine Core + 自定义 React 运营管理前端（P8-2 已建立）
-  admin-api/           独立管理员认证、CSRF、MFA、RBAC 与管理 HTTP 入口（P8-2 已建立）
+  admin-api/           独立管理员认证、CSRF、可选验证码、RBAC 与管理 HTTP 入口（P8-2 已建立）
 
 packages/
   contracts/           API 请求/响应、错误码和运行时 schema
@@ -28,9 +28,10 @@ server/
     project-snapshots/ 手动/定期检查点、历史摘要/详情、restore 与历史 manifest 修复（P3/P4 建立）
     assets/            资产上传/读取、MinIO/S3 适配、配额协作、对象诊断和受控 GC（P4 建立）
     migrations/        本地/Cloud 导入导出会话、预检、归档生成、状态与事务编排（P6-2/P6-6 建立）
-    tasks/             任务状态机、任务 HTTP、尝试/命令与提交防重复持久化边界（P5-1/P5-3/P5-7 建立）
-    providers/         Provider 注册表、BYOK 加解密、配置持久化、执行 adapter 与幂等能力声明（P5-2/P5-6/P5-7 建立）
-    admin/             Admin Better Auth、MFA、RBAC 与追加式脱敏审计；后续扩展站点/官方目录/积分/用户运营
+    tasks/             BYOK/官方任务状态机、预留/结算、尝试/命令、结果与提交防重复边界（P5/P8-5 建立）
+    providers/         Provider adapter、BYOK 与官方任务租约绑定凭据边界（P5/P8-4/P8-5 建立）
+    official-credits/  当前工作区官方积分余额读取与公开投影（P8-5 建立）
+    admin/             Admin 认证、验证码、RBAC、站点/官方目录/积分服务与追加式脱敏审计
   shared/              仅服务端使用的配置、日志和基础设施适配（后续按需建立）
 
 infra/
@@ -62,6 +63,7 @@ apps/worker
   -> server/modules/tasks
   -> server/modules/assets
   -> server/modules/project-graph
+  -> server/modules/providers（仅任务租约绑定凭据）
   -> packages/provider-adapters
 
 apps/admin-web
@@ -83,15 +85,23 @@ apps/admin-api
 - `apps/web` 不 import `server/`、数据库驱动、Redis 或对象存储管理 SDK。
 - Provider adapter 不直接修改项目图；结果通过 tasks/project-graph 领域服务提交。
 - `apps/admin-api` 不直接修改项目图、资产、任务或普通认证表；用户封禁、session 撤销、积分和官方目录操作通过对应领域服务。
-- `apps/api` 不读取 Admin 认证/MFA/审计表，也不解密官方 Provider Key。
+- `apps/api` 不读取 Admin 认证、登录安全或审计表，也不解密官方 Provider Key。
 
 ## P8 应用与权限方向
 
-`apps/admin-web` 使用 Refine Core 组织资源、权限和数据请求，但页面组件保持仓库自定义设计。它只调用独立 `admin-api`，不复用普通用户 API Cookie，不 import 普通 Web Zustand store，也不接触数据库或 Provider 密钥。管理端不从普通网站导航暴露入口，真实安全依赖独立认证、MFA 和授权，而不是隐藏 URL。
+`apps/admin-web` 使用 Refine Core 组织资源、权限和数据请求，但页面组件保持仓库自定义设计。它只调用独立 `admin-api`，不复用普通用户 API Cookie，不 import 普通 Web Zustand store，也不接触数据库或 Provider 密钥。管理端不从普通网站导航暴露入口，真实安全依赖独立认证、可选图片验证码和授权，而不是隐藏 URL。
 
-`apps/admin-api` 负责管理员 HTTP、Cookie/CSRF、MFA 门禁、RBAC、请求 schema 和错误映射。站点设置、官方 Provider/模型、积分、用户状态和审计实现在 `server/modules/admin`；用户 session 撤销通过普通 auth 模块公开的受控管理能力，不能由路由直接 SQL。官方 Provider 连接测试只能使用已保存 revision 的固定 endpoint 和 adapter，不能接受请求体 target URL。
+`apps/admin-api` 负责管理员 HTTP、Cookie/CSRF、登录验证码、RBAC、请求 schema 和错误映射。管理员账号登录、验证码挑战/开关、账号修改、Better Auth 密码修改和其他 session 撤销由 `server/modules/admin/postgresAdminService.ts` 统一负责，路由不得直接更新身份表、登录安全表或密码哈希。站点设置、官方 Provider/模型、积分、用户状态和审计实现在 `server/modules/admin`；普通用户 session 撤销通过普通 auth 模块公开的受控管理能力，不能由路由直接 SQL。官方 Provider 连接测试只能使用已保存 revision 的固定 endpoint 和 adapter，不能接受请求体 target URL。
 
-数据库角色至少区分 migration、普通 API、Worker 和 Admin API。普通 API 只可读取已发布站点配置、官方模型公开投影和积分所需业务表；Worker 只可读取任务绑定的官方 revision/密文并写任务领域结果；Admin API 可管理 `admin` schema 和经领域服务批准的用户/工作区字段。Admin 认证表和审计表不授予普通 API/Worker 读取权限。
+P8-3 的站点配置边界位于 `server/modules/admin/siteConfigService.ts`：Admin 服务编排品牌资产预签名上传、对象内容复核、不可变修订、当前指针、公开投影和同事务审计；普通 API 只实例化其中的只读公开服务并对对象 URL做短期签名。`apps/admin-web/src/SiteConfigView.tsx` 只编辑 contracts 结构、调用固定 Admin API 和执行无 Cookie 直传，`apps/web/src/api/siteConfig.ts` 只读取公开投影并回退内置默认值。
+
+P8-4 的官方目录边界位于 `server/modules/admin/officialCatalogService.ts`：Admin 服务独占 Key 加解密、DNS/endpoint 检查、连接测试事实、Provider/模型不可变修订、current 切换、公开投影和审计；普通 API 只实例化只读公开目录服务。`packages/contracts/src/officialCatalog.ts` 是能力和参数策略的同源运行时 schema，`apps/admin-web/src/OfficialCatalogView.tsx` 只持有表单期 Key 并调用固定 Admin API，不读取密文或拼接 Provider endpoint。
+
+P8-5 的积分与任务边界位于 `server/modules/official-credits`、`server/modules/admin/officialCreditService.ts`、`server/modules/tasks` 和 `server/modules/providers/officialCredentialService.ts`。API 路由只传可信 actor 与 contracts 请求；任务领域事务冻结官方修订、secret、月份和成本并维护 reserve/consume/release；Admin 积分调整与审计同事务；Worker 只能以有效 lease 读取单个任务绑定的执行凭据。`apps/worker/src/officialTaskProcessor.ts` 只编排受控 adapter 和任务领域服务，不直接写节点、资产引用、积分表或 Provider 目录。
+
+`apps/admin-web/src/OfficialCreditsView.tsx` 通过固定 Admin API 完成人工积分调整和余额展示；组件只持有表单期 workspace UUID、delta、原因和幂等键，不查询普通用户表，也不接触连接串或账本 SQL。
+
+数据库角色区分 migration、普通 API、Worker 和 Admin API。普通 API 只可读取公开投影并执行官方任务预留/余额函数，不获得 `admin` schema USAGE；Worker 不获得 `admin` schema 或普通身份表读取权限，只可执行租约绑定的官方凭据函数并写任务领域结果；Admin API 可管理 `admin` schema、发布两个 public 投影并执行积分调整/余额函数，但不能写任务。Admin 认证表和审计表不授予普通 API/Worker 读取权限。
 
 `apps/web` 的 P8 客户端新增三条内部边界：generation mode 只决定模型来源和任务分流；本地 Vault 独占 IndexedDB/WebCrypto 和明文生命周期；现有 Cloud platform adapter 继续独占资产上传和图增量。组件不能自行读写 IndexedDB 密文、拼接官方 endpoint 或把本地 Key 放入 Zustand 持久化。
 

@@ -33,7 +33,7 @@ test('PostgreSQL asset reads require completed state and isolate two workspaces'
     })
 
     const migrationFiles = (await readdir(join(process.cwd(), 'server', 'db', 'migrations')))
-      .filter((fileName) => fileName.endsWith('.sql') && !fileName.startsWith('0025_'))
+      .filter((fileName) => fileName.endsWith('.sql') && !/^(?:002[5-9]|0030)_/.test(fileName))
       .sort()
     for (const fileName of migrationFiles) {
       await pool.query(await readFile(join(process.cwd(), 'server', 'db', 'migrations', fileName), 'utf8'))
