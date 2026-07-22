@@ -609,15 +609,20 @@ P8 已取消官方模型、积分、计费和平台代生成路线。平台只�
 - Logo/Favicon 通过受控直传、文件内容校验和不可变修订发布。
 - 公开 Web 只读取最小发布投影，失败时使用内置安全默认值。
 
-### P8-4：清理官方与服务器生成路径
+### P8-4：清理官方与服务器生成路径（已完成）
 
 - 删除未提交的官方 Provider、官方模型、积分和平台任务代码、页面、契约、配置与文档。
 - 停止旧服务器 BYOK 写入和任务创建；移除 Provider 密文、生成 Worker、BullMQ 队列和生成任务 API。
 - 保留 Redis 服务用于 API 限流；不再恢复或备份生成队列。
-- 整理 P8 迁移：`0026` 只保留网站设置，`0027`/`0028` 保留；新增 contract migration 删除旧 Provider/任务表和授权。
-- 当前没有真实 Provider 或任务数据，可重建本地开发数据库；迁移仍需登记 release manifest、兼容边界和前向修复。
+- 整理 P8 迁移：`0026` 只保留网站设置，`0027`/`0028` 保留；`0029` contract migration 删除旧 Provider/任务表、函数、资产任务引用和授权，并把活动站点配置前向发布为不含旧官方模式开关的新修订。
+- `0029` 可在旧对象已部分删除的开发库上幂等重跑；迁移测试覆盖隔离 schema、连续重跑、事务回滚和 release manifest 兼容边界。
 
-验收：普通 API、Admin API、部署环境、数据库和新备份均不存在可用的用户 Provider 密文、官方目录、积分或服务器生成入口。
+验收：
+
+- `npm run test` 285/285、`npm run lint`、`npm run build`、`npm run db:migrate:test`、`npm run db:migrate:compat`、`npm run db:roles:check` 和 `git diff --check` 通过。
+- `dev:restart` 只启动 Web、API、Admin Web、Admin API；普通/Admin readiness 正常，Redis 分布式限流从未认证响应收敛到 429，Worker 健康端口和进程管理入口不存在。
+- 普通与 Admin 的 Provider、官方模型、积分和服务器任务 URL 均返回 404；数据库不存在旧表、函数、任务资产引用、Worker 角色或失效环境键。
+- 真实浏览器完成普通 Web 与 Admin 桌面/390px 检查；项目加载、资产上传、Admin 登录和网站设置正常，无控制台错误、横向溢出或控件重叠；P8-5 Vault/本地任务设置仍隐藏且未标记完成。
 
 ### P8-5：浏览器本地 Vault
 

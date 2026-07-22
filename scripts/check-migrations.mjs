@@ -1674,6 +1674,74 @@ async function assertSiteConfigurationSchema(client) {
   )
 }
 
+let legacyOfficialSiteConfigRevisionId = null
+
+async function seedLegacyOfficialSiteConfigFixture(client) {
+  const administratorId = `legacy-site-config-admin-${randomUUID()}`
+  legacyOfficialSiteConfigRevisionId = randomUUID()
+  const legacyConfig = {
+    schemaVersion: 1,
+    siteName: 'Legacy AI Canvas',
+    shortName: 'Legacy Canvas',
+    home: {
+      headline: 'Legacy AI Canvas',
+      lead: 'Legacy site configuration fixture',
+      description: 'Verifies the P8-4 active site configuration forward repair.',
+      primaryActionLabel: 'Open',
+    },
+    footer: {
+      description: 'Legacy footer',
+      copyright: 'Legacy copyright',
+    },
+    records: {
+      companyName: null,
+      icpNumber: null,
+      publicSecurityNumber: null,
+    },
+    links: {
+      helpUrl: null,
+      feedbackUrl: null,
+      termsUrl: null,
+      privacyUrl: null,
+      accountDeletionUrl: null,
+    },
+    themePreset: 'system',
+    navigation: ['home', 'help', 'legal'],
+    features: {
+      registrationEnabled: true,
+      feedbackEnabled: false,
+      officialModeEnabled: true,
+    },
+    logoAssetId: null,
+    faviconAssetId: null,
+  }
+  await client.query(`
+    INSERT INTO admin."user" (id, name, email, username, display_username, role)
+    VALUES ($1, 'Legacy Site Config Admin', $2, $3, $3, 'operator')
+  `, [administratorId, `${administratorId}@example.invalid`, `legacy_site_${randomUUID().replaceAll('-', '').slice(0, 16)}`])
+  await client.query(`
+    INSERT INTO admin.site_config_revisions (id, schema_version, config_json, created_by_admin_id)
+    VALUES ($1, 1, $2::jsonb, $3)
+  `, [legacyOfficialSiteConfigRevisionId, JSON.stringify(legacyConfig), administratorId])
+  await client.query(`
+    INSERT INTO admin.site_config_current (singleton_id, revision_id, updated_by_admin_id)
+    VALUES (1, $1, $2)
+    ON CONFLICT (singleton_id) DO UPDATE
+    SET revision_id = EXCLUDED.revision_id,
+        updated_by_admin_id = EXCLUDED.updated_by_admin_id,
+        updated_at = now()
+  `, [legacyOfficialSiteConfigRevisionId, administratorId])
+  await client.query(`
+    INSERT INTO public.site_config_publications (singleton_id, revision_id, etag, config_json)
+    VALUES (1, $1, $2, $3::jsonb)
+    ON CONFLICT (singleton_id) DO UPDATE
+    SET revision_id = EXCLUDED.revision_id,
+        etag = EXCLUDED.etag,
+        config_json = EXCLUDED.config_json,
+        published_at = now()
+  `, [legacyOfficialSiteConfigRevisionId, `"${'c'.repeat(64)}"`, JSON.stringify(legacyConfig)])
+}
+
 async function assertServerGenerationRemoved(client, schemaName) {
   const removedTables = await client.query(`
     SELECT table_schema, table_name
@@ -1696,6 +1764,25 @@ async function assertServerGenerationRemoved(client, schemaName) {
     WHERE table_schema = $1 AND table_name = 'asset_references' AND column_name = 'node_id'
   `, [schemaName])
   assert.equal(nodeColumn.rows[0]?.is_nullable, 'NO')
+  const activeSiteConfig = await client.query(`
+    SELECT c.revision_id::text,
+           (r.config_json -> 'features') ? 'officialModeEnabled' AS revision_has_official_mode,
+           (p.config_json -> 'features') ? 'officialModeEnabled' AS publication_has_official_mode
+    FROM admin.site_config_current c
+    JOIN admin.site_config_revisions r ON r.id = c.revision_id
+    JOIN public.site_config_publications p ON p.revision_id = c.revision_id
+    WHERE c.singleton_id = 1
+  `)
+  assert.equal(activeSiteConfig.rowCount, 1, 'active site configuration is missing after contract migration')
+  assert.notEqual(activeSiteConfig.rows[0]?.revision_id, legacyOfficialSiteConfigRevisionId)
+  assert.equal(activeSiteConfig.rows[0]?.revision_has_official_mode, false)
+  assert.equal(activeSiteConfig.rows[0]?.publication_has_official_mode, false)
+  const legacyRevision = await client.query(`
+    SELECT (config_json -> 'features') ? 'officialModeEnabled' AS has_official_mode
+    FROM admin.site_config_revisions
+    WHERE id = $1
+  `, [legacyOfficialSiteConfigRevisionId])
+  assert.equal(legacyRevision.rows[0]?.has_official_mode, true, 'immutable legacy site configuration revision was not preserved')
 }
 
 readDotEnv()
@@ -1738,7 +1825,13 @@ try {
     if (migration.version === '0024') {
       await seedProviderWebsiteUpgradeFixture(client)
     }
+    if (migration.version === '0029') {
+      await seedLegacyOfficialSiteConfigFixture(client)
+    }
     await client.query(migration.sql)
+    if (migration.version === '0029') {
+      await client.query(migration.sql)
+    }
     await client.query(
       'INSERT INTO schema_migrations (version, name) VALUES ($1, $2)',
       [migration.version, migration.fileName],
@@ -1755,8 +1848,8 @@ try {
   await assertMigrationExportSchema(client, schemaName)
   await assertUserNumberSchema(client, schemaName)
   await assertAdminSecuritySchema(client)
-  await assertSiteConfigurationSchema(client)
   await assertServerGenerationRemoved(client, schemaName)
+  await assertSiteConfigurationSchema(client)
   await client.query('SET CONSTRAINTS ALL IMMEDIATE')
   await client.query('ROLLBACK')
   console.log(`Checked and upgraded ${migrations.length} migration file(s) in an isolated PostgreSQL schema.`)

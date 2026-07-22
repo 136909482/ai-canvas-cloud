@@ -54,7 +54,7 @@ export function AccountMenu() {
     return null
   }
 
-  const openSettingsCategory = (category: 'devices' | 'models' | 'storage') => {
+  const openSettingsCategory = (category: 'account' | 'devices' | 'storage') => {
     setIsOpen(false)
     openSettings(category)
   }
@@ -128,7 +128,7 @@ export function AccountMenu() {
             <button
               type="button"
               role="menuitem"
-              onClick={() => openSettingsCategory('models')}
+              onClick={() => openSettingsCategory('account')}
               className={menuItemClass}
             >
               <Settings className="h-3 w-3 shrink-0" />

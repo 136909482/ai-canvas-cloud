@@ -1,7 +1,11 @@
+import { IDBFactory } from 'fake-indexeddb'
 import {
   createLocalVaultKey,
   decryptLocalVaultDocument,
   encryptLocalVaultDocument,
+  forgetRememberedLocalVault,
+  loadRememberedLocalVault,
+  saveRememberedLocalVault,
   type LocalVaultDocument,
 } from './localVault.ts'
 
@@ -60,6 +64,35 @@ async function runLocalVaultTests() {
     decryptLocalVaultDocument(encrypted, key, 'user-a', 'https://other.example'),
     'a different origin must not decrypt the vault',
   )
+
+  const originalIndexedDb = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB')
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: new IDBFactory() })
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: { location: { origin: 'https://cloud.example' } },
+  })
+
+  try {
+    await saveRememberedLocalVault(document)
+    const remembered = await loadRememberedLocalVault('user-a')
+    assert(remembered?.providerProfiles[0]?.apiKey === document.providerProfiles[0]?.apiKey, 'device vault should round-trip through IndexedDB')
+    assert(await loadRememberedLocalVault('user-b') === null, 'another user should not see the remembered vault record')
+
+    await forgetRememberedLocalVault('user-a')
+    assert(await loadRememberedLocalVault('user-a') === null, 'forget should delete both the encrypted record and its key')
+  } finally {
+    restoreGlobal('indexedDB', originalIndexedDb)
+    restoreGlobal('window', originalWindow)
+  }
+}
+
+function restoreGlobal(name: 'indexedDB' | 'window', descriptor: PropertyDescriptor | undefined) {
+  if (descriptor) {
+    Object.defineProperty(globalThis, name, descriptor)
+  } else {
+    Reflect.deleteProperty(globalThis, name)
+  }
 }
 
 async function assertRejects(promise: Promise<unknown>, message: string) {

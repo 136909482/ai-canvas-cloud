@@ -89,7 +89,9 @@ function runSettingsCacheTests() {
     writeWorkspaceConfigCache(workspaceConfig)
 
     const cachedConfig = readWorkspaceConfigCache()
-    assert(cachedConfig?.providerProfiles?.[0]?.apiKey === '', 'workspace cache should redact provider API keys')
+    assert(cachedConfig?.model === '', 'workspace cache should omit the real model id')
+    assert(cachedConfig?.customModels.length === 0, 'workspace cache should omit local models')
+    assert(cachedConfig?.providerProfiles?.length === 0, 'workspace cache should omit provider profiles and endpoints')
     assert(workspaceConfig.providerProfiles?.[0]?.apiKey === 'workspace-secret', 'cache writes should not mutate workspace config')
 
     localStorage.setItem('ai-canvas-settings', JSON.stringify({

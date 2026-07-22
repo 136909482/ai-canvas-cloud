@@ -12,19 +12,24 @@ async function runProviderEndpointTests() {
   assert(!validateProviderEndpoint('http://provider.example/v1', { production: false }).ok, 'development should not allow remote cleartext HTTP')
 
   let requestedUrl = ''
+  let requestedInit: RequestInit | undefined
   const result = await testProviderEndpointDirect({
     apiUrl: 'https://provider.example/v1',
     apiKey: 'test-secret',
   }, {
     production: true,
-    fetch: async (url) => {
+    fetch: async (url, init) => {
       requestedUrl = String(url)
+      requestedInit = init
       return new Response('{}', { status: 200 })
     },
   })
 
   assert(result.ok, 'a successful direct response should pass')
   assert(requestedUrl === 'https://provider.example/v1/models', 'connection tests should target the provider directly')
+  assert(requestedInit?.credentials === 'omit', 'connection tests must not attach Cloud cookies')
+  assert(requestedInit?.redirect === 'error', 'connection tests must not forward credentials across redirects')
+  assert(requestedInit?.referrerPolicy === 'no-referrer', 'connection tests should not disclose the Cloud page URL')
 }
 
 await runProviderEndpointTests()

@@ -1,7 +1,17 @@
 import { create } from 'zustand'
-import { reportDiagnostic } from '@/store/useDiagnosticsStore'
-import { platformBridge } from '@/platform'
-import type { WorkspacePermissionState, WorkspaceStatus } from '@/platform/types'
+import { reportDiagnostic } from './useDiagnosticsStore.ts'
+import { platformBridge } from '../platform/index.ts'
+import {
+  LOCAL_VAULT_SCHEMA_VERSION,
+  forgetRememberedLocalVault,
+  isLocalVaultSupported,
+  loadRememberedLocalVault,
+  saveRememberedLocalVault,
+  type LocalVaultDocument,
+  type LocalVaultPersistence,
+} from '../features/settings/localVault.ts'
+import { useTaskQueueStore } from './useTaskQueueStore.ts'
+import type { WorkspacePermissionState, WorkspaceStatus } from '../platform/types.ts'
 import type {
   ApiConfig,
   CustomImageModelConfig,
@@ -10,8 +20,10 @@ import type {
   ProviderProfileConfig,
   RuntimeModelConfig,
   StorageConfig,
-} from '@/types'
+} from '../types/index.ts'
 import {
+  clearDeviceOnlySettingsCache,
+  clearLegacyPersistedConfig,
   readLegacyPersistedConfig,
   readWorkspaceConfigCache,
   writeWorkspaceConfigCache,
@@ -24,13 +36,20 @@ import {
   toWorkspaceConfigFile,
 } from './settingsConfig'
 
-interface SettingsRuntimeState {
+export type LocalVaultStatus = 'idle' | 'loading' | 'ready' | 'error'
+
+export interface SettingsRuntimeState {
   workspaceConfigured: boolean
   workspaceDirectoryName: string
   workspacePermission: WorkspacePermissionState
   hydrated: boolean
   lastLoadError: string | null
   lastSaveError: string | null
+  vaultStatus: LocalVaultStatus
+  vaultPersistence: LocalVaultPersistence
+  vaultUserId: string | null
+  vaultUpdatedAt: number | null
+  vaultError: string | null
 }
 
 interface SettingsStore {
@@ -40,6 +59,11 @@ interface SettingsStore {
   setWorkspaceRuntimeStatus: (status: Pick<WorkspaceStatus, 'configured' | 'directoryName' | 'permission'>) => void
   hydrateFromWorkspace: () => Promise<'workspace' | 'legacy' | 'default'>
   persistWorkspaceConfig: () => Promise<void>
+  hydrateLocalVault: (userId: string) => Promise<'device' | 'legacy' | 'empty' | 'session'>
+  persistLocalVault: () => Promise<void>
+  setVaultPersistence: (persistence: LocalVaultPersistence) => Promise<void>
+  forgetDeviceVault: () => Promise<void>
+  clearVaultSession: () => void
   setDefaultModel: (modelId: string) => void
   saveCustomModel: (model: CustomImageModelConfig) => void
   deleteCustomModel: (id: string) => void
@@ -75,8 +99,51 @@ function createDefaultRuntimeState(): SettingsRuntimeState {
     hydrated: false,
     lastLoadError: null,
     lastSaveError: null,
+    vaultStatus: 'idle',
+    vaultPersistence: 'device',
+    vaultUserId: null,
+    vaultUpdatedAt: null,
+    vaultError: null,
   }
 }
+
+function withoutPrivateSettings(config: ApiConfig): ApiConfig {
+  return normalizeConfig({
+    model: '',
+    customModels: [],
+    providerProfiles: [],
+    activeProviderProfileIds: {},
+    modelProviderProfileIds: {},
+    storage: config.storage,
+  })
+}
+
+function mergeLocalVaultDocument(config: ApiConfig, document: LocalVaultDocument): ApiConfig {
+  return normalizeConfig({
+    model: document.defaultModelId,
+    customModels: document.customModels,
+    providerProfiles: document.providerProfiles,
+    activeProviderProfileIds: document.activeProviderProfileIds,
+    modelProviderProfileIds: document.modelProviderProfileIds,
+    storage: config.storage,
+  })
+}
+
+function createLocalVaultDocument(config: ApiConfig, userId: string, updatedAt = Date.now()): LocalVaultDocument {
+  const normalized = normalizeConfig(config)
+  return {
+    schemaVersion: LOCAL_VAULT_SCHEMA_VERSION,
+    userId,
+    defaultModelId: normalized.model,
+    customModels: normalized.customModels,
+    providerProfiles: normalized.providerProfiles,
+    activeProviderProfileIds: normalized.activeProviderProfileIds,
+    modelProviderProfileIds: normalized.modelProviderProfileIds,
+    updatedAt,
+  }
+}
+
+let localVaultWriteChain = Promise.resolve()
 
 function normalizeWorkspaceRuntimeStatus(status: Pick<WorkspaceStatus, 'configured' | 'directoryName' | 'permission'>) {
   return {
@@ -150,7 +217,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
       }
 
       if (legacyConfig) {
-        const migratedConfig = normalizeConfig(legacyConfig)
+        const migratedConfig = withoutPrivateSettings(normalizeConfig(legacyConfig))
         set((state) => ({
           config: {
             ...migratedConfig,
@@ -170,7 +237,6 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
         if (get().runtime.workspaceConfigured) {
           await get().persistWorkspaceConfig()
         }
-
         return 'legacy' as const
       }
 
@@ -276,15 +342,253 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
     }
   },
 
-  setDefaultModel: (modelId) =>
+  hydrateLocalVault: async (userId) => {
+    const normalizedUserId = userId.trim()
+    if (!normalizedUserId) {
+      get().clearVaultSession()
+      return 'session'
+    }
+
+    set((state) => ({
+      config: withoutPrivateSettings(state.config),
+      runtime: {
+        ...state.runtime,
+        vaultStatus: 'loading',
+        vaultPersistence: 'device',
+        vaultUserId: normalizedUserId,
+        vaultUpdatedAt: null,
+        vaultError: null,
+      },
+    }))
+
+    try {
+      if (isLocalVaultSupported()) {
+        const remembered = await loadRememberedLocalVault(normalizedUserId)
+        if (remembered) {
+          set((state) => ({
+            config: mergeLocalVaultDocument(state.config, remembered),
+            runtime: {
+              ...state.runtime,
+              vaultStatus: 'ready',
+              vaultPersistence: 'device',
+              vaultUserId: normalizedUserId,
+              vaultUpdatedAt: remembered.updatedAt,
+              vaultError: null,
+            },
+          }))
+          clearLegacyPersistedConfig()
+          return 'device'
+        }
+      }
+
+      const legacyConfig = readLegacyPersistedConfig()
+      if (legacyConfig) {
+        const migratedConfig = normalizeConfig(legacyConfig)
+        set((state) => ({
+          config: normalizeConfig({
+            ...migratedConfig,
+            storage: state.config.storage,
+          }),
+        }))
+
+        if (isLocalVaultSupported()) {
+          await get().persistLocalVault()
+        } else {
+          set((state) => ({
+            runtime: {
+              ...state.runtime,
+              vaultStatus: 'ready',
+              vaultPersistence: 'session',
+              vaultUserId: normalizedUserId,
+              vaultUpdatedAt: null,
+              vaultError: '当前浏览器不支持加密设备存储，配置仅保留在本次会话。',
+            },
+          }))
+        }
+        clearLegacyPersistedConfig()
+        return 'legacy'
+      }
+
+      if (isLocalVaultSupported()) {
+        await get().persistLocalVault()
+        return 'empty'
+      }
+
+      set((state) => ({
+        runtime: {
+          ...state.runtime,
+          vaultStatus: 'ready',
+          vaultPersistence: 'session',
+          vaultUserId: normalizedUserId,
+          vaultUpdatedAt: null,
+          vaultError: '当前浏览器不支持加密设备存储，配置仅保留在本次会话。',
+        },
+      }))
+      return 'session'
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      set((state) => ({
+        config: withoutPrivateSettings(state.config),
+        runtime: {
+          ...state.runtime,
+          vaultStatus: 'error',
+          vaultPersistence: 'session',
+          vaultUserId: normalizedUserId,
+          vaultUpdatedAt: null,
+          vaultError: message,
+        },
+      }))
+      return 'session'
+    }
+  },
+
+  persistLocalVault: async () => {
+    const state = get()
+    const userId = state.runtime.vaultUserId
+
+    if (!userId || state.runtime.vaultPersistence !== 'device') {
+      set((current) => ({
+        runtime: {
+          ...current.runtime,
+          vaultStatus: userId ? 'ready' : current.runtime.vaultStatus,
+          vaultError: null,
+        },
+      }))
+      return
+    }
+
+    if (!isLocalVaultSupported()) {
+      throw new Error('当前浏览器不支持加密设备存储。')
+    }
+
+    const document = createLocalVaultDocument(state.config, userId)
+    const write = localVaultWriteChain.then(() => saveRememberedLocalVault(document))
+    localVaultWriteChain = write.catch(() => undefined)
+
+    try {
+      await write
+      set((current) => ({
+        runtime: {
+          ...current.runtime,
+          vaultStatus: 'ready',
+          vaultUpdatedAt: document.updatedAt,
+          vaultError: null,
+        },
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      set((current) => ({
+        runtime: {
+          ...current.runtime,
+          vaultStatus: 'error',
+          vaultError: message,
+        },
+      }))
+      throw error
+    }
+  },
+
+  setVaultPersistence: async (persistence) => {
+    const state = get()
+    const previousPersistence = state.runtime.vaultPersistence
+
+    if (persistence === previousPersistence) return
+
+    if (persistence === 'session') {
+      try {
+        if (state.runtime.vaultUserId && isLocalVaultSupported()) {
+          await forgetRememberedLocalVault(state.runtime.vaultUserId)
+        }
+        set((current) => ({
+          runtime: {
+            ...current.runtime,
+            vaultPersistence: 'session',
+            vaultStatus: current.runtime.vaultUserId ? 'ready' : current.runtime.vaultStatus,
+            vaultUpdatedAt: null,
+            vaultError: null,
+          },
+        }))
+      } catch (error) {
+        set((current) => ({
+          runtime: {
+            ...current.runtime,
+            vaultStatus: 'error',
+            vaultError: error instanceof Error ? error.message : String(error),
+          },
+        }))
+        throw error
+      }
+      return
+    }
+
+    set((current) => ({
+      runtime: {
+        ...current.runtime,
+        vaultPersistence: 'device',
+        vaultStatus: current.runtime.vaultUserId ? 'ready' : current.runtime.vaultStatus,
+        vaultError: null,
+      },
+    }))
+
+    try {
+      await get().persistLocalVault()
+    } catch (error) {
+      set((current) => ({
+        runtime: {
+          ...current.runtime,
+          vaultPersistence: previousPersistence,
+        },
+      }))
+      throw error
+    }
+  },
+
+  forgetDeviceVault: async () => {
+    const userId = get().runtime.vaultUserId
+    if (userId && isLocalVaultSupported()) {
+      await forgetRememberedLocalVault(userId)
+    }
+
+    clearLegacyPersistedConfig()
+    clearDeviceOnlySettingsCache()
+    useTaskQueueStore.getState().clearDeviceCache()
+    set((state) => ({
+      config: withoutPrivateSettings(state.config),
+      runtime: {
+        ...state.runtime,
+        vaultStatus: userId ? 'ready' : 'idle',
+        vaultPersistence: 'session',
+        vaultUpdatedAt: null,
+        vaultError: null,
+      },
+    }))
+  },
+
+  clearVaultSession: () => {
+    set((state) => ({
+      config: withoutPrivateSettings(state.config),
+      runtime: {
+        ...state.runtime,
+        vaultStatus: 'idle',
+        vaultPersistence: 'device',
+        vaultUserId: null,
+        vaultUpdatedAt: null,
+        vaultError: null,
+      },
+    }))
+  },
+
+  setDefaultModel: (modelId) => {
     set((state) => ({
       config: normalizeConfig({
         ...state.config,
         model: modelId,
       }),
-    })),
+    }))
+    void get().persistLocalVault().catch(() => undefined)
+  },
 
-  saveCustomModel: (model) =>
+  saveCustomModel: (model) => {
     set((state) => {
       const normalized = normalizeConfig(state.config)
       const nextModel = normalizeCustomModel(model)
@@ -305,9 +609,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
                 : normalized.model,
         }),
       }
-    }),
+    })
+    void get().persistLocalVault().catch(() => undefined)
+  },
 
-  deleteCustomModel: (id) =>
+  deleteCustomModel: (id) => {
     set((state) => {
       const normalized = normalizeConfig(state.config)
       const deletedModel = normalized.customModels.find((model) => model.id === id)
@@ -322,9 +628,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
           ),
         }),
       }
-    }),
+    })
+    void get().persistLocalVault().catch(() => undefined)
+  },
 
-  saveProviderProfile: (profile) =>
+  saveProviderProfile: (profile) => {
     set((state) => {
       const normalized = normalizeConfig(state.config)
       const nextProfile = normalizeProviderProfile(profile)
@@ -343,9 +651,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
           },
         }),
       }
-    }),
+    })
+    void get().persistLocalVault().catch(() => undefined)
+  },
 
-  deleteProviderProfile: (id) =>
+  deleteProviderProfile: (id) => {
     set((state) => {
       const normalized = normalizeConfig(state.config)
       const providerProfiles = normalized.providerProfiles.filter((profile) => profile.id !== id)
@@ -362,9 +672,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
           ),
         }),
       }
-    }),
+    })
+    void get().persistLocalVault().catch(() => undefined)
+  },
 
-  setActiveProviderProfile: (kind, profileId) =>
+  setActiveProviderProfile: (kind, profileId) => {
     set((state) => ({
       config: normalizeConfig({
         ...state.config,
@@ -373,9 +685,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
           [kind]: profileId,
         },
       }),
-    })),
+    }))
+    void get().persistLocalVault().catch(() => undefined)
+  },
 
-  setModelProviderProfile: (modelId, profileId) =>
+  setModelProviderProfile: (modelId, profileId) => {
     set((state) => {
       const normalized = normalizeConfig(state.config)
       const trimmedModelId = modelId.trim()
@@ -395,9 +709,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
           modelProviderProfileIds,
         }),
       }
-    }),
+    })
+    void get().persistLocalVault().catch(() => undefined)
+  },
 
-  setCustomModelTestState: (id, status, message, testedAt = Date.now()) =>
+  setCustomModelTestState: (id, status, message, testedAt = Date.now()) => {
     set((state) => ({
       config: normalizeConfig({
         ...state.config,
@@ -412,9 +728,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
             : model,
         ),
       }),
-    })),
+    }))
+    void get().persistLocalVault().catch(() => undefined)
+  },
 
-  setProviderProfileTestState: (id, status, message, testedAt = Date.now()) =>
+  setProviderProfileTestState: (id, status, message, testedAt = Date.now()) => {
     set((state) => ({
       config: normalizeConfig({
         ...state.config,
@@ -429,7 +747,9 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
             : profile,
         ),
       }),
-    })),
+    }))
+    void get().persistLocalVault().catch(() => undefined)
+  },
 
   getCustomModels: () => normalizeConfig(get().config).customModels,
 

@@ -2,6 +2,21 @@ import { create } from 'zustand'
 
 export type SettingsCategoryId = 'account' | 'devices' | 'models' | 'storage' | 'canvas' | 'appearance' | 'tasks'
 
+export const EXPOSED_SETTINGS_CATEGORY_IDS: SettingsCategoryId[] = [
+  'account',
+  'devices',
+  'models',
+  'storage',
+  'canvas',
+  'appearance',
+]
+
+const EXPOSED_SETTINGS_CATEGORIES = new Set(EXPOSED_SETTINGS_CATEGORY_IDS)
+
+function normalizeExposedCategory(category: SettingsCategoryId) {
+  return EXPOSED_SETTINGS_CATEGORIES.has(category) ? category : 'account'
+}
+
 interface SettingsDialogStore {
   isOpen: boolean
   activeCategory: SettingsCategoryId
@@ -12,8 +27,8 @@ interface SettingsDialogStore {
 
 export const useSettingsDialogStore = create<SettingsDialogStore>((set) => ({
   isOpen: false,
-  activeCategory: 'models',
-  open: (category = 'models') => set({ isOpen: true, activeCategory: category }),
+  activeCategory: 'account',
+  open: (category = 'account') => set({ isOpen: true, activeCategory: normalizeExposedCategory(category) }),
   close: () => set({ isOpen: false }),
-  setActiveCategory: (category) => set({ activeCategory: category }),
+  setActiveCategory: (category) => set({ activeCategory: normalizeExposedCategory(category) }),
 }))

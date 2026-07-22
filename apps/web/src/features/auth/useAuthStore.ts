@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { AuthSessionResponse, AuthSuccessResponse } from '@ai-canvas-cloud/contracts'
 import { useProjectStore } from '@/store/useProjectStore'
+import { useSettingsStore } from '@/store/useSettingsStore'
 import { fetchAuthSession, loginAuth, logoutAuth, registerAuth } from './api'
 
 type AuthStatus = 'checking' | 'authenticated' | 'anonymous'
@@ -24,7 +25,12 @@ function toSession(response: AuthSuccessResponse): AuthSessionResponse {
 
 let sessionCheckInFlight: Promise<void> | null = null
 
-export const useAuthStore = create<AuthStore>()((set) => ({
+export function clearAuthenticatedRuntime() {
+  useSettingsStore.getState().clearVaultSession()
+  useProjectStore.getState().resetForSession()
+}
+
+export const useAuthStore = create<AuthStore>()((set, get) => ({
   status: 'checking',
   session: null,
   error: null,
@@ -45,9 +51,12 @@ export const useAuthStore = create<AuthStore>()((set) => ({
 
       try {
         const session = await fetchAuthSession()
+        if (get().session?.user.id && get().session?.user.id !== session.user.id) {
+          clearAuthenticatedRuntime()
+        }
         set({ status: 'authenticated', session, error: null })
       } catch (error) {
-        useProjectStore.getState().resetForSession()
+        clearAuthenticatedRuntime()
         set({
           status: 'anonymous',
           session: null,
@@ -67,19 +76,19 @@ export const useAuthStore = create<AuthStore>()((set) => ({
 
   login: async (input) => {
     const response = await loginAuth(input)
-    useProjectStore.getState().resetForSession()
+    clearAuthenticatedRuntime()
     set({ status: 'authenticated', session: toSession(response), error: null })
   },
 
   register: async (input) => {
     const response = await registerAuth(input)
-    useProjectStore.getState().resetForSession()
+    clearAuthenticatedRuntime()
     set({ status: 'authenticated', session: toSession(response), error: null })
   },
 
   logout: async () => {
     await logoutAuth().catch(() => undefined)
-    useProjectStore.getState().resetForSession()
+    clearAuthenticatedRuntime()
     set({ status: 'anonymous', session: null, error: null })
   },
 }))

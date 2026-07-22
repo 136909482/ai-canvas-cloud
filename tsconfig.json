@@ -1,4 +1,13 @@
 {
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["apps/web/src/*"],
+      "@ai-canvas-cloud/contracts": ["packages/contracts/src/index.ts"],
+      "@ai-canvas-cloud/project-graph": ["packages/project-graph/src/index.ts"],
+      "@ai-canvas-cloud/shared": ["packages/shared/src/index.ts"]
+    }
+  },
   "files": [],
   "references": [
     { "path": "./packages/shared" },

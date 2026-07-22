@@ -1,5 +1,4 @@
 import {
-  REDACTED_PROVIDER_SECRET,
   hasWorkspaceConfigSecrets,
   redactWorkspaceConfigSecrets,
   redactWorkspaceConfigSecretsForCache,
@@ -59,11 +58,12 @@ function runProviderSecretTests() {
   const exportSafe = redactWorkspaceConfigSecrets(config)
 
   assert(hasWorkspaceConfigSecrets(config), 'workspace config should be able to detect stored provider secrets')
-  assert(!hasWorkspaceConfigSecrets(redacted), 'redacted workspace config cache should not contain provider secrets')
-  assert(redacted.providerProfiles?.[0].apiKey === REDACTED_PROVIDER_SECRET, 'provider api keys should be redacted for localStorage cache')
+  assert(!hasWorkspaceConfigSecrets(redacted), 'redacted workspace config cache should not contain private provider or model settings')
+  assert(redacted.model === '', 'workspace caches must omit the real default model id')
+  assert(redacted.customModels.length === 0, 'workspace caches must omit local models')
+  assert(redacted.providerProfiles?.length === 0, 'workspace caches must omit provider profiles and endpoints')
   assert(config.providerProfiles?.[0].apiKey === 'sk-secret', 'redacting cache config should not mutate the original workspace config')
-  assert(redacted.providerProfiles?.[0].apiUrl === 'https://example.com/v1', 'redaction should preserve non-secret provider metadata')
-  assert(exportSafe.providerProfiles?.[0].apiKey === '', 'workspace exports must omit provider secrets')
+  assert(exportSafe.providerProfiles?.length === 0, 'workspace exports must omit all provider settings')
   assert(config.providerProfiles?.[0].apiKey === 'sk-secret', 'export redaction must not mutate source config')
   assert(
     JSON.stringify(exportSafe) === JSON.stringify(redacted),

@@ -1,4 +1,5 @@
 import { getProviderDefinition } from '../../config/modelCatalog.ts'
+import { validateProviderEndpoint } from './providerEndpoint.ts'
 import type {
   ApiConfig,
   CustomImageModelConfig,
@@ -17,6 +18,10 @@ export const PROVIDER_CONFIG_MESSAGES = {
   providerKindMismatch: '\u5f53\u524d\u6a21\u578b\u4e0e\u670d\u52a1\u5546\u63a5\u53e3\u7684\u7c7b\u578b\u4e0d\u5339\u914d',
   emptyApiKey: '\u8bf7\u5148\u586b\u5199 API Key',
   emptyApiUrl: '\u8bf7\u5148\u586b\u5199 API \u8bf7\u6c42\u5730\u5740',
+  invalidApiUrl: '请输入有效的 HTTP(S) endpoint',
+  insecureApiUrl: '生产环境 endpoint 必须使用 HTTPS',
+  apiUrlCredentials: 'endpoint 不得包含用户名或密码',
+  apiUrlFragment: 'endpoint 不得包含 fragment',
 } as const
 
 export type ProviderConfigIssueCode = keyof typeof PROVIDER_CONFIG_MESSAGES
@@ -59,6 +64,10 @@ const ISSUE_FIELDS: Record<ProviderConfigIssueCode, ProviderConfigField> = {
   providerKindMismatch: 'providerProfile',
   emptyApiKey: 'apiKey',
   emptyApiUrl: 'apiUrl',
+  invalidApiUrl: 'apiUrl',
+  insecureApiUrl: 'apiUrl',
+  apiUrlCredentials: 'apiUrl',
+  apiUrlFragment: 'apiUrl',
 }
 
 function createDiagnostic(code: ProviderConfigIssueCode): ProviderConfigDiagnostic {
@@ -137,6 +146,7 @@ export function getModelDraftValidationMessage(model: Pick<CustomImageModelConfi
 
 export function validateProviderProfileDraft(
   profile: Pick<ProviderProfileConfig, 'apiKey' | 'apiUrl'> | null | undefined,
+  options?: { requireHttps?: boolean },
 ) {
   if (!profile) {
     return createDiagnostic('emptyProviderProfile')
@@ -149,6 +159,11 @@ export function validateProviderProfileDraft(
   if (!profile.apiUrl.trim()) {
     return createDiagnostic('emptyApiUrl')
   }
+
+  const endpointValidation = validateProviderEndpoint(profile.apiUrl, {
+    production: options?.requireHttps ?? Boolean(import.meta.env?.PROD),
+  })
+  if (!endpointValidation.ok) return createDiagnostic(endpointValidation.code)
 
   return null
 }

@@ -176,3 +176,32 @@ test('Admin site configuration routes keep reads behind administrator sessions a
     assert.equal(publishCalls, 1)
   }, siteConfigService)
 })
+
+test('removed Admin provider, model, credit, and server task routes return 404', async () => {
+  await withServer(createUnavailableAdminService(), async (port) => {
+    for (const path of [
+      '/admin/v1/providers',
+      '/admin/v1/providers/provider-id',
+      '/admin/v1/models',
+      '/admin/v1/models/model-id',
+      '/admin/v1/tasks',
+      '/admin/v1/tasks/task-id',
+    ]) {
+      const result = await request(port, { path, origin: config.allowedOrigins[0] })
+      assert.equal(result.status, 404, path)
+      assert.equal((result.body.error as { code: string }).code, 'RESOURCE_NOT_FOUND', path)
+    }
+
+    const token = await csrf(port)
+    const creditAdjustment = await request(port, {
+      path: '/admin/v1/workspaces/workspace-id/credits/adjust',
+      method: 'POST',
+      origin: config.allowedOrigins[0],
+      cookie: token.cookie,
+      csrf: token.token,
+      body: { amount: 1 },
+    })
+    assert.equal(creditAdjustment.status, 404)
+    assert.equal((creditAdjustment.body.error as { code: string }).code, 'RESOURCE_NOT_FOUND')
+  })
+})

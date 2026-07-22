@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const dockerfile = readFileSync('Dockerfile', 'utf8')
@@ -11,6 +11,16 @@ const prometheus = readFileSync('infra/deploy/staging/prometheus.yml', 'utf8')
 const alerts = readFileSync('infra/deploy/staging/alerts.yml', 'utf8')
 const applyMigrations = readFileSync('scripts/apply-migrations.mjs', 'utf8')
 const releaseManifest = readFileSync('server/db/migrations/release-manifest.json', 'utf8')
+const packageJson = JSON.parse(readFileSync('package.json', 'utf8'))
+const packageLock = readFileSync('package-lock.json', 'utf8')
+
+test('server generation runtime paths remain removed', () => {
+  assert.equal(existsSync('apps/worker'), false)
+  assert.equal(existsSync('server/modules/tasks'), false)
+  assert.equal(existsSync('server/modules/providers'), false)
+  assert.equal(packageJson.scripts['dev:worker'], undefined)
+  assert.doesNotMatch(packageLock, /apps\/worker|node_modules\/bullmq|"bullmq"/)
+})
 
 test('deployment artifacts keep runtime targets non-root and migration explicit', () => {
   assert.match(dockerfile, /FROM node:24\.13\.0-alpine3\.22 AS api/)

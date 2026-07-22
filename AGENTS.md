@@ -37,7 +37,7 @@
 
 - React 组件和普通 Zustand 持久化不得直接访问 PostgreSQL、Redis、对象存储管理凭据或 Provider 密钥；Provider 明文只能由浏览器 Vault 与受控执行适配层在内存中短期使用。
 - 前端只能通过 Cloud API 和客户端平台适配层访问持久化能力。
-- API 路由与 Worker 不得绕过项目图领域模块直接修改节点、连线、变更日志或资产引用。
+- API 路由与后台维护入口不得绕过项目图领域模块直接修改节点、连线、变更日志或资产引用。
 - 所有资源访问从可信会话解析用户，再以 `workspace_id` 和成员关系授权；不得相信客户端提交的 `user_id`。
 - 平台 API 不提供 Provider 代理，也不接收用户 API Key、endpoint、真实模型 ID 或任意 target URL。浏览器 Provider 只允许受控协议适配；无 CORS 服务由用户使用自己的固定目标网关。
 - 密码、会话 token、重置 token、API Key 和对象存储密钥不得写入日志、诊断、前端 bundle 或 Git。
@@ -59,7 +59,6 @@
 
 - `npm run dev:web`
 - `npm run dev:api`
-- `npm run dev:worker`
 - `npm run dev:admin-web`
 - `npm run dev:admin-api`
 - `npm run dev:start`
@@ -81,6 +80,7 @@
 - `npm run deploy:staging:gate`
 - `npm run deploy:staging:backup`
 - `npm run deploy:staging:restore:drill`
+- `npm run format:check`
 
 代码落地后，常规改动至少验证：
 

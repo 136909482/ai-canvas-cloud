@@ -80,13 +80,13 @@ const adminPassword = env.get('ADMIN_DATABASE_PASSWORD') || secret()
 const adminAuthSecret = env.get('ADMIN_BETTER_AUTH_SECRET') || secret() + secret()
 const client = new pg.Client({ connectionString: migrationUrl })
 
-async function ensureRole(role, password, passwordEnvironmentKey) {
+async function ensureRole(role, password) {
   const exists = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role])
   const roleSql = quoteIdentifier(role)
   const passwordSql = quoteLiteral(password)
   if (exists.rowCount === 0) {
     await client.query(`CREATE ROLE ${roleSql} LOGIN PASSWORD ${passwordSql} NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT`)
-  } else if (!env.get(passwordEnvironmentKey)) {
+  } else {
     await client.query(`ALTER ROLE ${roleSql} PASSWORD ${passwordSql}`)
   }
 }
@@ -97,8 +97,8 @@ try {
   const databaseName = database.rows[0]?.name
   const ownerRole = database.rows[0]?.owner
   if (!databaseName || !ownerRole || !IDENTIFIER.test(ownerRole)) throw new Error('Could not resolve migration database owner')
-  await ensureRole(appRole, appPassword, 'APP_DATABASE_PASSWORD')
-  await ensureRole(adminRole, adminPassword, 'ADMIN_DATABASE_PASSWORD')
+  await ensureRole(appRole, appPassword)
+  await ensureRole(adminRole, adminPassword)
   const app = quoteIdentifier(appRole)
   const admin = quoteIdentifier(adminRole)
   const owner = quoteIdentifier(ownerRole)

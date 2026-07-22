@@ -4,6 +4,7 @@ import { useCanvasStore } from '@/store/useCanvasStore'
 import { useProjectStore } from '@/store/useProjectStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useTaskQueueStore } from '@/store/useTaskQueueStore'
+import { useAuthStore } from '@/features/auth/useAuthStore'
 import type { CanvasSnapshot } from '@/types'
 import { hasGraphDeletion } from '@/features/projectManager/projectAutosave'
 
@@ -14,6 +15,7 @@ function hasDraggingNode({ nodes }: CanvasSnapshot) {
 }
 
 export function ProjectBootstrap() {
+  const userId = useAuthStore((state) => state.session?.user.id ?? null)
   const isReady = useProjectStore((state) => state.isReady)
   const hasHydrated = useProjectStore((state) => state.hasHydrated)
   const activeProjectId = useProjectStore((state) => state.activeProjectId)
@@ -24,14 +26,15 @@ export function ProjectBootstrap() {
   const settingsHydrated = useSettingsStore((state) => state.runtime.hydrated)
   const setWorkspaceRuntimeStatus = useSettingsStore((state) => state.setWorkspaceRuntimeStatus)
   const hydrateFromWorkspace = useSettingsStore((state) => state.hydrateFromWorkspace)
-  const initializedRef = useRef(false)
+  const hydrateLocalVault = useSettingsStore((state) => state.hydrateLocalVault)
+  const initializedUserRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (initializedRef.current) {
+    if (!userId || initializedUserRef.current === userId) {
       return
     }
 
-    initializedRef.current = true
+    initializedUserRef.current = userId
 
     void (async () => {
       try {
@@ -50,9 +53,10 @@ export function ProjectBootstrap() {
       }
 
       await hydrateFromWorkspace()
+      await hydrateLocalVault(userId)
       await ensureInitialized()
     })()
-  }, [ensureInitialized, hydrateFromWorkspace, setWorkspaceRuntimeStatus])
+  }, [ensureInitialized, hydrateFromWorkspace, hydrateLocalVault, setWorkspaceRuntimeStatus, userId])
 
   useEffect(() => {
     if (!settingsHydrated || !hasHydrated || !isReady || workspaceConfigured) {

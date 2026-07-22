@@ -1,14 +1,13 @@
 import type { WorkspaceConfigFile } from '@/types'
 
-export const REDACTED_PROVIDER_SECRET = ''
-
 export function redactWorkspaceConfigSecrets(config: WorkspaceConfigFile): WorkspaceConfigFile {
   return {
     ...config,
-    providerProfiles: config.providerProfiles?.map((profile) => ({
-      ...profile,
-      apiKey: REDACTED_PROVIDER_SECRET,
-    })),
+    model: '',
+    customModels: [],
+    providerProfiles: [],
+    activeProviderProfileIds: {},
+    modelProviderProfileIds: {},
   }
 }
 
@@ -17,5 +16,11 @@ export function redactWorkspaceConfigSecretsForCache(config: WorkspaceConfigFile
 }
 
 export function hasWorkspaceConfigSecrets(config: WorkspaceConfigFile | null | undefined) {
-  return Boolean(config?.providerProfiles?.some((profile) => profile.apiKey.trim().length > 0))
+  return Boolean(
+    config?.model
+    || config?.customModels.length
+    || config?.providerProfiles?.length
+    || Object.keys(config?.activeProviderProfileIds ?? {}).length
+    || Object.keys(config?.modelProviderProfileIds ?? {}).length,
+  )
 }

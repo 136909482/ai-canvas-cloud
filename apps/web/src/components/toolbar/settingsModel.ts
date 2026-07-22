@@ -14,7 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { inferProviderFromApiUrl, DEFAULT_ALIYUN_BASE_URL } from '@/config/modelCatalog'
-import type { SettingsCategoryId } from '@/store/useSettingsDialogStore'
+import { EXPOSED_SETTINGS_CATEGORY_IDS, type SettingsCategoryId } from '@/store/useSettingsDialogStore'
 import type { CanvasPerformanceMode, CustomImageModelConfig, CustomModelKind, EdgeStyle, ProviderProfileConfig, ThemeMode } from '@/types'
 
 export type DraftModelCard = CustomImageModelConfig
@@ -174,6 +174,10 @@ export const SETTINGS_CATEGORIES: Array<{
   { id: 'appearance', label: '外观设置', description: '主题、网格与连线样式', Icon: Palette },
   { id: 'tasks', label: '任务队列', description: '生成任务和恢复策略', Icon: Brush },
 ]
+
+export const EXPOSED_SETTINGS_CATEGORIES = SETTINGS_CATEGORIES.filter(
+  (category) => EXPOSED_SETTINGS_CATEGORY_IDS.includes(category.id),
+)
 
 export const FIELD_INPUT_CLASS =
   'h-8.5 w-full rounded-[9px] border border-[var(--border-subtle)] bg-[var(--control-bg)] px-3 text-[13px] text-[var(--text-primary)] transition placeholder:text-[var(--text-muted)] focus:border-violet-400/60 focus:bg-[var(--control-bg-hover)] focus:outline-none'

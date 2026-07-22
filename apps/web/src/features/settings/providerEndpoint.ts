@@ -2,11 +2,19 @@ export interface ValidateProviderEndpointOptions {
   production?: boolean
 }
 
+export type ProviderEndpointValidationCode =
+  | 'emptyApiUrl'
+  | 'invalidApiUrl'
+  | 'insecureApiUrl'
+  | 'apiUrlCredentials'
+  | 'apiUrlFragment'
+
 export type ProviderEndpointValidationResult = {
   ok: true
   url: string
 } | {
   ok: false
+  code: ProviderEndpointValidationCode
   message: string
 }
 
@@ -26,35 +34,35 @@ export function validateProviderEndpoint(
 ): ProviderEndpointValidationResult {
   const trimmed = input.trim()
   if (!trimmed) {
-    return { ok: false, message: '请先填写 API 请求地址' }
+    return { ok: false, code: 'emptyApiUrl', message: '请先填写 API 请求地址' }
   }
 
   let parsed: URL
   try {
     parsed = new URL(trimmed)
   } catch {
-    return { ok: false, message: 'API 请求地址必须是完整 URL' }
+    return { ok: false, code: 'invalidApiUrl', message: 'API 请求地址必须是完整 URL' }
   }
 
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    return { ok: false, message: 'API 请求地址只支持 HTTP 或 HTTPS' }
+    return { ok: false, code: 'invalidApiUrl', message: 'API 请求地址只支持 HTTP 或 HTTPS' }
   }
 
   const production = options.production ?? isProductionBrowser()
   if (production && parsed.protocol !== 'https:') {
-    return { ok: false, message: '生产环境的自定义服务商必须使用 HTTPS' }
+    return { ok: false, code: 'insecureApiUrl', message: '生产环境的服务商 endpoint 必须使用 HTTPS' }
   }
 
   if (!production && parsed.protocol === 'http:' && !isLoopbackHostname(parsed.hostname)) {
-    return { ok: false, message: 'HTTP 只允许本地开发地址，其他服务商请使用 HTTPS' }
+    return { ok: false, code: 'insecureApiUrl', message: 'HTTP 只允许本地开发地址，其他服务商请使用 HTTPS' }
   }
 
   if (parsed.username || parsed.password) {
-    return { ok: false, message: 'API 请求地址不能包含用户名或密码' }
+    return { ok: false, code: 'apiUrlCredentials', message: 'API 请求地址不能包含用户名或密码' }
   }
 
   if (parsed.hash) {
-    return { ok: false, message: 'API 请求地址不能包含 fragment' }
+    return { ok: false, code: 'apiUrlFragment', message: 'API 请求地址不能包含 fragment' }
   }
 
   return {
@@ -98,11 +106,17 @@ export async function testProviderEndpointDirect(
         Authorization: `Bearer ${input.apiKey.trim()}`,
         Accept: 'application/json',
       },
+      cache: 'no-store',
+      credentials: 'omit',
       redirect: 'error',
+      referrerPolicy: 'no-referrer',
       signal: controller.signal,
     })
 
     if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('服务商拒绝了当前凭据，请检查 API Key')
+      }
       throw new Error(`连接测试失败：HTTP ${response.status}`)
     }
 

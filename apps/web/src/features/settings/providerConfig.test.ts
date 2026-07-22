@@ -3,6 +3,7 @@ import {
   getProviderProfileValidationMessage,
   PROVIDER_CONFIG_MESSAGES,
   resolveRuntimeModelConfig,
+  validateProviderProfileDraft,
 } from './providerConfig.ts'
 import type { ApiConfig, CustomImageModelConfig, ProviderProfileConfig } from '@/types'
 
@@ -90,6 +91,22 @@ function runProviderConfigTests() {
   assert(
     getProviderProfileValidationMessage(createProfile({ apiKey: 'key', apiUrl: ' ' })) === PROVIDER_CONFIG_MESSAGES.emptyApiUrl,
     'empty api urls should be diagnosed before requests run',
+  )
+  assert(
+    validateProviderProfileDraft(createProfile({ apiUrl: 'ftp://provider.example/v1' }))?.code === 'invalidApiUrl',
+    'provider endpoints should only accept HTTP(S)',
+  )
+  assert(
+    validateProviderProfileDraft(createProfile({ apiUrl: 'https://name:password@provider.example/v1' }))?.code === 'apiUrlCredentials',
+    'provider endpoints should reject URL credentials',
+  )
+  assert(
+    validateProviderProfileDraft(createProfile({ apiUrl: 'https://provider.example/v1#fragment' }))?.code === 'apiUrlFragment',
+    'provider endpoints should reject fragments',
+  )
+  assert(
+    validateProviderProfileDraft(createProfile({ apiUrl: 'http://provider.example/v1' }), { requireHttps: true })?.code === 'insecureApiUrl',
+    'production provider endpoints should require HTTPS',
   )
 
   const resolved = resolveRuntimeModelConfig(createConfig(), {
