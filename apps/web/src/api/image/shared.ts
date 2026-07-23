@@ -137,7 +137,7 @@ export function toSafeUrl(apiUrl: string) {
 
 export function getNetworkErrorMessage(error: unknown, context: string) {
   if (error instanceof TypeError) {
-    return `${context} request failed. Check the Cloud API route and provider configuration.`
+    return `${context} request failed. Check the browser network, Provider CORS policy, or your fixed CORS gateway.`
   }
 
   if (error instanceof Error) {

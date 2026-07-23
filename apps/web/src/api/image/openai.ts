@@ -1,5 +1,4 @@
 import type { ImageOperationType } from '@/types'
-import { submitCustomAsyncImageGeneration, waitForCustomAsyncImageGeneration } from './customAsync.ts'
 import {
   buildApiError,
   convertReferenceImageToFile,
@@ -334,79 +333,7 @@ function resolveOpenAiRequestSize(params: GenerateImageParams, effectiveRatio: s
     : resolveGeminiImageRequestSize(params, effectiveRatio)
 }
 
-function logOpenAiImageRequest(debugInfo: {
-  endpoint: string
-  isAsync: boolean
-  operationType: ImageOperationType
-  model: string
-  ratio?: string
-  resolution?: string
-  effectiveRatio: string
-  size?: string
-  body: BodyInit
-}) {
-  if (!import.meta.env?.DEV || typeof window === 'undefined') {
-    return
-  }
-
-  try {
-    if (window.localStorage.getItem('ai-canvas:debug-image-requests') !== '1') {
-      return
-    }
-  } catch {
-    return
-  }
-
-  const requestFamily = getOpenAiCompatibleImageRequestFamily(debugInfo.model)
-  const body = summarizeOpenAiImageRequestBody(debugInfo.body)
-
-  console.debug('[AI Canvas] OpenAI compatible image request', {
-    endpoint: debugInfo.endpoint,
-    isAsync: debugInfo.isAsync,
-    operationType: debugInfo.operationType,
-    model: debugInfo.model,
-    requestFamily,
-    ratio: debugInfo.ratio,
-    effectiveRatio: debugInfo.effectiveRatio,
-    size: debugInfo.size,
-    resolution: debugInfo.resolution,
-    body,
-  })
-}
-
-function summarizeOpenAiImageRequestBody(body: BodyInit): unknown {
-  if (typeof body === 'string') {
-    try {
-      return JSON.parse(body) as unknown
-    } catch {
-      return body
-    }
-  }
-
-  if (typeof FormData !== 'undefined' && body instanceof FormData) {
-    return Array.from(body.entries()).map(([key, value]) => ({
-      key,
-      value: summarizeOpenAiImageFormDataValue(value),
-    }))
-  }
-
-  return '[uninspectable body]'
-}
-
-function summarizeOpenAiImageFormDataValue(value: FormDataEntryValue) {
-  if (typeof value === 'string') {
-    return value
-  }
-
-  return {
-    kind: 'file',
-    name: value.name,
-    type: value.type,
-    size: value.size,
-  }
-}
-
-function resolveOpenAiEndpoint(apiUrl: string, endpointPath: (typeof OPENAI_ENDPOINT_PATHS)[number]) {
+export function resolveOpenAiEndpoint(apiUrl: string, endpointPath: (typeof OPENAI_ENDPOINT_PATHS)[number]) {
   const normalized = normalizeApiUrl(apiUrl)
 
   if (normalized.endsWith(endpointPath)) {
@@ -426,12 +353,16 @@ function resolveOpenAiEndpoint(apiUrl: string, endpointPath: (typeof OPENAI_ENDP
   return `${normalized}${endpointPath}`
 }
 
-function getOpenAiProxiedRequestUrl(endpoint: string) {
+function getOpenAiProviderRequestUrl(endpoint: string) {
   return endpoint
 }
 
 function getOpenAiRequestUrl(apiUrl: string, endpointPath: (typeof OPENAI_ENDPOINT_PATHS)[number]) {
-  return getOpenAiProxiedRequestUrl(resolveOpenAiEndpoint(apiUrl, endpointPath))
+  return getOpenAiProviderRequestUrl(resolveOpenAiEndpoint(apiUrl, endpointPath))
+}
+
+export function buildOpenAiTaskQueryUrl(apiUrl: string, taskId: string) {
+  return `${resolveOpenAiEndpoint(apiUrl, '/v1/tasks')}/${encodeURIComponent(taskId)}`
 }
 
 function getOpenAiImageEditInputImages(params: GenerateImageParams) {
@@ -575,28 +506,6 @@ function resolveOpenAiImageEndpointPath(params: GenerateImageParams, operationTy
     : '/v1/images/generations'
 }
 
-function normalizeAsyncSubmitPath(path: string) {
-  return path.trim().replace(/^\//, '').replace(/^v1\//, '')
-}
-
-function resolveCustomAsyncConfigForRequest(params: GenerateImageParams) {
-  if (!params.asyncConfig?.enabled) {
-    return null
-  }
-
-  if (
-    shouldUseOpenAiImageEditRequest(params)
-    && normalizeAsyncSubmitPath(params.asyncConfig.submitPath) === 'images/generations'
-  ) {
-    return {
-      ...params.asyncConfig,
-      submitPath: 'images/edits',
-    }
-  }
-
-  return params.asyncConfig
-}
-
 function getAsyncTaskId(payload: unknown) {
   const taskId = getFirstStringValue(
     getNestedValue(payload, ['task_id']),
@@ -703,18 +612,6 @@ export async function generateWithOpenAI(params: GenerateImageParams): Promise<s
     requestHeaders.set('Content-Type', 'application/json')
   }
 
-  logOpenAiImageRequest({
-    endpoint: generationsEndpoint,
-    isAsync: false,
-    operationType,
-    model: params.model,
-    ratio: params.ratio,
-    resolution: params.resolution,
-    effectiveRatio,
-    size,
-    body: requestBody,
-  })
-
   let response: Response
 
   try {
@@ -757,32 +654,9 @@ export async function submitOpenAiAsyncImageGeneration(
   if (typeof requestBody === 'string') {
     requestHeaders.set('Content-Type', 'application/json')
   }
-  const asyncEndpoint = getOpenAiProxiedRequestUrl(
+  const asyncEndpoint = getOpenAiProviderRequestUrl(
     endpoint,
   )
-
-  logOpenAiImageRequest({
-    endpoint: asyncEndpoint,
-    isAsync: true,
-    operationType,
-    model: params.model,
-    ratio: params.ratio,
-    resolution: params.resolution,
-    effectiveRatio,
-    size,
-    body: requestBody,
-  })
-
-  const customAsyncConfig = resolveCustomAsyncConfigForRequest(params)
-
-  if (customAsyncConfig?.enabled) {
-    return submitCustomAsyncImageGeneration(
-      params,
-      requestBody,
-      customAsyncConfig,
-      typeof requestBody === 'string' ? 'application/json' : undefined,
-    )
-  }
 
   let response: Response
 
@@ -810,8 +684,7 @@ async function queryOpenAiAsyncImageGeneration(
   params: GenerateImageParams,
   taskId: string,
 ): Promise<AsyncImageTaskQueryResult> {
-  const tasksEndpoint = resolveOpenAiEndpoint(params.apiUrl, '/v1/tasks')
-  const taskEndpoint = getOpenAiProxiedRequestUrl(`${tasksEndpoint}/${encodeURIComponent(taskId)}`)
+  const taskEndpoint = buildOpenAiTaskQueryUrl(params.apiUrl, taskId)
   let response: Response
 
   try {
@@ -856,10 +729,6 @@ export async function waitForOpenAiAsyncImageGeneration(
   onStatusChange?: (status: AsyncImageTaskStatus) => void,
 ): Promise<string> {
   assertSupportedOpenAiImageModel(params)
-
-  if (params.asyncConfig?.enabled) {
-    return waitForCustomAsyncImageGeneration(params, taskId, params.asyncConfig, onStatusChange)
-  }
 
   const startedAt = Date.now()
   let hasWaitedInitialDelay = false

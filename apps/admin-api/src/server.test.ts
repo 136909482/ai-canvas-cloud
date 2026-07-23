@@ -2,7 +2,14 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import test from 'node:test'
 import { DEFAULT_SITE_CONFIG } from '@ai-canvas-cloud/contracts'
-import { AdminAccessError, createUnavailableAdminService, type AdminService, type AdminSiteConfigService } from '@ai-canvas-cloud/server/modules/admin'
+import {
+  AdminAccessError,
+  createUnavailableAdminService,
+  type AdminDashboardService,
+  type AdminService,
+  type AdminSiteConfigService,
+  type AdminUserOperationsService,
+} from '@ai-canvas-cloud/server/modules/admin'
 import { createAdminApiServer } from './server.ts'
 
 const config = {
@@ -42,8 +49,13 @@ function request(port: number, options: { path: string; method?: string; origin?
   })
 }
 
-async function withServer(service: AdminService, operation: (port: number) => Promise<void>, siteConfigService?: AdminSiteConfigService) {
-  const server = createAdminApiServer({ config, adminService: service, siteConfigService, logger })
+async function withServer(
+  service: AdminService,
+  operation: (port: number) => Promise<void>,
+  siteConfigService?: AdminSiteConfigService,
+  additional: { userOperationsService?: AdminUserOperationsService; dashboardService?: AdminDashboardService } = {},
+) {
+  const server = createAdminApiServer({ config, adminService: service, siteConfigService, logger, ...additional })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   assert(address && typeof address === 'object')
@@ -175,6 +187,150 @@ test('Admin site configuration routes keep reads behind administrator sessions a
     assert.equal(published.status, 200)
     assert.equal(publishCalls, 1)
   }, siteConfigService)
+})
+
+test('Admin dashboard route returns aggregate-only operations data', async () => {
+  let dashboardCalls = 0
+  const dashboardService: AdminDashboardService = {
+    async getDashboard() {
+      dashboardCalls += 1
+      return {
+        generatedAt: '2026-07-23T08:00:00.000Z',
+        registrations: { total: 12, past24Hours: 1, past7Days: 4 },
+        activity: { activeUsers24Hours: 3, activeUsers7Days: 8, activeSessions: 3 },
+        storage: { usedBytes: 1024, reservedBytes: 128, quotaBytes: 4096, assetCount: 6 },
+        authentication: { verifiedUsers: 10, unverifiedUsers: 2, disabledUsers: 1 },
+        infrastructure: {
+          postgres: { ok: true, latencyMs: 2 },
+          objectStorage: { ok: true, latencyMs: 5 },
+        },
+      }
+    },
+  }
+  await withServer(createUnavailableAdminService(), async (port) => {
+    const response = await request(port, { path: '/admin/v1/dashboard', origin: config.allowedOrigins[0] })
+    assert.equal(response.status, 200)
+    assert.equal(dashboardCalls, 1)
+    assert.deepEqual(Object.keys(response.body).sort(), [
+      'activity', 'authentication', 'generatedAt', 'infrastructure', 'registrations', 'storage',
+    ])
+    assert.doesNotMatch(JSON.stringify(response.body), /email|prompt|objectKey|provider|sessionToken/i)
+  }, undefined, { dashboardService })
+})
+
+test('Admin user list and detail routes expose only the bounded operations projection', async () => {
+  const calls: unknown[] = []
+  const user = {
+    id: 'user_01', userNumber: 10001, name: 'Artist', email: 'artist@example.com',
+    emailVerified: true, status: 'active' as const, workspaceCount: 1,
+    storageUsedBytes: 512, activeSessionCount: 1, lastActiveAt: '2026-07-23T01:00:00.000Z',
+    createdAt: '2026-07-20T01:00:00.000Z', updatedAt: '2026-07-23T01:00:00.000Z',
+  }
+  const userOperationsService: AdminUserOperationsService = {
+    async listUsers(query) { calls.push(query); return { items: [user], nextCursor: null } },
+    async getUser(userId) {
+      calls.push(userId)
+      return {
+        user,
+        workspaces: [{
+          id: 'workspace-01', name: 'Artist 的个人空间', type: 'personal', role: 'owner', status: 'active',
+          planKey: 'free', storageQuotaBytes: 1024, storageUsedBytes: 512, storageReservedBytes: 0,
+          createdAt: '2026-07-20T01:00:00.000Z', updatedAt: '2026-07-23T01:00:00.000Z',
+        }],
+      }
+    },
+    async banUser() { throw new Error('not used') },
+    async unbanUser() { throw new Error('not used') },
+    async revokeUserSessions() { throw new Error('not used') },
+  }
+  await withServer(createUnavailableAdminService(), async (port) => {
+    const list = await request(port, {
+      path: '/admin/v1/users?limit=25&status=disabled&verification=unverified&search=10001',
+      origin: config.allowedOrigins[0],
+    })
+    assert.equal(list.status, 200)
+    assert.deepEqual(calls[0], { limit: '25', status: 'disabled', verification: 'unverified', search: '10001' })
+    const listUser = (list.body.items as Record<string, unknown>[])[0]!
+    assert.deepEqual(Object.keys(listUser).sort(), [
+      'activeSessionCount', 'createdAt', 'email', 'emailVerified', 'id', 'lastActiveAt', 'name',
+      'status', 'storageUsedBytes', 'updatedAt', 'userNumber', 'workspaceCount',
+    ])
+
+    const detail = await request(port, { path: '/admin/v1/users/user_01', origin: config.allowedOrigins[0] })
+    assert.equal(detail.status, 200)
+    assert.equal(calls[1], 'user_01')
+    const serialized = JSON.stringify(detail.body)
+    for (const forbidden of ['prompt', 'objectKey', 'apiKey', 'providerConfig', 'sessionToken', 'assetContent']) {
+      assert.equal(serialized.includes(forbidden), false, forbidden)
+    }
+
+    const duplicate = await request(port, { path: '/admin/v1/users?limit=10&limit=20', origin: config.allowedOrigins[0] })
+    assert.equal(duplicate.status, 400)
+    assert.equal((duplicate.body.error as { code: string }).code, 'VALIDATION_FAILED')
+    assert.equal(calls.length, 2)
+  }, undefined, { userOperationsService })
+})
+
+test('Admin user mutations require CSRF and forward only the target, reason, and request context', async () => {
+  const calls: Array<{ action: string; userId: string; input: unknown; requestId: string }> = []
+  const activeUser = {
+    id: 'user_01', userNumber: 10001, name: 'Artist', email: 'artist@example.com',
+    emailVerified: true, status: 'active' as const, workspaceCount: 1,
+    storageUsedBytes: 512, activeSessionCount: 0, lastActiveAt: null,
+    createdAt: '2026-07-20T01:00:00.000Z', updatedAt: '2026-07-23T01:00:00.000Z',
+  }
+  const userOperationsService: AdminUserOperationsService = {
+    async listUsers() { throw new Error('not used') },
+    async getUser() { throw new Error('not used') },
+    async banUser(userId, input, context) {
+      calls.push({ action: 'ban', userId, input, requestId: context.requestId })
+      return { user: { ...activeUser, status: 'disabled' }, revokedSessionCount: 2 }
+    },
+    async unbanUser(userId, input, context) {
+      calls.push({ action: 'unban', userId, input, requestId: context.requestId })
+      return { user: activeUser, revokedSessionCount: 0 }
+    },
+    async revokeUserSessions(userId, input, context) {
+      calls.push({ action: 'revoke-sessions', userId, input, requestId: context.requestId })
+      return { userId, revokedSessionCount: 1, revokedAt: '2026-07-23T08:30:00.000Z' }
+    },
+  }
+  await withServer(createUnavailableAdminService(), async (port) => {
+    const actions = [
+      { name: 'ban', reason: '风险复核' },
+      { name: 'unban', reason: '复核通过' },
+      { name: 'revoke-sessions', reason: '用户要求退出全部设备' },
+    ] as const
+    for (const action of actions) {
+      const rejected = await request(port, {
+        path: `/admin/v1/users/user_01/${action.name}`,
+        method: 'POST',
+        origin: config.allowedOrigins[0],
+        body: { reason: action.reason },
+      })
+      assert.equal(rejected.status, 403, action.name)
+    }
+    assert.equal(calls.length, 0)
+
+    const token = await csrf(port)
+    for (const action of actions) {
+      const accepted = await request(port, {
+        path: `/admin/v1/users/user_01/${action.name}`,
+        method: 'POST',
+        origin: config.allowedOrigins[0],
+        cookie: token.cookie,
+        csrf: token.token,
+        body: { reason: action.reason },
+      })
+      assert.equal(accepted.status, 200, action.name)
+    }
+    assert.deepEqual(calls.map(({ action, userId, input }) => ({ action, userId, input })), actions.map((action) => ({
+      action: action.name,
+      userId: 'user_01',
+      input: { reason: action.reason },
+    })))
+    assert.equal(calls.every((call) => typeof call.requestId === 'string' && call.requestId.length > 0), true)
+  }, undefined, { userOperationsService })
 })
 
 test('removed Admin provider, model, credit, and server task routes return 404', async () => {

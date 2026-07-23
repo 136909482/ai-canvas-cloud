@@ -160,7 +160,7 @@ export async function generateWithQwen(params: GenerateImageParams): Promise<str
     })
   } catch (error) {
     if (error instanceof TypeError) {
-      throw new Error('Unable to reach Bailian API. Check the Cloud API route and provider configuration.')
+      throw new Error('Unable to reach Bailian API. Check the browser network, Provider CORS policy, or your fixed CORS gateway.')
     }
     throw error
   }

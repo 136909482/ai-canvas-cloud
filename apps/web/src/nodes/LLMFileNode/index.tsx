@@ -9,6 +9,7 @@ import { ZhipuIcon } from '@/components/ZhipuIcon'
 import type { ProviderId } from '@/config/modelCatalog'
 import { runLLMFileNode } from '@/features/llm/orchestrator'
 import { isClaudeModel } from '@/features/settings/modelBrand'
+import { isLocalModelReference } from '@/features/settings/localModelReferences'
 import { getMaxInputFiles, LLM_INPUT_FILE_ACCEPT, readLLMInputFiles } from '@/features/llm/inputFiles'
 import { createRichPromptDocumentFromText } from '@/features/richPrompt/promptCompiler'
 import { RichPromptEditor } from '@/features/richPrompt/RichPromptEditor'
@@ -305,8 +306,16 @@ export const LLMFileNode = memo(function LLMFileNode({ id, data, selected }: LLM
   const commitTransaction = useHistoryStore((s) => s.commitTransaction)
   const runTracked = useHistoryStore((s) => s.runTracked)
   const getEnabledCustomModels = useSettingsStore((s) => s.getEnabledCustomModels)
+  const bindLocalModelReference = useSettingsStore((s) => s.bindLocalModelReference)
   const chatModels = getEnabledCustomModels('chat')
   const hasChatModel = chatModels.length > 0
+  const isUnboundLocalModel = isLocalModelReference(data.model)
+    && !chatModels.some((model) => model.modelId === data.model)
+  const selectedModelValue = chatModels.some((model) => model.modelId === data.model)
+    ? data.model
+    : isUnboundLocalModel
+      ? data.model
+      : chatModels[0]?.modelId ?? '__empty__'
   const selectedPreset = getPresetById(data.presetId)
   const hasConnectedInputNode = Boolean(data.connectedTextNode)
   const inputImages = useMemo<InputImageItem[]>(
@@ -331,7 +340,7 @@ export const LLMFileNode = memo(function LLMFileNode({ id, data, selected }: LLM
   const maxInputFiles = getMaxInputFiles()
   const remainingFileSlots = Math.max(0, maxInputFiles - inputFileCount)
   const hasInstructionPrompt = Boolean((data.instructionPrompt || '').trim())
-  const canRun = hasInstructionPrompt && hasChatModel && !isRunning
+  const canRun = hasInstructionPrompt && hasChatModel && !isUnboundLocalModel && !isRunning
   const statusMeta = buildStatusMeta(data.status)
 
   const presetOptions = useMemo<InlineSelectOption[]>(
@@ -342,15 +351,24 @@ export const LLMFileNode = memo(function LLMFileNode({ id, data, selected }: LLM
     [],
   )
   const modelOptions = useMemo<InlineSelectOption[]>(
-    () => chatModels.length > 0
-      ? chatModels.map((model) => ({
-          value: model.modelId,
-          label: model.name || model.modelId,
-          icon: <ModelOptionIcon model={model} />,
-        }))
+    () => chatModels.length > 0 || isUnboundLocalModel
+      ? [
+          ...(isUnboundLocalModel ? [{ value: data.model, label: '此设备未绑定的模型' }] : []),
+          ...chatModels.map((model) => ({
+            value: model.modelId,
+            label: model.name || model.modelId,
+            icon: <ModelOptionIcon model={model} />,
+          })),
+        ]
       : [{ value: '__empty__', label: '暂无可用 Chat 模型' }],
-    [chatModels],
+    [chatModels, data.model, isUnboundLocalModel],
   )
+  const selectModel = (modelId: string) => {
+    runTracked(() => {
+      if (isUnboundLocalModel && modelId !== data.model && !bindLocalModelReference(data.model, modelId)) return
+      updateNodeData(id, { model: modelId, errorMsg: '' })
+    })
+  }
   const outputFormatOptions = useMemo<InlineSelectOption[]>(
     () => OUTPUT_FORMAT_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
     [],
@@ -630,10 +648,10 @@ export const LLMFileNode = memo(function LLMFileNode({ id, data, selected }: LLM
             />
 
             <InlineSelect
-              value={hasChatModel ? (data.model || chatModels[0]?.modelId || '__empty__') : '__empty__'}
+              value={selectedModelValue}
               options={modelOptions}
               ariaLabel={UI_TEXT.chooseModel}
-              onChange={(value) => runTracked(() => updateNodeData(id, { model: value, errorMsg: '' }))}
+              onChange={selectModel}
               stopCanvasGesture={stopCanvasGesture}
               menuClassName="min-w-[230px]"
             />
@@ -684,6 +702,9 @@ export const LLMFileNode = memo(function LLMFileNode({ id, data, selected }: LLM
           {!hasChatModel && (
             <p className={`${themeClasses.nodeInlineNotice} ${themeClasses.nodeWarningText}`}>{UI_TEXT.noModel}</p>
           )}
+          {isUnboundLocalModel ? (
+            <p className={`${themeClasses.nodeInlineNotice} ${themeClasses.nodeWarningText}`}>此项目的模型引用尚未绑定到当前设备，请手动选择本机模型完成绑定。</p>
+          ) : null}
 
           {data.errorMsg && (
             <p className={`${themeClasses.nodeInlineNotice} ${data.status === 'success' ? themeClasses.nodeWarningText : themeClasses.nodeErrorText}`}>

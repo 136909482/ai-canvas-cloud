@@ -3,14 +3,23 @@ import { reportDiagnostic } from './useDiagnosticsStore.ts'
 import { platformBridge } from '../platform/index.ts'
 import {
   LOCAL_VAULT_SCHEMA_VERSION,
-  forgetRememberedLocalVault,
+  LOCAL_TASK_CACHE_SCHEMA_VERSION,
+  deleteRememberedLocalTaskQueue,
   isLocalVaultSupported,
+  loadRememberedLocalTaskQueue,
   loadRememberedLocalVault,
+  saveRememberedLocalTaskQueue,
   saveRememberedLocalVault,
   type LocalVaultDocument,
   type LocalVaultPersistence,
 } from '../features/settings/localVault.ts'
 import { useTaskQueueStore } from './useTaskQueueStore.ts'
+import {
+  createLocalModelReference,
+  findLocalModelReference,
+  isLocalModelReference,
+  resolveLocalModelReference,
+} from '../features/settings/localModelReferences.ts'
 import type { WorkspacePermissionState, WorkspaceStatus } from '../platform/types.ts'
 import type {
   ApiConfig,
@@ -20,9 +29,9 @@ import type {
   ProviderProfileConfig,
   RuntimeModelConfig,
   StorageConfig,
+  TaskQueueSnapshot,
 } from '../types/index.ts'
 import {
-  clearDeviceOnlySettingsCache,
   clearLegacyPersistedConfig,
   readLegacyPersistedConfig,
   readWorkspaceConfigCache,
@@ -61,8 +70,9 @@ interface SettingsStore {
   persistWorkspaceConfig: () => Promise<void>
   hydrateLocalVault: (userId: string) => Promise<'device' | 'legacy' | 'empty' | 'session'>
   persistLocalVault: () => Promise<void>
-  setVaultPersistence: (persistence: LocalVaultPersistence) => Promise<void>
-  forgetDeviceVault: () => Promise<void>
+  loadLocalTaskQueue: (projectId: string) => Promise<TaskQueueSnapshot | null>
+  persistLocalTaskQueue: (projectId: string, taskQueue: TaskQueueSnapshot) => Promise<void>
+  deleteLocalTaskQueue: (projectId: string) => Promise<void>
   clearVaultSession: () => void
   setDefaultModel: (modelId: string) => void
   saveCustomModel: (model: CustomImageModelConfig) => void
@@ -71,6 +81,9 @@ interface SettingsStore {
   deleteProviderProfile: (id: string) => void
   setActiveProviderProfile: (kind: CustomModelKind, profileId: string) => void
   setModelProviderProfile: (modelId: string, profileId: string | null) => void
+  ensureLocalModelReference: (modelId: string) => string
+  bindLocalModelReference: (reference: string, modelId: string) => boolean
+  resolveLocalModelReference: (reference: string) => string | null
   setCustomModelTestState: (
     id: string,
     status: ModelTestStatus,
@@ -114,6 +127,7 @@ function withoutPrivateSettings(config: ApiConfig): ApiConfig {
     providerProfiles: [],
     activeProviderProfileIds: {},
     modelProviderProfileIds: {},
+    localModelBindings: {},
     storage: config.storage,
   })
 }
@@ -125,6 +139,7 @@ function mergeLocalVaultDocument(config: ApiConfig, document: LocalVaultDocument
     providerProfiles: document.providerProfiles,
     activeProviderProfileIds: document.activeProviderProfileIds,
     modelProviderProfileIds: document.modelProviderProfileIds,
+    localModelBindings: document.localModelBindings,
     storage: config.storage,
   })
 }
@@ -139,11 +154,57 @@ function createLocalVaultDocument(config: ApiConfig, userId: string, updatedAt =
     providerProfiles: normalized.providerProfiles,
     activeProviderProfileIds: normalized.activeProviderProfileIds,
     modelProviderProfileIds: normalized.modelProviderProfileIds,
+    localModelBindings: normalized.localModelBindings,
     updatedAt,
   }
 }
 
-let localVaultWriteChain = Promise.resolve()
+interface LocalVaultRuntimeContext {
+  userId: string | null
+  persistence: LocalVaultPersistence
+  stateVersion: number
+}
+
+let localVaultOperationChain = Promise.resolve()
+let localVaultStateVersion = 0
+const sessionTaskQueues = new Map<string, TaskQueueSnapshot>()
+
+function getSessionTaskQueueKey(userId: string, projectId: string) {
+  return `${userId}\n${projectId}`
+}
+
+function cloneTaskQueue(taskQueue: TaskQueueSnapshot) {
+  return structuredClone(taskQueue)
+}
+
+function clearSessionTaskQueues(userId?: string | null) {
+  if (!userId) {
+    sessionTaskQueues.clear()
+    return
+  }
+
+  const prefix = `${userId}\n`
+  for (const key of sessionTaskQueues.keys()) {
+    if (key.startsWith(prefix)) sessionTaskQueues.delete(key)
+  }
+}
+
+function advanceLocalVaultStateVersion() {
+  localVaultStateVersion += 1
+  return localVaultStateVersion
+}
+
+function enqueueLocalVaultOperation<T>(operation: () => Promise<T>) {
+  const result = localVaultOperationChain.then(operation)
+  localVaultOperationChain = result.then(() => undefined, () => undefined)
+  return result
+}
+
+function isCurrentLocalVaultContext(runtime: SettingsRuntimeState, context: LocalVaultRuntimeContext) {
+  return localVaultStateVersion === context.stateVersion
+    && runtime.vaultUserId === context.userId
+    && runtime.vaultPersistence === context.persistence
+}
 
 function normalizeWorkspaceRuntimeStatus(status: Pick<WorkspaceStatus, 'configured' | 'directoryName' | 'permission'>) {
   return {
@@ -349,12 +410,21 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
       return 'session'
     }
 
+    const vaultSupported = isLocalVaultSupported()
+    const persistence: LocalVaultPersistence = vaultSupported ? 'device' : 'session'
+    const stateVersion = advanceLocalVaultStateVersion()
+    const context: LocalVaultRuntimeContext = {
+      userId: normalizedUserId,
+      persistence,
+      stateVersion,
+    }
+
     set((state) => ({
       config: withoutPrivateSettings(state.config),
       runtime: {
         ...state.runtime,
         vaultStatus: 'loading',
-        vaultPersistence: 'device',
+        vaultPersistence: persistence,
         vaultUserId: normalizedUserId,
         vaultUpdatedAt: null,
         vaultError: null,
@@ -362,8 +432,10 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
     }))
 
     try {
-      if (isLocalVaultSupported()) {
+      if (vaultSupported) {
         const remembered = await loadRememberedLocalVault(normalizedUserId)
+        if (!isCurrentLocalVaultContext(get().runtime, context)) return 'session'
+
         if (remembered) {
           set((state) => ({
             config: mergeLocalVaultDocument(state.config, remembered),
@@ -383,6 +455,22 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
 
       const legacyConfig = readLegacyPersistedConfig()
       if (legacyConfig) {
+        if (!isCurrentLocalVaultContext(get().runtime, context)) return 'session'
+
+        if (!vaultSupported) {
+          set((state) => ({
+            runtime: {
+              ...state.runtime,
+              vaultStatus: 'error',
+              vaultPersistence: 'session',
+              vaultUserId: normalizedUserId,
+              vaultUpdatedAt: null,
+              vaultError: '当前浏览器不支持加密设备存储，无法迁移或保存本地 Vault。',
+            },
+          }))
+          return 'session'
+        }
+
         const migratedConfig = normalizeConfig(legacyConfig)
         set((state) => ({
           config: normalizeConfig({
@@ -391,42 +479,34 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
           }),
         }))
 
-        if (isLocalVaultSupported()) {
-          await get().persistLocalVault()
-        } else {
-          set((state) => ({
-            runtime: {
-              ...state.runtime,
-              vaultStatus: 'ready',
-              vaultPersistence: 'session',
-              vaultUserId: normalizedUserId,
-              vaultUpdatedAt: null,
-              vaultError: '当前浏览器不支持加密设备存储，配置仅保留在本次会话。',
-            },
-          }))
-        }
+        await get().persistLocalVault()
+        if (!isCurrentLocalVaultContext(get().runtime, context)) return 'session'
         clearLegacyPersistedConfig()
         return 'legacy'
       }
 
-      if (isLocalVaultSupported()) {
+      if (vaultSupported) {
         await get().persistLocalVault()
-        return 'empty'
+        return isCurrentLocalVaultContext(get().runtime, context) ? 'empty' : 'session'
       }
 
+      if (!isCurrentLocalVaultContext(get().runtime, context)) return 'session'
       set((state) => ({
         runtime: {
           ...state.runtime,
-          vaultStatus: 'ready',
+          vaultStatus: 'error',
           vaultPersistence: 'session',
           vaultUserId: normalizedUserId,
           vaultUpdatedAt: null,
-          vaultError: '当前浏览器不支持加密设备存储，配置仅保留在本次会话。',
+          vaultError: '当前浏览器不支持加密设备存储，无法保存本地 Vault。',
         },
       }))
       return 'session'
     } catch (error) {
+      if (!isCurrentLocalVaultContext(get().runtime, context)) return 'session'
+
       const message = error instanceof Error ? error.message : String(error)
+      advanceLocalVaultStateVersion()
       set((state) => ({
         config: withoutPrivateSettings(state.config),
         runtime: {
@@ -443,30 +523,40 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
   },
 
   persistLocalVault: async () => {
-    const state = get()
+    let state = get()
     const userId = state.runtime.vaultUserId
 
-    if (!userId || state.runtime.vaultPersistence !== 'device') {
-      set((current) => ({
-        runtime: {
-          ...current.runtime,
-          vaultStatus: userId ? 'ready' : current.runtime.vaultStatus,
-          vaultError: null,
-        },
-      }))
-      return
-    }
+    if (!userId) return
 
     if (!isLocalVaultSupported()) {
       throw new Error('当前浏览器不支持加密设备存储。')
     }
 
+    if (state.runtime.vaultPersistence !== 'device') {
+      advanceLocalVaultStateVersion()
+      set((current) => ({
+        runtime: {
+          ...current.runtime,
+          vaultPersistence: 'device',
+          vaultStatus: 'ready',
+          vaultError: null,
+        },
+      }))
+      state = get()
+    }
+
     const document = createLocalVaultDocument(state.config, userId)
-    const write = localVaultWriteChain.then(() => saveRememberedLocalVault(document))
-    localVaultWriteChain = write.catch(() => undefined)
+    const context: LocalVaultRuntimeContext = {
+      userId,
+      persistence: 'device',
+      stateVersion: localVaultStateVersion,
+    }
+    const write = enqueueLocalVaultOperation(() => saveRememberedLocalVault(document))
 
     try {
       await write
+      if (!isCurrentLocalVaultContext(get().runtime, context)) return
+
       set((current) => ({
         runtime: {
           ...current.runtime,
@@ -476,6 +566,8 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
         },
       }))
     } catch (error) {
+      if (!isCurrentLocalVaultContext(get().runtime, context)) throw error
+
       const message = error instanceof Error ? error.message : String(error)
       set((current) => ({
         runtime: {
@@ -488,83 +580,77 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
     }
   },
 
-  setVaultPersistence: async (persistence) => {
+  loadLocalTaskQueue: async (projectId) => {
+    const normalizedProjectId = projectId.trim()
     const state = get()
-    const previousPersistence = state.runtime.vaultPersistence
+    const userId = state.runtime.vaultUserId
+    if (!normalizedProjectId || !userId) return null
 
-    if (persistence === previousPersistence) return
+    const sessionSnapshot = sessionTaskQueues.get(getSessionTaskQueueKey(userId, normalizedProjectId))
+    if (sessionSnapshot) return cloneTaskQueue(sessionSnapshot)
+    if (state.runtime.vaultPersistence !== 'device' || !isLocalVaultSupported()) return null
 
-    if (persistence === 'session') {
-      try {
-        if (state.runtime.vaultUserId && isLocalVaultSupported()) {
-          await forgetRememberedLocalVault(state.runtime.vaultUserId)
-        }
-        set((current) => ({
-          runtime: {
-            ...current.runtime,
-            vaultPersistence: 'session',
-            vaultStatus: current.runtime.vaultUserId ? 'ready' : current.runtime.vaultStatus,
-            vaultUpdatedAt: null,
-            vaultError: null,
-          },
-        }))
-      } catch (error) {
-        set((current) => ({
-          runtime: {
-            ...current.runtime,
-            vaultStatus: 'error',
-            vaultError: error instanceof Error ? error.message : String(error),
-          },
-        }))
-        throw error
-      }
-      return
+    const context: LocalVaultRuntimeContext = {
+      userId,
+      persistence: 'device',
+      stateVersion: localVaultStateVersion,
     }
-
-    set((current) => ({
-      runtime: {
-        ...current.runtime,
-        vaultPersistence: 'device',
-        vaultStatus: current.runtime.vaultUserId ? 'ready' : current.runtime.vaultStatus,
-        vaultError: null,
-      },
-    }))
-
-    try {
-      await get().persistLocalVault()
-    } catch (error) {
-      set((current) => ({
-        runtime: {
-          ...current.runtime,
-          vaultPersistence: previousPersistence,
-        },
-      }))
-      throw error
-    }
+    const document = await enqueueLocalVaultOperation(() => loadRememberedLocalTaskQueue(userId, normalizedProjectId))
+    if (!isCurrentLocalVaultContext(get().runtime, context)) return null
+    if (!document) return null
+    sessionTaskQueues.set(getSessionTaskQueueKey(userId, normalizedProjectId), cloneTaskQueue(document.taskQueue))
+    return cloneTaskQueue(document.taskQueue)
   },
 
-  forgetDeviceVault: async () => {
-    const userId = get().runtime.vaultUserId
-    if (userId && isLocalVaultSupported()) {
-      await forgetRememberedLocalVault(userId)
-    }
+  persistLocalTaskQueue: async (projectId, taskQueue) => {
+    const normalizedProjectId = projectId.trim()
+    const state = get()
+    const userId = state.runtime.vaultUserId
 
-    clearLegacyPersistedConfig()
-    clearDeviceOnlySettingsCache()
-    useTaskQueueStore.getState().clearDeviceCache()
-    set((state) => ({
-      config: withoutPrivateSettings(state.config),
-      runtime: {
-        ...state.runtime,
-        vaultStatus: userId ? 'ready' : 'idle',
-        vaultPersistence: 'session',
-        vaultUpdatedAt: null,
-        vaultError: null,
-      },
+    if (!normalizedProjectId || !userId) return
+
+    const taskQueueSnapshot = cloneTaskQueue(taskQueue)
+    sessionTaskQueues.set(getSessionTaskQueueKey(userId, normalizedProjectId), taskQueueSnapshot)
+    if (state.runtime.vaultPersistence !== 'device' || !isLocalVaultSupported()) return
+
+    const context: LocalVaultRuntimeContext = {
+      userId,
+      persistence: 'device',
+      stateVersion: localVaultStateVersion,
+    }
+    await enqueueLocalVaultOperation(() => saveRememberedLocalTaskQueue({
+      schemaVersion: LOCAL_TASK_CACHE_SCHEMA_VERSION,
+      userId,
+      projectId: normalizedProjectId,
+      taskQueue: taskQueueSnapshot,
+      updatedAt: Date.now(),
     }))
+    if (!isCurrentLocalVaultContext(get().runtime, context)) return
+  },
+
+  deleteLocalTaskQueue: async (projectId) => {
+    const normalizedProjectId = projectId.trim()
+    const state = get()
+    const userId = state.runtime.vaultUserId
+
+    if (!normalizedProjectId || !userId) return
+
+    sessionTaskQueues.delete(getSessionTaskQueueKey(userId, normalizedProjectId))
+    if (state.runtime.vaultPersistence !== 'device' || !isLocalVaultSupported()) return
+
+    const context: LocalVaultRuntimeContext = {
+      userId,
+      persistence: 'device',
+      stateVersion: localVaultStateVersion,
+    }
+    await enqueueLocalVaultOperation(() => deleteRememberedLocalTaskQueue(userId, normalizedProjectId))
+    if (!isCurrentLocalVaultContext(get().runtime, context)) return
   },
 
   clearVaultSession: () => {
+    advanceLocalVaultStateVersion()
+    clearSessionTaskQueues()
+    useTaskQueueStore.getState().clearDeviceCache()
     set((state) => ({
       config: withoutPrivateSettings(state.config),
       runtime: {
@@ -625,6 +711,9 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
           customModels,
           modelProviderProfileIds: Object.fromEntries(
             Object.entries(normalized.modelProviderProfileIds).filter(([modelId]) => modelId !== deletedModel?.modelId),
+          ),
+          localModelBindings: Object.fromEntries(
+            Object.entries(normalized.localModelBindings).filter(([, modelId]) => modelId !== deletedModel?.modelId),
           ),
         }),
       }
@@ -712,6 +801,52 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
     })
     void get().persistLocalVault().catch(() => undefined)
   },
+
+  ensureLocalModelReference: (modelId) => {
+    const normalizedModelId = modelId.trim()
+    if (!normalizedModelId || isLocalModelReference(normalizedModelId)) return normalizedModelId
+
+    const existing = findLocalModelReference(get().config.localModelBindings, normalizedModelId)
+    if (existing) return existing
+
+    const reference = createLocalModelReference(Object.keys(get().config.localModelBindings))
+    set((state) => ({
+      config: normalizeConfig({
+        ...state.config,
+        localModelBindings: {
+          ...state.config.localModelBindings,
+          [reference]: normalizedModelId,
+        },
+      }),
+    }))
+    return reference
+  },
+
+  bindLocalModelReference: (reference, modelId) => {
+    const normalizedModelId = modelId.trim()
+    if (!isLocalModelReference(reference) || !normalizedModelId || isLocalModelReference(normalizedModelId)) {
+      return false
+    }
+
+    const modelExists = get().config.customModels.some((model) => model.enabled && model.modelId === normalizedModelId)
+    if (!modelExists) return false
+
+    set((state) => ({
+      config: normalizeConfig({
+        ...state.config,
+        localModelBindings: {
+          ...state.config.localModelBindings,
+          [reference]: normalizedModelId,
+        },
+      }),
+    }))
+    void get().persistLocalVault().catch(() => undefined)
+    return true
+  },
+
+  resolveLocalModelReference: (reference) => (
+    resolveLocalModelReference(get().config.localModelBindings, reference)
+  ),
 
   setCustomModelTestState: (id, status, message, testedAt = Date.now()) => {
     set((state) => ({
@@ -808,7 +943,6 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
       apiUrl: profile.apiUrl,
       provider: profile.provider,
       requestMode: profile.requestMode,
-      asyncConfig: profile.asyncConfig,
     }
   },
 }))

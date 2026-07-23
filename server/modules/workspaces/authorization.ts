@@ -89,7 +89,7 @@ export function createWorkspaceAuthorizationService(pool: Pick<DbPool, 'query'>)
           WHERE w.id = $1
             AND wm.user_id = $2
             AND w.status <> 'deleted'
-            AND COALESCE(u.status, 'active') <> 'deleted'
+            AND COALESCE(u.status, 'active') = 'active'
           LIMIT 1
         `,
         [input.workspaceId, input.userId],

@@ -13,7 +13,7 @@ function buildAssetFolderDate(timestamp: number) {
   return `${year}-${month}-${day}`
 }
 
-function buildGeneratedImageFileName(task: GenerateTask, mimeType: string) {
+export function buildGeneratedImageFileName(task: GenerateTask, mimeType: string) {
   const extension = mimeType === 'image/jpeg'
     ? 'jpg'
     : mimeType === 'image/webp'
@@ -22,17 +22,17 @@ function buildGeneratedImageFileName(task: GenerateTask, mimeType: string) {
         ? 'gif'
         : 'png'
 
-  return `${task.model}-${task.id}.${extension}`
+  return `generated-${task.id}.${extension}`
 }
 
-function buildGeneratedVideoFileName(task: GenerateTask, mimeType: string) {
+export function buildGeneratedVideoFileName(task: GenerateTask, mimeType: string) {
   const extension = mimeType === 'video/webm'
     ? 'webm'
     : mimeType === 'video/quicktime'
       ? 'mov'
       : 'mp4'
 
-  return `${task.model}-${task.id}.${extension}`
+  return `generated-${task.id}.${extension}`
 }
 
 async function dataUrlToBlob(dataUrl: string) {
@@ -119,15 +119,7 @@ export async function persistGeneratedVideoAsset(
     }
   }
 
-  let blob: Blob
-  try {
-    blob = await downloadGeneratedVideoAsBlob(videoUrl)
-  } catch {
-    return {
-      asset: null,
-      resolvedUrl: videoUrl,
-    }
-  }
+  const blob = await downloadGeneratedVideoAsBlob(videoUrl)
 
   const asset = await platformBridge.writeWorkspaceAsset({
     pathSegments: buildProjectAssetPath(task.projectId, 'generated', buildAssetFolderDate(task.createdAt)),

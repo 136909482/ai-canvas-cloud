@@ -116,65 +116,17 @@ function toSafeUrl(apiUrl: string) {
   }
 }
 
-function isLocalDevHost() {
-  return typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
-}
-
 function getAliyunRequestBase(apiUrl: string) {
   const normalized = normalizeApiUrl(apiUrl.trim() || 'https://dashscope.aliyuncs.com')
   const parsed = toSafeUrl(normalized)
-  const rootBase = `${parsed.protocol}//${parsed.host}`
-
-  if (!isLocalDevHost()) {
-    return rootBase
-  }
-
-  switch (parsed.host) {
-    case 'dashscope.aliyuncs.com':
-      return '/api-proxy/aliyun'
-    case 'dashscope-intl.aliyuncs.com':
-      return '/api-proxy/aliyun-intl'
-    case 'dashscope-us.aliyuncs.com':
-      return '/api-proxy/aliyun-us'
-    default:
-      return rootBase
-  }
+  return `${parsed.protocol}//${parsed.host}`
 }
 
-function resolveDashScopeBaseUrl(apiUrl: string) {
-  const fallback = 'https://dashscope.aliyuncs.com'
-  const trimmedApiUrl = apiUrl.trim() || fallback
-
-  try {
-    const url = new URL(trimmedApiUrl)
-    const normalizedPath = url.pathname.replace(/\/+$/, '')
-
-    if (
-      normalizedPath.includes('/compatible-mode')
-      || normalizedPath.includes('/services/aigc/')
-      || normalizedPath === '/api/v1'
-      || normalizedPath.startsWith('/api/v1/tasks')
-    ) {
-      return url.origin
-    }
-
-    return `${url.origin}${normalizedPath}`.replace(/\/+$/, '')
-  } catch {
-    return fallback
-  }
-}
-
-function buildVideoSynthesisUrl(apiUrl: string) {
-  const trimmedApiUrl = apiUrl.trim()
-
-  if (trimmedApiUrl.includes(ALIYUN_VIDEO_SYNTHESIS_PATH)) {
-    return trimmedApiUrl.replace(resolveDashScopeBaseUrl(trimmedApiUrl), getAliyunRequestBase(trimmedApiUrl))
-  }
-
+export function buildVideoSynthesisUrl(apiUrl: string) {
   return `${getAliyunRequestBase(apiUrl)}${ALIYUN_VIDEO_SYNTHESIS_PATH}`
 }
 
-function buildTaskQueryUrl(apiUrl: string, taskId: string) {
+export function buildTaskQueryUrl(apiUrl: string, taskId: string) {
   return `${getAliyunRequestBase(apiUrl)}${ALIYUN_TASKS_PATH}/${encodeURIComponent(taskId)}`
 }
 
@@ -269,7 +221,7 @@ export async function submitAliyunTextToVideoGeneration(params: GenerateVideoPar
     })
   } catch (error) {
     if (error instanceof TypeError) {
-      throw new Error('无法连接阿里百炼视频接口。请确认正在使用本地 Vite 开发服务、Base URL 是 dashscope.aliyuncs.com，并检查网络/API Key。')
+      throw new Error('浏览器无法直连阿里百炼视频接口。请检查网络、Provider CORS 策略或你的固定 CORS 网关。')
     }
     throw error
   }
@@ -297,7 +249,7 @@ async function queryAliyunVideoGeneration(params: GenerateVideoParams, taskId: s
     })
   } catch (error) {
     if (error instanceof TypeError) {
-      throw new Error('无法轮询阿里百炼视频任务。请确认本地 Vite 代理仍在运行，并检查网络连接。')
+      throw new Error('浏览器无法轮询阿里百炼视频任务。请检查网络、Provider CORS 策略或你的固定 CORS 网关。')
     }
     throw error
   }

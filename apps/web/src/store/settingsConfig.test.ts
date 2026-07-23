@@ -1,7 +1,6 @@
 import {
   fromWorkspaceConfigFile,
   normalizeConfig,
-  normalizeProviderAsyncConfig,
   normalizeStorageConfig,
   toWorkspaceConfigFile,
 } from './settingsConfig.ts'
@@ -37,28 +36,6 @@ function runSettingsConfigTests() {
   assert(legacyConfig.providerProfiles[0]?.apiKey === 'legacy-key', 'legacy API key should migrate into a provider profile')
   assert(legacyConfig.providerProfiles[0]?.provider === 'openai', 'legacy API URL should infer the provider family')
 
-  const asyncConfig = normalizeProviderAsyncConfig({
-    enabled: true,
-    submitPath: '   ',
-    submitQuery: { async: true as unknown as string },
-    taskIdPath: ' task.id ',
-    pollPath: ' tasks/{task_id} ',
-    pollIntervalSeconds: 0,
-    statusPath: ' task.status ',
-    successValues: [' done ', ''],
-    failureValues: [],
-    errorPath: ' task.error ',
-    imageUrlPaths: [' result.url '],
-    b64JsonPaths: [' result.b64 '],
-  })
-
-  assert(asyncConfig?.submitPath === 'images/generations', 'blank async submit path should use the default')
-  assert(asyncConfig?.submitQuery.async === 'true', 'async query values should normalize to strings')
-  assert(asyncConfig?.taskIdPath === 'task.id', 'async task id path should be trimmed')
-  assert(asyncConfig?.pollIntervalSeconds === 1, 'async polling interval should be at least one second')
-  assert(asyncConfig?.successValues.join(',') === 'done', 'async success values should be trimmed')
-  assert(asyncConfig?.failureValues.includes('FAILURE'), 'empty async failure values should use defaults')
-
   const normalized = normalizeConfig({
     model: 'image-model',
     customModels: [{
@@ -79,7 +56,6 @@ function runSettingsConfigTests() {
       apiUrl: 'https://example.com/v1',
       provider: 'openai',
       requestMode: 'async',
-      asyncConfig,
       enabled: true,
       testStatus: 'success',
       testMessage: 'ok',
@@ -89,6 +65,10 @@ function runSettingsConfigTests() {
     modelProviderProfileIds: {
       'image-model': 'image-provider',
       missing: 'image-provider',
+    },
+    localModelBindings: {
+      'local:11111111-1111-4111-8111-111111111111': ' image-model ',
+      'local:not-a-uuid': 'ignored-model',
     },
     storage: {
       autosaveIntervalMs: 1,
@@ -107,6 +87,8 @@ function runSettingsConfigTests() {
   assert(normalized.storage.autosaveIntervalMs === 15_000, 'autosave interval should respect the minimum')
   assert(normalized.storage.workspaceDirectoryName === 'workspace', 'workspace directory name should be trimmed')
   assert(!('missing' in normalized.modelProviderProfileIds), 'bindings for missing models should be removed')
+  assert(normalized.localModelBindings['local:11111111-1111-4111-8111-111111111111'] === 'image-model', 'local model bindings should normalize inside private settings')
+  assert(!('local:not-a-uuid' in normalized.localModelBindings), 'invalid local model references should be dropped')
 
   const legacyColorfulEdges = normalizeStorageConfig({ edgeStyle: 'colorful' })
   assert(legacyColorfulEdges.edgeStyle === 'step', 'legacy colorful edge style should migrate to step')
@@ -117,6 +99,7 @@ function runSettingsConfigTests() {
   const workspaceConfig = toWorkspaceConfigFile(normalized)
   assert(workspaceConfig.customModels.length === 0, 'workspace config should not persist device-local models')
   assert(workspaceConfig.providerProfiles?.length === 0, 'cloud workspace config should not persist provider secrets')
+  assert(!('localModelBindings' in workspaceConfig), 'cloud workspace config should not persist local model bindings')
   assert(!('workspaceConfigured' in workspaceConfig.storage), 'workspace config should omit runtime storage state')
 
   const restored = fromWorkspaceConfigFile(workspaceConfig)

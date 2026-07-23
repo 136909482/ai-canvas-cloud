@@ -62,8 +62,8 @@ function runTaskQueueRecoveryTests() {
   assert(queuedTask.startedAt === 0, 'queued tasks should clear stale startedAt')
 
   const localRunningTask = recoveredTasks.find((task) => task.id === 'running-local')
-  assert(localRunningTask?.status === 'queued', 'local running tasks should return to queued after refresh')
-  assert(localRunningTask.startedAt === 0, 'local running tasks should clear startedAt when re-queued')
+  assert(localRunningTask?.status === 'error', 'local running tasks should be interrupted after refresh')
+  assert(localRunningTask.errorMsg.includes('同步任务已中断'), 'interrupted local tasks should require an explicit retry')
 
   const remoteRunningTask = recoveredTasks.find((task) => task.id === 'running-remote')
   assert(remoteRunningTask?.status === 'running', 'remote running tasks should remain running for provider polling')

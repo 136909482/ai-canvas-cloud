@@ -414,7 +414,7 @@ async function getPrimaryWorkspace(client: Pick<DbClient, 'query'>, userId: stri
       JOIN workspace_members wm ON wm.user_id = u.id
       JOIN workspaces w ON w.id = wm.workspace_id
       WHERE u.id = $1
-        AND COALESCE(u.status, 'active') <> 'deleted'
+        AND COALESCE(u.status, 'active') = 'active'
         AND w.status <> 'deleted'
       ORDER BY CASE WHEN w.type = 'personal' THEN 0 ELSE 1 END, wm.joined_at ASC
       LIMIT 1
@@ -696,10 +696,11 @@ export function createPostgresAuthService(
         const row = await getPrimaryWorkspace(pool, result.response.user.id)
 
         if (!row) {
+          await deleteCurrentLoginAttempt(pool, result.response.user.id, result.response.token)
           throw new AuthServiceError({
             statusCode: 403,
             apiCode: 'ACCESS_DENIED',
-            message: 'Workspace is not available',
+            message: 'Account access is disabled',
           })
         }
 

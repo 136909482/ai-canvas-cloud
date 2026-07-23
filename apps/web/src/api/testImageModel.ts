@@ -4,7 +4,7 @@ import type { RuntimeModelConfig } from '@/types'
 const TEST_PROMPT = 'A minimal blue square icon on a light background.'
 
 export async function testImageModelConnection(
-  model: Pick<RuntimeModelConfig, 'apiKey' | 'apiUrl' | 'modelId' | 'provider' | 'requestMode' | 'asyncConfig'>,
+  model: Pick<RuntimeModelConfig, 'apiKey' | 'apiUrl' | 'modelId' | 'provider' | 'requestMode'>,
 ) {
   const imageUrl = await generateImage({
     prompt: TEST_PROMPT,
@@ -13,7 +13,6 @@ export async function testImageModelConnection(
     apiUrl: model.apiUrl,
     model: model.modelId,
     provider: model.provider,
-    asyncConfig: model.asyncConfig,
     requestMode: model.requestMode,
     operationType: 'text-to-image',
   })

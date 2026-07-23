@@ -15,14 +15,18 @@ import {
   Settings2,
   ShieldCheck,
   UserRound,
+  UsersRound,
   X,
 } from 'lucide-react'
 import { adminApi, AdminApiError } from './api'
 import { setAdminIdentity, type AuditRecord } from './refine'
 import { SiteConfigView } from './SiteConfigView'
+import { UsersView } from './UsersView'
+import { UserDetailView } from './UserDetailView'
+import { DashboardView } from './DashboardView'
 
 type Flow = 'loading' | 'login' | 'app'
-type View = 'security' | 'site' | 'audit'
+type View = 'dashboard' | 'security' | 'users' | 'site' | 'audit'
 
 function errorMessage(error: unknown) {
   return error instanceof AdminApiError ? error.message : '请求未完成，请稍后重试'
@@ -230,17 +234,18 @@ function SecurityView({ session, onSessionUpdated }: { session: AdminSessionResp
 }
 
 function Console({ session, onSessionUpdated, onLogout }: { session: AdminSessionResponse; onSessionUpdated: (session: AdminSessionResponse) => void; onLogout: () => void }) {
-  const [view, setView] = useState<View>('security')
+  const [view, setView] = useState<View>('dashboard')
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
   return (
     <main className="console-shell">
       <aside className={mobileNav ? 'open' : ''}>
         <Brand />
-        <nav><button className={view === 'security' ? 'active' : ''} onClick={() => { setView('security'); setMobileNav(false) }}><Activity />安全状态</button><button className={view === 'site' ? 'active' : ''} onClick={() => { setView('site'); setMobileNav(false) }}><Settings2 />网站设置</button><button className={view === 'audit' ? 'active' : ''} onClick={() => { setView('audit'); setMobileNav(false) }}><ScrollText />管理审计</button></nav>
+        <nav><button className={view === 'dashboard' ? 'active' : ''} onClick={() => { setView('dashboard'); setSelectedUserId(null); setMobileNav(false) }}><Activity />运营概览</button><button className={view === 'security' ? 'active' : ''} onClick={() => { setView('security'); setSelectedUserId(null); setMobileNav(false) }}><ShieldCheck />安全状态</button><button className={view === 'users' ? 'active' : ''} onClick={() => { setView('users'); setSelectedUserId(null); setMobileNav(false) }}><UsersRound />用户管理</button><button className={view === 'site' ? 'active' : ''} onClick={() => { setView('site'); setSelectedUserId(null); setMobileNav(false) }}><Settings2 />网站设置</button><button className={view === 'audit' ? 'active' : ''} onClick={() => { setView('audit'); setSelectedUserId(null); setMobileNav(false) }}><ScrollText />管理审计</button></nav>
         <footer><div><span>{session.admin.role}</span><strong>{session.admin.username}</strong></div><button className="icon-command" onClick={onLogout} title="退出管理端"><LogOut /></button></footer>
       </aside>
       <header className="mobile-header"><Brand /><button className="icon-command" onClick={() => setMobileNav((value) => !value)} title="打开导航"><Menu /></button></header>
-      <div className="console-workspace">{view === 'security' ? <SecurityView session={session} onSessionUpdated={onSessionUpdated} /> : view === 'site' ? <SiteConfigView /> : <AuditView />}</div>
+      <div className="console-workspace">{view === 'dashboard' ? <DashboardView /> : view === 'security' ? <SecurityView session={session} onSessionUpdated={onSessionUpdated} /> : view === 'users' ? selectedUserId ? <UserDetailView userId={selectedUserId} onBack={() => setSelectedUserId(null)} /> : <UsersView onSelectUser={setSelectedUserId} /> : view === 'site' ? <SiteConfigView /> : <AuditView />}</div>
     </main>
   )
 }

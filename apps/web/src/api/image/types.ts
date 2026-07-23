@@ -1,5 +1,5 @@
 import type { ProviderId } from '@/config/modelCatalog'
-import type { GptImageQuality, ImageInputFidelity, ImageOperationType, ImageRequestMode, ProviderAsyncConfig } from '@/types'
+import type { GptImageQuality, ImageInputFidelity, ImageOperationType, ImageRequestMode } from '@/types'
 
 export interface GenerateImageParams {
   prompt: string
@@ -15,7 +15,6 @@ export interface GenerateImageParams {
   model: string
   provider?: ProviderId
   requestMode?: ImageRequestMode
-  asyncConfig?: ProviderAsyncConfig | null
   operationType?: ImageOperationType
   inputFidelity?: ImageInputFidelity | null
   quality?: GptImageQuality | null

@@ -23,7 +23,7 @@
 - `"account"`：credential provider 账号及 Better Auth 管理的密码哈希。
 - `"verification"`：邮箱验证和密码重置的一次性值。
 
-`user_no` 从 `10001` 开始，只用于本人展示、客服检索和运营管理，不参与认证或授权。账号采用单活跃 session；接管新设备和密码重置会撤销旧 session。
+`user_no` 从 `10001` 开始，只用于本人展示、客服检索和运营管理，不参与认证或授权。普通用户状态为 `active|disabled|deleted`；`disabled` 不能登录、恢复 session 或通过 workspace 授权，`deleted` 可用于运营筛选和只读核对但不能再被状态操作。账号采用单活跃 session；接管新设备和密码重置会撤销旧 session。
 
 日志、审计、错误和前端响应不得记录密码、session/reset/verification token、完整邮件链接或 Provider API Key。业务授权只信任 Better Auth session 解析的用户。
 
@@ -119,7 +119,7 @@ P8-4 后保存 `asset_id`、`workspace_id`、`project_id`、非空 `node_id`、r
 
 保存可信 workspace/创建者、package/source/project 摘要、幂等键和请求指纹、内容 hash、状态、冲突快照、计数、validated manifest/ProjectRecord/graph/asset manifest/可选 checkpoint、错误与终态时间。
 
-prepare 只写 import 行，不创建正式项目、图、资产、引用、change 或 checkpoint。`ProjectRecord.taskQueue` 可保留历史本地任务结构用于往返兼容，但 Cloud commit 不拆分为服务器任务表，也不执行其中任务。
+prepare 只写 import 行，不创建正式项目、图、资产、引用、change 或 checkpoint。历史 `ProjectRecord.taskQueue` 只用于输入兼容；Cloud commit 忽略且不执行其中任务，当前导出固定写空数组。
 
 ### `migration_import_asset_uploads`
 
@@ -141,13 +141,28 @@ Admin Better Auth 表位于固定 `admin` schema，使用独立 Cookie 和 Secre
 
 `admin.login_security_settings` 保存验证码开关，`admin.login_captcha_challenges` 保存短期 challenge hash、失败次数、过期/消费时间，不保存验证码明文。`admin.audit_events` 是追加式脱敏审计，运行角色只有 INSERT/SELECT，触发器拒绝 UPDATE/DELETE。
 
+### 用户运营投影、聚合与事务
+
+Admin 运行角色对 public 普通用户数据采用列级授权：
+
+- `"user"` 只读 `id/user_no/name/email/email_verified/status/created_at/updated_at`，只可更新 `status/updated_at`。
+- `"session"` 只读 `id/user_id/expires_at/created_at/updated_at`，并拥有 DELETE；`token`、IP 和 User-Agent 不可读。
+- `workspaces`、`workspace_members` 只开放用户归属、角色、状态、配额和时间所需的最小列。
+- `assets` 只开放 workspace、字节数、状态和软删除时间；`migration_import_asset_uploads` 只开放 workspace、预留字节、状态和 committed asset ID。资产 `object_key`、项目/节点/Prompt 正文均不可读。
+
+用户列表按 `created_at DESC, id DESC` 的稳定 keyset 分页，可按账号状态、验证状态和受控搜索过滤。列表只返回最小用户字段、最近 session 时间、workspace 数和已用存储；详情补充未删除 workspace 的角色、状态、配额、已用与预留存储，不返回项目或资产明细。
+
+运营概览是无用户明细的即时聚合：注册统计排除 `deleted`，活跃用户按未过期 session 的最近更新时间计算 24 小时/7 天窗口；认证安全统计验证/未验证/disabled 数量；存储已用量统计未软删除且处于 `completed|failed|quarantined` 的资产，预留量统计 pending 资产和仍处于 `pending|uploading|validating|completed` 的迁移上传，总配额统计未删除 workspace。依赖健康只包含 PostgreSQL 与对象存储。
+
+封禁、解封和 session 撤销先以 `FOR UPDATE` 锁定目标用户，拒绝 `deleted` 用户，并在同一数据库事务追加脱敏 `admin.audit_events`。封禁将状态幂等设为 `disabled` 后删除该用户 session；并发登录若已创建临时 session，会在发现 `disabled` 状态时自行删除，因而不能留下竞态迟到 session。解封只设为 `active`，不恢复旧 session；独立 session 撤销不改变用户状态。审计 before/after 只保存目标 ID、状态、受限原因、撤销数量和哈希请求来源。
+
 ### 站点配置与品牌资产
 
 `admin.site_config_revisions` 保存不可变结构配置，`admin.site_config_current` 保存当前 revision 指针。配置只允许版本化纯数据，不接受 HTML、JavaScript 或任意 CSS。
 
 `admin.site_assets` 保存 Logo/Favicon 私有对象元数据。完成确认复核对象 metadata、hash、魔数和真实尺寸。`public.site_config_publications` 是普通 API 唯一可读的最小投影；Admin 发布事务原子更新 current 和投影。
 
-普通 API 角色没有 `admin` schema USAGE，只对公开投影有 SELECT；Admin 角色不能读取 public 普通身份表。
+普通 API 角色没有 `admin` schema USAGE，只对公开投影有 SELECT；Admin 角色除上述用户运营列级投影和站点公开投影外，不拥有 public 业务表的宽泛权限。
 
 ## P8-4 删除后的 schema
 
@@ -208,4 +223,12 @@ commit 在一个事务中完成项目策略、资产 UUID 映射、图/引用/ch
 
 ## 浏览器本地状态
 
-P8-5 尚未完成。目标状态是：Provider、endpoint、API Key、本地模型、绑定和可恢复异步任务只存在浏览器内存或按 Origin/可信用户分区的加密 IndexedDB。项目图最终只保存匿名本地模型引用；Cloud 数据库、API 请求、日志、诊断、迁移包和 Admin 均不保存真实 Provider 配置。
+浏览器 Vault 不是 PostgreSQL 数据模型，也不通过 Cloud 同步。当前格式为 `schemaVersion=1`、`cipherVersion=1`：单个版本化文档保存 Provider、endpoint、API Key、本地模型和绑定；设备模式使用不可导出的 WebCrypto AES-256-GCM `CryptoKey`、96 位随机 IV 和 128 位认证标签加密，AAD 绑定 cipher/schema version、当前 Origin 和可信 session 用户 ID。IndexedDB 的密文记录与 Key 记录按可信用户 ID 分区；两个独立浏览器设备各自持有独立数据库与 Key，不存在隐式同步。
+
+设备持久化是唯一用户可见模式，不提供 persistence 或单独删除入口。Vault 保存与本地任务写入在浏览器内串行执行；登出/session 失效/换账号只清空内存明文并保留按账号隔离的设备密文。用户清除当前网站数据时，浏览器删除 IndexedDB 中的密文、CryptoKey、模型绑定和本地任务缓存。异步完成只有在可信用户、内部持久化状态与状态代次仍一致时才能更新运行态。
+
+旧 `ai-canvas-settings` 明文只在设备加密写入成功后删除，失败时保留供重试。workspace 配置、workspace/localStorage 缓存、项目图、checkpoint、迁移包、Cloud API 请求、日志、指标、诊断、PostgreSQL 和 Admin 均不保存真实 Provider、endpoint、模型 ID、绑定或 Key。
+
+P8-6/P8-7 不新增 PostgreSQL 表。项目图中的模型字段仅保存 `local:<uuid>`，真实模型 ID 只存在 Vault 的 `localModelBindings` 映射中；Cloud 图还会移除 profile/Provider/endpoint/Key、task ID、remote task、上游错误和运行态。生成媒体先作为私有 `assets` 上传，完成后项目图只引用 Cloud asset UUID，不保存 Provider 临时 URL。
+
+本地任务缓存是独立加密文档：`schemaVersion=1`、`cipherVersion=1`，IndexedDB 数据库版本为 2；复用同一不可导出 AES-256-GCM 设备 Key，AAD 在 Origin/可信用户之外额外绑定项目 ID。记录包含本地任务状态和受控异步 `remoteTaskId`，按用户/项目分区并持久化到当前浏览器；项目删除会删除对应项目密文，清除当前网站数据会删除全部本地任务密文。该缓存不进入 workspace/project record 持久化、checkpoint、迁移包、Cloud API、日志、诊断或 PostgreSQL。

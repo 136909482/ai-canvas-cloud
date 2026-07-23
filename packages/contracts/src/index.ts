@@ -523,3 +523,4 @@ export function createServiceUnavailableError(requestId: string, message = 'Serv
 export * from './migrationPackage.ts'
 export * from './migrationExport.ts'
 export * from './siteConfig.ts'
+export * from './adminOperations.ts'

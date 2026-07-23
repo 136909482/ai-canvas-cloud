@@ -26,3 +26,22 @@ test('creates structured diagnostics without undefined context values', () => {
   assert.match(formatDiagnosticReport([diagnostic]), /IMAGE_GENERATION_FAILED/)
   assert.match(formatDiagnosticReport([diagnostic]), /taskId=task-1/)
 })
+
+test('private Provider diagnostics never retain endpoint, model, key, or upstream response details', () => {
+  const privateDetails = 'https://private.example/v1 model=private-model Authorization=Bearer private-key'
+  const diagnostic = createAppDiagnostic({
+    area: 'model',
+    title: '图片生成失败',
+    error: new Error(privateDetails),
+    code: 'IMAGE_GENERATION_FAILED',
+    privateProviderError: true,
+    context: { taskId: 'task-1' },
+  }, 456)
+  const serialized = JSON.stringify(diagnostic)
+
+  assert.equal(diagnostic.kind, 'remote')
+  assert.deepEqual(diagnostic.context, { taskId: 'task-1' })
+  assert.equal(serialized.includes('private.example'), false)
+  assert.equal(serialized.includes('private-model'), false)
+  assert.equal(serialized.includes('private-key'), false)
+})

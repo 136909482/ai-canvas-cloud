@@ -57,6 +57,7 @@ interface TaskQueueStore {
 }
 
 let taskIdCounter = 1
+const INTERRUPTED_LOCAL_TASK_MESSAGE = '页面关闭或刷新后，同步任务已中断，请手动重试。'
 
 function createTaskId() {
   return `task-${taskIdCounter++}`
@@ -135,12 +136,11 @@ export function recoverTaskAfterSnapshotLoad(task: GenerateTask, projectId?: str
   if (sanitizedTask.status === 'running') {
     return {
       ...sanitizedTask,
-      status: 'queued',
-      errorMsg: '',
+      status: 'error',
+      errorMsg: INTERRUPTED_LOCAL_TASK_MESSAGE,
       remoteTaskId: null,
       remoteStatus: null,
-      startedAt: 0,
-      finishedAt: null,
+      finishedAt: Date.now(),
     }
   }
 

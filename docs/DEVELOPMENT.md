@@ -14,7 +14,7 @@ AI Canvas Cloud 是账号制 AI 画布 SaaS。平台提供账号、个人空间�
 - 两端只通过版本化 `ProjectRecord` 和目录包显式迁移。
 - 登录、退出或网络恢复不会自动上传本地工作区。
 
-用户 Provider、endpoint、模型 ID 和 API Key 只允许存在于按 Origin 与可信用户隔离的浏览器加密 Vault。浏览器只能通过受控协议适配器直接调用 Provider，媒体结果再沿用 Cloud 资产上传和项目图 API 入云。平台 API 不接收 Key、endpoint、真实模型 ID 或任意 target URL。P8-5 Vault 尚未完成；现有 Vault/endpoint/脱敏代码是后续实现草稿，不得被 UI 暴露为已完成能力。
+用户 Provider、endpoint、模型 ID、API Key、本机模型绑定和可恢复异步任务只允许存在于按 Origin 与可信用户隔离的浏览器加密 Vault。平台 API 不接收 Key、endpoint、真实模型 ID、remote task ID 或任意 target URL。浏览器只实现固定 OpenAI Compatible/DashScope chat/image/video 协议，结果通过 Cloud 资产和项目图 API 入云。
 
 ## 当前拓扑
 
@@ -59,6 +59,7 @@ Web 不 import `server/`、数据库驱动、Redis 或对象存储管理 SDK。A
 - `auth_devices` 保存设备历史，不把浏览器生成的 device ID 当作认证凭据。
 - 生产 Cookie 使用 HttpOnly、Secure、SameSite=Lax 和固定 Path。
 - 所有资源访问先从可信 session 解析用户，再通过 `workspace_members` 校验角色和状态。
+- 普通用户 `status=disabled` 时不能登录、恢复 session 或通过 workspace 授权；登录流程若刚创建临时 session，会先删除该 session 再返回拒绝。
 - 客户端提交的 `user_id`、`workspace_id` 不参与授权。
 - 其他 workspace 与不存在资源使用相同的非披露语义。
 - 密码、Cookie、session/reset/verification token、完整邮件链接和用户正文不得进入日志。
@@ -124,19 +125,46 @@ P8-2 Admin 安全底座和 P8-3 网站设置保留：
 - `admin.audit_events` 追加式保存脱敏审计，数据库触发器禁止 UPDATE/DELETE。
 - 网站设置使用不可变修订、current 指针、受控品牌资产和 `public.site_config_publications` 最小公开投影。
 
+P8-8 用户运营遵循最小权限与最小披露：
+
+- `dashboard.read` 对 `super_admin|operator|support|auditor` 开放；运营概览只返回注册、活跃、存储、认证安全和 PostgreSQL/对象存储健康聚合，不返回用户明细。
+- `user.read/user.write` 只对 `super_admin|support` 开放。用户列表使用稳定 keyset 分页，只返回用户编号、邮箱、名称、验证/状态、创建/更新时间和最近 session 时间；详情只增加 workspace 与存储摘要。
+- 封禁、解封和用户 session 撤销必须携带受长度限制的原因。封禁幂等删除已有 session，并在更新状态后再次删除竞态迟到的 session；解封不恢复旧 session；独立 session 撤销不改变用户状态。
+- 用户状态变更、session 删除和对应 `admin.audit_events` 在同一事务完成。审计只保存目标用户 ID、前后状态、原因、撤销数量和哈希请求来源，不保存用户正文或凭据。
+- Admin 数据库角色只读取指定用户列、session 时间、workspace 成员关系及资产存储聚合列，只能更新用户 `status/updated_at` 和删除 session；不能读取密码、session token、项目节点正文或资产 object key。
+- Admin API/Web/审计不读取项目正文、Prompt、资产内容、object key、session token、浏览器 Vault 或 Provider 配置。
+
 Admin 不提供官方 Provider、官方模型、积分调整或服务器任务入口。相关 URL 必须返回 404，不能保留空壳导航或表单。
 
 ## 浏览器本地生成边界
 
-P8-5 及后续阶段的目标约束如下，当前不代表已完成：
+P8-5 Vault 的当前不变量：
 
-- Provider、Key、模型和绑定进入同一版本化 IndexedDB Vault，按 Origin 和可信用户 ID 分区。
-- 记住设备使用不可导出的 WebCrypto AES-GCM `CryptoKey`；仅本次会话只用内存。
-- 登出清理内存明文；忘记设备删除密文、CryptoKey、绑定和本地任务缓存。
-- 生产 endpoint 只允许 HTTPS，拒绝 URL 凭据和 fragment。
-- 浏览器只实现受控 OpenAI Compatible/DashScope 协议，不接受任意脚本、Header/Body 模板或平台代理。
-- 本地任务只存在内存或加密 IndexedDB；同步任务关页中断，异步任务可仅凭同设备加密 `remoteTaskId` 恢复。
-- 云端节点最终只保存匿名本地模型引用；真实 Provider、endpoint、模型 ID、显示名和 Key 不进项目图或 Cloud API。
+- Provider、endpoint、Key、模型和绑定进入同一 `schemaVersion=1` Vault；`cipherVersion=1` 使用 WebCrypto AES-256-GCM、96 位随机 IV 和 128 位认证标签。
+- 记住设备使用不可导出的 `CryptoKey`。AAD 固定绑定 cipher/schema version、当前 Origin 和可信 session 用户 ID；IndexedDB 记录按可信用户 ID 分区，跨 Origin 或跨用户不能解密。
+- Provider 与模型配置固定使用设备持久化，不向用户提供 persistence 或单独删除入口。Vault 保存与本地任务写入共用 FIFO 操作队列。
+- 登出、session 失效和换账号清空内存明文，但保留当前浏览器中按账号隔离的设备密文；同一账号再次登录可恢复，其他浏览器或设备必须重新配置。不支持加密 IndexedDB 时必须显示错误，不得静默退化为明文或临时保存模式。
+- 清除当前网站数据会由浏览器删除密文、CryptoKey、模型绑定和本地任务缓存。所有异步回写必须仍匹配同一可信用户、同一内部 persistence 和同一状态代次。
+- 旧 `ai-canvas-settings` 明文只在设备加密保存成功后删除；迁移失败保留原缓存以便重试。workspace 文件及 workspace/localStorage 缓存始终通过脱敏转换移除 Provider、endpoint、Key 与绑定。
+- 项目图、checkpoint、目录包、Cloud API 请求、日志、指标、诊断和 Admin 均不保存真实 Provider 配置；不同浏览器设备的 IndexedDB/`CryptoKey` 相互独立，登录与云端项目加载不会同步 Vault。
+- endpoint 配置校验在 production 强制 HTTPS，并拒绝 URL 凭据和 fragment。
+
+P8-6 的当前不变量：
+
+- 只实现受控 OpenAI Compatible 与阿里 DashScope chat/image/video 协议；请求路径、Header 和 Body 由适配器固定，不接受任意脚本或请求模板。
+- 浏览器从 Vault 取出明文后直连 Provider，不使用 Vite/Cloud Provider 代理。生产 endpoint 必须 HTTPS、无 URL 凭据和 fragment；浏览器不能直连时由用户配置自己的固定 CORS 网关。
+- Base64/二进制/结果 URL 统一转换为 Blob。Cloud 模式下上传失败会使任务失败，不把 Provider 临时 URL 写入项目；成功后只保存私有 Cloud 资产引用。
+- Cloud 图在 diff/分批写入前把真实模型 ID 替换为 `local:<uuid>`，删除 Provider/profile/endpoint/Key、remote task、运行状态和上游错误；同设备加载时用 Vault 解析。
+- 新设备缺少绑定时保留匿名引用，显示“此设备未绑定的模型”并禁止执行，不按名称或 ID 自动替换。
+- 生成资产文件名只使用本地 task ID；项目图、Cloud API、日志和 session 诊断不记录真实模型、Provider、endpoint 或 Key。
+
+P8-7 的当前不变量：
+
+- IndexedDB 数据库版本为 2；配置 Vault 与本地任务缓存分别使用 `schemaVersion=1`，共享 `cipherVersion=1` 和同一不可导出设备 `CryptoKey`。任务 AAD 额外绑定项目 ID，任务密文按可信用户/项目分区。
+- 当前项目任务队列写入加密 IndexedDB。任务写入与 Vault 保存共用 FIFO 队列；陈旧用户或内部持久化上下文不能回写。
+- 刷新或关闭页面会把未取得 remote task ID 的运行中同步任务标记为已中断，必须由用户重试；只有仍为 running 且已有受控异步 `remoteTaskId` 的任务会在同一设备恢复轮询。
+- 项目图、workspace/project 持久化、checkpoint、目录包、Cloud API、PostgreSQL、日志和诊断均不携带本地任务缓存。删除项目删除其设备任务缓存；登出只清内存，清除当前网站数据删除当前 Origin 的全部设备任务密文。
+- 新设备保留未解析的 `local:<uuid>` 并禁止执行。用户必须在对应节点明确选择当前设备同类型模型；该选择写入原匿名引用的 Vault 绑定，不按名称、显示名或真实 ID 自动猜测。
 
 ## 安全入口
 
@@ -148,7 +176,7 @@ API JSON 在领域服务前拒绝非法 UTF-8、重复键、非法 Unicode、非
 
 ## 可观测性与部署
 
-普通 API 与 Admin API 提供 liveness/readiness；API readiness 并行检查 PostgreSQL、Redis `PING` 和对象存储 `HeadBucket`。失败只返回 `connection_refused|timeout|authentication_failed|permission_denied|bucket_unavailable|unknown`。不存在 Worker health、Worker metrics、任务 backlog/running/retry/lease、Provider 请求或结果转存指标。
+普通 API 与 Admin API 提供独立 liveness/readiness。普通 API readiness 并行检查 PostgreSQL、Redis `PING` 和对象存储 `HeadBucket`；Admin API readiness 只检查 PostgreSQL 与对象存储。失败只返回 `connection_refused|timeout|authentication_failed|permission_denied|bucket_unavailable|unknown`。不存在 Worker health、Worker metrics、任务 backlog/running/retry/lease、Provider 请求或结果转存指标。
 
 普通 API `/metrics` 只暴露请求、错误、认证/限流、项目冲突、配额、迁移阶段、依赖状态和数据库连接池等低基数指标。Prometheus 与告警基线只抓取现有服务；标签禁止 workspace/user/project/request ID、URL、邮箱、正文和凭据。
 

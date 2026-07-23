@@ -41,6 +41,50 @@ function resetStores() {
   useTaskQueueStore.setState(useTaskQueueStore.getInitialState())
 }
 
+function delayVaultEncryption() {
+  const cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
+  const cryptoApi = globalThis.crypto
+  let markEncryptionStarted!: () => void
+  let releaseEncryption!: () => void
+  const encryptionStarted = new Promise<void>((resolve) => {
+    markEncryptionStarted = resolve
+  })
+  const encryptionGate = new Promise<void>((resolve) => {
+    releaseEncryption = resolve
+  })
+  const delayedSubtle = new Proxy(cryptoApi.subtle, {
+    get(target, property) {
+      if (property === 'encrypt') {
+        return async (...args: Parameters<SubtleCrypto['encrypt']>) => {
+          markEncryptionStarted()
+          await encryptionGate
+          return target.encrypt(...args)
+        }
+      }
+
+      const value = Reflect.get(target, property, target) as unknown
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+
+  Object.defineProperty(globalThis, 'crypto', {
+    configurable: true,
+    value: {
+      getRandomValues: cryptoApi.getRandomValues.bind(cryptoApi),
+      subtle: delayedSubtle,
+    } as Crypto,
+  })
+
+  return {
+    encryptionStarted,
+    releaseEncryption,
+    restore() {
+      if (cryptoDescriptor) Object.defineProperty(globalThis, 'crypto', cryptoDescriptor)
+      else Reflect.deleteProperty(globalThis, 'crypto')
+    },
+  }
+}
+
 async function runLocalVaultStoreTests() {
   const originalIndexedDb = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB')
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
@@ -69,7 +113,6 @@ async function runLocalVaultStoreTests() {
       apiUrl: 'https://provider.example/v1',
       provider: 'openai',
       requestMode: 'sync',
-      asyncConfig: null,
       enabled: true,
       testStatus: 'idle',
       testMessage: '',
@@ -96,23 +139,40 @@ async function runLocalVaultStoreTests() {
     assert(restoredSource === 'device', 'the same user should restore the remembered device vault')
     assert(useSettingsStore.getState().config.modelProviderProfileIds['model-a'] === 'provider-a', 'model bindings should restore from the vault')
 
-    await useSettingsStore.getState().setVaultPersistence('session')
-    assert(await loadRememberedLocalVault('user-a') === null, 'session mode should remove the remembered record and CryptoKey')
     useSettingsStore.getState().saveProviderProfile({
-      ...useSettingsStore.getState().config.providerProfiles[0],
-      name: 'Session Only Provider',
+      id: 'stale-provider',
+      name: 'Stale Provider',
+      kind: 'image',
+      apiKey: 'stale-example-credential',
+      apiUrl: 'https://stale.example/v1',
+      provider: 'openai',
+      requestMode: 'sync',
+      enabled: true,
+      testStatus: 'idle',
+      testMessage: '',
+      lastTestedAt: null,
     })
     await useSettingsStore.getState().persistLocalVault()
-    assert(await loadRememberedLocalVault('user-a') === null, 'session mode must not write IndexedDB')
-    useSettingsStore.getState().clearVaultSession()
-    await useSettingsStore.getState().hydrateLocalVault('user-a')
-    assert(useSettingsStore.getState().config.providerProfiles.length === 0, 'a new session must not restore session-only settings')
 
-    useTaskQueueStore.getState().createTask({ sourceNodeId: 'node-a', model: 'model-a', prompt: 'test' })
-    await useSettingsStore.getState().forgetDeviceVault()
-    assert(useSettingsStore.getState().config.providerProfiles.length === 0, 'forget should clear in-memory provider profiles')
-    assert(useTaskQueueStore.getState().tasks.length === 0, 'forget should clear the local task cache')
-    assert(await loadRememberedLocalVault('user-a') === null, 'forget should delete the remembered device vault')
+    const delayedStaleSave = delayVaultEncryption()
+    const pendingStaleSave = useSettingsStore.getState().persistLocalVault()
+    await delayedStaleSave.encryptionStarted
+    useSettingsStore.getState().clearVaultSession()
+    useSettingsStore.setState((state) => ({
+      runtime: {
+        ...state.runtime,
+        vaultStatus: 'ready',
+        vaultPersistence: 'session',
+        vaultUserId: 'user-b',
+        vaultUpdatedAt: null,
+      },
+    }))
+    delayedStaleSave.releaseEncryption()
+    await pendingStaleSave
+    delayedStaleSave.restore()
+    assert(useSettingsStore.getState().runtime.vaultUserId === 'user-b', 'a stale save must not replace the current trusted user')
+    assert(useSettingsStore.getState().runtime.vaultPersistence === 'session', 'a stale save must not replace the current persistence mode')
+    assert(useSettingsStore.getState().runtime.vaultUpdatedAt === null, 'a stale save must not publish its timestamp into a newer session')
 
     Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: new IDBFactory() })
     localStorage.clear()

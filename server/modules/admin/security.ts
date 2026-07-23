@@ -4,14 +4,15 @@ import type { AdminPermission, AdminPrincipal, AdminRole } from './types.js'
 const ROLE_PERMISSIONS: Readonly<Record<AdminRole, ReadonlySet<AdminPermission>>> = {
   super_admin: new Set([
     'audit.read',
+    'dashboard.read',
     'security.write',
     'site_config.write',
     'user.read',
     'user.write',
   ]),
-  operator: new Set(['audit.read', 'site_config.write']),
-  support: new Set(['audit.read', 'user.read', 'user.write']),
-  auditor: new Set(['audit.read']),
+  operator: new Set(['audit.read', 'dashboard.read', 'site_config.write']),
+  support: new Set(['audit.read', 'dashboard.read', 'user.read', 'user.write']),
+  auditor: new Set(['audit.read', 'dashboard.read']),
 }
 
 const SECRET_KEY_PATTERN = /(?:authorization|api[_-]?key|token|password|secret|credential|cookie|backup|recovery)/i

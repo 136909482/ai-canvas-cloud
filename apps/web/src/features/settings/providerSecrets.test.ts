@@ -33,7 +33,6 @@ function createWorkspaceConfig(): WorkspaceConfigFile {
         apiUrl: 'https://example.com/v1',
         provider: 'openai',
         requestMode: 'sync',
-        asyncConfig: null,
         enabled: true,
       },
     ],

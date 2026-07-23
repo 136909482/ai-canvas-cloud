@@ -622,19 +622,24 @@ P8 已取消官方模型、积分、计费和平台代生成路线。平台只�
 - `npm run test` 285/285、`npm run lint`、`npm run build`、`npm run db:migrate:test`、`npm run db:migrate:compat`、`npm run db:roles:check` 和 `git diff --check` 通过。
 - `dev:restart` 只启动 Web、API、Admin Web、Admin API；普通/Admin readiness 正常，Redis 分布式限流从未认证响应收敛到 429，Worker 健康端口和进程管理入口不存在。
 - 普通与 Admin 的 Provider、官方模型、积分和服务器任务 URL 均返回 404；数据库不存在旧表、函数、任务资产引用、Worker 角色或失效环境键。
-- 真实浏览器完成普通 Web 与 Admin 桌面/390px 检查；项目加载、资产上传、Admin 登录和网站设置正常，无控制台错误、横向溢出或控件重叠；P8-5 Vault/本地任务设置仍隐藏且未标记完成。
+- 真实浏览器完成普通 Web 与 Admin 桌面/390px 检查；项目加载、资产上传、Admin 登录和网站设置正常，无控制台错误、横向溢出或控件重叠。
 
-### P8-5：浏览器本地 Vault
+### P8-5：浏览器本地 Vault（已完成）
 
 - Provider、endpoint、API Key、模型和绑定关系进入同一个版本化 IndexedDB Vault，按 Origin 与可信用户 ID 隔离。
-- 默认使用不可导出的 WebCrypto AES-GCM Key 加密并记住此设备，同时支持仅本次会话和忘记此设备。
-- 登出清空内存明文；忘记设备删除密文、CryptoKey、绑定和本地任务缓存。
+- 默认使用不可导出的 WebCrypto AES-GCM Key 加密并保存到当前浏览器，不提供 persistence 或单独删除入口；清除当前网站数据会由浏览器删除密文、CryptoKey、绑定和本地任务缓存。
+- 登出清空内存明文但保留按账号隔离的设备密文；同一账号再次登录可恢复，其他浏览器或设备必须重新配置。
 - 旧本地配置一次性迁入 Vault，成功后删除旧明文缓存。
 - 生产 endpoint 强制 HTTPS，拒绝 URL 凭据和 fragment；连接测试由浏览器直连。
 
-验收：IndexedDB 密文、localStorage、项目图、Cloud API 请求、诊断和日志均不包含 Key 明文。
+验收：
 
-### P8-6：浏览器生成与结果入云
+- `npm run test` 286/286 通过，覆盖设备保存串行化、可信用户与内部 persistence 陈旧回写隔离、两个独立 `IDBFactory` 不隐式同步，以及两账号与 Cloud 敏感信息边界。
+- `npm run lint`、`npm run build`、`npm run db:migrate`、`npm run db:migrate:test`、`npm run db:migrate:compat`、`npm run db:roles:check` 和 `git diff --check` 通过；29 个迁移与 release manifest 一致。
+- `dev:restart` 只启动 Web、API、Admin Web、Admin API；真实浏览器完成桌面与 390px 登录、项目加载、资产上传和 Vault 设备保存行为验证，无控制台错误、横向溢出或控件重叠。
+- IndexedDB 只保存密文和不可导出 Key；localStorage、项目图、Cloud API 请求、诊断和日志不保存或携带私有 Provider、endpoint、模型 ID 或 API Key。
+
+### P8-6：浏览器生成与结果入云（已完成）
 
 - 首期只支持受控的 OpenAI Compatible 与阿里 DashScope chat/image/video adapter；允许自定义 endpoint 和模型 ID，不支持任意脚本或请求模板。
 - 浏览器读取 Vault 并调用第三方 Provider，平台 API 不接收 Key、endpoint、真实模型 ID 或任意 target URL。
@@ -642,16 +647,26 @@ P8 已取消官方模型、积分、计费和平台代生成路线。平台只�
 - 媒体沿用创建上传会话、签名 URL 直传、完成确认和项目图领域写入；聊天文本通过正常图增量保存。
 - 云端节点只保存匿名 `local:<uuid>` 引用，不保存真实 Provider、endpoint、模型 ID 或显示名。
 
-验收：生成结果可稳定进入私有对象存储和当前项目；拦截所有 Cloud 请求时不出现用户 Provider 配置。
+验收：
 
-### P8-7：本地任务恢复与双设备绑定
+- `npm run test` 296/296 通过，覆盖固定协议 adapter、Provider 私有诊断、生成资产入云、匿名模型引用、Vault 加密往返、工作区配置脱敏和双设备隔离。
+- `npm run lint`、`npm run build`、`npm run db:migrate`、`npm run db:migrate:test`、`npm run db:migrate:compat`、`npm run db:roles:check` 和 `git diff --check` 通过；29 个迁移与 release manifest 一致。
+- `dev:restart` 只启动 Web、API、Admin Web、Admin API；真实浏览器完成桌面与 390px 登录、项目加载、资产上传和 Vault 设备保存行为验证，无控制台错误、横向溢出或控件重叠。
+- Cloud 请求契约验证不携带用户 Provider、endpoint、真实模型 ID、API Key、remote task ID 或上游错误；图片/视频结果通过私有资产上传进入当前项目，聊天文本通过图增量保存。
+
+### P8-7：本地任务恢复与双设备绑定（已完成）
 
 - 生成任务只保存在内存或加密 IndexedDB，不写 PostgreSQL。
 - 同步任务关闭页面即中断；异步 Provider 已取得 remote task ID 时，同一设备可重新打开并继续轮询。
 - 新设备缺少匿名模型引用时明确显示不可用，并允许用户手动绑定本机 Provider/模型；不得自动按名称或 ID 替换。
 - 项目导入导出不携带 Provider 配置、Key 或本地任务缓存。
 
-验收：两个账号、两个浏览器设备之间不泄露或隐式同步 Vault；手动绑定后可继续使用同一云端项目。
+验收：
+
+- `npm run test` 297/297 通过，覆盖 IndexedDB v1→v2 升级、任务密文与 Origin/用户/项目 AAD、两账号/两设备隔离、网站数据清除边界、同步任务中断、remote task 恢复、项目持久化/导出排除任务缓存和原匿名引用手动绑定。
+- `npm run lint`、完整 TypeScript/Vite 构建和 `git diff --check` 通过；本阶段没有 PostgreSQL schema、数据库角色或 Cloud HTTP contract 变更，因此未重复运行数据库迁移门禁。
+- 真实浏览器在同一 Cloud 项目完成“设备模型保存 → 新设备配置不同名称/ID 模型仍不自动替换 → 手动选择后绑定”流程；两个独立 `IDBFactory` 覆盖清除网站数据后的空设备边界；390px 无横向溢出或控件重叠，控制台 0 error。
+- 两个独立 `IDBFactory` 验证 Vault、任务密文和不可导出 Key 不隐式同步；Cloud 图、项目持久化、checkpoint、迁移包和 API 契约均不携带任务缓存、remote task ID 或私有 Provider 配置。
 
 ### P8-8：用户管理、运营与最终安全验收
 
@@ -659,6 +674,13 @@ P8 已取消官方模型、积分、计费和平台代生成路线。平台只�
 - 支持带原因的封禁、解封和 session 撤销，并写不可修改脱敏审计。
 - 仪表盘只展示注册、活跃、存储、认证安全和基础设施健康聚合。
 - 完成全量测试、迁移/角色检查、依赖审计、两账号与双设备 E2E、桌面/390px 浏览器检查和 staging 恢复演练后进入 P9。
+
+当前进展（未完成）：
+
+- 用户列表、用户详情、封禁、解封、session 撤销、脱敏管理审计和最小聚合仪表盘已落地；普通 API readiness 检查 PostgreSQL、Redis 与对象存储，Admin API readiness 只检查其实际依赖的 PostgreSQL 与对象存储。
+- `npm run test` 309/309（110 个测试文件）、`npm run lint`、完整构建、数据库角色 provision/check、schema release 校验、生产依赖高危审计、生产源码凭据格式扫描和 `git diff --check` 已通过；29 个迁移与 release manifest 一致，本阶段没有 schema 变更，因此未机械重复数据库迁移门禁。
+- `dev:restart` 只启动 Web、API、Admin Web、Admin API；真实浏览器已完成 Admin 登录、Dashboard、用户搜索/详情、封禁后登录拒绝、解封、重新登录、session 撤销和审计记录检查，桌面与 390px 无横向溢出或控件重叠。普通用户最终保持 active，测试 session 已撤销。
+- 当前缺少 `infra/deploy/staging/staging.env`，本机也没有可用 Docker CLI/daemon，无法真实执行 staging 配置门禁和隔离恢复演练；该外部验收补齐前 P8-8 保持未完成，P8-9 不启动。
 
 ## P9：生产灰度与正式上线
 

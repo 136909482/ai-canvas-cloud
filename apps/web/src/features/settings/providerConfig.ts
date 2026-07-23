@@ -244,7 +244,6 @@ export function resolveRuntimeModelConfig(
       apiUrl: resolveProviderApiUrl(profile),
       provider: profile.provider,
       requestMode: profile.requestMode,
-      asyncConfig: profile.asyncConfig ?? null,
     },
   }
 }

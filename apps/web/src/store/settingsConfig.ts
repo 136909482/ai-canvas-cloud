@@ -4,30 +4,15 @@ import {
   DEFAULT_IMAGE_MODEL_NAME,
   inferProviderFromApiUrl,
 } from '../config/modelCatalog.ts'
+import { normalizeLocalModelBindings } from '../features/settings/localModelReferences.ts'
 import type {
   ApiConfig,
   CustomImageModelConfig,
   CustomModelKind,
-  ProviderAsyncConfig,
   ProviderProfileConfig,
   StorageConfig,
   WorkspaceConfigFile,
 } from '../types/index.ts'
-
-const DEFAULT_PROVIDER_ASYNC_CONFIG: ProviderAsyncConfig = {
-  enabled: false,
-  submitPath: 'images/generations',
-  submitQuery: { async: 'true' },
-  taskIdPath: 'data',
-  pollPath: 'images/tasks/{task_id}',
-  pollIntervalSeconds: 5,
-  statusPath: 'data.status',
-  successValues: ['SUCCESS', 'completed', 'succeeded'],
-  failureValues: ['FAILURE', 'failed', 'cancelled', 'error'],
-  errorPath: 'data.fail_reason',
-  imageUrlPaths: ['data.data.data.*.url', 'data.data.*.url', 'data.result.images.*.url', 'data.result.images.*.url.*'],
-  b64JsonPaths: ['data.data.data.*.b64_json', 'data.data.*.b64_json', 'data.*.b64_json'],
-}
 
 interface LegacyProviderConfig {
   apiKey?: string
@@ -84,59 +69,6 @@ export function normalizeCustomModel(model: Partial<CustomImageModelConfig>): Cu
   }
 }
 
-function normalizeStringArray(value: unknown, fallback: string[]) {
-  if (!Array.isArray(value)) {
-    return [...fallback]
-  }
-
-  const normalized = value
-    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-    .map((item) => item.trim())
-
-  return normalized.length > 0 ? normalized : [...fallback]
-}
-
-function normalizeStringRecord(value: unknown, fallback: Record<string, string>) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { ...fallback }
-  }
-
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .filter((entry): entry is [string, string | number | boolean] => (
-        typeof entry[0] === 'string'
-        && entry[0].trim().length > 0
-        && ['string', 'number', 'boolean'].includes(typeof entry[1])
-      ))
-      .map(([key, item]) => [key.trim(), String(item)] as const),
-  )
-}
-
-export function normalizeProviderAsyncConfig(config?: Partial<ProviderAsyncConfig> | null): ProviderAsyncConfig | null {
-  if (!config) {
-    return null
-  }
-
-  const pollIntervalSeconds = typeof config.pollIntervalSeconds === 'number' && Number.isFinite(config.pollIntervalSeconds)
-    ? Math.max(1, Math.trunc(config.pollIntervalSeconds))
-    : DEFAULT_PROVIDER_ASYNC_CONFIG.pollIntervalSeconds
-
-  return {
-    enabled: Boolean(config.enabled),
-    submitPath: config.submitPath?.trim() || DEFAULT_PROVIDER_ASYNC_CONFIG.submitPath,
-    submitQuery: normalizeStringRecord(config.submitQuery, DEFAULT_PROVIDER_ASYNC_CONFIG.submitQuery),
-    taskIdPath: config.taskIdPath?.trim() || DEFAULT_PROVIDER_ASYNC_CONFIG.taskIdPath,
-    pollPath: config.pollPath?.trim() || DEFAULT_PROVIDER_ASYNC_CONFIG.pollPath,
-    pollIntervalSeconds,
-    statusPath: config.statusPath?.trim() || DEFAULT_PROVIDER_ASYNC_CONFIG.statusPath,
-    successValues: normalizeStringArray(config.successValues, DEFAULT_PROVIDER_ASYNC_CONFIG.successValues),
-    failureValues: normalizeStringArray(config.failureValues, DEFAULT_PROVIDER_ASYNC_CONFIG.failureValues),
-    errorPath: config.errorPath?.trim() || DEFAULT_PROVIDER_ASYNC_CONFIG.errorPath,
-    imageUrlPaths: normalizeStringArray(config.imageUrlPaths, DEFAULT_PROVIDER_ASYNC_CONFIG.imageUrlPaths),
-    b64JsonPaths: normalizeStringArray(config.b64JsonPaths, DEFAULT_PROVIDER_ASYNC_CONFIG.b64JsonPaths),
-  }
-}
-
 export function createDefaultProviderProfile(overrides?: Partial<ProviderProfileConfig>): ProviderProfileConfig {
   const profile: ProviderProfileConfig = {
     id: createProviderProfileId(),
@@ -146,7 +78,6 @@ export function createDefaultProviderProfile(overrides?: Partial<ProviderProfile
     apiUrl: DEFAULT_ALIYUN_BASE_URL,
     provider: 'aliyun',
     requestMode: 'sync',
-    asyncConfig: normalizeProviderAsyncConfig(overrides?.asyncConfig) ?? { ...DEFAULT_PROVIDER_ASYNC_CONFIG },
     enabled: true,
     testStatus: 'idle',
     testMessage: '',
@@ -154,10 +85,7 @@ export function createDefaultProviderProfile(overrides?: Partial<ProviderProfile
     ...overrides,
   }
 
-  return {
-    ...profile,
-    asyncConfig: normalizeProviderAsyncConfig(profile.asyncConfig) ?? { ...DEFAULT_PROVIDER_ASYNC_CONFIG },
-  }
+  return profile
 }
 
 export function normalizeProviderProfile(profile: Partial<ProviderProfileConfig>): ProviderProfileConfig {
@@ -175,7 +103,6 @@ export function normalizeProviderProfile(profile: Partial<ProviderProfileConfig>
     apiUrl,
     provider,
     requestMode: provider === 'openai' ? profile.requestMode ?? fallback.requestMode : 'sync',
-    asyncConfig: normalizeProviderAsyncConfig(profile.asyncConfig) ?? normalizeProviderAsyncConfig(fallback.asyncConfig),
     enabled: profile.enabled ?? true,
     testStatus: profile.testStatus ?? 'idle',
     testMessage: profile.testMessage ?? '',
@@ -296,6 +223,7 @@ export function normalizeConfig(config?: Partial<ApiConfig> | LegacyConfigShape)
   const hasDefaultModel = enabledModels.some((model) => model.modelId === defaultModel)
   const rawActiveProviderProfileIds = (config as Partial<ApiConfig> | undefined)?.activeProviderProfileIds ?? {}
   const rawModelProviderProfileIds = (config as Partial<ApiConfig> | undefined)?.modelProviderProfileIds ?? {}
+  const localModelBindings = normalizeLocalModelBindings((config as Partial<ApiConfig> | undefined)?.localModelBindings)
   const activeProviderProfileIds = Object.fromEntries(
     (['chat', 'image', 'video', 'music', 'tool'] as CustomModelKind[]).map((kind) => {
       const configuredId = rawActiveProviderProfileIds[kind]
@@ -324,6 +252,7 @@ export function normalizeConfig(config?: Partial<ApiConfig> | LegacyConfigShape)
     providerProfiles,
     activeProviderProfileIds,
     modelProviderProfileIds,
+    localModelBindings,
     storage: normalizeStorageConfig((config as Partial<ApiConfig> | undefined)?.storage),
   }
 }
@@ -362,6 +291,7 @@ export function fromWorkspaceConfigFile(configFile: WorkspaceConfigFile | null |
     providerProfiles: [],
     activeProviderProfileIds: {},
     modelProviderProfileIds: {},
+    localModelBindings: {},
     storage: {
       autosaveIntervalMs: configFile.storage?.autosaveIntervalMs,
       canvasTopBarCollapsed: configFile.storage?.canvasTopBarCollapsed,

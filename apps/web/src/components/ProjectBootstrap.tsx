@@ -27,6 +27,9 @@ export function ProjectBootstrap() {
   const setWorkspaceRuntimeStatus = useSettingsStore((state) => state.setWorkspaceRuntimeStatus)
   const hydrateFromWorkspace = useSettingsStore((state) => state.hydrateFromWorkspace)
   const hydrateLocalVault = useSettingsStore((state) => state.hydrateLocalVault)
+  const persistLocalTaskQueue = useSettingsStore((state) => state.persistLocalTaskQueue)
+  const vaultPersistence = useSettingsStore((state) => state.runtime.vaultPersistence)
+  const vaultUserId = useSettingsStore((state) => state.runtime.vaultUserId)
   const initializedUserRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -197,14 +200,12 @@ export function ProjectBootstrap() {
 
       scheduleAutosave()
     })
-    const unsubscribeTasks = useTaskQueueStore.subscribe(scheduleAutosave)
     document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('pagehide', flushAutosave)
     window.addEventListener('beforeunload', handleBeforeUnload)
 
     return () => {
       unsubscribeCanvas()
-      unsubscribeTasks()
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('pagehide', flushAutosave)
       window.removeEventListener('beforeunload', handleBeforeUnload)
@@ -212,6 +213,20 @@ export function ProjectBootstrap() {
       cancelIdleSave()
     }
   }, [activeProjectId, autosaveIntervalMs, hasHydrated, isReady, persistWorkspaceFile, settingsHydrated, workspaceConfigured])
+
+  useEffect(() => {
+    if (!settingsHydrated || !hasHydrated || !isReady || !activeProjectId || !vaultUserId) {
+      return
+    }
+
+    const persistCurrentTaskQueue = () => {
+      void persistLocalTaskQueue(activeProjectId, useTaskQueueStore.getState().getSnapshot()).catch(() => undefined)
+    }
+
+    persistCurrentTaskQueue()
+    const unsubscribe = useTaskQueueStore.subscribe(persistCurrentTaskQueue)
+    return unsubscribe
+  }, [activeProjectId, hasHydrated, isReady, persistLocalTaskQueue, settingsHydrated, vaultPersistence, vaultUserId])
 
   return null
 }

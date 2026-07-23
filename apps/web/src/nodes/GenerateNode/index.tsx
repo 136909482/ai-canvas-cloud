@@ -7,6 +7,7 @@ import { DEFAULT_IMAGE_MODEL_ID } from '@/config/modelCatalog'
 import { isGptImageModel } from '@/api/imageAdapter'
 import { enqueueGenerateTask } from '@/features/generateQueue/orchestrator'
 import { compileImageMentionPrompt } from '@/features/richPrompt/promptCompiler'
+import { isLocalModelReference } from '@/features/settings/localModelReferences'
 import { RichPromptEditor } from '@/features/richPrompt/RichPromptEditor'
 import type { RichPromptDocument, RichPromptReferenceItem } from '@/features/richPrompt/types'
 import { makeSelectGenerateMaskSourceNode, makeSelectGenerateReferenceSourceNodes, useCanvasStore } from '@/store/useCanvasStore'
@@ -128,9 +129,14 @@ export const GenerateNode = memo(function GenerateNode({ id, data, selected }: G
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const updateNodeInternals = useUpdateNodeInternals()
   const getEnabledCustomModels = useSettingsStore((s) => s.getEnabledCustomModels)
+  const bindLocalModelReference = useSettingsStore((s) => s.bindLocalModelReference)
   const setModelProviderProfile = useSettingsStore((s) => s.setModelProviderProfile)
   const modelProviderProfileIds = useSettingsStore((s) => s.config.modelProviderProfileIds)
-  const providerProfiles = useSettingsStore((s) => s.config.providerProfiles.filter((profile) => profile.enabled && profile.kind === 'image'))
+  const allProviderProfiles = useSettingsStore((s) => s.config.providerProfiles)
+  const providerProfiles = useMemo(
+    () => allProviderProfiles.filter((profile) => profile.enabled && profile.kind === 'image'),
+    [allProviderProfiles],
+  )
   const allReferenceImages = useMemo<ReferenceImageItem[]>(
     () => referenceImageKeys
       .map(decodeReferenceImageKey)
@@ -166,18 +172,27 @@ export const GenerateNode = memo(function GenerateNode({ id, data, selected }: G
   const generationModeLabel = hasMaskImage ? '局部重绘' : referenceImageCount > 0 ? UI_TEXT.imageToImage : UI_TEXT.textToImage
   const imageModels = getEnabledCustomModels('image')
   const fallbackModelId = imageModels[0]?.modelId ?? DEFAULT_IMAGE_MODEL_ID
-  const effectiveModel = imageModels.some((model) => model.modelId === data.model) ? data.model : fallbackModelId
+  const isUnboundLocalModel = isLocalModelReference(data.model)
+    && !imageModels.some((model) => model.modelId === data.model)
+  const effectiveModel = imageModels.some((model) => model.modelId === data.model)
+    ? data.model
+    : isUnboundLocalModel
+      ? data.model
+      : fallbackModelId
   const selectedModel = imageModels.find((model) => model.modelId === effectiveModel)
   const isGptImageSettingsModel = isGptImageModel(effectiveModel)
   const selectedProviderId = modelProviderProfileIds[effectiveModel] ?? ''
   const selectedProviderProfile = providerProfiles.find((provider) => provider.id === selectedProviderId)
   const providerLabel = selectedProviderProfile?.name ?? ''
-  const modelOptions: InlineSelectOption[] = imageModels.length > 0
-    ? imageModels.map((model) => ({
+  const modelOptions: InlineSelectOption[] = imageModels.length > 0 || isUnboundLocalModel
+    ? [
+        ...(isUnboundLocalModel ? [{ value: data.model, label: '此设备未绑定的模型' }] : []),
+        ...imageModels.map((model) => ({
         value: model.modelId,
         label: model.name || model.modelId,
         icon: <ModelOptionIcon model={model} />,
-      }))
+        })),
+      ]
     : [{ value: '__empty__', label: '暂无可用 Image 模型' }]
   const ratio = data.ratio || '1:1'
   const resolution = RESOLUTIONS.includes(data.resolution) ? data.resolution : '1K'
@@ -190,6 +205,13 @@ export const GenerateNode = memo(function GenerateNode({ id, data, selected }: G
 
   const stopCanvasGesture = (event: SyntheticEvent) => {
     event.stopPropagation()
+  }
+
+  const selectModel = (modelId: string) => {
+    runTracked(() => {
+      if (isUnboundLocalModel && modelId !== data.model && !bindLocalModelReference(data.model, modelId)) return
+      updateNodeData(id, { model: modelId, errorMsg: '' })
+    })
   }
 
   const updateRichPromptDraft = (nextPrompt: string, nextRichPrompt: RichPromptDocument | null) => {
@@ -596,7 +618,7 @@ export const GenerateNode = memo(function GenerateNode({ id, data, selected }: G
                 value={imageModels.length > 0 ? effectiveModel : '__empty__'}
                 options={modelOptions}
                 ariaLabel={UI_TEXT.chooseModel}
-                onChange={(value) => runTracked(() => updateNodeData(id, { model: value }))}
+                onChange={selectModel}
                 stopCanvasGesture={stopCanvasGesture}
                 menuClassName="min-w-[260px]"
               />
@@ -737,7 +759,7 @@ export const GenerateNode = memo(function GenerateNode({ id, data, selected }: G
 
           {!selectedModel && (
             <p className={`${themeClasses.nodeInlineNotice} ${themeClasses.nodeWarningText}`}>
-              暂无可用 Image 模型，请先在模型设置中添加。
+              {isUnboundLocalModel ? '此项目的模型引用尚未绑定到当前设备，请手动选择本机模型完成绑定。' : '暂无可用 Image 模型，请先在模型设置中添加。'}
             </p>
           )}
         </div>

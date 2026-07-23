@@ -36,7 +36,6 @@ function createProfile(overrides: Partial<ProviderProfileConfig> = {}): Provider
     apiUrl: ' https://dashscope.aliyuncs.com/compatible-mode/v1 ',
     provider: 'aliyun',
     requestMode: 'sync',
-    asyncConfig: null,
     enabled: true,
     testStatus: 'idle',
     testMessage: '',
@@ -68,6 +67,7 @@ function createConfig(overrides: Partial<ApiConfig> = {}): ApiConfig {
       workspaceConfigured: false,
     },
     ...overrides,
+    localModelBindings: overrides.localModelBindings ?? {},
   }
 }
 

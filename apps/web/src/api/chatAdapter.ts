@@ -13,47 +13,28 @@ function toSafeUrl(apiUrl: string) {
   }
 }
 
-function isLocalDevHost() {
-  return typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+function toProviderUrl(targetUrl: string) {
+  return toSafeUrl(targetUrl).toString()
 }
 
-function toProxyUrl(targetUrl: string) {
-  const parsed = toSafeUrl(targetUrl)
-
-  if (!isLocalDevHost()) {
-    return parsed.toString()
-  }
-
-  switch (parsed.host) {
-    case 'dashscope.aliyuncs.com':
-      return `/api-proxy/aliyun${parsed.pathname}${parsed.search}`
-    case 'dashscope-intl.aliyuncs.com':
-      return `/api-proxy/aliyun-intl${parsed.pathname}${parsed.search}`
-    case 'dashscope-us.aliyuncs.com':
-      return `/api-proxy/aliyun-us${parsed.pathname}${parsed.search}`
-    default:
-      return parsed.toString()
-  }
-}
-
-function buildChatCompletionsUrl(apiUrl: string) {
+export function buildChatCompletionsUrl(apiUrl: string) {
   const normalized = normalizeApiUrl(apiUrl.trim())
   const parsed = toSafeUrl(normalized)
   const pathname = parsed.pathname
 
   if (pathname.endsWith('/v1/chat/completions') || pathname.endsWith('/chat/completions')) {
-    return toProxyUrl(parsed.toString())
+    return toProviderUrl(parsed.toString())
   }
 
   if (pathname.endsWith('/v1/models')) {
-    return toProxyUrl(`${parsed.origin}${pathname.slice(0, -'/models'.length)}/chat/completions`)
+    return toProviderUrl(`${parsed.origin}${pathname.slice(0, -'/models'.length)}/chat/completions`)
   }
 
   if (pathname.endsWith('/v1')) {
-    return toProxyUrl(`${parsed.origin}${pathname}/chat/completions`)
+    return toProviderUrl(`${parsed.origin}${pathname}/chat/completions`)
   }
 
-  return toProxyUrl(`${parsed.origin}${pathname === '/' ? '' : pathname}/v1/chat/completions`)
+  return toProviderUrl(`${parsed.origin}${pathname === '/' ? '' : pathname}/v1/chat/completions`)
 }
 
 async function readError(response: Response) {

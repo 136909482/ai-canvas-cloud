@@ -33,6 +33,8 @@ import {
   getCloudAssetIdFromRelativePath,
 } from '@/platform/cloud/cloudAssetUrlCache'
 import { createCloudAssetUploader } from '@/platform/cloud/cloudAssetUpload'
+import { hydrateCanvasLocalModelReferences, prepareCanvasForCloud } from '@/platform/cloud/cloudModelReferences'
+import { useSettingsStore } from '@/store/useSettingsStore'
 import type {
   CleanupWorkspaceAssetsResult,
   CommitProjectBundleImportResult,
@@ -223,14 +225,19 @@ async function hydrateWorkerResultUrls(canvas: CanvasSnapshot, projectId: string
 }
 
 async function toProjectRecord(summary: ProjectSummary, graph: ProjectGraphResponse): Promise<ProjectRecord> {
-  const canvas = projectGraphResponseToCanvasSnapshot(graph)
+  const canvas = hydrateCanvasLocalModelReferences(
+    projectGraphResponseToCanvasSnapshot(graph),
+    (reference) => useSettingsStore.getState().resolveLocalModelReference(reference),
+  )
   await hydrateWorkerResultUrls(canvas, summary.id)
   const snapshot = emptyProjectSnapshot(canvas)
+  const localTaskQueue = await useSettingsStore.getState().loadLocalTaskQueue(summary.id).catch(() => null)
   const cachedTaskQueue = memoryWorkspaceData.projects.find((project) => project.id === summary.id)
     ?.workingSnapshot.taskQueue
+  const taskQueue = localTaskQueue ?? cachedTaskQueue
 
-  if (cachedTaskQueue) {
-    snapshot.taskQueue = cloneJson(cachedTaskQueue)
+  if (taskQueue) {
+    snapshot.taskQueue = cloneJson(taskQueue)
   }
 
   return {
@@ -243,6 +250,23 @@ async function toProjectRecord(summary: ProjectSummary, graph: ProjectGraphRespo
     lastOpenedAt: Date.now(),
     archivedAt: summary.archivedAt ? toTimestamp(summary.archivedAt) : null,
   }
+}
+
+async function prepareProjectCanvasForCloud(canvas: CanvasSnapshot) {
+  let usedPrivateModelId = false
+  const cloudCanvas = prepareCanvasForCloud(
+    cloneJson(canvas),
+    (modelId) => {
+      usedPrivateModelId = true
+      return useSettingsStore.getState().ensureLocalModelReference(modelId)
+    },
+  )
+
+  if (usedPrivateModelId) {
+    await useSettingsStore.getState().persistLocalVault()
+  }
+
+  return cloudCanvas
 }
 
 function cacheProjectRecord(project: ProjectRecord) {
@@ -299,13 +323,14 @@ async function loadCloudProject(projectId: string) {
     requestCloudJson<ProjectGraphResponse>(`/projects/${encodeURIComponent(projectId)}/graph`),
   ])
   const project = await toProjectRecord(metadata.project, graph)
+  const baselineCanvas = projectGraphResponseToCanvasSnapshot(graph)
 
   knownProjectSummaries.set(projectId, metadata.project)
   cloudProjectStates.set(projectId, {
     summary: metadata.project,
     version: graph.version,
     sequence: graph.sequence,
-    baselineCanvas: cloneJson(project.workingSnapshot.canvas),
+    baselineCanvas: cloneJson(baselineCanvas),
     lastManualCheckpointSequence: -1,
     lastPeriodicCheckpointSequence: graph.sequence,
     lastPeriodicCheckpointAt: Date.now(),
@@ -473,7 +498,7 @@ async function saveCloudProject(input: SaveWorkspaceProjectInput) {
   }
 
   await flushPendingGraphSave(project.id, state)
-  const targetCanvas = cloneJson(project.workingSnapshot.canvas)
+  const targetCanvas = await prepareProjectCanvasForCloud(project.workingSnapshot.canvas)
   const operations = diffCanvasSnapshots(state.baselineCanvas, targetCanvas)
 
   if (operations.length > 0) {
@@ -711,6 +736,7 @@ export const cloudPlatformBridge: PlatformBridge = {
 
   async deleteWorkspaceProject(input) {
     await requestCloudJson(`/projects/${encodeURIComponent(input.projectId)}`, { method: 'DELETE' })
+    await useSettingsStore.getState().deleteLocalTaskQueue(input.projectId).catch(() => undefined)
     knownProjectSummaries.delete(input.projectId)
     cloudProjectStates.delete(input.projectId)
     memoryWorkspaceData = {

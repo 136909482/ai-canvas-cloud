@@ -69,10 +69,10 @@ export const adminAuthProvider: AuthProvider = {
 }
 
 const PERMISSIONS: Record<AdminRole, ReadonlySet<string>> = {
-  super_admin: new Set(['audit.read', 'security.write', 'site_config.write', 'user.read', 'user.write']),
-  operator: new Set(['audit.read', 'site_config.write']),
-  support: new Set(['audit.read', 'user.read', 'user.write']),
-  auditor: new Set(['audit.read']),
+  super_admin: new Set(['audit.read', 'dashboard.read', 'security.write', 'site_config.write', 'user.read', 'user.write']),
+  operator: new Set(['audit.read', 'dashboard.read', 'site_config.write']),
+  support: new Set(['audit.read', 'dashboard.read', 'user.read', 'user.write']),
+  auditor: new Set(['audit.read', 'dashboard.read']),
 }
 
 export const adminAccessControlProvider: AccessControlProvider = {

@@ -8,7 +8,6 @@ import {
   Link2,
   Plus,
   Server,
-  ShieldCheck,
   Trash2,
 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
@@ -39,13 +38,6 @@ import { testProviderEndpointDirect } from './providerEndpoint'
 
 type LibraryView = 'providers' | 'models'
 
-function getVaultStatusLabel(status: ReturnType<typeof useSettingsStore.getState>['runtime']['vaultStatus']) {
-  if (status === 'loading') return '正在载入'
-  if (status === 'error') return '需要处理'
-  if (status === 'ready') return '已解锁'
-  return '未载入'
-}
-
 function getKindLabel(kind: CustomModelKind) {
   return MODEL_TABS.find((tab) => tab.id === kind)?.label ?? kind
 }
@@ -53,30 +45,24 @@ function getKindLabel(kind: CustomModelKind) {
 export function LocalVaultSettingsPanel() {
   const {
     config,
-    runtime,
     deleteCustomModel,
     deleteProviderProfile,
-    forgetDeviceVault,
     persistLocalVault,
     saveCustomModel,
     saveProviderProfile,
     setActiveProviderProfile,
     setDefaultModel,
     setModelProviderProfile,
-    setVaultPersistence,
   } = useSettingsStore(useShallow((state) => ({
     config: state.config,
-    runtime: state.runtime,
     deleteCustomModel: state.deleteCustomModel,
     deleteProviderProfile: state.deleteProviderProfile,
-    forgetDeviceVault: state.forgetDeviceVault,
     persistLocalVault: state.persistLocalVault,
     saveCustomModel: state.saveCustomModel,
     saveProviderProfile: state.saveProviderProfile,
     setActiveProviderProfile: state.setActiveProviderProfile,
     setDefaultModel: state.setDefaultModel,
     setModelProviderProfile: state.setModelProviderProfile,
-    setVaultPersistence: state.setVaultPersistence,
   })))
   const notify = useFeedbackStore((state) => state.notify)
   const confirm = useFeedbackStore((state) => state.confirm)
@@ -128,41 +114,6 @@ export function LocalVaultSettingsPanel() {
     setSelectedModelId(model?.id ?? null)
     setModelDraft(model ? toDraftModel(model) : null)
     setModelProviderId(model ? config.modelProviderProfileIds[model.modelId] ?? '' : '')
-  }
-
-  const handleVaultPersistence = async (persistence: 'session' | 'device') => {
-    setBusyAction(`vault-${persistence}`)
-    try {
-      await setVaultPersistence(persistence)
-    } catch {
-      notify({ title: 'Vault 保存方式更新失败', tone: 'error' })
-    } finally {
-      setBusyAction(null)
-    }
-  }
-
-  const handleForgetDevice = async () => {
-    const confirmed = await confirm({
-      title: '忘记此设备',
-      message: '将删除本机 Vault、模型绑定和本地任务缓存。',
-      confirmLabel: '忘记设备',
-      tone: 'danger',
-    })
-    if (!confirmed) return
-    setBusyAction('forget')
-    try {
-      await forgetDeviceVault()
-      setProviderDraft(null)
-      setSelectedProviderId(null)
-      setModelDraft(null)
-      setSelectedModelId(null)
-      setModelProviderId('')
-      notify({ title: '已忘记此设备', tone: 'success' })
-    } catch {
-      notify({ title: '无法删除此设备上的 Vault', tone: 'error' })
-    } finally {
-      setBusyAction(null)
-    }
   }
 
   const handleAddProvider = () => {
@@ -290,55 +241,6 @@ export function LocalVaultSettingsPanel() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-5 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-300">
-            <ShieldCheck className="h-4 w-4" />
-          </span>
-          <div className="min-w-0">
-            <div className={`text-sm font-semibold ${themeClasses.textPrimary}`}>设备加密 Vault</div>
-            <div className={`truncate text-[11px] ${runtime.vaultStatus === 'error' ? 'text-red-500 dark:text-red-300' : themeClasses.textMuted}`}>
-              {runtime.vaultError || getVaultStatusLabel(runtime.vaultStatus)}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="grid grid-cols-2 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--control-bg)] p-1">
-            {([
-              ['session', '仅本次会话'],
-              ['device', '记住此设备'],
-            ] as const).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => void handleVaultPersistence(id)}
-                disabled={busyAction !== null}
-                aria-pressed={runtime.vaultPersistence === id}
-                className={cx(
-                  'h-7 rounded-[6px] px-3 text-xs font-medium transition disabled:opacity-50',
-                  runtime.vaultPersistence === id
-                    ? 'bg-[var(--control-bg-hover)] text-[var(--text-primary)]'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => void handleForgetDevice()}
-            disabled={busyAction !== null}
-            className={`${themeClasses.iconButton} h-9 w-9 rounded-[8px] disabled:opacity-50`}
-            aria-label="忘记此设备"
-            title="忘记此设备"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-5 py-3">
         <div className="grid grid-cols-2 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--control-bg)] p-1">
           <button

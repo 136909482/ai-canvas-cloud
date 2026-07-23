@@ -220,11 +220,18 @@ export function sanitizeProjectSnapshotForPersistence(snapshot: ProjectSnapshot)
   }
 }
 
+export function stripLocalTaskQueueFromProjectSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
+  return {
+    ...sanitizeProjectSnapshotForPersistence(snapshot),
+    taskQueue: { tasks: [] },
+  }
+}
+
 export function sanitizeProjectRecordForPersistence(project: ProjectRecord): ProjectRecord {
   return {
     ...project,
-    savedSnapshot: sanitizeProjectSnapshotForPersistence(project.savedSnapshot),
-    workingSnapshot: sanitizeProjectSnapshotForPersistence(project.workingSnapshot),
+    savedSnapshot: stripLocalTaskQueueFromProjectSnapshot(project.savedSnapshot),
+    workingSnapshot: stripLocalTaskQueueFromProjectSnapshot(project.workingSnapshot),
   }
 }
 

@@ -32,6 +32,12 @@ const expectedPermissions = {
     adminLoginSecurityRead: false,
     adminLoginSecurityWrite: false,
     ordinaryIdentityRead: true,
+    userOperationsRead: true,
+    userStatusWrite: true,
+    userSessionDelete: true,
+    sensitiveIdentityRead: true,
+    projectContentRead: true,
+    assetObjectRead: true,
     sitePublicationRead: true,
     sitePublicationWrite: false,
   },
@@ -42,6 +48,12 @@ const expectedPermissions = {
     adminLoginSecurityRead: true,
     adminLoginSecurityWrite: true,
     ordinaryIdentityRead: false,
+    userOperationsRead: true,
+    userStatusWrite: true,
+    userSessionDelete: true,
+    sensitiveIdentityRead: false,
+    projectContentRead: false,
+    assetObjectRead: false,
     sitePublicationRead: true,
     sitePublicationWrite: true,
   },
@@ -62,10 +74,31 @@ for (const [connection, connectionString] of Object.entries(connections)) {
     let ordinaryIdentityRead = true
     let adminLoginSecurityRead = true
     let adminLoginSecurityWrite = true
+    let userOperationsRead = true
+    let userStatusWrite = true
+    let userSessionDelete = true
+    let sensitiveIdentityRead = true
+    let projectContentRead = true
+    let assetObjectRead = true
     try { await client.query('SELECT 1 FROM admin."user" LIMIT 1') } catch { adminIdentityRead = false }
-    try { await client.query('SELECT 1 FROM public."user" LIMIT 1') } catch { ordinaryIdentityRead = false }
+    try { await client.query('SELECT * FROM public."user" LIMIT 1') } catch { ordinaryIdentityRead = false }
     try { await client.query('SELECT 1 FROM admin.login_security_settings LIMIT 1') } catch { adminLoginSecurityRead = false }
     try { await client.query('UPDATE admin.login_security_settings SET updated_at = updated_at WHERE false') } catch { adminLoginSecurityWrite = false }
+    try {
+      await client.query(`SELECT id, user_no, name, email, email_verified, status, created_at, updated_at FROM public."user" LIMIT 1`)
+      await client.query(`SELECT id, user_id, expires_at, created_at, updated_at FROM public."session" LIMIT 1`)
+      await client.query(`SELECT id, type, name, owner_user_id, status, plan_key, storage_quota_bytes, created_at, updated_at FROM public.workspaces LIMIT 1`)
+      await client.query(`SELECT workspace_id, user_id, role, joined_at FROM public.workspace_members LIMIT 1`)
+      await client.query(`SELECT id, workspace_id, byte_size, status, deleted_at FROM public.assets LIMIT 1`)
+      await client.query(`SELECT workspace_id, expected_byte_size, status, committed_asset_id FROM public.migration_import_asset_uploads LIMIT 1`)
+    } catch { userOperationsRead = false }
+    try { await client.query(`UPDATE public."user" SET status = status, updated_at = updated_at WHERE false`) } catch { userStatusWrite = false }
+    try { await client.query(`DELETE FROM public."session" WHERE false`) } catch { userSessionDelete = false }
+    try {
+      await client.query(`SELECT a.password, s.token FROM public.account a CROSS JOIN public."session" s LIMIT 1`)
+    } catch { sensitiveIdentityRead = false }
+    try { await client.query('SELECT data_json FROM public.project_nodes LIMIT 1') } catch { projectContentRead = false }
+    try { await client.query('SELECT object_key FROM public.assets LIMIT 1') } catch { assetObjectRead = false }
     const sitePublicationRead = await client.query(`SELECT has_table_privilege(current_user, 'public.site_config_publications', 'SELECT') AS allowed`)
     const sitePublicationWrite = await client.query(`SELECT has_table_privilege(current_user, 'public.site_config_publications', 'INSERT,UPDATE') AS allowed`)
     const removedRelations = await client.query(`
@@ -147,6 +180,12 @@ for (const [connection, connectionString] of Object.entries(connections)) {
       adminLoginSecurityRead,
       adminLoginSecurityWrite,
       ordinaryIdentityRead,
+      userOperationsRead,
+      userStatusWrite,
+      userSessionDelete,
+      sensitiveIdentityRead,
+      projectContentRead,
+      assetObjectRead,
       sitePublicationRead: sitePublicationRead.rows[0]?.allowed,
       sitePublicationWrite: sitePublicationWrite.rows[0]?.allowed,
     }

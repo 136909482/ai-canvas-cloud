@@ -18,6 +18,18 @@
 
 API 响应发送 nosniff、frame deny、Referrer/Permissions/COOP/CORP 及 `default-src 'none'` 的 API CSP；protected 环境发送 HSTS。Web HTML 的页面 CSP 由 Nginx 单独负责。
 
+## 浏览器 Vault 与 API 边界
+
+浏览器 Vault 与任务缓存没有 Cloud HTTP 资源。配置 Vault 和任务缓存均为 `schemaVersion=1`、`cipherVersion=1`，IndexedDB 数据库版本为 2，使用不可导出的 WebCrypto AES-256-GCM `CryptoKey`；AAD 绑定版本、Origin 和可信 session 用户 ID，任务缓存还绑定项目 ID。Provider 与模型配置保存后固定把密文与 Key 写入当前 Origin 的 IndexedDB，不提供 persistence 或单独删除入口；登出/session 失效/换账号清空内存但不删除设备记录；清除当前网站数据会由浏览器删除密文、Key、模型绑定和本地任务缓存。旧 localStorage 明文只有在加密迁移成功后删除。
+
+设备保存与本地任务写入串行执行；异步结果只能更新同一可信用户、同一内部 persistence 和同一状态代次。两个浏览器设备的 IndexedDB/Key 相互独立，认证、工作区或项目 API 不上传、下载或同步 Vault。
+
+workspace 文件与 workspace/localStorage 缓存、项目图/checkpoint、迁移包、Cloud API 请求/响应、日志、指标和诊断均不得携带 Provider、endpoint、真实模型 ID、绑定、Key、remote task ID 或本地任务缓存。平台不新增 Provider 代理、连接测试或任务 API；浏览器只对受控 OpenAI Compatible/DashScope 路径发起请求，无 CORS 服务使用用户自有的固定目标网关。
+
+同一设备重新打开项目时，浏览器从按可信用户/项目隔离的加密任务缓存恢复任务；无 remote task ID 的运行中同步任务转为已中断，只有已取得受控异步 remote task ID 的 running 任务继续轮询。新设备只收到图中的 `local:<uuid>`，必须由用户在节点上明确选择本机同类型模型完成绑定；认证和项目 API 不参与绑定、匹配或同步。
+
+生成结果入云只调用既有 `POST /api/v1/assets/uploads`、签名直传、`POST /api/v1/assets/uploads/:uploadId/complete` 和 `PATCH /api/v1/projects/:projectId/graph`。资产创建元数据使用 `generated-<taskId>.<ext>`，不包含真实模型 ID；图变更中只出现 `local:<uuid>` 与 Cloud asset UUID。Provider 结果无法在浏览器中下载或 Cloud 资产上传失败时，任务失败且不提交成功图变更。
+
 普通 API 使用 Redis 原子窗口限制认证、密码/邮件、资产/迁移 prepare、普通读和普通写。超限返回 `429 RATE_LIMITED` 与整数秒 `Retry-After`。Redis 不可用时普通读 fail-open，高风险认证和写请求 fail-closed，返回可重试 `503 SERVICE_UNAVAILABLE`，且不得进入领域副作用。已经删除的 Provider 测试和服务器任务创建没有限流分类或路由。
 
 错误响应固定为：
@@ -55,7 +67,7 @@ GET /health/live
 GET /health/ready
 ```
 
-`live` 只表示进程可响应。普通 API `ready` 并行执行 PostgreSQL query、Redis `PING` 和 S3 `HeadBucket`；失败返回 `503`、`status=degraded`，错误分类只允许 `connection_refused|timeout|authentication_failed|permission_denied|bucket_unavailable|unknown`。响应不含连接串、主机凭据、Bucket/object key 或底层错误正文。
+`live` 只表示进程可响应。普通 API `ready` 并行执行 PostgreSQL query、Redis `PING` 和 S3 `HeadBucket`；Admin API `ready` 只执行 PostgreSQL query 与 S3 `HeadBucket`。失败返回 `503`、`status=degraded`，错误分类只允许 `connection_refused|timeout|authentication_failed|permission_denied|bucket_unavailable|unknown`。响应不含连接串、主机凭据、Bucket/object key 或底层错误正文。
 
 `/metrics` 仅用于受控内网抓取，包含 API 请求/延迟、错误、认证失败、限流、项目冲突、配额、迁移阶段、依赖和数据库连接池等当前指标。不存在 Worker metrics、任务 backlog/running/retry/lease、Provider 请求或结果转存指标。标签禁止 workspace/user/project/request ID、URL、邮箱、正文和凭据。
 
@@ -211,7 +223,13 @@ POST /admin/v1/auth/password
 GET  /admin/v1/auth/login-security
 POST /admin/v1/auth/login-security
 POST /admin/v1/auth/logout
+GET  /admin/v1/dashboard
 GET  /admin/v1/audit-events
+GET  /admin/v1/users
+GET  /admin/v1/users/:userId
+POST /admin/v1/users/:userId/ban
+POST /admin/v1/users/:userId/unban
+POST /admin/v1/users/:userId/revoke-sessions
 GET  /admin/v1/site-config
 POST /admin/v1/site-config
 GET  /admin/v1/site-assets
@@ -224,6 +242,14 @@ POST /admin/v1/site-assets/:assetId/complete
 验证码默认关闭；开启时 captcha 返回 5 位数字的短期 SVG challenge，数据库只保存 hash、失败次数和过期/消费时间。login 接受 username/password 和可选 captcha 字段；响应不返回内部 email 或 session token。
 
 username 修改要求 3–30 位小写字母、数字、下划线或点。password 修改校验当前密码，新密码 12–256 位，成功后保留当前 session、撤销其他 Admin session并写脱敏审计。
+
+`GET /admin/v1/dashboard` 要求 `dashboard.read`，四种 Admin 角色均可访问。响应包含 `generatedAt` 以及 `registrations`、`activity`、`storage`、`authentication` 和 `infrastructure.postgres/objectStorage` 聚合；依赖项只返回 `ok/latencyMs` 和可选稳定错误分类，不返回用户列表或基础设施地址。
+
+用户运营要求 `super_admin` 或 `support`：GET 使用 `user.read`，POST 使用 `user.write`。`GET /admin/v1/users` 接受 `cursor`、`limit=1..100`（默认 50）、`status=active|disabled|deleted`、`verification=verified|unverified` 和最长 128 字符的 `search`；搜索仅匹配精确用户编号以及受控的邮箱/名称子串。响应为 `{ items, nextCursor }`，按 `createdAt DESC, id DESC` 使用不透明 keyset 游标。
+
+列表 `items` 只包含 `id/userNumber/name/email/emailVerified/status/workspaceCount/storageUsedBytes/activeSessionCount/lastActiveAt/createdAt/updatedAt`。`GET /admin/v1/users/:userId` 返回 `{ user, workspaces }`，workspace 只包含 ID、名称、类型、成员角色、状态、套餐键、存储配额/已用/预留和时间。响应不包含密码、session token、IP/User-Agent、项目正文、Prompt、资产内容/object key 或 Provider 配置。
+
+三个用户 POST 都接受且只接受 `{ "reason": string }`，去除首尾空白后长度必须为 3–500，并执行统一 Admin Origin/Fetch Metadata/CSRF 校验。`ban`/`unban` 返回 `{ user, revokedSessionCount }`；封禁幂等设为 disabled 并撤销 session，解封设为 active 但不恢复旧 session。`revoke-sessions` 返回 `{ userId, revokedSessionCount, revokedAt }` 且不改变用户状态。目标不存在返回 `404 RESOURCE_NOT_FOUND`，目标为 deleted 或请求非法返回稳定校验错误；成功操作与脱敏审计同事务提交。
 
 site assets 只接受 PNG/JPEG/WebP/ICO、最大 4 MiB、单边最大 4096；完成时复核 metadata、完整 hash、魔数和真实尺寸。site config 保存版本化结构、不可变 revision、current 指针、公开投影和同事务审计，不接受 HTML、JavaScript、任意 CSS 或 URL 凭据/fragment。
 
@@ -277,4 +303,4 @@ SERVICE_UNAVAILABLE
 ADMIN_ACCESS_DENIED
 ```
 
-不存在任务并发、Provider 配置/可用性、官方模型、积分或模式切换错误码。浏览器本地 Provider/CORS 错误属于 P8-5/P8-6 客户端语义，不是 Cloud API 契约。
+不存在任务并发、Provider 配置/可用性、官方模型、积分或模式切换错误码。Vault/任务缓存存储解密、任务中断恢复、设备模型绑定以及浏览器 Provider/CORS/结果下载错误均属于客户端语义，不是 Cloud API 契约。

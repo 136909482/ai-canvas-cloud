@@ -4,10 +4,14 @@ import type { CreateSiteAssetRequest, PublishSiteConfigRequest } from '@ai-canva
 import { hasDuplicateJsonObjectKeys, type Logger, type MeasuredDependencyStatus } from '@ai-canvas-cloud/shared'
 import {
   AdminAccessError,
+  createUnavailableAdminDashboardService,
   createUnavailableAdminSiteConfigService,
+  createUnavailableAdminUserOperationsService,
   type AdminRequestContext,
+  type AdminDashboardService,
   type AdminService,
   type AdminSiteConfigService,
+  type AdminUserOperationsService,
 } from '@ai-canvas-cloud/server/modules/admin'
 import type { AdminApiConfig } from './config.js'
 import { clearCsrfCookie, createCsrfCookie, createCsrfToken, getAdminClientIp, handleAdminSecurityBoundary } from './security.js'
@@ -15,7 +19,9 @@ import { clearCsrfCookie, createCsrfCookie, createCsrfToken, getAdminClientIp, h
 interface AdminServerOptions {
   config: AdminApiConfig
   adminService: AdminService
+  dashboardService?: AdminDashboardService
   siteConfigService?: AdminSiteConfigService
+  userOperationsService?: AdminUserOperationsService
   logger: Logger
   readinessChecks?: {
     postgres?: () => Promise<MeasuredDependencyStatus>
@@ -83,6 +89,29 @@ function requestContext(request: http.IncomingMessage, config: AdminApiConfig, r
   }
 }
 
+function queryDocument(searchParams: URLSearchParams) {
+  const output: Record<string, string> = {}
+  for (const [key, value] of searchParams) {
+    if (Object.hasOwn(output, key)) throw new AdminAccessError(400, 'VALIDATION_FAILED', `Duplicate query parameter: ${key}`)
+    output[key] = value
+  }
+  return output
+}
+
+function adminPathGroup(pathname: string) {
+  return pathname
+    .replace(/^\/admin\/v1\/users\/[^/]+/, '/admin/v1/users/:id')
+    .replace(/[0-9a-f-]{36}/gi, ':id')
+}
+
+function decodePathSegment(value: string) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    throw new AdminAccessError(400, 'VALIDATION_FAILED', 'Path parameter is invalid')
+  }
+}
+
 function sendError(response: http.ServerResponse, error: unknown, requestId: string) {
   const mapped = error instanceof AdminAccessError
     ? error
@@ -95,14 +124,16 @@ function sendError(response: http.ServerResponse, error: unknown, requestId: str
 export function createAdminApiServer({
   config,
   adminService,
+  dashboardService = createUnavailableAdminDashboardService(),
   siteConfigService = createUnavailableAdminSiteConfigService(),
+  userOperationsService = createUnavailableAdminUserOperationsService(),
   logger,
   readinessChecks,
 }: AdminServerOptions) {
   return http.createServer(async (request, response) => {
     const requestId = randomUUID()
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
-    logger.info('request.received', { requestId, method: request.method, pathGroup: url.pathname.replace(/[0-9a-f-]{36}/gi, ':id') })
+    logger.info('request.received', { requestId, method: request.method, pathGroup: adminPathGroup(url.pathname) })
     if (handleAdminSecurityBoundary(request, response, config, requestId)) return
     try {
       if (url.pathname === '/health/live' && request.method === 'GET') {
@@ -195,6 +226,32 @@ export function createAdminApiServer({
           result,
           limit: limitValue === null ? undefined : Number(limitValue),
         }, context), requestId)
+        return
+      }
+      if (url.pathname === '/admin/v1/dashboard' && request.method === 'GET') {
+        sendJson(response, 200, await dashboardService.getDashboard(context), requestId)
+        return
+      }
+      if (url.pathname === '/admin/v1/users' && request.method === 'GET') {
+        sendJson(response, 200, await userOperationsService.listUsers(queryDocument(url.searchParams), context), requestId)
+        return
+      }
+      const userDetail = /^\/admin\/v1\/users\/([^/]+)$/.exec(url.pathname)
+      if (userDetail && request.method === 'GET') {
+        sendJson(response, 200, await userOperationsService.getUser(decodePathSegment(userDetail[1]!), context), requestId)
+        return
+      }
+      const userAction = /^\/admin\/v1\/users\/([^/]+)\/(ban|unban|revoke-sessions)$/.exec(url.pathname)
+      if (userAction && request.method === 'POST') {
+        const userId = decodePathSegment(userAction[1]!)
+        const body = await readJson(request)
+        const action = userAction[2]
+        const payload = action === 'ban'
+          ? await userOperationsService.banUser(userId, body, context)
+          : action === 'unban'
+            ? await userOperationsService.unbanUser(userId, body, context)
+            : await userOperationsService.revokeUserSessions(userId, body, context)
+        sendJson(response, 200, payload, requestId)
         return
       }
       if (url.pathname === '/admin/v1/site-config' && request.method === 'GET') {

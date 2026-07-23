@@ -3,6 +3,7 @@ import test from 'node:test'
 import { executeChatPrompt } from './chatAdapter.ts'
 import { generateWithQwen } from './image/aliyun.ts'
 import { generateWithOpenAI, submitOpenAiAsyncImageGeneration } from './image/openai.ts'
+import { submitAliyunTextToVideoGeneration } from './videoAdapter.ts'
 
 type CapturedRequest = {
   input: string | URL | Request
@@ -125,6 +126,34 @@ test('chat provider uses the OpenAI-compatible completion contract', async () =>
   assert.equal(body.stream, false)
   assert.equal(body.messages[0].role, 'system')
   assert.match(body.messages[1].content, /ping/)
+})
+
+test('Aliyun video provider uses the fixed async synthesis contract', async () => {
+  const { result, requests } = await withMockFetch(
+    () => Response.json({ output: { task_id: 'video-task-1' } }),
+    () => submitAliyunTextToVideoGeneration({
+      prompt: 'camera pans across a quiet lake',
+      ratio: '16:9',
+      resolution: '1080p',
+      duration: '10s',
+      apiKey: 'video-key',
+      apiUrl: 'https://dashscope.example/arbitrary/path',
+      model: 'wan2.7-t2v-turbo',
+    }),
+  )
+
+  assert.deepEqual(result, { taskId: 'video-task-1' })
+  assert.equal(
+    String(requests[0]?.input),
+    'https://dashscope.example/api/v1/services/aigc/video-generation/video-synthesis',
+  )
+  assert.equal(getHeader(requests[0]?.init, 'authorization'), 'Bearer video-key')
+  assert.equal(getHeader(requests[0]?.init, 'x-dashscope-async'), 'enable')
+  const body = JSON.parse(String(requests[0]?.init?.body))
+  assert.deepEqual(
+    { model: body.model, prompt: body.input.prompt, resolution: body.parameters.resolution, duration: body.parameters.duration },
+    { model: 'wan2.7-t2v-turbo', prompt: 'camera pans across a quiet lake', resolution: '1080P', duration: 10 },
+  )
 })
 
 test('provider HTTP failures preserve status and response details', async () => {

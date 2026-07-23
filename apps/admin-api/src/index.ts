@@ -1,7 +1,9 @@
 import { createJsonLogger, measureDependencyCheck } from '@ai-canvas-cloud/shared'
 import {
   createPostgresAdminService,
+  createPostgresAdminDashboardService,
   createPostgresAdminSiteConfigService,
+  createPostgresAdminUserOperationsService,
   createPostgresPool,
   createS3ObjectStorage,
   loadDotEnv,
@@ -34,15 +36,32 @@ const siteConfigService = createPostgresAdminSiteConfigService(pool, {
   objectStorage,
   auditSecret: config.betterAuthSecret,
 })
+const userOperationsService = createPostgresAdminUserOperationsService(pool, {
+  adminService,
+  auditSecret: config.betterAuthSecret,
+})
+const readinessChecks = {
+  postgres: () => measureDependencyCheck(async () => { await pool.query('SELECT 1') }),
+  objectStorage: () => measureDependencyCheck(objectStorage.checkHealth),
+}
+const dashboardService = createPostgresAdminDashboardService(pool, {
+  adminService,
+  readInfrastructureHealth: async () => {
+    const [postgres, objectStorageHealth] = await Promise.all([
+      readinessChecks.postgres(),
+      readinessChecks.objectStorage(),
+    ])
+    return { postgres, objectStorage: objectStorageHealth }
+  },
+})
 const server = createAdminApiServer({
   config,
   adminService,
+  dashboardService,
   siteConfigService,
+  userOperationsService,
   logger,
-  readinessChecks: {
-    postgres: () => measureDependencyCheck(async () => { await pool.query('SELECT 1') }),
-    objectStorage: () => measureDependencyCheck(objectStorage.checkHealth),
-  },
+  readinessChecks,
 })
 
 let closing = false

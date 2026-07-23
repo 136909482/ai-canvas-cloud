@@ -22,8 +22,11 @@ export interface CreateDiagnosticInput {
   code?: string
   kind?: DiagnosticKind
   retryable?: boolean
+  privateProviderError?: boolean
   context?: Record<string, DiagnosticContextValue | undefined>
 }
+
+const PRIVATE_PROVIDER_ERROR_MESSAGE = '浏览器 Provider 请求失败；私有 Provider 详情不写入诊断。'
 
 const NETWORK_ERROR_PATTERN = /(?:\bHTTP\s*[45]\d\d\b|\b(?:429|5\d\d)\b|fetch|network|timeout|timed out|unable to reach|connection|quota|rate limit|网络|调用失败|请求失败|连接失败|超时)/i
 const PERMISSION_ERROR_PATTERN = /(?:permission|denied|not allowed|unauthorized|forbidden|权限|拒绝访问|未授权)/i
@@ -66,10 +69,14 @@ function normalizeContext(context: CreateDiagnosticInput['context']) {
 
 export function createAppDiagnostic(input: CreateDiagnosticInput, now = Date.now()): AppDiagnostic {
   const kind = input.kind ?? classifyDiagnosticKind(input.error, input.area)
-  const message = getDiagnosticErrorMessage(input.error)
-  const detail = input.error instanceof Error && input.error.stack
-    ? input.error.stack
-    : message
+  const message = input.privateProviderError
+    ? PRIVATE_PROVIDER_ERROR_MESSAGE
+    : getDiagnosticErrorMessage(input.error)
+  const detail = input.privateProviderError
+    ? message
+    : input.error instanceof Error && input.error.stack
+      ? input.error.stack
+      : message
 
   return {
     id: `diagnostic-${now}-${Math.random().toString(36).slice(2, 8)}`,

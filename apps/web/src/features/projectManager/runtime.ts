@@ -7,7 +7,7 @@ import {
   migrateProjectSnapshot,
   type PersistedProjectSnapshot,
 } from './migrations'
-import { sanitizeProjectSnapshotForPersistence } from './snapshotSize'
+import { sanitizeProjectSnapshotForPersistence, stripLocalTaskQueueFromProjectSnapshot } from './snapshotSize'
 
 export const DEFAULT_PROJECT_NAME = '未命名项目'
 export { CURRENT_PROJECT_SNAPSHOT_SCHEMA_VERSION, migrateProjectSnapshot }
@@ -52,5 +52,5 @@ export function resetWorkspaceToEmpty() {
 }
 
 export function serializeProjectSnapshot(snapshot: ProjectSnapshot) {
-  return JSON.stringify(sanitizeProjectSnapshotForPersistence(cloneProjectSnapshot(snapshot)))
+  return JSON.stringify(stripLocalTaskQueueFromProjectSnapshot(cloneProjectSnapshot(snapshot)))
 }

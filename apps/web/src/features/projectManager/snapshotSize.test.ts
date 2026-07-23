@@ -2,6 +2,7 @@ import {
   SNAPSHOT_ERROR_MESSAGE_CHAR_LIMIT,
   analyzeProjectSnapshotSize,
   sanitizeProjectSnapshotForPersistence,
+  stripLocalTaskQueueFromProjectSnapshot,
   truncateSnapshotErrorMessage,
 } from './snapshotSize.ts'
 import type { GenerateTask, ProjectSnapshot } from '@/types'
@@ -98,6 +99,10 @@ function runSnapshotSizeTests() {
   assert(sanitizedImageNode?.data?.errorMsg === expectedError, 'node error messages should be truncated before persistence')
   assert(sanitized.taskQueue.tasks[0].errorMsg === expectedError, 'task error messages should be truncated before persistence')
   assert(sanitizedTextNode?.data?.text === longUserText, 'user-authored text should not be truncated by snapshot size controls')
+
+  const externalProjectSnapshot = stripLocalTaskQueueFromProjectSnapshot(snapshot)
+  assert(externalProjectSnapshot.taskQueue.tasks.length === 0, 'project persistence and export must exclude the browser-local task cache')
+  assert(!JSON.stringify(externalProjectSnapshot).includes('test-model'), 'project persistence must not expose task model ids')
 
   const report = analyzeProjectSnapshotSize(snapshot)
   assert(report.serializedByteSize > 0, 'snapshot size report should include serialized byte size')

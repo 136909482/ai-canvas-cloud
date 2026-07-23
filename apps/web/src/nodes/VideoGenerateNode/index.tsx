@@ -3,6 +3,7 @@ import { Handle, Position } from '@xyflow/react'
 import { ChevronDown, Clock3, Film, Image as ImageIcon, Play, SlidersHorizontal, Sparkles, Video, X } from 'lucide-react'
 import { CanvasImagePreview } from '@/components/CanvasImagePreview'
 import { enqueueVideoGenerateTask } from '@/features/generateQueue/orchestrator'
+import { isLocalModelReference } from '@/features/settings/localModelReferences'
 import { getCanvasNodeById } from '@/store/canvasConnectionSources'
 import { useCanvasStore } from '@/store/useCanvasStore'
 import { useHistoryStore } from '@/store/useHistoryStore'
@@ -190,6 +191,7 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({ id, data, sel
   const runTracked = useHistoryStore((s) => s.runTracked)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const getEnabledCustomModels = useSettingsStore((s) => s.getEnabledCustomModels)
+  const bindLocalModelReference = useSettingsStore((s) => s.bindLocalModelReference)
   const promptRef = useRef<HTMLTextAreaElement | null>(null)
   const settingsRef = useRef<HTMLDivElement | null>(null)
   const [hasPromptDraft, setHasPromptDraft] = useState(Boolean((data.prompt || '').trim()))
@@ -201,7 +203,13 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({ id, data, sel
   const resolution = data.resolution || '720p'
   const modeLabel = MODES.find((option) => option.value === mode)?.label ?? MODES[0].label
   const fallbackModel = videoModels[0]?.modelId ?? ''
-  const effectiveModel = videoModels.some((model) => model.modelId === data.model) ? data.model : fallbackModel
+  const isUnboundLocalModel = isLocalModelReference(data.model)
+    && !videoModels.some((model) => model.modelId === data.model)
+  const effectiveModel = videoModels.some((model) => model.modelId === data.model)
+    ? data.model
+    : isUnboundLocalModel
+      ? data.model
+      : fallbackModel
   const isConnected = Boolean(data.connectedTextNode)
   const hasPrompt = isConnected ? Boolean((data.prompt || '').trim()) : hasPromptDraft
   const referenceSourceOrderKey = Array.isArray(data.referenceSourceOrder)
@@ -239,18 +247,25 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({ id, data, sel
   const settingsSummary = `${modeLabel} / ${ratio} / ${resolution} / ${duration}`
 
   const modelOptions = useMemo<InlineSelectOption[]>(
-    () => videoModels.length > 0
-      ? videoModels.map((model) => ({
-          value: model.modelId,
-          label: model.name || model.modelId,
-          icon: <Video className="h-3.5 w-3.5 text-[var(--accent-violet-strong)]" />,
-        }))
+    () => videoModels.length > 0 || isUnboundLocalModel
+      ? [
+          ...(isUnboundLocalModel ? [{
+            value: data.model,
+            label: '此设备未绑定的模型',
+            icon: <Video className="h-3.5 w-3.5 text-[var(--text-muted)]" />,
+          }] : []),
+          ...videoModels.map((model) => ({
+            value: model.modelId,
+            label: model.name || model.modelId,
+            icon: <Video className="h-3.5 w-3.5 text-[var(--accent-violet-strong)]" />,
+          })),
+        ]
       : [{
           value: '',
           label: UI_TEXT.noVideoModel,
           icon: <Video className="h-3.5 w-3.5 text-[var(--text-muted)]" />,
         }],
-    [videoModels],
+    [data.model, isUnboundLocalModel, videoModels],
   )
 
   const stopCanvasGesture = (event: SyntheticEvent) => {
@@ -297,6 +312,11 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({ id, data, sel
 
   const updateVideoSettings = (patch: Record<string, unknown>) => {
     runTracked(() => updateNodeData(id, { ...patch, errorMsg: '', status: 'idle' }))
+  }
+
+  const selectModel = (modelId: string) => {
+    if (isUnboundLocalModel && modelId !== data.model && !bindLocalModelReference(data.model, modelId)) return
+    updateVideoSettings({ model: modelId, errorMsg: '' })
   }
 
   const disconnectImage = (sourceId: string) => {
@@ -487,7 +507,7 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({ id, data, sel
                 value={effectiveModel}
                 options={modelOptions}
                 ariaLabel={UI_TEXT.chooseModel}
-                onChange={(value) => updateVideoSettings({ model: value })}
+                onChange={selectModel}
                 stopCanvasGesture={stopCanvasGesture}
                 menuClassName="min-w-[260px]"
               />
@@ -605,7 +625,7 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({ id, data, sel
             <button
               type="button"
               onClick={handleGenerate}
-              disabled={!hasPrompt || !effectiveModel || data.status === 'queued' || data.status === 'generating'}
+              disabled={!hasPrompt || !effectiveModel || isUnboundLocalModel || data.status === 'queued' || data.status === 'generating'}
               className={`${themeClasses.nodePrimaryButton} h-9 w-9 shrink-0`}
               aria-label={UI_TEXT.generate}
               title={UI_TEXT.generate}
@@ -618,6 +638,9 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({ id, data, sel
           {data.errorMsg && (
             <p className={`${themeClasses.nodeInlineNotice} ${themeClasses.nodeWarningText}`}>{data.errorMsg}</p>
           )}
+          {isUnboundLocalModel && !data.errorMsg ? (
+            <p className={`${themeClasses.nodeInlineNotice} ${themeClasses.nodeWarningText}`}>此项目的模型引用尚未绑定到当前设备，请手动选择本机模型完成绑定。</p>
+          ) : null}
         </div>
       </div>
     </div>

@@ -6,6 +6,7 @@ export type AdminAuditResult = 'success' | 'failure'
 
 export const ADMIN_PERMISSIONS = [
   'audit.read',
+  'dashboard.read',
   'security.write',
   'site_config.write',
   'user.read',

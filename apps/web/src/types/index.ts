@@ -34,21 +34,6 @@ export interface CustomImageModelConfig {
   lastTestedAt: number | null
 }
 
-export interface ProviderAsyncConfig {
-  enabled: boolean
-  submitPath: string
-  submitQuery: Record<string, string>
-  taskIdPath: string
-  pollPath: string
-  pollIntervalSeconds: number
-  statusPath: string
-  successValues: string[]
-  failureValues: string[]
-  errorPath: string
-  imageUrlPaths: string[]
-  b64JsonPaths: string[]
-}
-
 export interface ProviderProfileConfig {
   id: string
   name: string
@@ -57,14 +42,13 @@ export interface ProviderProfileConfig {
   apiUrl: string
   provider: ProviderId
   requestMode: ImageRequestMode
-  asyncConfig?: ProviderAsyncConfig | null
   enabled: boolean
   testStatus: ModelTestStatus
   testMessage: string
   lastTestedAt: number | null
 }
 
-export type RuntimeModelConfig = CustomImageModelConfig & Pick<ProviderProfileConfig, 'apiKey' | 'apiUrl' | 'provider' | 'requestMode' | 'asyncConfig'>
+export type RuntimeModelConfig = CustomImageModelConfig & Pick<ProviderProfileConfig, 'apiKey' | 'apiUrl' | 'provider' | 'requestMode'>
 
 export interface ApiConfig {
   model: string
@@ -72,6 +56,7 @@ export interface ApiConfig {
   providerProfiles: ProviderProfileConfig[]
   activeProviderProfileIds: Partial<Record<CustomModelKind, string>>
   modelProviderProfileIds: Record<string, string>
+  localModelBindings: Record<string, string>
   storage: StorageConfig
 }
 
@@ -91,7 +76,6 @@ export interface WorkspaceProviderProfile {
   apiUrl: string
   provider: ProviderId
   requestMode: ImageRequestMode
-  asyncConfig?: ProviderAsyncConfig | null
   enabled: boolean
 }
 

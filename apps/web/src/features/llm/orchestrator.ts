@@ -3,6 +3,7 @@ import { MAX_GENERATE_REFERENCE_IMAGES } from '@/constants/generateNode'
 import { compileImageMentionPrompt } from '@/features/richPrompt/promptCompiler'
 import { formatJsonForDisplay } from '@/features/llm/outputViewer'
 import { resolveRuntimeModelConfig, type ProviderConfigDiagnostic } from '@/features/settings/providerConfig'
+import { isLocalModelReference } from '@/features/settings/localModelReferences'
 import { useCanvasStore } from '@/store/useCanvasStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { reportDiagnostic } from '@/store/useDiagnosticsStore'
@@ -11,6 +12,7 @@ import type { RichPromptReferenceItem } from '@/features/richPrompt/types'
 
 const UI_TEXT = {
   noModel: '暂无可用 Chat 模型，请先在模型设置中启用。',
+  unboundModel: '此项目的模型引用尚未绑定到当前设备。',
   noPrompt: '请输入自定义提示词后再执行。',
   jsonParseFailed: '返回内容不是合法 JSON，已按原文保留。',
   outputLabel: 'LLM结果',
@@ -30,7 +32,13 @@ function getSelectedModel(nodeData: Pick<LLMNodeData, 'model'>) {
   const settings = useSettingsStore.getState()
   const chatModels = settings.getEnabledCustomModels('chat')
   const fallbackModelId = chatModels[0]?.modelId ?? ''
-  const effectiveModel = chatModels.some((model) => model.modelId === nodeData.model) ? nodeData.model : fallbackModelId
+  const isUnboundLocalModel = isLocalModelReference(nodeData.model)
+    && !chatModels.some((model) => model.modelId === nodeData.model)
+  const effectiveModel = chatModels.some((model) => model.modelId === nodeData.model)
+    ? nodeData.model
+    : isUnboundLocalModel
+      ? nodeData.model
+      : fallbackModelId
   const resolution = effectiveModel
     ? resolveRuntimeModelConfig(settings.config, {
       modelId: effectiveModel,
@@ -46,6 +54,7 @@ function getSelectedModel(nodeData: Pick<LLMNodeData, 'model'>) {
     effectiveModel,
     selectedModel,
     diagnostic,
+    isUnboundLocalModel,
   }
 }
 
@@ -174,11 +183,11 @@ async function runLLMExecution(nodeId: string, input: {
     return null
   }
 
-  const { effectiveModel, selectedModel, diagnostic } = getSelectedModel(nodeData)
+  const { effectiveModel, selectedModel, diagnostic, isUnboundLocalModel } = getSelectedModel(nodeData)
   if (!selectedModel) {
     canvasStore.updateNodeData(nodeId, {
       status: 'error',
-      errorMsg: diagnostic?.message ?? UI_TEXT.noModel,
+      errorMsg: isUnboundLocalModel ? UI_TEXT.unboundModel : diagnostic?.message ?? UI_TEXT.noModel,
     })
     return null
   }
@@ -308,7 +317,8 @@ async function runLLMExecution(nodeId: string, input: {
       title: 'LLM 调用失败',
       error,
       code: 'LLM_EXECUTION_FAILED',
-      context: { nodeId, model: effectiveModel },
+      privateProviderError: true,
+      context: { nodeId },
     })
     canvasStore.updateNodeData(outputNodeId, {
       text: '',

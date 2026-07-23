@@ -23,6 +23,17 @@ test('administrator access requires active status and matching role permission',
   assert.equal(hasAdminPermission('operator', 'site_config.write'), true)
   assert.equal(hasAdminPermission('super_admin', 'security.write'), true)
   assert.equal(hasAdminPermission('operator', 'security.write'), false)
+  for (const role of ['super_admin', 'operator', 'support', 'auditor'] as const) {
+    assert.equal(hasAdminPermission(role, 'dashboard.read'), true, `${role} dashboard.read`)
+  }
+  for (const role of ['super_admin', 'support'] as const) {
+    assert.equal(hasAdminPermission(role, 'user.read'), true, `${role} user.read`)
+    assert.equal(hasAdminPermission(role, 'user.write'), true, `${role} user.write`)
+  }
+  for (const role of ['operator', 'auditor'] as const) {
+    assert.equal(hasAdminPermission(role, 'user.read'), false, `${role} user.read`)
+    assert.equal(hasAdminPermission(role, 'user.write'), false, `${role} user.write`)
+  }
   assert.throws(
     () => assertAdminAccess({ ...activeAdmin, status: 'banned' }, 'audit.read'),
     (error) => error instanceof AdminAccessError && error.code === 'ADMIN_ACCESS_DENIED',

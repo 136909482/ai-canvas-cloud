@@ -63,11 +63,12 @@ function createPreviewLabel(timestamp: number) {
 function getTaskProviderSnapshot(modelId: string) {
   const settings = useSettingsStore.getState()
   const providerId = settings.config.modelProviderProfileIds[modelId] ?? null
+  const profile = settings.config.providerProfiles.find((candidate) => candidate.id === providerId)
 
   return {
     apiProfileId: providerId,
-    apiProfileName: providerId,
-    provider: providerId,
+    apiProfileName: profile?.name ?? null,
+    provider: profile?.provider ?? null,
   }
 }
 
@@ -191,7 +192,7 @@ function createQueuedPreview(
   })
 }
 
-function createQueuedVideoNode(sourceNodeId: string, model: string) {
+function createQueuedVideoNode(sourceNodeId: string) {
   const canvasStore = useCanvasStore.getState()
   const reusableVideoNode = findReusableVideoNode(sourceNodeId)
 
@@ -199,7 +200,7 @@ function createQueuedVideoNode(sourceNodeId: string, model: string) {
     canvasStore.updateNodeData(reusableVideoNode.id, {
       videoUrl: null,
       videoAsset: null,
-      name: `${model} 生成中`,
+      name: '视频生成中',
       duration: 0,
       videoWidth: 0,
       videoHeight: 0,
@@ -213,7 +214,7 @@ function createQueuedVideoNode(sourceNodeId: string, model: string) {
   return canvasStore.createGeneratedVideoNode(sourceNodeId, {
     videoUrl: null,
     videoAsset: null,
-    name: `${model} 生成中`,
+    name: '视频生成中',
     duration: 0,
     videoWidth: 0,
     videoHeight: 0,
@@ -338,7 +339,7 @@ function syncVideoNodeWithTask(task: GenerateTask, status: 'queued' | 'generatin
   updateNodeData(videoNodeId, {
     status,
     errorMsg,
-    name: status === 'done' ? `${task.model} 生成结果` : `${task.model} 生成中`,
+    name: status === 'done' ? '视频生成结果' : '视频生成中',
   })
 }
 
@@ -416,7 +417,7 @@ export function enqueueVideoGenerateTask(input: EnqueueVideoGenerateTaskInput) {
     return null
   }
 
-  const videoNodeId = createQueuedVideoNode(input.sourceNodeId, model)
+  const videoNodeId = createQueuedVideoNode(input.sourceNodeId)
   const providerSnapshot = getTaskProviderSnapshot(model)
   const taskId = useTaskQueueStore.getState().createTask({
     projectId: input.projectId ?? null,
@@ -545,7 +546,7 @@ export function retryGenerateTask(taskId: string) {
   }
 
   const previewNodeId = task.kind === 'video'
-    ? createQueuedVideoNode(task.sourceNodeId, task.model)
+    ? createQueuedVideoNode(task.sourceNodeId)
     : createQueuedPreview(task.sourceNodeId, task.prompt, task.model, task.ratio, {
         originOperation: task.operationType === 'image-edit' ? 'image-edit' : 'generate',
         sourceImageNodeId: task.sourceImageNodeId,
@@ -677,7 +678,6 @@ function buildTaskRequestParams(task: GenerateTask) {
       model: task.model,
       provider,
       requestMode: modelConfig.requestMode,
-      asyncConfig: modelConfig.asyncConfig ?? null,
       operationType: task.operationType,
     } as const,
   }
@@ -763,7 +763,7 @@ async function finalizeSuccessfulVideoTask(task: GenerateTask, videoUrl: string,
     updateNodeData(task.previewNodeId, {
       videoUrl: resolvedUrl,
       videoAsset: asset,
-      name: `${task.model} 生成结果`,
+      name: '视频生成结果',
       duration: metadata.duration,
       videoWidth: metadata.width,
       videoHeight: metadata.height,
@@ -794,7 +794,8 @@ function markTaskRestoreError(task: GenerateTask, errorMessage: string) {
     title: '生成任务恢复失败',
     error: errorMessage,
     code: 'TASK_RESTORE_FAILED',
-    context: { taskId: task.id, model: task.model, provider: task.provider ?? null },
+    privateProviderError: true,
+    context: { taskId: task.id },
   })
 
   if (latestTask.previewNodeId) {
@@ -908,7 +909,8 @@ async function resumeRemoteGenerateTask(taskId: string) {
       title: '远程任务恢复失败',
       error,
       code: 'REMOTE_TASK_RESUME_FAILED',
-      context: { taskId, model: task.model, provider: task.provider ?? null },
+      privateProviderError: true,
+      context: { taskId },
     })
     const latestTask = useTaskQueueStore.getState().tasks.find((item) => item.id === taskId)
 
@@ -1073,8 +1075,7 @@ export async function runGenerateTask(taskId: string) {
 
     syncPreviewNodeWithTask(runningTask, 'generating')
     const { modelConfig, requestParams } = buildTaskRequestParams(runningTask)
-    const shouldUseAsync = modelConfig.provider === 'openai'
-      && (modelConfig.requestMode === 'async' || modelConfig.asyncConfig?.enabled === true)
+    const shouldUseAsync = modelConfig.provider === 'openai' && modelConfig.requestMode === 'async'
     const imageUrl = shouldUseAsync
       ? await (async () => {
           const submission = await submitAsyncImageGeneration(requestParams)
@@ -1109,11 +1110,8 @@ export async function runGenerateTask(taskId: string) {
       title: latestTask?.kind === 'video' ? '视频生成失败' : '图片生成失败',
       error,
       code: latestTask?.kind === 'video' ? 'VIDEO_GENERATION_FAILED' : 'IMAGE_GENERATION_FAILED',
-      context: {
-        taskId,
-        model: latestTask?.model,
-        provider: latestTask?.provider ?? null,
-      },
+      privateProviderError: true,
+      context: { taskId },
     })
 
     if (latestTask?.previewNodeId) {

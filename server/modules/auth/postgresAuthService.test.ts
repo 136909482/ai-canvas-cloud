@@ -201,6 +201,55 @@ test('confirmed login revokes the old session and records the new device', async
     && call.values?.[1] === 'device-b'))
 })
 
+test('disabled user login deletes the temporary session before returning access denied', async () => {
+  const authApi = {
+    async signInEmail() {
+      return {
+        headers: new Headers(),
+        response: {
+          redirect: false,
+          token: 'disabled-login-token',
+          user: {
+            id: 'disabled-user',
+            email: 'disabled@example.com',
+            emailVerified: true,
+            name: 'disabled',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+      }
+    },
+  }
+  const { pool, calls } = createMockPool(({ text }) => {
+    if (text.includes('FROM "session"') && text.includes('token <>') && text.includes('expires_at')) {
+      return { rows: [] }
+    }
+    if (text.includes('INSERT INTO workspaces')) return { rows: [{ id: 'workspace-disabled' }] }
+    if (text.includes('JOIN workspace_members') && text.includes("u.status, 'active') = 'active'")) {
+      return { rows: [] }
+    }
+    return { rows: [] }
+  })
+  const authService = createPostgresAuthService(pool as never, { authApi: authApi as never })
+
+  await assert.rejects(
+    () => authService.login(
+      { email: 'disabled@example.com', password: 'long-enough-password', deviceId: 'disabled-device' },
+      { requestId: 'disabled-login', userAgent: 'Test Browser', ipAddress: '127.0.0.1' },
+    ),
+    (error: unknown) => error instanceof AuthServiceError
+      && error.statusCode === 403
+      && error.apiCode === 'ACCESS_DENIED',
+  )
+
+  const temporarySessionDelete = calls.find((call) => call.text.includes('DELETE FROM "session"')
+    && call.text.includes('token = $2'))
+  assert.deepEqual(temporarySessionDelete?.values, ['disabled-user', 'disabled-login-token'])
+  assert(calls.some((call) => call.text.includes('JOIN workspace_members')
+    && call.text.includes("COALESCE(u.status, 'active') = 'active'")))
+})
+
 test('listSessions exposes device creation time and marks the current session', async () => {
   const currentCreatedAt = new Date('2026-07-16T12:00:00.000Z')
   const otherCreatedAt = new Date('2026-07-15T08:00:00.000Z')

@@ -8,8 +8,8 @@
 apps/
   web/                 Vite + React 画布网站
   api/                 普通用户 HTTP、限流、安全边界和健康检查
-  admin-web/           独立 Admin React 前端
-  admin-api/           独立 Admin 认证、RBAC、网站设置和审计 HTTP
+  admin-web/           独立 Admin React 前端与运营控制台
+  admin-api/           独立 Admin 认证、RBAC、运营、网站设置和审计 HTTP
 
 packages/
   contracts/           API 请求/响应、错误码和运行时 schema
@@ -27,7 +27,7 @@ server/
     project-snapshots/ 检查点、历史、restore 和 manifest 修复
     assets/            上传/读取、S3 适配、配额、对象诊断和 GC
     migrations/        目录包预检、暂存上传、commit、导出和恢复
-    admin/             Admin 认证、验证码、RBAC、网站设置与脱敏审计
+    admin/             Admin 认证、验证码、RBAC、用户运营、聚合概览、网站设置与脱敏审计
 
 infra/
   local/               PostgreSQL、Redis、MinIO
@@ -38,7 +38,7 @@ scripts/               迁移、测试、部署门禁、备份恢复和受控维
 test-fixtures/          历史 ProjectRecord、目录包和兼容样本
 ```
 
-仓库不存在 `apps/worker`、服务端 tasks/providers/official-credits 模块或服务器 Provider adapter package。浏览器 Provider/Vault 草稿只位于 `apps/web` 内，P8-5 完成前不暴露空壳 UI。
+仓库不存在 `apps/worker`、服务端 tasks/providers/official-credits 模块或服务器 Provider adapter package。浏览器 Vault、加密任务缓存、受控 Provider 适配器、结果入云编排和设备模型绑定只位于 `apps/web`。
 
 ## 依赖方向
 
@@ -83,7 +83,7 @@ apps/admin-api
 src/
   api/                  固定 Cloud HTTP 客户端
   components/           应用级 UI
-  features/             认证、迁移、生成草稿等编排
+  features/             认证、迁移、浏览器功能等编排
   nodes/                React Flow 节点 UI
   platform/cloud/       项目图与私有资产生命周期
   store/                Zustand 客户端状态
@@ -93,7 +93,13 @@ src/
 
 目录包迁移边界由 `api/migrations.ts`、`store/useMigrationStore.ts` 和 `components/MigrationCenterDialog.tsx` 组成。API 模块只调用固定路径；store 只保存服务端摘要和会话内包数据；组件负责显式选择、统计、上传、冲突确认和下载。它们不能推导租户、拼接 object key、持久化签名 URL 或把通知当作迁移事实。
 
-P8-5 相关草稿边界位于 `features/settings/localVault.ts`、`providerEndpoint.ts`、`features/security/secretRedaction.ts` 和本地任务 store。Vault 模块独占 IndexedDB/WebCrypto 和明文生命周期；普通组件不能直接读写密文，也不能把 Key 放入 Zustand/localStorage/项目图。当前没有对外 Provider 设置入口，不能把草稿描述为已完成 Vault。
+P8-5 边界位于 `features/settings/localVault.ts`、`providerEndpoint.ts`、`providerConfig.ts`、`LocalVaultSettingsPanel.tsx`、`features/security/secretRedaction.ts` 和 `store/useSettingsStore.ts`。`localVault.ts` 独占 IndexedDB/WebCrypto 密文与不可导出 `CryptoKey`；settings store 负责可信用户 hydration、内存明文生命周期、设备保存与任务写入串行化和陈旧异步回写防护；普通组件不能直接读写密文。
+
+Vault 固定使用 schema/cipher version 1、AES-256-GCM 和绑定 Origin/可信用户的 AAD。workspace 文件与 workspace/localStorage 缓存只经过脱敏转换，不得写入 Provider、endpoint、Key、真实模型 ID 或绑定；项目图、Cloud API、日志和诊断同样不保存这些私有配置。Provider 与模型配置固定保存到当前浏览器的加密设备 Vault；登出只清内存，清除当前网站数据由浏览器删除密文、Key、绑定和本地任务缓存；旧明文仅在加密迁移成功后删除。
+
+P8-6 执行边界位于 `api/chatAdapter.ts`、`api/image/*`、`api/videoAdapter.ts`、`features/generateQueue/*` 和 `features/llm/orchestrator.ts`；它们只拼装固定协议路径并在内存中使用 Vault 明文。`platform/cloud/cloudModelReferences.ts` 在项目图 diff 前生成并保存 Vault 匿名绑定，脱除 Provider 与任务运行态；`generatedAssets.ts` 负责 Blob 转换与 Cloud 资产写入。
+
+P8-7 由 `features/settings/localVault.ts` 独占加密任务记录与 IndexedDB v1→v2 升级，`store/useSettingsStore.ts` 统一可信用户/项目隔离、session 内存缓存和 FIFO 写删顺序，`components/ProjectBootstrap.tsx` 订阅当前任务队列，`features/generateQueue/orchestrator.ts` 只恢复带 remote task ID 的受控异步轮询。图节点通过 settings store 的显式 binding action 将未绑定 `local:<uuid>` 关联到本机模型；组件不直接访问密文或 CryptoKey。
 
 ## 普通 API
 
@@ -120,11 +126,13 @@ P8-5 相关草稿边界位于 `features/settings/localVault.ts`、`providerEndpo
 
 ## Admin 应用
 
-`apps/admin-web` 只调用独立 `admin-api`，不复用普通用户 Cookie、普通 Web Zustand store 或 Cloud Provider 草稿。Refine Core 只组织资源和权限，页面使用仓库自定义组件。普通网站不导航到 Admin；安全依赖独立认证、Origin、CSRF、可选验证码和 RBAC，而不是隐藏 URL。
+`apps/admin-web` 只调用独立 `admin-api`，不复用普通用户 Cookie、普通 Web Zustand store 或浏览器私有 Provider 配置。Refine Core 只组织资源和权限，页面使用仓库自定义组件。普通网站不导航到 Admin；安全依赖独立认证、Origin、CSRF、可选验证码和 RBAC，而不是隐藏 URL。
 
-`apps/admin-api` 负责管理员 HTTP、独立 Cookie/CSRF、验证码、RBAC、请求 schema 和错误映射。管理员认证、账号/密码修改、session 撤销由 `postgresAdminService.ts` 统一负责；网站设置和品牌资产由 `siteConfigService.ts` 负责。路由不能直接更新 Admin 身份表、密码哈希、站点修订或公开投影。
+`apps/admin-api` 负责管理员 HTTP、独立 Cookie/CSRF、验证码、RBAC、请求 schema 和错误映射。管理员认证、账号/密码修改及 Admin 自身 session 撤销由 `postgresAdminService.ts` 统一负责；普通用户查询、封禁/解封和用户 session 撤销由 `userOperationsService.ts` 负责；运营聚合由 `dashboardService.ts` 负责；网站设置和品牌资产由 `siteConfigService.ts` 负责。路由不能直接更新 Admin 身份表、普通用户/session、密码哈希、站点修订或公开投影。
 
-P8-2 与 P8-3 保留的 Admin 资源只有认证/安全、网站设置、网站资产和脱敏审计。官方 Provider、官方模型、积分和服务器任务管理页面、contracts、API 与领域模块均不存在；对应 URL 返回 404。
+`apps/admin-web/src/DashboardView.tsx` 只展示脱敏聚合，`UsersView.tsx` 负责最小字段列表、筛选和 keyset 翻页，`UserDetailView.tsx` 负责只读详情及带原因确认操作。`packages/contracts/src/adminOperations.ts` 是这些请求/响应的严格运行时契约，不包含密码、session token、项目正文、资产 object key 或 Provider 配置。
+
+P8-2、P8-3 与 P8-8 的 Admin 资源包括认证/安全、网站设置、网站资产、脱敏审计、运营概览和最小用户运营。官方 Provider、官方模型、积分和服务器任务管理页面、contracts、API 与领域模块均不存在；对应 URL 返回 404。
 
 ## 数据库与迁移
 
@@ -132,7 +140,7 @@ P8-2 与 P8-3 保留的 Admin 资源只有认证/安全、网站设置、网站�
 
 `0029_remove_server_generation.sql` 是高风险 contract：删除旧生成任务/队列/用量、用户 Provider 密文、官方目录/积分和任务资产引用，不修改认证、工作区、项目图、检查点、普通资产、迁移或站点设置。`scripts/check-migrations.mjs` 可以在升级 fixture 中创建旧表以验证 contract 删除；这些引用是迁移历史测试，不是运行时模块。
 
-数据库运行角色只有普通 API 和 Admin API。`scripts/provision-database-roles.mjs` 还会识别并删除旧 Worker 角色及旧环境键；`check-admin-role-isolation.mjs` 断言旧角色/表不存在。这些负向清理字符串可以保留，不得重新成为配置入口。
+数据库运行角色只有普通 API 和 Admin API。Admin 角色通过列级授权读取最小用户/session/workspace/存储聚合数据，只能更新用户状态时间列并删除用户 session；项目节点正文、密码、session token 和资产 object key 不在授权范围。`scripts/provision-database-roles.mjs` 还会识别并删除旧 Worker 角色及旧环境键；`check-admin-role-isolation.mjs` 断言列级隔离和旧角色/表不存在。这些负向清理字符串可以保留，不得重新成为配置入口。
 
 ## 部署与运维
 

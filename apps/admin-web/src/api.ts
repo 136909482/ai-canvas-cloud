@@ -2,11 +2,19 @@ import type {
   AdminAuditEventsResponse,
   AdminCaptchaResponse,
   AdminCsrfResponse,
+  AdminDashboardResponse,
   AdminLoginSecuritySettingsResponse,
   AdminLoginResponse,
+  AdminManagedUserStatus,
   AdminPasswordUpdateRequest,
   AdminSessionResponse,
   AdminSiteConfigResponse,
+  AdminUsersResponse,
+  AdminUserActionRequest,
+  AdminUserResponse,
+  AdminUserSessionRevocationResponse,
+  AdminUserStatusActionResponse,
+  AdminUserVerificationFilter,
   AdminUsernameUpdateRequest,
   PublishSiteConfigRequest,
   SiteAssetKind,
@@ -119,6 +127,30 @@ export const adminApi = {
     if (params.action) query.set('action', params.action)
     if (params.result) query.set('result', params.result)
     return request<AdminAuditEventsResponse>(`/admin/v1/audit-events${query.size ? `?${query}` : ''}`)
+  },
+  dashboard() {
+    return request<AdminDashboardResponse>('/admin/v1/dashboard')
+  },
+  users(params: { cursor?: string; limit?: number; status?: AdminManagedUserStatus; verification?: AdminUserVerificationFilter; search?: string } = {}) {
+    const query = new URLSearchParams()
+    if (params.cursor) query.set('cursor', params.cursor)
+    if (params.limit) query.set('limit', String(params.limit))
+    if (params.status) query.set('status', params.status)
+    if (params.verification) query.set('verification', params.verification)
+    if (params.search) query.set('search', params.search)
+    return request<AdminUsersResponse>(`/admin/v1/users${query.size ? `?${query}` : ''}`)
+  },
+  user(userId: string) {
+    return request<AdminUserResponse>(`/admin/v1/users/${encodeURIComponent(userId)}`)
+  },
+  banUser(userId: string, input: AdminUserActionRequest) {
+    return post<AdminUserStatusActionResponse>(`/admin/v1/users/${encodeURIComponent(userId)}/ban`, input as unknown as Record<string, unknown>)
+  },
+  unbanUser(userId: string, input: AdminUserActionRequest) {
+    return post<AdminUserStatusActionResponse>(`/admin/v1/users/${encodeURIComponent(userId)}/unban`, input as unknown as Record<string, unknown>)
+  },
+  revokeUserSessions(userId: string, input: AdminUserActionRequest) {
+    return post<AdminUserSessionRevocationResponse>(`/admin/v1/users/${encodeURIComponent(userId)}/revoke-sessions`, input as unknown as Record<string, unknown>)
   },
   siteConfig() {
     return request<AdminSiteConfigResponse>('/admin/v1/site-config')

@@ -20,21 +20,6 @@ import type { CanvasPerformanceMode, CustomImageModelConfig, CustomModelKind, Ed
 export type DraftModelCard = CustomImageModelConfig
 export type DraftProviderProfile = ProviderProfileConfig
 
-const DEFAULT_ASYNC_CONFIG_JSON = JSON.stringify({
-  enabled: false,
-  submitPath: 'images/generations',
-  submitQuery: { async: 'true' },
-  taskIdPath: 'data',
-  pollPath: 'images/tasks/{task_id}',
-  pollIntervalSeconds: 5,
-  statusPath: 'data.status',
-  successValues: ['SUCCESS', 'completed', 'succeeded'],
-  failureValues: ['FAILURE', 'failed', 'cancelled', 'error'],
-  errorPath: 'data.fail_reason',
-  imageUrlPaths: ['data.data.data.*.url', 'data.data.*.url', 'data.result.images.*.url', 'data.result.images.*.url.*'],
-  b64JsonPaths: ['data.data.data.*.b64_json', 'data.data.*.b64_json', 'data.*.b64_json'],
-}, null, 2)
-
 export const UI_TEXT = {
   addImageNode: '图像节点',
   settingsTitle: '设置',
@@ -80,9 +65,7 @@ export const UI_TEXT = {
   providerCompatible: 'OpenAI Compatible',
   requestModeSync: '同步',
   requestModeAsync: '异步',
-  requestModeHint: '同步适合大多数接口；异步适合你自己接的轮询型生图服务。',
-  asyncConfig: '高级异步配置',
-  asyncConfigHint: '开启 enabled 后，会按 JSON 里的 taskIdPath / pollPath / statusPath / 图片路径解析第三方异步接口。',
+  requestModeHint: '同步调用固定生成接口；异步仅使用受控的 OpenAI Compatible 任务提交与轮询协议。',
   modelLibrary: '模型库',
   modelDetails: '模型详情',
   configCenter: '配置中心',
@@ -236,7 +219,6 @@ export function createEmptyProviderDraft(kind: CustomModelKind): DraftProviderPr
     apiUrl: '',
     provider: inferProviderFromApiUrl(DEFAULT_ALIYUN_BASE_URL),
     requestMode: 'sync',
-    asyncConfig: JSON.parse(DEFAULT_ASYNC_CONFIG_JSON) as DraftProviderProfile['asyncConfig'],
     enabled: true,
     testStatus: 'idle',
     testMessage: '',
@@ -282,7 +264,6 @@ export function sanitizeProviderProfile(profile: DraftProviderProfile): DraftPro
     apiUrl,
     provider,
     requestMode: provider === 'openai' ? profile.requestMode : 'sync',
-    asyncConfig: profile.asyncConfig ?? null,
   }
 }
 
@@ -292,10 +273,6 @@ export function getProviderLabel(profile: Pick<DraftProviderProfile, 'apiUrl' | 
   }
 
   return profile.provider === 'aliyun' ? UI_TEXT.providerAliyun : UI_TEXT.providerCompatible
-}
-
-export function formatAsyncConfigJson(profile: DraftProviderProfile) {
-  return JSON.stringify(profile.asyncConfig ?? JSON.parse(DEFAULT_ASYNC_CONFIG_JSON), null, 2)
 }
 
 export function getStatusTone(status: DraftModelCard['testStatus'], active: boolean) {
