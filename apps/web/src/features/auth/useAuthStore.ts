@@ -1,94 +1,104 @@
-import { create } from 'zustand'
-import type { AuthSessionResponse, AuthSuccessResponse } from '@ai-canvas-cloud/contracts'
-import { useProjectStore } from '@/store/useProjectStore'
-import { useSettingsStore } from '@/store/useSettingsStore'
-import { fetchAuthSession, loginAuth, logoutAuth, registerAuth } from './api'
+import { create } from "zustand";
+import type {
+  AuthSessionResponse,
+  AuthSuccessResponse,
+} from "@ai-canvas-cloud/contracts";
+import { useProjectStore } from "@/store/useProjectStore";
+import { useSettingsStore } from "@/store/useSettingsStore";
+import { fetchAuthSession, loginAuth, logoutAuth, registerAuth } from "./api";
 
-type AuthStatus = 'checking' | 'authenticated' | 'anonymous'
+type AuthStatus = "checking" | "authenticated" | "anonymous";
 
 interface AuthStore {
-  status: AuthStatus
-  session: AuthSessionResponse | null
-  error: string | null
-  checkSession: (options?: { silent?: boolean }) => Promise<void>
-  login: (input: { email: string; password: string; force?: boolean }) => Promise<void>
-  register: (input: { email: string; password: string }) => Promise<void>
-  logout: () => Promise<void>
+  status: AuthStatus;
+  session: AuthSessionResponse | null;
+  error: string | null;
+  checkSession: (options?: { silent?: boolean }) => Promise<void>;
+  login: (input: {
+    email: string;
+    password: string;
+    force?: boolean;
+  }) => Promise<void>;
+  register: (input: { email: string; password: string }) => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 function toSession(response: AuthSuccessResponse): AuthSessionResponse {
   return {
     user: response.user,
     workspace: response.workspace,
-  }
+  };
 }
 
-let sessionCheckInFlight: Promise<void> | null = null
+let sessionCheckInFlight: Promise<void> | null = null;
 
 export function clearAuthenticatedRuntime() {
-  useSettingsStore.getState().clearVaultSession()
-  useProjectStore.getState().resetForSession()
+  useSettingsStore.getState().clearVaultSession();
+  useProjectStore.getState().resetForSession();
 }
 
 export const useAuthStore = create<AuthStore>()((set, get) => ({
-  status: 'checking',
+  status: "checking",
   session: null,
   error: null,
 
   checkSession: (options) => {
     if (sessionCheckInFlight) {
-      return sessionCheckInFlight
+      return sessionCheckInFlight;
     }
 
-    const silent = options?.silent ?? false
+    const silent = options?.silent ?? false;
 
     const check = (async () => {
       if (!silent) {
-        set({ status: 'checking', error: null })
+        set({ status: "checking", error: null });
       } else {
-        set({ error: null })
+        set({ error: null });
       }
 
       try {
-        const session = await fetchAuthSession()
-        if (get().session?.user.id && get().session?.user.id !== session.user.id) {
-          clearAuthenticatedRuntime()
+        const session = await fetchAuthSession();
+        if (
+          get().session?.user.id &&
+          get().session?.user.id !== session.user.id
+        ) {
+          clearAuthenticatedRuntime();
         }
-        set({ status: 'authenticated', session, error: null })
+        set({ status: "authenticated", session, error: null });
       } catch (error) {
-        clearAuthenticatedRuntime()
+        clearAuthenticatedRuntime();
         set({
-          status: 'anonymous',
+          status: "anonymous",
           session: null,
           error: error instanceof Error ? error.message : String(error),
-        })
+        });
       }
-    })()
+    })();
 
-    sessionCheckInFlight = check
+    sessionCheckInFlight = check;
     void check.finally(() => {
       if (sessionCheckInFlight === check) {
-        sessionCheckInFlight = null
+        sessionCheckInFlight = null;
       }
-    })
-    return check
+    });
+    return check;
   },
 
   login: async (input) => {
-    const response = await loginAuth(input)
-    clearAuthenticatedRuntime()
-    set({ status: 'authenticated', session: toSession(response), error: null })
+    const response = await loginAuth(input);
+    clearAuthenticatedRuntime();
+    set({ status: "authenticated", session: toSession(response), error: null });
   },
 
   register: async (input) => {
-    const response = await registerAuth(input)
-    clearAuthenticatedRuntime()
-    set({ status: 'authenticated', session: toSession(response), error: null })
+    const response = await registerAuth(input);
+    clearAuthenticatedRuntime();
+    set({ status: "authenticated", session: toSession(response), error: null });
   },
 
   logout: async () => {
-    await logoutAuth().catch(() => undefined)
-    clearAuthenticatedRuntime()
-    set({ status: 'anonymous', session: null, error: null })
+    await logoutAuth().catch(() => undefined);
+    clearAuthenticatedRuntime();
+    set({ status: "anonymous", session: null, error: null });
   },
-}))
+}));

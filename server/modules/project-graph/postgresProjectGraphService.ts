@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomUUID } from "node:crypto";
 import type {
   ApplyProjectGraphOperationsResponse,
   ProjectGraphChange,
@@ -9,105 +9,119 @@ import type {
   ProjectGraphChangesResponse,
   ProjectGraphResponse,
   WorkspaceRole,
-} from '@ai-canvas-cloud/contracts'
-import { withTransaction, type DbClient, type DbPool } from '../../db/postgres.js'
-import { AuthServiceError } from '../auth/service.js'
+} from "@ai-canvas-cloud/contracts";
+import {
+  withTransaction,
+  type DbClient,
+  type DbPool,
+} from "../../db/postgres.js";
+import { AuthServiceError } from "../auth/service.js";
 import {
   createWorkspaceAuthorizationService,
   type WorkspaceAuthorizationService,
-} from '../workspaces/authorization.js'
+} from "../workspaces/authorization.js";
 import {
   collectNodeAssetReferenceChanges,
   type NodeAssetReferenceChange,
-} from './assetReferences.js'
+} from "./assetReferences.js";
 import {
   replaceNodeAssetReferences,
   replaceProjectNodeAssetReferences,
   requireCompletedAssetReferences,
-} from './postgresAssetReferences.js'
+} from "./postgresAssetReferences.js";
 import {
   PROJECT_GRAPH_CHANGES_PAGE_SIZE,
   validateApplyProjectGraphOperationsRequest,
   validateProjectGraphChangesAfter,
   type ProjectGraphService,
-} from './service.js'
+} from "./service.js";
 
-const PROJECT_GRAPH_WRITE_ROLES: readonly WorkspaceRole[] = ['owner', 'admin', 'editor']
-const PROJECT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const PROJECT_GRAPH_WRITE_ROLES: readonly WorkspaceRole[] = [
+  "owner",
+  "admin",
+  "editor",
+];
+const PROJECT_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 interface GraphRow {
-  project_id: string
-  version: string | number
-  last_sequence: string | number
-  nodes_json: ProjectGraphNode[]
-  edges_json: ProjectGraphEdge[]
+  project_id: string;
+  version: string | number;
+  last_sequence: string | number;
+  nodes_json: ProjectGraphNode[];
+  edges_json: ProjectGraphEdge[];
 }
 
 interface LockedProjectRow {
-  id: string
-  version: string | number
-  last_sequence: string | number
-  archived_at: Date | string | null
+  id: string;
+  version: string | number;
+  last_sequence: string | number;
+  archived_at: Date | string | null;
 }
 
 interface ExistingChangeRow {
-  base_version: string | number
-  result_version: string | number
-  sequence: string | number
-  actor_user_id: string | null
-  client_id: string | null
-  batch_id: string
-  idempotency_key: string
-  operations_match: boolean
-  created_at: Date | string
+  base_version: string | number;
+  result_version: string | number;
+  sequence: string | number;
+  actor_user_id: string | null;
+  client_id: string | null;
+  batch_id: string;
+  idempotency_key: string;
+  operations_match: boolean;
+  created_at: Date | string;
 }
 
 interface ChangeRow {
-  sequence: string | number
-  base_version: string | number
-  result_version: string | number
-  client_id: string | null
-  batch_id: string
-  source: ProjectGraphChangeSource
-  operations_json: ProjectGraphOperation[]
-  created_at: Date | string
+  sequence: string | number;
+  base_version: string | number;
+  result_version: string | number;
+  client_id: string | null;
+  batch_id: string;
+  source: ProjectGraphChangeSource;
+  operations_json: ProjectGraphOperation[];
+  created_at: Date | string;
 }
 
 interface ActiveNodeRow {
-  node_id: string
-  parent_node_id: string | null
+  node_id: string;
+  parent_node_id: string | null;
 }
 
 function toIso(value: Date | string) {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }
 
 function assertProjectId(projectId: string) {
   if (!PROJECT_ID_PATTERN.test(projectId)) {
     throw new AuthServiceError({
       statusCode: 400,
-      apiCode: 'VALIDATION_FAILED',
-      message: 'Invalid project id',
-    })
+      apiCode: "VALIDATION_FAILED",
+      message: "Invalid project id",
+    });
   }
 }
 
 function projectNotFound(): never {
   throw new AuthServiceError({
     statusCode: 404,
-    apiCode: 'RESOURCE_NOT_FOUND',
-    message: 'Project not found',
-  })
+    apiCode: "RESOURCE_NOT_FOUND",
+    message: "Project not found",
+  });
 }
 
-export function validateNodeTopology(rows: ActiveNodeRow[], operations: ProjectGraphOperation[]) {
-  const parents = new Map(rows.map((row) => [row.node_id, row.parent_node_id]))
+export function validateNodeTopology(
+  rows: ActiveNodeRow[],
+  operations: ProjectGraphOperation[],
+) {
+  const parents = new Map(rows.map((row) => [row.node_id, row.parent_node_id]));
 
   for (const operation of operations) {
-    if (operation.type === 'upsertNode') {
-      parents.set(operation.node.id, operation.node.parentNodeId ?? null)
-    } else if (operation.type === 'deleteNode') {
-      parents.delete(operation.nodeId)
+    if (operation.type === "upsertNode") {
+      parents.set(operation.node.id, operation.node.parentNodeId ?? null);
+    } else if (operation.type === "deleteNode") {
+      parents.delete(operation.nodeId);
     }
   }
 
@@ -115,58 +129,68 @@ export function validateNodeTopology(rows: ActiveNodeRow[], operations: ProjectG
     if (parentNodeId && !parents.has(parentNodeId)) {
       throw new AuthServiceError({
         statusCode: 400,
-        apiCode: 'VALIDATION_FAILED',
+        apiCode: "VALIDATION_FAILED",
         message: `Node ${nodeId} references a missing parent`,
-      })
+      });
     }
   }
 
-  const resolved = new Set<string>()
+  const resolved = new Set<string>();
 
   for (const nodeId of parents.keys()) {
-    const path = new Set<string>()
-    let currentNodeId: string | null = nodeId
+    const path = new Set<string>();
+    let currentNodeId: string | null = nodeId;
 
     while (currentNodeId && !resolved.has(currentNodeId)) {
       if (path.has(currentNodeId)) {
         throw new AuthServiceError({
           statusCode: 400,
-          apiCode: 'VALIDATION_FAILED',
-          message: 'Project node parent relationship contains a cycle',
-        })
+          apiCode: "VALIDATION_FAILED",
+          message: "Project node parent relationship contains a cycle",
+        });
       }
 
-      path.add(currentNodeId)
-      currentNodeId = parents.get(currentNodeId) ?? null
+      path.add(currentNodeId);
+      currentNodeId = parents.get(currentNodeId) ?? null;
     }
 
     for (const resolvedNodeId of path) {
-      resolved.add(resolvedNodeId)
+      resolved.add(resolvedNodeId);
     }
   }
 
-  return parents
+  return parents;
 }
 
-export function validateEdgeEndpoints(activeNodes: ReadonlyMap<string, string | null>, operations: ProjectGraphOperation[]) {
+export function validateEdgeEndpoints(
+  activeNodes: ReadonlyMap<string, string | null>,
+  operations: ProjectGraphOperation[],
+) {
   for (const operation of operations) {
-    if (operation.type !== 'upsertEdge') {
-      continue
+    if (operation.type !== "upsertEdge") {
+      continue;
     }
 
-    if (!activeNodes.has(operation.edge.source) || !activeNodes.has(operation.edge.target)) {
+    if (
+      !activeNodes.has(operation.edge.source) ||
+      !activeNodes.has(operation.edge.target)
+    ) {
       throw new AuthServiceError({
         statusCode: 400,
-        apiCode: 'VALIDATION_FAILED',
+        apiCode: "VALIDATION_FAILED",
         message: `Edge ${operation.edge.id} references a missing node`,
-      })
+      });
     }
   }
 }
 
-export async function applyNodeOperation(client: DbClient, projectId: string, operation: ProjectGraphOperation) {
-  if (operation.type === 'upsertNode') {
-    const node = operation.node
+export async function applyNodeOperation(
+  client: DbClient,
+  projectId: string,
+  operation: ProjectGraphOperation,
+) {
+  if (operation.type === "upsertNode") {
+    const node = operation.node;
     await client.query(
       `
         INSERT INTO project_nodes (
@@ -202,11 +226,11 @@ export async function applyNodeOperation(client: DbClient, projectId: string, op
         JSON.stringify(node.data),
         JSON.stringify(node.presentation ?? {}),
       ],
-    )
-    return
+    );
+    return;
   }
 
-  if (operation.type === 'deleteNode') {
+  if (operation.type === "deleteNode") {
     await client.query(
       `
         UPDATE project_edges
@@ -217,7 +241,7 @@ export async function applyNodeOperation(client: DbClient, projectId: string, op
           AND (source_node_id = $2 OR target_node_id = $2)
       `,
       [projectId, operation.nodeId],
-    )
+    );
     await client.query(
       `
         UPDATE project_nodes
@@ -227,13 +251,17 @@ export async function applyNodeOperation(client: DbClient, projectId: string, op
         WHERE project_id = $1 AND node_id = $2
       `,
       [projectId, operation.nodeId],
-    )
+    );
   }
 }
 
-export async function applyEdgeOperation(client: DbClient, projectId: string, operation: ProjectGraphOperation) {
-  if (operation.type === 'upsertEdge') {
-    const edge = operation.edge
+export async function applyEdgeOperation(
+  client: DbClient,
+  projectId: string,
+  operation: ProjectGraphOperation,
+) {
+  if (operation.type === "upsertEdge") {
+    const edge = operation.edge;
     await client.query(
       `
         INSERT INTO project_edges (
@@ -261,11 +289,11 @@ export async function applyEdgeOperation(client: DbClient, projectId: string, op
         edge.edgeType ?? null,
         JSON.stringify(edge.data ?? {}),
       ],
-    )
-    return
+    );
+    return;
   }
 
-  if (operation.type === 'deleteEdge') {
+  if (operation.type === "deleteEdge") {
     await client.query(
       `
         UPDATE project_edges
@@ -275,34 +303,34 @@ export async function applyEdgeOperation(client: DbClient, projectId: string, op
         WHERE project_id = $1 AND edge_id = $2
       `,
       [projectId, operation.edgeId],
-    )
+    );
   }
 }
 
 export interface ImportGraphTransactionInput {
-  projectId: string
-  workspaceId: string
-  actorUserId: string
-  expectedVersion: number
-  expectedSequence: number
-  operations: ProjectGraphOperation[]
-  replaceExisting: boolean
-  idempotencyKey: string
+  projectId: string;
+  workspaceId: string;
+  actorUserId: string;
+  expectedVersion: number;
+  expectedSequence: number;
+  operations: ProjectGraphOperation[];
+  replaceExisting: boolean;
+  idempotencyKey: string;
 }
 
 export interface ImportGraphTransactionResult {
-  projectId: string
-  version: number
-  sequence: number
-  updatedAt: Date | string
-  operations: ProjectGraphOperation[]
+  projectId: string;
+  version: number;
+  sequence: number;
+  updatedAt: Date | string;
+  operations: ProjectGraphOperation[];
 }
 
 export async function applyImportGraphTransaction(
   client: DbClient,
   input: ImportGraphTransactionInput,
 ): Promise<ImportGraphTransactionResult> {
-  assertProjectId(input.projectId)
+  assertProjectId(input.projectId);
   const projectResult = await client.query<LockedProjectRow>(
     `
       SELECT id::text, version, last_sequence, archived_at
@@ -311,81 +339,111 @@ export async function applyImportGraphTransaction(
       FOR UPDATE
     `,
     [input.projectId, input.workspaceId],
-  )
-  const project = projectResult.rows[0] ?? projectNotFound()
+  );
+  const project = projectResult.rows[0] ?? projectNotFound();
   if (project.archived_at) {
     throw new AuthServiceError({
       statusCode: 403,
-      apiCode: 'ACCESS_DENIED',
-      message: 'Archived projects cannot receive imported graph data',
-    })
+      apiCode: "ACCESS_DENIED",
+      message: "Archived projects cannot receive imported graph data",
+    });
   }
 
-  const currentVersion = Number(project.version)
-  const currentSequence = Number(project.last_sequence)
-  if (currentVersion !== input.expectedVersion || currentSequence !== input.expectedSequence) {
+  const currentVersion = Number(project.version);
+  const currentSequence = Number(project.last_sequence);
+  if (
+    currentVersion !== input.expectedVersion ||
+    currentSequence !== input.expectedSequence
+  ) {
     throw new AuthServiceError({
       statusCode: 409,
-      apiCode: 'PROJECT_VERSION_CONFLICT',
-      message: 'Project was updated before import commit',
+      apiCode: "PROJECT_VERSION_CONFLICT",
+      message: "Project was updated before import commit",
       details: { currentVersion, currentSequence },
-    })
+    });
   }
 
   const nodeResult = await client.query<ActiveNodeRow>(
     `SELECT node_id, parent_node_id FROM project_nodes WHERE project_id = $1 AND deleted_at IS NULL`,
     [input.projectId],
-  )
+  );
   const edgeResult = await client.query<{ edge_id: string }>(
     `SELECT edge_id FROM project_edges WHERE project_id = $1 AND deleted_at IS NULL`,
     [input.projectId],
-  )
+  );
   const deleteOperations: ProjectGraphOperation[] = input.replaceExisting
     ? [
-        ...edgeResult.rows.map((row) => ({ type: 'deleteEdge', edgeId: row.edge_id }) satisfies ProjectGraphOperation),
-        ...nodeResult.rows.map((row) => ({ type: 'deleteNode', nodeId: row.node_id }) satisfies ProjectGraphOperation),
+        ...edgeResult.rows.map(
+          (row) =>
+            ({
+              type: "deleteEdge",
+              edgeId: row.edge_id,
+            }) satisfies ProjectGraphOperation,
+        ),
+        ...nodeResult.rows.map(
+          (row) =>
+            ({
+              type: "deleteNode",
+              nodeId: row.node_id,
+            }) satisfies ProjectGraphOperation,
+        ),
       ]
-    : []
-  const operations = [...deleteOperations, ...input.operations]
-  const activeNodes = validateNodeTopology(nodeResult.rows, operations)
-  validateEdgeEndpoints(activeNodes, operations)
-  let assetReferenceChanges: NodeAssetReferenceChange[]
+    : [];
+  const operations = [...deleteOperations, ...input.operations];
+  const activeNodes = validateNodeTopology(nodeResult.rows, operations);
+  validateEdgeEndpoints(activeNodes, operations);
+  let assetReferenceChanges: NodeAssetReferenceChange[];
   try {
-    assetReferenceChanges = collectNodeAssetReferenceChanges(input.operations)
+    assetReferenceChanges = collectNodeAssetReferenceChanges(input.operations);
   } catch (error) {
     throw new AuthServiceError({
       statusCode: 400,
-      apiCode: 'VALIDATION_FAILED',
-      message: error instanceof Error ? error.message : 'Invalid imported node asset reference',
-    })
+      apiCode: "VALIDATION_FAILED",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Invalid imported node asset reference",
+    });
   }
-  await requireCompletedAssetReferences(client, input.workspaceId, assetReferenceChanges)
+  await requireCompletedAssetReferences(
+    client,
+    input.workspaceId,
+    assetReferenceChanges,
+  );
 
   for (const operation of operations) {
-    if (operation.type === 'upsertNode' || operation.type === 'deleteNode') {
-      await applyNodeOperation(client, input.projectId, operation)
+    if (operation.type === "upsertNode" || operation.type === "deleteNode") {
+      await applyNodeOperation(client, input.projectId, operation);
     }
   }
   for (const operation of operations) {
-    if (operation.type === 'upsertEdge' || operation.type === 'deleteEdge') {
-      await applyEdgeOperation(client, input.projectId, operation)
+    if (operation.type === "upsertEdge" || operation.type === "deleteEdge") {
+      await applyEdgeOperation(client, input.projectId, operation);
     }
   }
-  await replaceProjectNodeAssetReferences(client, input.workspaceId, input.projectId, assetReferenceChanges)
+  await replaceProjectNodeAssetReferences(
+    client,
+    input.workspaceId,
+    input.projectId,
+    assetReferenceChanges,
+  );
 
-  const countsResult = await client.query<{ node_count: number; edge_count: number }>(
+  const countsResult = await client.query<{
+    node_count: number;
+    edge_count: number;
+  }>(
     `
       SELECT
         (SELECT count(*)::integer FROM project_nodes WHERE project_id = $1 AND deleted_at IS NULL) AS node_count,
         (SELECT count(*)::integer FROM project_edges WHERE project_id = $1 AND deleted_at IS NULL) AS edge_count
     `,
     [input.projectId],
-  )
-  const counts = countsResult.rows[0]!
-  const resultVersion = currentVersion + 1
-  const sequence = currentSequence + 1
-  const batchId = `import_${randomUUID()}`
-  const operationsJson = JSON.stringify(operations)
+  );
+  const counts = countsResult.rows[0]!;
+  const resultVersion = currentVersion + 1;
+  const sequence = currentSequence + 1;
+  const batchId = `import_${randomUUID()}`;
+  const operationsJson = JSON.stringify(operations);
   const changeResult = await client.query<{ created_at: Date | string }>(
     `
       INSERT INTO project_changes (
@@ -404,50 +462,69 @@ export async function applyImportGraphTransaction(
       input.idempotencyKey,
       operationsJson,
     ],
-  )
-  const updatedAt = changeResult.rows[0]!.created_at
+  );
+  const updatedAt = changeResult.rows[0]!.created_at;
   const updated = await client.query(
     `
       UPDATE projects
       SET version = $3, last_sequence = $4, node_count = $5, edge_count = $6, updated_at = $7
       WHERE id = $1 AND workspace_id = $2 AND version = $8
     `,
-    [input.projectId, input.workspaceId, resultVersion, sequence, counts.node_count, counts.edge_count, updatedAt, currentVersion],
-  )
+    [
+      input.projectId,
+      input.workspaceId,
+      resultVersion,
+      sequence,
+      counts.node_count,
+      counts.edge_count,
+      updatedAt,
+      currentVersion,
+    ],
+  );
   if (updated.rowCount !== 1) {
     throw new AuthServiceError({
       statusCode: 409,
-      apiCode: 'PROJECT_VERSION_CONFLICT',
-      message: 'Project was updated before import commit',
+      apiCode: "PROJECT_VERSION_CONFLICT",
+      message: "Project was updated before import commit",
       details: { currentVersion, currentSequence },
-    })
+    });
   }
-  return { projectId: input.projectId, version: resultVersion, sequence, updatedAt, operations }
+  return {
+    projectId: input.projectId,
+    version: resultVersion,
+    sequence,
+    updatedAt,
+    operations,
+  };
 }
 
-function toIdempotentResponse(projectId: string, change: ExistingChangeRow): ApplyProjectGraphOperationsResponse {
+function toIdempotentResponse(
+  projectId: string,
+  change: ExistingChangeRow,
+): ApplyProjectGraphOperationsResponse {
   return {
     projectId,
     version: Number(change.result_version),
     sequence: Number(change.sequence),
     acceptedBatchId: change.batch_id,
     updatedAt: toIso(change.created_at),
-  }
+  };
 }
 
 export function createPostgresProjectGraphService(
   pool: DbPool,
   options: { authorizationService?: WorkspaceAuthorizationService } = {},
 ): ProjectGraphService {
-  const authorizationService = options.authorizationService ?? createWorkspaceAuthorizationService(pool)
+  const authorizationService =
+    options.authorizationService ?? createWorkspaceAuthorizationService(pool);
 
   return {
     async getGraph(projectId, actor) {
-      assertProjectId(projectId)
+      assertProjectId(projectId);
       await authorizationService.requireWorkspaceAccess({
         userId: actor.userId,
         workspaceId: actor.workspaceId,
-      })
+      });
       const result = await pool.query<GraphRow>(
         `
           SELECT
@@ -490,8 +567,8 @@ export function createPostgresProjectGraphService(
           LIMIT 1
         `,
         [projectId, actor.workspaceId],
-      )
-      const row = result.rows[0] ?? projectNotFound()
+      );
+      const row = result.rows[0] ?? projectNotFound();
 
       return {
         projectId: row.project_id,
@@ -499,21 +576,21 @@ export function createPostgresProjectGraphService(
         sequence: Number(row.last_sequence),
         nodes: row.nodes_json,
         edges: row.edges_json,
-      } satisfies ProjectGraphResponse
+      } satisfies ProjectGraphResponse;
     },
 
     async getChanges(projectId, rawAfter, actor) {
-      assertProjectId(projectId)
-      const after = validateProjectGraphChangesAfter(rawAfter)
+      assertProjectId(projectId);
+      const after = validateProjectGraphChangesAfter(rawAfter);
       await authorizationService.requireWorkspaceAccess({
         userId: actor.userId,
         workspaceId: actor.workspaceId,
-      })
+      });
 
       const projectResult = await pool.query<{
-        project_id: string
-        version: string | number
-        last_sequence: string | number
+        project_id: string;
+        version: string | number;
+        last_sequence: string | number;
       }>(
         `
           SELECT id::text AS project_id, version, last_sequence
@@ -524,8 +601,8 @@ export function createPostgresProjectGraphService(
           LIMIT 1
         `,
         [projectId, actor.workspaceId],
-      )
-      const project = projectResult.rows[0] ?? projectNotFound()
+      );
+      const project = projectResult.rows[0] ?? projectNotFound();
       const changeResult = await pool.query<ChangeRow>(
         `
           SELECT
@@ -544,7 +621,7 @@ export function createPostgresProjectGraphService(
           LIMIT $3
         `,
         [projectId, after, PROJECT_GRAPH_CHANGES_PAGE_SIZE],
-      )
+      );
       const changes: ProjectGraphChange[] = changeResult.rows.map((row) => ({
         sequence: Number(row.sequence),
         baseVersion: Number(row.base_version),
@@ -554,8 +631,8 @@ export function createPostgresProjectGraphService(
         source: row.source,
         operations: row.operations_json,
         createdAt: toIso(row.created_at),
-      }))
-      const lastReturnedSequence = changes.at(-1)?.sequence ?? after
+      }));
+      const lastReturnedSequence = changes.at(-1)?.sequence ?? after;
 
       return {
         projectId: project.project_id,
@@ -564,17 +641,17 @@ export function createPostgresProjectGraphService(
         after,
         changes,
         hasMore: Number(project.last_sequence) > lastReturnedSequence,
-      } satisfies ProjectGraphChangesResponse
+      } satisfies ProjectGraphChangesResponse;
     },
 
     async applyOperations(projectId, rawInput, actor) {
-      assertProjectId(projectId)
-      const input = validateApplyProjectGraphOperationsRequest(rawInput)
+      assertProjectId(projectId);
+      const input = validateApplyProjectGraphOperationsRequest(rawInput);
       await authorizationService.requireWorkspaceAccess({
         userId: actor.userId,
         workspaceId: actor.workspaceId,
         allowedRoles: PROJECT_GRAPH_WRITE_ROLES,
-      })
+      });
 
       return withTransaction(pool, async (client) => {
         const projectResult = await client.query<LockedProjectRow>(
@@ -587,10 +664,10 @@ export function createPostgresProjectGraphService(
             FOR UPDATE
           `,
           [projectId, actor.workspaceId],
-        )
-        const project = projectResult.rows[0] ?? projectNotFound()
+        );
+        const project = projectResult.rows[0] ?? projectNotFound();
 
-        const operationsJson = JSON.stringify(input.operations)
+        const operationsJson = JSON.stringify(input.operations);
         const existingResult = await client.query<ExistingChangeRow>(
           `
             SELECT
@@ -609,89 +686,117 @@ export function createPostgresProjectGraphService(
             LIMIT 1
           `,
           [projectId, input.idempotencyKey, input.batchId, operationsJson],
-        )
-        const existing = existingResult.rows[0]
+        );
+        const existing = existingResult.rows[0];
 
         if (existing) {
-          const matches = existing.idempotency_key === input.idempotencyKey
-            && existing.batch_id === input.batchId
-            && existing.client_id === input.clientId
-            && existing.actor_user_id === actor.userId
-            && Number(existing.base_version) === input.baseVersion
-            && existing.operations_match
+          const matches =
+            existing.idempotency_key === input.idempotencyKey &&
+            existing.batch_id === input.batchId &&
+            existing.client_id === input.clientId &&
+            existing.actor_user_id === actor.userId &&
+            Number(existing.base_version) === input.baseVersion &&
+            existing.operations_match;
 
           if (matches) {
-            return toIdempotentResponse(projectId, existing)
+            return toIdempotentResponse(projectId, existing);
           }
 
           throw new AuthServiceError({
             statusCode: 409,
-            apiCode: 'VALIDATION_FAILED',
-            message: 'Idempotency key or batch id was already used for another request',
-          })
+            apiCode: "VALIDATION_FAILED",
+            message:
+              "Idempotency key or batch id was already used for another request",
+          });
         }
 
         if (project.archived_at) {
           throw new AuthServiceError({
             statusCode: 403,
-            apiCode: 'ACCESS_DENIED',
-            message: 'Archived projects cannot be edited',
-          })
+            apiCode: "ACCESS_DENIED",
+            message: "Archived projects cannot be edited",
+          });
         }
 
-        const currentVersion = Number(project.version)
+        const currentVersion = Number(project.version);
         if (currentVersion !== input.baseVersion) {
           throw new AuthServiceError({
             statusCode: 409,
-            apiCode: 'PROJECT_VERSION_CONFLICT',
-            message: 'Project was updated by another client',
+            apiCode: "PROJECT_VERSION_CONFLICT",
+            message: "Project was updated by another client",
             details: { currentVersion },
-          })
+          });
         }
 
         const nodeResult = await client.query<ActiveNodeRow>(
           `SELECT node_id, parent_node_id FROM project_nodes WHERE project_id = $1 AND deleted_at IS NULL`,
           [projectId],
-        )
-        const activeNodes = validateNodeTopology(nodeResult.rows, input.operations)
-        validateEdgeEndpoints(activeNodes, input.operations)
-        let assetReferenceChanges: NodeAssetReferenceChange[]
+        );
+        const activeNodes = validateNodeTopology(
+          nodeResult.rows,
+          input.operations,
+        );
+        validateEdgeEndpoints(activeNodes, input.operations);
+        let assetReferenceChanges: NodeAssetReferenceChange[];
         try {
-          assetReferenceChanges = collectNodeAssetReferenceChanges(input.operations)
+          assetReferenceChanges = collectNodeAssetReferenceChanges(
+            input.operations,
+          );
         } catch (error) {
           throw new AuthServiceError({
             statusCode: 400,
-            apiCode: 'VALIDATION_FAILED',
-            message: error instanceof Error ? error.message : 'Invalid node asset reference',
-          })
+            apiCode: "VALIDATION_FAILED",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Invalid node asset reference",
+          });
         }
-        await requireCompletedAssetReferences(client, actor.workspaceId, assetReferenceChanges)
+        await requireCompletedAssetReferences(
+          client,
+          actor.workspaceId,
+          assetReferenceChanges,
+        );
 
         for (const operation of input.operations) {
-          if (operation.type === 'upsertNode' || operation.type === 'deleteNode') {
-            await applyNodeOperation(client, projectId, operation)
+          if (
+            operation.type === "upsertNode" ||
+            operation.type === "deleteNode"
+          ) {
+            await applyNodeOperation(client, projectId, operation);
           }
         }
         for (const change of assetReferenceChanges) {
-          await replaceNodeAssetReferences(client, actor.workspaceId, projectId, change)
+          await replaceNodeAssetReferences(
+            client,
+            actor.workspaceId,
+            projectId,
+            change,
+          );
         }
         for (const operation of input.operations) {
-          if (operation.type === 'upsertEdge' || operation.type === 'deleteEdge') {
-            await applyEdgeOperation(client, projectId, operation)
+          if (
+            operation.type === "upsertEdge" ||
+            operation.type === "deleteEdge"
+          ) {
+            await applyEdgeOperation(client, projectId, operation);
           }
         }
 
-        const countResult = await client.query<{ node_count: number; edge_count: number }>(
+        const countResult = await client.query<{
+          node_count: number;
+          edge_count: number;
+        }>(
           `
             SELECT
               (SELECT count(*)::integer FROM project_nodes WHERE project_id = $1 AND deleted_at IS NULL) AS node_count,
               (SELECT count(*)::integer FROM project_edges WHERE project_id = $1 AND deleted_at IS NULL) AS edge_count
           `,
           [projectId],
-        )
-        const counts = countResult.rows[0]!
-        const resultVersion = currentVersion + 1
-        const sequence = Number(project.last_sequence) + 1
+        );
+        const counts = countResult.rows[0]!;
+        const resultVersion = currentVersion + 1;
+        const sequence = Number(project.last_sequence) + 1;
         const changeResult = await client.query<{ created_at: Date | string }>(
           `
             INSERT INTO project_changes (
@@ -711,8 +816,8 @@ export function createPostgresProjectGraphService(
             input.idempotencyKey,
             operationsJson,
           ],
-        )
-        const updatedAt = changeResult.rows[0]!.created_at
+        );
+        const updatedAt = changeResult.rows[0]!.created_at;
 
         await client.query(
           `
@@ -734,7 +839,7 @@ export function createPostgresProjectGraphService(
             updatedAt,
             currentVersion,
           ],
-        )
+        );
 
         return {
           projectId,
@@ -742,8 +847,8 @@ export function createPostgresProjectGraphService(
           sequence,
           acceptedBatchId: input.batchId,
           updatedAt: toIso(updatedAt),
-        }
-      })
+        };
+      });
     },
-  }
+  };
 }

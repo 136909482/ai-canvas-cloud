@@ -16,16 +16,20 @@ AI Canvas Cloud 是 AI Canvas 的独立账号网站端，面向长期运营。�
 
 ## 浏览器本地 Vault
 
-Vault 配置文档和本地任务缓存当前均使用 `schemaVersion=1`、`cipherVersion=1`，IndexedDB 数据库版本为 2。首次保存时，浏览器生成不可导出的 AES-256-GCM `CryptoKey`，以 96 位随机 IV 加密独立文档；AAD 绑定 cipher/schema version、当前 Origin、可信 session 用户 ID，任务缓存还绑定项目 ID。密文或 Key 跨 Origin、跨账号、跨项目复制后不能解密。
+Vault 配置文档和本地任务缓存当前均使用 `schemaVersion=2`、`cipherVersion=1`，IndexedDB 数据库版本为 2。Provider 配置不含 Key，Key 按 `providerProfileId` 存在独立凭据槽；模型条目以 `modelEntryId` 为唯一身份并关联 Provider。首次保存时，浏览器生成不可导出的 AES-256-GCM `CryptoKey`，以 96 位随机 IV 加密独立文档；AAD 绑定 cipher/schema version、当前 Origin、可信 session 用户 ID，任务缓存还绑定项目 ID。密文或 Key 跨 Origin、跨账号、跨项目复制后不能解密。
 
 - Provider 与模型配置保存后固定写入当前浏览器的加密设备 Vault，不提供 persistence 或单独删除入口。
 - 登出、session 失效或换账号会立即清空内存明文，但保留按账号隔离的设备密文；同一账号再次登录可恢复，其他浏览器或设备必须重新配置。
 - 用户清除当前网站数据时，浏览器会一并删除 IndexedDB 中的密文、CryptoKey、模型绑定和本地任务缓存；异步完成只允许回写同一可信用户和同一内部状态代次。
-- 旧 `ai-canvas-settings` 明文只迁移一次；加密设备保存成功后才删除旧缓存，失败时保留旧值供重试。
+- 当前内测环境没有历史数据，不读取或迁移旧 `ai-canvas-settings` 明文、旧 Vault 或旧任务缓存；需要清除网站数据后重新配置。
 
 workspace 配置与 workspace/localStorage 缓存会主动移除 Provider、endpoint、模型绑定和 Key；项目图、检查点、迁移包、Cloud API 请求、日志、指标和诊断也不保存这些私有 Provider 配置。两个浏览器设备拥有相互独立的 IndexedDB 与 CryptoKey，不会通过登录或项目同步隐式同步 Vault。
 
-云端项目图只保存 `local:<uuid>` 匿名模型引用；同设备从 Vault 解析，新设备缺少绑定时显示不可用，用户必须明确选择本机同类型模型完成绑定，不会按名称或 ID 自动替换。本地任务队列写入按用户/项目隔离的加密 IndexedDB。页面关闭会中断无 remote task ID 的同步执行，已取得 remote task ID 的受控异步任务可在同一设备重新打开后继续轮询。任务缓存不进入项目图、checkpoint、目录包或 Cloud API。
+服务商模型发现只由浏览器以受控 `GET /v1/models` 直连执行，固定使用 Bearer 凭据、无 Cookie、无 Referrer、禁止重定向和 2 MiB 流式响应上限。导入弹窗的草稿、发现结果和勾选仅留在页面内存；确认后才原子写入 Provider、凭据槽和模型条目到本地加密 Vault。再次发现仅更新 `source=discovered` 的同服务商同模型 ID 条目，缺失标记为 `missing`、重现恢复 `available`，绝不修改手工模型或用户编辑过的显示名、分类、启用状态。
+
+设置页以服务商为唯一主入口：左侧仅选择或添加服务商，右侧编辑其连接信息并管理其所属模型。手工新增模型自动归属当前服务商；不存在独立模型中心、按类别激活服务商或服务商模型发现 feature flag。
+
+云端项目图只保存 `local:<uuid>` 匿名模型引用；其本机绑定值是 `modelEntryId`，同设备从 Vault 解析，新设备缺少绑定时显示不可用，用户必须明确选择本机同类型模型完成绑定，不会按名称或上游 ID 自动替换。本地任务队列写入按用户/项目隔离的加密 IndexedDB。页面关闭会中断无 remote task ID 的同步执行，已取得 remote task ID 的受控异步任务可在同一设备重新打开后继续轮询。任务缓存不进入项目图、checkpoint、目录包或 Cloud API。
 
 生成结果 URL 必须允许浏览器 CORS 下载；无 CORS Provider 由用户使用自己的固定目标网关，平台不接收任意 target URL、Header/Body 模板或 Key。
 

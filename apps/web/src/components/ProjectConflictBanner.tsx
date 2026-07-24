@@ -1,72 +1,100 @@
-import { useState } from 'react'
-import { AlertTriangle, Copy, Loader2, RefreshCw, X } from 'lucide-react'
-import { useFeedbackStore } from '@/store/useFeedbackStore'
-import { useProjectStore } from '@/store/useProjectStore'
-import { themeClasses } from '@/styles/themeClasses'
+import { useState } from "react";
+import { AlertTriangle, Copy, Loader2, RefreshCw, X } from "lucide-react";
+import { useFeedbackStore } from "@/store/useFeedbackStore";
+import { useProjectStore } from "@/store/useProjectStore";
+import { themeClasses } from "@/styles/themeClasses";
 
 export function ProjectConflictBanner() {
-  const conflict = useProjectStore((state) => state.getActivePersistenceConflict())
-  const reloadFromWorkspace = useProjectStore((state) => state.reloadFromWorkspace)
-  const duplicateProject = useProjectStore((state) => state.duplicateProject)
-  const loadProject = useProjectStore((state) => state.loadProject)
-  const clearPersistenceConflict = useProjectStore((state) => state.clearPersistenceConflict)
-  const confirm = useFeedbackStore((state) => state.confirm)
-  const notify = useFeedbackStore((state) => state.notify)
-  const [busyAction, setBusyAction] = useState<'reload' | 'copy' | null>(null)
+  const conflict = useProjectStore((state) =>
+    state.getActivePersistenceConflict(),
+  );
+  const reloadFromWorkspace = useProjectStore(
+    (state) => state.reloadFromWorkspace,
+  );
+  const duplicateProject = useProjectStore((state) => state.duplicateProject);
+  const loadProject = useProjectStore((state) => state.loadProject);
+  const clearPersistenceConflict = useProjectStore(
+    (state) => state.clearPersistenceConflict,
+  );
+  const confirm = useFeedbackStore((state) => state.confirm);
+  const notify = useFeedbackStore((state) => state.notify);
+  const [busyAction, setBusyAction] = useState<"reload" | "copy" | null>(null);
 
   if (!conflict) {
-    return null
+    return null;
   }
 
-  const versionText = conflict.currentVersion === null
-    ? null
-    : `云端版本 ${conflict.currentVersion}${conflict.currentSequence === null ? '' : ` / 序列 ${conflict.currentSequence}`}`
+  const versionText =
+    conflict.currentVersion === null
+      ? null
+      : `云端版本 ${conflict.currentVersion}${conflict.currentSequence === null ? "" : ` / 序列 ${conflict.currentSequence}`}`;
 
   const handleReload = async () => {
     const confirmed = await confirm({
-      title: '重新加载云端版本',
-      message: '这会丢弃当前画布里尚未上传的本地修改，并载入云端最新版本。确定继续吗？',
-      confirmLabel: '重新加载',
-      cancelLabel: '取消',
-      tone: 'danger',
-    })
+      title: "重新加载云端版本",
+      message:
+        "这会丢弃当前画布里尚未上传的本地修改，并载入云端最新版本。确定继续吗？",
+      confirmLabel: "重新加载",
+      cancelLabel: "取消",
+      tone: "danger",
+    });
 
     if (!confirmed) {
-      return
+      return;
     }
 
-    setBusyAction('reload')
+    setBusyAction("reload");
     try {
-      await reloadFromWorkspace()
-      notify({ tone: 'success', title: '已加载云端版本', message: '当前画布已刷新到云端最新项目。' })
+      await reloadFromWorkspace();
+      notify({
+        tone: "success",
+        title: "已加载云端版本",
+        message: "当前画布已刷新到云端最新项目。",
+      });
     } catch (error) {
-      notify({ tone: 'error', title: '重新加载失败', message: error instanceof Error ? error.message : String(error) })
+      notify({
+        tone: "error",
+        title: "重新加载失败",
+        message: error instanceof Error ? error.message : String(error),
+      });
     } finally {
-      setBusyAction(null)
+      setBusyAction(null);
     }
-  }
+  };
 
   const handleCopy = async () => {
-    setBusyAction('copy')
+    setBusyAction("copy");
     try {
-      const newProjectId = await duplicateProject(conflict.projectId)
+      const newProjectId = await duplicateProject(conflict.projectId);
 
       if (!newProjectId) {
-        notify({ tone: 'warning', title: '另存失败', message: '当前项目不可用，无法创建副本。' })
-        return
+        notify({
+          tone: "warning",
+          title: "另存失败",
+          message: "当前项目不可用，无法创建副本。",
+        });
+        return;
       }
 
-      await loadProject(newProjectId)
-      clearPersistenceConflict(conflict.projectId)
-      notify({ tone: 'success', title: '已另存为副本', message: '本地画布已保存到新项目，可以继续编辑。' })
+      await loadProject(newProjectId);
+      clearPersistenceConflict(conflict.projectId);
+      notify({
+        tone: "success",
+        title: "已另存为副本",
+        message: "本地画布已保存到新项目，可以继续编辑。",
+      });
     } catch (error) {
-      notify({ tone: 'error', title: '另存副本失败', message: error instanceof Error ? error.message : String(error) })
+      notify({
+        tone: "error",
+        title: "另存副本失败",
+        message: error instanceof Error ? error.message : String(error),
+      });
     } finally {
-      setBusyAction(null)
+      setBusyAction(null);
     }
-  }
+  };
 
-  const isBusy = busyAction !== null
+  const isBusy = busyAction !== null;
 
   return (
     <div className="pointer-events-none absolute left-1/2 top-16 z-40 w-[min(44rem,calc(100vw-2rem))] -translate-x-1/2">
@@ -82,9 +110,13 @@ export function ProjectConflictBanner() {
           </span>
           <div className="min-w-0">
             <div className="text-sm font-semibold">云端项目已更新</div>
-            <div className={`mt-1 text-xs leading-5 ${themeClasses.textSecondary}`}>
+            <div
+              className={`mt-1 text-xs leading-5 ${themeClasses.textSecondary}`}
+            >
               {conflict.message}
-              {versionText ? <span className="ml-2 whitespace-nowrap">{versionText}</span> : null}
+              {versionText ? (
+                <span className="ml-2 whitespace-nowrap">{versionText}</span>
+              ) : null}
             </div>
           </div>
         </div>
@@ -96,7 +128,11 @@ export function ProjectConflictBanner() {
             onClick={() => void handleReload()}
             className={`${themeClasses.secondaryButton} inline-flex h-8 items-center gap-1.5 px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60`}
           >
-            {busyAction === 'reload' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            {busyAction === "reload" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
             重新加载
           </button>
           <button
@@ -105,7 +141,11 @@ export function ProjectConflictBanner() {
             onClick={() => void handleCopy()}
             className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--text-primary)] px-3 text-xs font-semibold text-[var(--canvas-bg)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {busyAction === 'copy' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
+            {busyAction === "copy" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
             另存副本
           </button>
           <button
@@ -120,5 +160,5 @@ export function ProjectConflictBanner() {
         </div>
       </section>
     </div>
-  )
+  );
 }

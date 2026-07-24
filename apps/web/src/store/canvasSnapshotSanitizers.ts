@@ -1,9 +1,12 @@
-import type { Edge, Node } from '@xyflow/react'
-import type { CanvasSnapshot } from '@/types'
+import type { Edge, Node } from "@xyflow/react";
+import type { CanvasSnapshot } from "@/types";
 
-type NormalizeNodes = (nodes: Node[]) => Node[]
+type NormalizeNodes = (nodes: Node[]) => Node[];
 
-function sanitizeNodeWithImageAsset(node: Node, emptyImageUrl: string | null): Node {
+function sanitizeNodeWithImageAsset(
+  node: Node,
+  emptyImageUrl: string | null,
+): Node {
   return {
     ...node,
     selected: false,
@@ -11,9 +14,11 @@ function sanitizeNodeWithImageAsset(node: Node, emptyImageUrl: string | null): N
       ...node.data,
       imageUrl: node.data?.imageAsset
         ? emptyImageUrl
-        : (typeof node.data?.imageUrl === 'string' ? node.data.imageUrl : emptyImageUrl),
+        : typeof node.data?.imageUrl === "string"
+          ? node.data.imageUrl
+          : emptyImageUrl,
     },
-  }
+  };
 }
 
 function sanitizeNodeWithVideoAsset(node: Node): Node {
@@ -24,46 +29,52 @@ function sanitizeNodeWithVideoAsset(node: Node): Node {
       ...node.data,
       videoUrl: node.data?.videoAsset
         ? null
-        : (typeof node.data?.videoUrl === 'string' ? node.data.videoUrl : null),
+        : typeof node.data?.videoUrl === "string"
+          ? node.data.videoUrl
+          : null,
     },
-  }
+  };
 }
 
 export function sanitizeNodeForPersistence(node: Node): Node {
-  if (node.type === 'videoNode') {
-    return sanitizeNodeWithVideoAsset(node)
+  if (node.type === "videoNode") {
+    return sanitizeNodeWithVideoAsset(node);
   }
 
-  if (node.type === 'imageNode' || node.type === 'generateNode' || node.type === 'testImageNode') {
-    return sanitizeNodeWithImageAsset(node, null)
+  if (
+    node.type === "imageNode" ||
+    node.type === "generateNode" ||
+    node.type === "testImageNode"
+  ) {
+    return sanitizeNodeWithImageAsset(node, null);
   }
 
-  if (node.type === 'generatedPreviewNode') {
-    return sanitizeNodeWithImageAsset(node, '')
+  if (node.type === "generatedPreviewNode") {
+    return sanitizeNodeWithImageAsset(node, "");
   }
 
   return {
     ...node,
     selected: false,
-  }
+  };
 }
 
 export function sanitizeNodeForHistory(node: Node): Node {
   return {
     ...node,
     selected: false,
-  }
+  };
 }
 
 export function sanitizeEdge(edge: Edge): Edge {
-  const nextEdge = { ...edge }
-  delete nextEdge.type
+  const nextEdge = { ...edge };
+  delete nextEdge.type;
 
   return {
     ...nextEdge,
     animated: true,
     selected: false,
-  }
+  };
 }
 
 export function sanitizeCanvasSnapshotForPersistence(
@@ -71,9 +82,11 @@ export function sanitizeCanvasSnapshotForPersistence(
   normalizeNodes: NormalizeNodes,
 ): CanvasSnapshot {
   return {
-    nodes: normalizeNodes(snapshot.nodes ?? []).map((node) => sanitizeNodeForPersistence(node)),
+    nodes: normalizeNodes(snapshot.nodes ?? []).map((node) =>
+      sanitizeNodeForPersistence(node),
+    ),
     edges: (snapshot.edges ?? []).map((edge) => sanitizeEdge(edge)),
-  }
+  };
 }
 
 export function sanitizeCanvasSnapshotForHistory(
@@ -81,7 +94,9 @@ export function sanitizeCanvasSnapshotForHistory(
   normalizeNodes: NormalizeNodes,
 ): CanvasSnapshot {
   return {
-    nodes: normalizeNodes(snapshot.nodes ?? []).map((node) => sanitizeNodeForHistory(node)),
+    nodes: normalizeNodes(snapshot.nodes ?? []).map((node) =>
+      sanitizeNodeForHistory(node),
+    ),
     edges: (snapshot.edges ?? []).map((edge) => sanitizeEdge(edge)),
-  }
+  };
 }

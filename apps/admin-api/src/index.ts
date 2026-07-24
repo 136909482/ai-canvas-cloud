@@ -1,4 +1,7 @@
-import { createJsonLogger, measureDependencyCheck } from '@ai-canvas-cloud/shared'
+import {
+  createJsonLogger,
+  measureDependencyCheck,
+} from "@ai-canvas-cloud/shared";
 import {
   createPostgresAdminService,
   createPostgresAdminDashboardService,
@@ -7,21 +10,27 @@ import {
   createPostgresPool,
   createS3ObjectStorage,
   loadDotEnv,
-} from '@ai-canvas-cloud/server'
-import { loadAdminApiConfig } from './config.js'
-import { closeAdminApiServer, createAdminApiServer } from './server.js'
+} from "@ai-canvas-cloud/server";
+import { loadAdminApiConfig } from "./config.js";
+import { closeAdminApiServer, createAdminApiServer } from "./server.js";
 
-loadDotEnv()
+loadDotEnv();
 
-const config = loadAdminApiConfig()
-const logger = createJsonLogger({ level: config.logLevel, service: 'admin-api' })
-const pool = createPostgresPool({ connectionString: config.databaseUrl, schema: 'admin' })
+const config = loadAdminApiConfig();
+const logger = createJsonLogger({
+  level: config.logLevel,
+  service: "admin-api",
+});
+const pool = createPostgresPool({
+  connectionString: config.databaseUrl,
+  schema: "admin",
+});
 const adminService = createPostgresAdminService(pool, {
   baseURL: config.betterAuthUrl,
   secret: config.betterAuthSecret,
   trustedOrigins: config.allowedOrigins,
   environment: config.env,
-})
+});
 const objectStorage = createS3ObjectStorage({
   endpoint: config.s3Endpoint,
   publicEndpoint: config.s3PublicEndpoint,
@@ -30,30 +39,33 @@ const objectStorage = createS3ObjectStorage({
   accessKeyId: config.s3AccessKeyId,
   secretAccessKey: config.s3SecretAccessKey,
   forcePathStyle: true,
-})
+});
 const siteConfigService = createPostgresAdminSiteConfigService(pool, {
   adminService,
   objectStorage,
   auditSecret: config.betterAuthSecret,
-})
+});
 const userOperationsService = createPostgresAdminUserOperationsService(pool, {
   adminService,
   auditSecret: config.betterAuthSecret,
-})
+});
 const readinessChecks = {
-  postgres: () => measureDependencyCheck(async () => { await pool.query('SELECT 1') }),
+  postgres: () =>
+    measureDependencyCheck(async () => {
+      await pool.query("SELECT 1");
+    }),
   objectStorage: () => measureDependencyCheck(objectStorage.checkHealth),
-}
+};
 const dashboardService = createPostgresAdminDashboardService(pool, {
   adminService,
   readInfrastructureHealth: async () => {
     const [postgres, objectStorageHealth] = await Promise.all([
       readinessChecks.postgres(),
       readinessChecks.objectStorage(),
-    ])
-    return { postgres, objectStorage: objectStorageHealth }
+    ]);
+    return { postgres, objectStorage: objectStorageHealth };
   },
-})
+});
 const server = createAdminApiServer({
   config,
   adminService,
@@ -62,27 +74,34 @@ const server = createAdminApiServer({
   userOperationsService,
   logger,
   readinessChecks,
-})
+});
 
-let closing = false
+let closing = false;
 async function shutdown(signal: NodeJS.Signals) {
-  if (closing) return
-  closing = true
-  logger.info('shutdown.started', { signal })
+  if (closing) return;
+  closing = true;
+  logger.info("shutdown.started", { signal });
   try {
-    await closeAdminApiServer(server, config.shutdownTimeoutMs)
-    await pool.end()
-    logger.info('shutdown.completed', { signal })
-    process.exit(0)
+    await closeAdminApiServer(server, config.shutdownTimeoutMs);
+    await pool.end();
+    logger.info("shutdown.completed", { signal });
+    process.exit(0);
   } catch (error) {
-    logger.error('shutdown.failed', { signal, error: error instanceof Error ? error.name : 'UnknownError' })
-    process.exit(1)
+    logger.error("shutdown.failed", {
+      signal,
+      error: error instanceof Error ? error.name : "UnknownError",
+    });
+    process.exit(1);
   }
 }
 
-process.once('SIGINT', (signal) => void shutdown(signal))
-process.once('SIGTERM', (signal) => void shutdown(signal))
+process.once("SIGINT", (signal) => void shutdown(signal));
+process.once("SIGTERM", (signal) => void shutdown(signal));
 
 server.listen(config.port, config.host, () => {
-  logger.info('server.listening', { host: config.host, port: config.port, env: config.env })
-})
+  logger.info("server.listening", {
+    host: config.host,
+    port: config.port,
+    env: config.env,
+  });
+});

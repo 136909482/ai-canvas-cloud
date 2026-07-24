@@ -1,11 +1,11 @@
 interface FloatingMenuPositionOptions {
-  clientX: number
-  clientY: number
-  menuWidth: number
-  minMenuHeight: number
-  viewportWidth: number
-  viewportHeight: number
-  margin: number
+  clientX: number;
+  clientY: number;
+  menuWidth: number;
+  minMenuHeight: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  margin: number;
 }
 
 export function getFloatingMenuPosition({
@@ -26,5 +26,5 @@ export function getFloatingMenuPosition({
       margin,
       Math.min(viewportHeight - minMenuHeight - margin, clientY + margin),
     ),
-  }
+  };
 }

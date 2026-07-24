@@ -8,7 +8,9 @@
     "paths": {
       "@ai-canvas-cloud/contracts": ["../../packages/contracts/src/index.ts"],
       "@ai-canvas-cloud/server": ["../../server/index.ts"],
-      "@ai-canvas-cloud/server/modules/admin": ["../../server/modules/admin/index.ts"],
+      "@ai-canvas-cloud/server/modules/admin": [
+        "../../server/modules/admin/index.ts"
+      ],
       "@ai-canvas-cloud/shared": ["../../packages/shared/src/index.ts"]
     }
   },

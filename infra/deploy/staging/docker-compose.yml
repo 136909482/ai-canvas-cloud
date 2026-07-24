@@ -267,11 +267,22 @@ services:
   restore-redis:
     profiles: ["restore"]
     image: redis:8.2.1-alpine3.22
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${RESTORE_REDIS_PASSWORD:?set RESTORE_REDIS_PASSWORD in staging.env}"]
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--requirepass",
+        "${RESTORE_REDIS_PASSWORD:?set RESTORE_REDIS_PASSWORD in staging.env}",
+      ]
     volumes:
       - staging-restore-redis-data:/data
     healthcheck:
-      test: ["CMD-SHELL", 'REDISCLI_AUTH="${RESTORE_REDIS_PASSWORD}" redis-cli ping | grep -q PONG']
+      test:
+        [
+          "CMD-SHELL",
+          'REDISCLI_AUTH="${RESTORE_REDIS_PASSWORD}" redis-cli ping | grep -q PONG',
+        ]
       interval: 5s
       timeout: 3s
       retries: 20

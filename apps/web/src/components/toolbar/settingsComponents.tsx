@@ -1,15 +1,19 @@
-import type { ReactNode } from 'react'
-import { Info } from 'lucide-react'
-import { TooltipIconButton } from '@/components/TooltipIconButton'
-import { themeClasses } from '@/styles/themeClasses'
+import type { ReactNode } from "react";
+import { Info } from "lucide-react";
+import { TooltipIconButton } from "@/components/TooltipIconButton";
+import { themeClasses } from "@/styles/themeClasses";
 
 type TopChromeIconButtonProps = {
-  label: string
-  icon: ReactNode
-  onClick: () => void
-}
+  label: string;
+  icon: ReactNode;
+  onClick: () => void;
+};
 
-export function TopChromeIconButton({ label, icon, onClick }: TopChromeIconButtonProps) {
+export function TopChromeIconButton({
+  label,
+  icon,
+  onClick,
+}: TopChromeIconButtonProps) {
   return (
     <TooltipIconButton
       label={label}
@@ -18,20 +22,22 @@ export function TopChromeIconButton({ label, icon, onClick }: TopChromeIconButto
       className={`${themeClasses.iconButton} h-6 w-6 rounded-md`}
       icon={icon}
     />
-  )
+  );
 }
 
 type DetailRowProps = {
-  label: string
-  hint: string
-  children: ReactNode
-}
+  label: string;
+  hint: string;
+  children: ReactNode;
+};
 
 export function DetailRow({ label, hint, children }: DetailRowProps) {
   return (
     <div className="relative grid min-h-16 items-center gap-3 px-4 py-2.5 last:[&>span[data-row-divider]]:hidden md:grid-cols-[8rem_minmax(0,1fr)] md:gap-4">
       <div className="md:pl-3">
-        <div className={`flex items-center gap-1.5 text-[12px] font-medium ${themeClasses.textPrimary}`}>
+        <div
+          className={`flex items-center gap-1.5 text-[12px] font-medium ${themeClasses.textPrimary}`}
+        >
           <span>{label}</span>
           {hint ? (
             <button
@@ -52,27 +58,31 @@ export function DetailRow({ label, hint, children }: DetailRowProps) {
         className="pointer-events-none absolute bottom-0 left-4 right-4 h-px bg-[color-mix(in_srgb,var(--border-subtle)_72%,transparent)] md:left-7"
       />
     </div>
-  )
+  );
 }
 
 type CanvasSettingsSwitchProps = {
-  checked: boolean
-  label: string
-  onChange: () => void
-}
+  checked: boolean;
+  label: string;
+  onChange: () => void;
+};
 
-export function CanvasSettingsSwitch({ checked, label, onChange }: CanvasSettingsSwitchProps) {
+export function CanvasSettingsSwitch({
+  checked,
+  label,
+  onChange,
+}: CanvasSettingsSwitchProps) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
       aria-label={label}
-      data-state={checked ? 'checked' : 'unchecked'}
+      data-state={checked ? "checked" : "unchecked"}
       onClick={onChange}
       className="settings-switch"
     >
       <span className="settings-switch__thumb" aria-hidden="true" />
     </button>
-  )
+  );
 }

@@ -1,227 +1,124 @@
-import { IDBFactory } from 'fake-indexeddb'
-import { clearAuthenticatedRuntime } from '../features/auth/useAuthStore.ts'
-import { loadRememberedLocalVault } from '../features/settings/localVault.ts'
-import { useTaskQueueStore } from './useTaskQueueStore.ts'
-import { useSettingsStore } from './useSettingsStore.ts'
+import assert from "node:assert/strict";
+import test from "node:test";
+import { useSettingsStore } from "./useSettingsStore.ts";
 
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(message)
-}
-
-class MemoryStorage implements Storage {
-  private readonly values = new Map<string, string>()
-
-  get length() {
-    return this.values.size
-  }
-
-  clear() {
-    this.values.clear()
-  }
-
-  getItem(key: string) {
-    return this.values.get(key) ?? null
-  }
-
-  key(index: number) {
-    return [...this.values.keys()][index] ?? null
-  }
-
-  removeItem(key: string) {
-    this.values.delete(key)
-  }
-
-  setItem(key: string, value: string) {
-    this.values.set(key, value)
-  }
-}
-
-function resetStores() {
-  useSettingsStore.setState(useSettingsStore.getInitialState())
-  useTaskQueueStore.setState(useTaskQueueStore.getInitialState())
-}
-
-function delayVaultEncryption() {
-  const cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
-  const cryptoApi = globalThis.crypto
-  let markEncryptionStarted!: () => void
-  let releaseEncryption!: () => void
-  const encryptionStarted = new Promise<void>((resolve) => {
-    markEncryptionStarted = resolve
-  })
-  const encryptionGate = new Promise<void>((resolve) => {
-    releaseEncryption = resolve
-  })
-  const delayedSubtle = new Proxy(cryptoApi.subtle, {
-    get(target, property) {
-      if (property === 'encrypt') {
-        return async (...args: Parameters<SubtleCrypto['encrypt']>) => {
-          markEncryptionStarted()
-          await encryptionGate
-          return target.encrypt(...args)
-        }
-      }
-
-      const value = Reflect.get(target, property, target) as unknown
-      return typeof value === 'function' ? value.bind(target) : value
-    },
-  })
-
-  Object.defineProperty(globalThis, 'crypto', {
-    configurable: true,
-    value: {
-      getRandomValues: cryptoApi.getRandomValues.bind(cryptoApi),
-      subtle: delayedSubtle,
-    } as Crypto,
-  })
-
-  return {
-    encryptionStarted,
-    releaseEncryption,
-    restore() {
-      if (cryptoDescriptor) Object.defineProperty(globalThis, 'crypto', cryptoDescriptor)
-      else Reflect.deleteProperty(globalThis, 'crypto')
-    },
-  }
-}
-
-async function runLocalVaultStoreTests() {
-  const originalIndexedDb = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB')
-  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
-  const localStorage = new MemoryStorage()
-
-  Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: new IDBFactory() })
-  Object.defineProperty(globalThis, 'window', {
-    configurable: true,
-    value: {
-      location: { origin: 'https://cloud.example' },
-      localStorage,
-    },
-  })
-
+test("deleting a provider cascades to its model entries", () => {
+  const originalConfig = structuredClone(useSettingsStore.getState().config);
   try {
-    resetStores()
-    const initialSource = await useSettingsStore.getState().hydrateLocalVault('user-a')
-    assert(initialSource === 'empty', 'a fresh supported browser should create an empty device vault')
-    assert(useSettingsStore.getState().runtime.vaultPersistence === 'device', 'device persistence should be the default')
-
-    useSettingsStore.getState().saveProviderProfile({
-      id: 'provider-a',
-      name: 'Provider A',
-      kind: 'image',
-      apiKey: 'example-credential-a',
-      apiUrl: 'https://provider.example/v1',
-      provider: 'openai',
-      requestMode: 'sync',
-      enabled: true,
-      testStatus: 'idle',
-      testMessage: '',
-      lastTestedAt: null,
-    })
-    useSettingsStore.getState().saveCustomModel({
-      id: 'model-entry',
-      name: 'Image Model',
-      modelId: 'model-a',
-      kind: 'image',
-      enabled: true,
-      testStatus: 'idle',
-      testMessage: '',
-      lastTestedAt: null,
-    })
-    useSettingsStore.getState().setModelProviderProfile('model-a', 'provider-a')
-    await useSettingsStore.getState().persistLocalVault()
-
-    clearAuthenticatedRuntime()
-    assert(useSettingsStore.getState().config.providerProfiles.length === 0, 'logout runtime clear should remove credential plaintext from memory')
-    assert((await loadRememberedLocalVault('user-a'))?.providerProfiles.length === 1, 'logout runtime clear should preserve the remembered encrypted vault')
-
-    const restoredSource = await useSettingsStore.getState().hydrateLocalVault('user-a')
-    assert(restoredSource === 'device', 'the same user should restore the remembered device vault')
-    assert(useSettingsStore.getState().config.modelProviderProfileIds['model-a'] === 'provider-a', 'model bindings should restore from the vault')
-
-    useSettingsStore.getState().saveProviderProfile({
-      id: 'stale-provider',
-      name: 'Stale Provider',
-      kind: 'image',
-      apiKey: 'stale-example-credential',
-      apiUrl: 'https://stale.example/v1',
-      provider: 'openai',
-      requestMode: 'sync',
-      enabled: true,
-      testStatus: 'idle',
-      testMessage: '',
-      lastTestedAt: null,
-    })
-    await useSettingsStore.getState().persistLocalVault()
-
-    const delayedStaleSave = delayVaultEncryption()
-    const pendingStaleSave = useSettingsStore.getState().persistLocalVault()
-    await delayedStaleSave.encryptionStarted
-    useSettingsStore.getState().clearVaultSession()
-    useSettingsStore.setState((state) => ({
-      runtime: {
-        ...state.runtime,
-        vaultStatus: 'ready',
-        vaultPersistence: 'session',
-        vaultUserId: 'user-b',
-        vaultUpdatedAt: null,
-      },
-    }))
-    delayedStaleSave.releaseEncryption()
-    await pendingStaleSave
-    delayedStaleSave.restore()
-    assert(useSettingsStore.getState().runtime.vaultUserId === 'user-b', 'a stale save must not replace the current trusted user')
-    assert(useSettingsStore.getState().runtime.vaultPersistence === 'session', 'a stale save must not replace the current persistence mode')
-    assert(useSettingsStore.getState().runtime.vaultUpdatedAt === null, 'a stale save must not publish its timestamp into a newer session')
-
-    Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: new IDBFactory() })
-    localStorage.clear()
-    localStorage.setItem('ai-canvas-settings', JSON.stringify({
-      state: {
-        config: {
-          model: 'legacy-model',
-          customModels: [{
-            id: 'legacy-model-entry',
-            name: 'Legacy Model',
-            modelId: 'legacy-model',
-            kind: 'image',
+    useSettingsStore.setState({
+      config: {
+        ...originalConfig,
+        providerProfiles: [
+          {
+            id: "provider-a",
+            name: "Provider",
+            protocol: "openai-compatible",
+            baseUrl: "https://example.com/v1",
             enabled: true,
-          }],
-          providerProfiles: [{
-            id: 'legacy-provider',
-            name: 'Legacy Provider',
-            kind: 'image',
-            apiKey: 'legacy-example-credential',
-            apiUrl: 'https://legacy.example/v1',
-            provider: 'openai',
-            requestMode: 'sync',
-            enabled: true,
-          }],
-          activeProviderProfileIds: { image: 'legacy-provider' },
-          modelProviderProfileIds: { 'legacy-model': 'legacy-provider' },
+            imageRequestMode: "sync",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+        providerApiKeys: { "provider-a": "key" },
+        localModelBindings: {
+          "local:11111111-1111-4111-8111-111111111111": "entry-a",
         },
+        modelEntries: [
+          {
+            id: "entry-a",
+            providerProfileId: "provider-a",
+            modelId: "model-a",
+            displayName: "Model A",
+            category: "image",
+            source: "manual",
+            status: "available",
+            enabled: true,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
       },
-    }))
-    resetStores()
-    assert(await useSettingsStore.getState().hydrateLocalVault('user-a') === 'legacy', 'legacy plaintext should migrate once')
-    assert(localStorage.getItem('ai-canvas-settings') === null, 'successful migration should remove the legacy plaintext cache')
-    assert((await loadRememberedLocalVault('user-a'))?.providerProfiles[0]?.id === 'legacy-provider', 'legacy settings should be encrypted into the device vault')
-
-    localStorage.setItem('ai-canvas-settings', JSON.stringify({ config: { model: 'keep-on-failure' } }))
-    Object.defineProperty(globalThis, 'indexedDB', {
-      configurable: true,
-      value: { open: () => { throw new Error('blocked') } },
-    })
-    resetStores()
-    await useSettingsStore.getState().hydrateLocalVault('user-b')
-    assert(localStorage.getItem('ai-canvas-settings') !== null, 'failed migration must preserve the legacy plaintext for retry')
+    });
+    useSettingsStore.getState().deleteProviderProfile("provider-a");
+    assert.equal(useSettingsStore.getState().config.providerProfiles.length, 0);
+    assert.equal(useSettingsStore.getState().config.modelEntries.length, 0);
+    assert.equal(
+      useSettingsStore
+        .getState()
+        .resolveLocalModelReference(
+          "local:11111111-1111-4111-8111-111111111111",
+        ),
+      "entry-a",
+    );
   } finally {
-    if (originalIndexedDb) Object.defineProperty(globalThis, 'indexedDB', originalIndexedDb)
-    else Reflect.deleteProperty(globalThis, 'indexedDB')
-    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
-    else Reflect.deleteProperty(globalThis, 'window')
-    resetStores()
+    useSettingsStore.setState({ config: originalConfig });
   }
-}
+});
 
-await runLocalVaultStoreTests()
+test("discovery import stores a provider, credential slot, and selected models together", async () => {
+  const originalConfig = structuredClone(useSettingsStore.getState().config);
+  try {
+    useSettingsStore.setState({
+      config: {
+        ...originalConfig,
+        providerProfiles: [],
+        providerApiKeys: {},
+        modelEntries: [],
+      },
+    });
+
+    await useSettingsStore.getState().saveProviderDiscoveryImport({
+      profile: {
+        id: "provider-a",
+        name: "Provider",
+        protocol: "openai-compatible",
+        baseUrl: "https://example.com/v1",
+        enabled: true,
+        imageRequestMode: "sync",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      apiKey: "test-key",
+      discoveredModelIds: ["gpt-4o", "veo-3"],
+      selectedModels: [{ modelId: "veo-3", category: "video" }],
+      discoveredAt: 10,
+    });
+
+    const { config } = useSettingsStore.getState();
+    assert.deepEqual(config.providerProfiles, [
+      {
+        id: "provider-a",
+        name: "Provider",
+        protocol: "openai-compatible",
+        baseUrl: "https://example.com/v1",
+        enabled: true,
+        imageRequestMode: "sync",
+        createdAt: 1,
+        updatedAt: 10,
+        lastDiscoveryAt: 10,
+      },
+    ]);
+    assert.equal(config.providerApiKeys["provider-a"], "test-key");
+    const [model] = config.modelEntries;
+    assert.equal(typeof model?.id, "string");
+    assert.deepEqual(
+      { ...model, id: "generated-id" },
+      {
+        id: "generated-id",
+        providerProfileId: "provider-a",
+        modelId: "veo-3",
+        displayName: "veo-3",
+        category: "video",
+        source: "discovered",
+        status: "available",
+        enabled: true,
+        createdAt: 10,
+        updatedAt: 10,
+        lastSeenAt: 10,
+      },
+    );
+  } finally {
+    useSettingsStore.setState({ config: originalConfig });
+  }
+});

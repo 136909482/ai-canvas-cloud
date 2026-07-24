@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from "node:crypto";
 import {
   canonicalJsonStringify,
   createMigrationPackageContentDigestInput,
@@ -19,87 +19,87 @@ import {
   type MigrationPackageSourcePlatform,
   type PrepareMigrationImportRequest,
   type WorkspaceRole,
-} from '@ai-canvas-cloud/contracts'
-import type { DbClient, DbPool } from '../../db/postgres.js'
-import { withTransaction } from '../../db/postgres.js'
-import { AuthServiceError } from '../auth/service.js'
+} from "@ai-canvas-cloud/contracts";
+import type { DbClient, DbPool } from "../../db/postgres.js";
+import { withTransaction } from "../../db/postgres.js";
+import { AuthServiceError } from "../auth/service.js";
 import {
   findReusableCompletedMigrationAsset,
   materializeMigrationAsset,
   type MaterializeMigrationAssetInput,
-} from '../assets/service.js'
-import { applyImportGraphTransaction } from '../project-graph/postgresProjectGraphService.js'
-import { insertImportCheckpointTransaction } from '../project-snapshots/postgresProjectSnapshotService.js'
+} from "../assets/service.js";
+import { applyImportGraphTransaction } from "../project-graph/postgresProjectGraphService.js";
+import { insertImportCheckpointTransaction } from "../project-snapshots/postgresProjectSnapshotService.js";
 import {
   createWorkspaceAuthorizationService,
   type WorkspaceAuthorizationService,
-} from '../workspaces/authorization.js'
+} from "../workspaces/authorization.js";
 import {
   assertWorkspaceStorageCapacity,
   lockWorkspaceStorageQuota,
   readWorkspaceStorageUsage,
-} from '../workspaces/usage.js'
+} from "../workspaces/usage.js";
 import {
   MIGRATION_IMPORT_TTL_HOURS,
   MIGRATION_IMPORT_WRITE_ROLES,
   migrationImportNotFound,
   normalizeMigrationImportId,
   type MigrationImportService,
-} from './service.js'
+} from "./service.js";
 
 const PROJECT_UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 interface MigrationImportRow {
-  id: string
-  package_id: string
-  source_platform: MigrationPackageSourcePlatform
-  source_project_id: string
-  source_project_version: string | number
-  source_project_sequence: string | number
-  project_name: string
-  request_fingerprint: string
-  status: MigrationImportStatus
-  conflict_type: MigrationImportConflictType
-  target_project_id: string | null
-  target_project_name: string | null
-  target_expected_version: string | number | null
-  target_expected_sequence: string | number | null
-  target_archived_at: Date | string | null
-  asset_count: number
-  total_file_count: number
-  completed_file_count: number
-  total_bytes: string | number
-  completed_bytes: string | number
-  estimated_storage_bytes: string | number
-  available_bytes_at_prepare: string | number
-  retry_count: number
-  error_code: string | null
-  error_message: string | null
-  asset_manifest_json: MigrationAssetManifest
-  cancel_requested_at: Date | string | null
-  expires_at: Date | string
-  created_at: Date | string
-  updated_at: Date | string
+  id: string;
+  package_id: string;
+  source_platform: MigrationPackageSourcePlatform;
+  source_project_id: string;
+  source_project_version: string | number;
+  source_project_sequence: string | number;
+  project_name: string;
+  request_fingerprint: string;
+  status: MigrationImportStatus;
+  conflict_type: MigrationImportConflictType;
+  target_project_id: string | null;
+  target_project_name: string | null;
+  target_expected_version: string | number | null;
+  target_expected_sequence: string | number | null;
+  target_archived_at: Date | string | null;
+  asset_count: number;
+  total_file_count: number;
+  completed_file_count: number;
+  total_bytes: string | number;
+  completed_bytes: string | number;
+  estimated_storage_bytes: string | number;
+  available_bytes_at_prepare: string | number;
+  retry_count: number;
+  error_code: string | null;
+  error_message: string | null;
+  asset_manifest_json: MigrationAssetManifest;
+  cancel_requested_at: Date | string | null;
+  expires_at: Date | string;
+  created_at: Date | string;
+  updated_at: Date | string;
 }
 
 interface ProjectConflictRow {
-  id: string
-  workspace_id: string
-  name: string
-  version: string | number
-  last_sequence: string | number
-  archived_at: Date | string | null
-  deleted_at: Date | string | null
+  id: string;
+  workspace_id: string;
+  name: string;
+  version: string | number;
+  last_sequence: string | number;
+  archived_at: Date | string | null;
+  deleted_at: Date | string | null;
 }
 
 interface PreparedConflict {
-  type: MigrationImportConflictType
-  targetProjectId: string | null
-  targetProjectName: string | null
-  targetExpectedVersion: number | null
-  targetExpectedSequence: number | null
-  targetArchivedAt: string | null
+  type: MigrationImportConflictType;
+  targetProjectId: string | null;
+  targetProjectName: string | null;
+  targetExpectedVersion: number | null;
+  targetExpectedSequence: number | null;
+  targetArchivedAt: string | null;
 }
 
 const IMPORT_COLUMNS = `
@@ -133,117 +133,117 @@ const IMPORT_COLUMNS = `
   expires_at,
   created_at,
   updated_at
-`
+`;
 
 function toIso(value: Date | string) {
   return value instanceof Date
     ? value.toISOString()
-    : new Date(value).toISOString()
+    : new Date(value).toISOString();
 }
 
 function toSafeInteger(value: string | number, field: string) {
-  const number = Number(value)
+  const number = Number(value);
   if (!Number.isSafeInteger(number) || number < 0) {
-    throw new Error(`${field} must be a non-negative safe integer`)
+    throw new Error(`${field} must be a non-negative safe integer`);
   }
-  return number
+  return number;
 }
 
 function sha256(value: string) {
-  return createHash('sha256').update(value, 'utf8').digest('hex')
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 function importInvalid(reason: string, field: string, message: string): never {
   throw new AuthServiceError({
     statusCode: 422,
-    apiCode: 'IMPORT_INVALID',
+    apiCode: "IMPORT_INVALID",
     message,
     details: { reason, field },
-  })
+  });
 }
 
 function validateRequest(input: unknown): PrepareMigrationImportRequest {
   try {
-    return validatePrepareMigrationImportRequest(input)
+    return validatePrepareMigrationImportRequest(input);
   } catch (error) {
     if (error instanceof MigrationPackageValidationError) {
       return importInvalid(
         error.code,
         error.field,
-        'Migration package is invalid',
-      )
+        "Migration package is invalid",
+      );
     }
-    throw error
+    throw error;
   }
 }
 
 function validateCommitRequest(input: unknown) {
   try {
-    return validateCommitMigrationImportRequest(input)
+    return validateCommitMigrationImportRequest(input);
   } catch (error) {
     if (error instanceof MigrationPackageValidationError) {
       return importInvalid(
         error.code,
         error.field,
-        'Migration commit request is invalid',
-      )
+        "Migration commit request is invalid",
+      );
     }
-    throw error
+    throw error;
   }
 }
 
 function canonicalPayload(value: unknown) {
-  return canonicalJsonStringify(value as MigrationJsonValue)
+  return canonicalJsonStringify(value as MigrationJsonValue);
 }
 
 function verifyPackageDigests(input: PrepareMigrationImportRequest) {
   const descriptors = new Map(
     input.manifest.files.map((file) => [file.path, file]),
-  )
+  );
   const jsonFiles: Array<{ path: string; value: unknown }> = [
-    { path: 'project.json', value: input.projectRecord },
-    { path: 'graph.json', value: input.graph },
-    { path: 'assets.json', value: input.assetManifest },
+    { path: "project.json", value: input.projectRecord },
+    { path: "graph.json", value: input.graph },
+    { path: "assets.json", value: input.assetManifest },
     ...(input.checkpoint
-      ? [{ path: 'checkpoint.json', value: input.checkpoint }]
+      ? [{ path: "checkpoint.json", value: input.checkpoint }]
       : []),
-  ]
+  ];
   for (const file of jsonFiles) {
-    const descriptor = descriptors.get(file.path)
-    const canonical = canonicalPayload(file.value)
+    const descriptor = descriptors.get(file.path);
+    const canonical = canonicalPayload(file.value);
     if (
       !descriptor ||
-      descriptor.byteSize !== Buffer.byteLength(canonical, 'utf8') ||
+      descriptor.byteSize !== Buffer.byteLength(canonical, "utf8") ||
       descriptor.sha256 !== sha256(canonical)
     ) {
       importInvalid(
-        'FILE_DIGEST_MISMATCH',
+        "FILE_DIGEST_MISMATCH",
         `manifest.files.${file.path}`,
-        'Migration package JSON digest does not match manifest',
-      )
+        "Migration package JSON digest does not match manifest",
+      );
     }
   }
   const entries = new Map(
     input.archiveEntries.map((entry) => [entry.path, entry]),
-  )
+  );
   for (const descriptor of input.manifest.files) {
     if (entries.get(descriptor.path)?.sha256 !== descriptor.sha256) {
       importInvalid(
-        'FILE_DIGEST_MISSING',
+        "FILE_DIGEST_MISSING",
         `archiveEntries.${descriptor.path}`,
-        'Migration package file digest is missing or invalid',
-      )
+        "Migration package file digest is missing or invalid",
+      );
     }
   }
   const expectedContentSha256 = sha256(
     createMigrationPackageContentDigestInput(input.manifest.files),
-  )
+  );
   if (input.manifest.contentSha256 !== expectedContentSha256) {
     importInvalid(
-      'CONTENT_DIGEST_MISMATCH',
-      'manifest.contentSha256',
-      'Migration package content digest does not match file descriptors',
-    )
+      "CONTENT_DIGEST_MISMATCH",
+      "manifest.contentSha256",
+      "Migration package content digest does not match file descriptors",
+    );
   }
 }
 
@@ -257,7 +257,7 @@ function requestFingerprint(input: PrepareMigrationImportRequest) {
       manifest: input.manifest,
       projectRecord: input.projectRecord,
     }),
-  )
+  );
 }
 
 function allowedStrategies(
@@ -266,18 +266,18 @@ function allowedStrategies(
   status: MigrationImportStatus,
 ) {
   if (
-    conflictType === 'none' ||
-    role === 'viewer' ||
-    ['completed', 'failed', 'canceled', 'expired'].includes(status)
+    conflictType === "none" ||
+    role === "viewer" ||
+    ["completed", "failed", "canceled", "expired"].includes(status)
   ) {
-    return []
+    return [];
   }
-  if (conflictType !== 'project_exists') {
-    return ['copy'] as const
+  if (conflictType !== "project_exists") {
+    return ["copy"] as const;
   }
-  return role === 'owner' || role === 'admin'
-    ? (['copy', 'replace'] as const)
-    : (['copy'] as const)
+  return role === "owner" || role === "admin"
+    ? (["copy", "replace"] as const)
+    : (["copy"] as const);
 }
 
 function toResponse(
@@ -285,23 +285,23 @@ function toResponse(
   role: WorkspaceRole,
 ): MigrationImportResponse {
   const targetProject =
-    row.conflict_type === 'project_exists'
+    row.conflict_type === "project_exists"
       ? {
           id: row.target_project_id!,
           name: row.target_project_name!,
           expectedVersion: toSafeInteger(
             row.target_expected_version!,
-            'targetExpectedVersion',
+            "targetExpectedVersion",
           ),
           expectedSequence: toSafeInteger(
             row.target_expected_sequence!,
-            'targetExpectedSequence',
+            "targetExpectedSequence",
           ),
           archivedAt: row.target_archived_at
             ? toIso(row.target_archived_at)
             : null,
         }
-      : null
+      : null;
   return {
     import: {
       id: row.id,
@@ -313,16 +313,16 @@ function toResponse(
         name: row.project_name,
         version: toSafeInteger(
           row.source_project_version,
-          'sourceProjectVersion',
+          "sourceProjectVersion",
         ),
         sequence: toSafeInteger(
           row.source_project_sequence,
-          'sourceProjectSequence',
+          "sourceProjectSequence",
         ),
       },
       conflict: {
         type: row.conflict_type,
-        requiresResolution: row.conflict_type !== 'none',
+        requiresResolution: row.conflict_type !== "none",
         targetProject,
       },
       allowedStrategies: [
@@ -331,19 +331,19 @@ function toResponse(
       estimates: {
         assetCount: row.asset_count,
         fileCount: row.total_file_count,
-        totalBytes: toSafeInteger(row.total_bytes, 'totalBytes'),
+        totalBytes: toSafeInteger(row.total_bytes, "totalBytes"),
         estimatedStorageBytes: toSafeInteger(
           row.estimated_storage_bytes,
-          'estimatedStorageBytes',
+          "estimatedStorageBytes",
         ),
         availableBytesAtPrepare: toSafeInteger(
           row.available_bytes_at_prepare,
-          'availableBytesAtPrepare',
+          "availableBytesAtPrepare",
         ),
       },
       progress: {
         completedFileCount: row.completed_file_count,
-        completedBytes: toSafeInteger(row.completed_bytes, 'completedBytes'),
+        completedBytes: toSafeInteger(row.completed_bytes, "completedBytes"),
         retryCount: row.retry_count,
       },
       uploads: row.asset_manifest_json.assets.map((asset) => ({
@@ -361,7 +361,7 @@ function toResponse(
       createdAt: toIso(row.created_at),
       updatedAt: toIso(row.updated_at),
     },
-  }
+  };
 }
 
 async function expireImport(
@@ -380,19 +380,19 @@ async function expireImport(
       RETURNING id
     `,
     [importId, workspaceId],
-  )
+  );
   if (result.rowCount) {
     await client.query(
       `UPDATE migration_import_asset_uploads
        SET status = 'expired', updated_at = now()
        WHERE import_id = $1 AND workspace_id = $2 AND status IN ('pending', 'uploading', 'validating')`,
       [importId, workspaceId],
-    )
+    );
   }
 }
 
 async function findImport(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   importId: string,
   workspaceId: string,
   forUpdate = false,
@@ -403,11 +403,11 @@ async function findImport(
       FROM migration_imports
       WHERE id = $1 AND workspace_id = $2
       LIMIT 1
-      ${forUpdate ? 'FOR UPDATE' : ''}
+      ${forUpdate ? "FOR UPDATE" : ""}
     `,
     [importId, workspaceId],
-  )
-  return result.rows[0] ?? migrationImportNotFound()
+  );
+  return result.rows[0] ?? migrationImportNotFound();
 }
 
 async function determineConflict(
@@ -417,13 +417,13 @@ async function determineConflict(
 ): Promise<PreparedConflict> {
   if (!PROJECT_UUID_PATTERN.test(sourceProjectId)) {
     return {
-      type: 'source_id_incompatible',
+      type: "source_id_incompatible",
       targetProjectId: null,
       targetProjectName: null,
       targetExpectedVersion: null,
       targetExpectedSequence: null,
       targetArchivedAt: null,
-    }
+    };
   }
   const result = await client.query<ProjectConflictRow>(
     `
@@ -433,70 +433,70 @@ async function determineConflict(
       LIMIT 1
     `,
     [sourceProjectId],
-  )
-  const project = result.rows[0]
+  );
+  const project = result.rows[0];
   if (!project) {
     return {
-      type: 'none',
+      type: "none",
       targetProjectId: null,
       targetProjectName: null,
       targetExpectedVersion: null,
       targetExpectedSequence: null,
       targetArchivedAt: null,
-    }
+    };
   }
   if (project.workspace_id !== workspaceId || project.deleted_at) {
     return {
-      type: 'project_id_unavailable',
+      type: "project_id_unavailable",
       targetProjectId: null,
       targetProjectName: null,
       targetExpectedVersion: null,
       targetExpectedSequence: null,
       targetArchivedAt: null,
-    }
+    };
   }
   return {
-    type: 'project_exists',
+    type: "project_exists",
     targetProjectId: project.id,
     targetProjectName: project.name,
-    targetExpectedVersion: toSafeInteger(project.version, 'targetVersion'),
+    targetExpectedVersion: toSafeInteger(project.version, "targetVersion"),
     targetExpectedSequence: toSafeInteger(
       project.last_sequence,
-      'targetSequence',
+      "targetSequence",
     ),
     targetArchivedAt: project.archived_at ? toIso(project.archived_at) : null,
-  }
+  };
 }
 
 interface CommitImportRow extends MigrationImportRow {
-  conflict_type: MigrationImportConflictType
-  target_project_id: string | null
-  target_expected_version: string | number | null
-  target_expected_sequence: string | number | null
-  manifest_json: MigrationJsonValue
-  project_record_json: MigrationJsonValue & { id: string; name: string }
-  graph_json: MigrationProjectGraph
-  checkpoint_json: MigrationJsonValue | null
-  commit_idempotency_key: string | null
-  commit_request_fingerprint: string | null
-  commit_strategy: MigrationImportCommitStrategy | null
-  committed_project_id: string | null
-  committed_at: Date | string | null
+  conflict_type: MigrationImportConflictType;
+  target_project_id: string | null;
+  target_expected_version: string | number | null;
+  target_expected_sequence: string | number | null;
+  manifest_json: MigrationJsonValue;
+  project_record_json: MigrationJsonValue & { id: string; name: string };
+  graph_json: MigrationProjectGraph;
+  checkpoint_json: MigrationJsonValue | null;
+  commit_idempotency_key: string | null;
+  commit_request_fingerprint: string | null;
+  commit_strategy: MigrationImportCommitStrategy | null;
+  committed_project_id: string | null;
+  committed_at: Date | string | null;
 }
 
 interface CommitUploadRow {
-  logical_asset_id: string
-  object_key: string
-  status: MigrationImportStatus
-  committed_asset_id: string | null
-  expected_file_path: string
-  expected_original_file_name: string | null
-  expected_mime_type: string
-  expected_byte_size: string | number
-  expected_sha256: string
-  expected_width: number | null
-  expected_height: number | null
-  expected_asset_kind: MigrationAssetManifest['assets'][number]['assetKind']
+  logical_asset_id: string;
+  object_key: string;
+  status: MigrationImportStatus;
+  committed_asset_id: string | null;
+  expected_file_path: string;
+  expected_original_file_name: string | null;
+  expected_mime_type: string;
+  expected_byte_size: string | number;
+  expected_sha256: string;
+  expected_width: number | null;
+  expected_height: number | null;
+  expected_asset_kind: MigrationAssetManifest["assets"][number]["assetKind"];
 }
 
 function rewriteMigrationValue(
@@ -505,49 +505,49 @@ function rewriteMigrationValue(
   assetIds: Map<string, string>,
   assetPaths: Map<string, string>,
 ): unknown {
-  if (typeof value === 'string') {
-    if (key === 'assetId' && assetIds.has(value)) {
-      return assetIds.get(value)
+  if (typeof value === "string") {
+    if (key === "assetId" && assetIds.has(value)) {
+      return assetIds.get(value);
     }
     if (
-      (key === 'relativePath' ||
-        key === 'thumbnailRelativePath' ||
-        key === 'previewRelativePath') &&
+      (key === "relativePath" ||
+        key === "thumbnailRelativePath" ||
+        key === "previewRelativePath") &&
       assetPaths.has(value)
     ) {
-      return `cloud-assets/${assetPaths.get(value)}`
+      return `cloud-assets/${assetPaths.get(value)}`;
     }
-    return value
+    return value;
   }
   if (Array.isArray(value)) {
     return value.map((entry) =>
       rewriteMigrationValue(entry, null, assetIds, assetPaths),
-    )
+    );
   }
-  if (!value || typeof value !== 'object') {
-    return value
+  if (!value || typeof value !== "object") {
+    return value;
   }
   return Object.fromEntries(
     Object.entries(value).map(([entryKey, entryValue]) => [
       entryKey,
       rewriteMigrationValue(entryValue, entryKey, assetIds, assetPaths),
     ]),
-  )
+  );
 }
 
 interface MigrationGraphIdentityMaps {
-  nodeIds: Map<string, string>
-  edgeIds: Map<string, string>
+  nodeIds: Map<string, string>;
+  edgeIds: Map<string, string>;
 }
 
 function mappedEntityId(ids: Map<string, string>, sourceId: string) {
-  const existing = ids.get(sourceId)
+  const existing = ids.get(sourceId);
   if (existing) {
-    return existing
+    return existing;
   }
-  const mapped = randomUUID()
-  ids.set(sourceId, mapped)
-  return mapped
+  const mapped = randomUUID();
+  ids.set(sourceId, mapped);
+  return mapped;
 }
 
 function rewriteMigrationGraph(
@@ -604,23 +604,23 @@ function rewriteMigrationGraph(
           ) as MigrationJsonObject)
         : undefined,
     })),
-  } satisfies Pick<MigrationProjectGraph, 'nodes' | 'edges'>
+  } satisfies Pick<MigrationProjectGraph, "nodes" | "edges">;
 }
 
 function commitResponse(
   row: CommitImportRow,
   project: { id: string; name: string; version: number; sequence: number },
   assetCount: number,
-  checkpoint: MigrationImportCommitResponse['checkpoint'] = null,
+  checkpoint: MigrationImportCommitResponse["checkpoint"] = null,
 ): MigrationImportCommitResponse {
   return {
     importId: row.id,
-    status: 'completed',
+    status: "completed",
     strategy: row.commit_strategy!,
     project,
     assetCount,
     checkpoint,
-  }
+  };
 }
 
 export function createPostgresMigrationImportService(
@@ -628,7 +628,7 @@ export function createPostgresMigrationImportService(
   options: { authorizationService?: WorkspaceAuthorizationService } = {},
 ): MigrationImportService {
   const authorizationService =
-    options.authorizationService ?? createWorkspaceAuthorizationService(pool)
+    options.authorizationService ?? createWorkspaceAuthorizationService(pool);
 
   return {
     async prepareImport(rawInput, actor) {
@@ -636,53 +636,56 @@ export function createPostgresMigrationImportService(
         userId: actor.userId,
         workspaceId: actor.workspaceId,
         allowedRoles: MIGRATION_IMPORT_WRITE_ROLES,
-      })
-      const input = validateRequest(rawInput)
-      verifyPackageDigests(input)
-      const fingerprint = requestFingerprint(input)
+      });
+      const input = validateRequest(rawInput);
+      verifyPackageDigests(input);
+      const fingerprint = requestFingerprint(input);
       return withTransaction(pool, async (client) => {
-        await lockWorkspaceStorageQuota(client, actor.workspaceId)
+        await lockWorkspaceStorageQuota(client, actor.workspaceId);
         const existingResult = await client.query<MigrationImportRow>(
           `SELECT ${IMPORT_COLUMNS} FROM migration_imports
            WHERE workspace_id = $1 AND idempotency_key = $2
            LIMIT 1 FOR UPDATE`,
           [actor.workspaceId, input.idempotencyKey],
-        )
-        const existing = existingResult.rows[0]
+        );
+        const existing = existingResult.rows[0];
         if (existing) {
           if (existing.request_fingerprint !== fingerprint) {
             throw new AuthServiceError({
               statusCode: 409,
-              apiCode: 'IMPORT_CONFLICT',
+              apiCode: "IMPORT_CONFLICT",
               message:
-                'Migration import idempotency key was reused with different content',
-            })
+                "Migration import idempotency key was reused with different content",
+            });
           }
-          await expireImport(client, existing.id, actor.workspaceId)
+          await expireImport(client, existing.id, actor.workspaceId);
           return toResponse(
             await findImport(client, existing.id, actor.workspaceId),
             access.member.role,
-          )
+          );
         }
 
         const estimatedStorageBytes = input.assetManifest.assets.reduce(
           (total, asset) => total + asset.byteSize,
           0,
-        )
+        );
         if (!Number.isSafeInteger(estimatedStorageBytes)) {
           importInvalid(
-            'PACKAGE_LIMIT_EXCEEDED',
-            'assetManifest.assets',
-            'Migration asset bytes exceed safe limits',
-          )
+            "PACKAGE_LIMIT_EXCEEDED",
+            "assetManifest.assets",
+            "Migration asset bytes exceed safe limits",
+          );
         }
-        const usage = await readWorkspaceStorageUsage(client, actor.workspaceId)
-        assertWorkspaceStorageCapacity(usage, estimatedStorageBytes)
+        const usage = await readWorkspaceStorageUsage(
+          client,
+          actor.workspaceId,
+        );
+        assertWorkspaceStorageCapacity(usage, estimatedStorageBytes);
         const conflict = await determineConflict(
           client,
           input.manifest.project.id,
           actor.workspaceId,
-        )
+        );
         const result = await client.query<MigrationImportRow>(
           `
             INSERT INTO migration_imports (
@@ -733,24 +736,24 @@ export function createPostgresMigrationImportService(
             input.checkpoint ? JSON.stringify(input.checkpoint) : null,
             MIGRATION_IMPORT_TTL_HOURS,
           ],
-        )
-        return toResponse(result.rows[0]!, access.member.role)
-      })
+        );
+        return toResponse(result.rows[0]!, access.member.role);
+      });
     },
 
     async getImport(rawImportId, actor) {
       const access = await authorizationService.requireWorkspaceAccess({
         userId: actor.userId,
         workspaceId: actor.workspaceId,
-      })
-      const importId = normalizeMigrationImportId(rawImportId)
+      });
+      const importId = normalizeMigrationImportId(rawImportId);
       return withTransaction(pool, async (client) => {
-        await expireImport(client, importId, actor.workspaceId)
+        await expireImport(client, importId, actor.workspaceId);
         return toResponse(
           await findImport(client, importId, actor.workspaceId),
           access.member.role,
-        )
-      })
+        );
+      });
     },
 
     async cancelImport(rawImportId, actor) {
@@ -758,32 +761,32 @@ export function createPostgresMigrationImportService(
         userId: actor.userId,
         workspaceId: actor.workspaceId,
         allowedRoles: MIGRATION_IMPORT_WRITE_ROLES,
-      })
-      const importId = normalizeMigrationImportId(rawImportId)
+      });
+      const importId = normalizeMigrationImportId(rawImportId);
       return withTransaction(pool, async (client) => {
-        await expireImport(client, importId, actor.workspaceId)
+        await expireImport(client, importId, actor.workspaceId);
         const current = await findImport(
           client,
           importId,
           actor.workspaceId,
           true,
-        )
-        if (current.status === 'completed') {
+        );
+        if (current.status === "completed") {
           throw new AuthServiceError({
             statusCode: 409,
-            apiCode: 'IMPORT_CONFLICT',
-            message: 'Completed migration import cannot be canceled',
-          })
+            apiCode: "IMPORT_CONFLICT",
+            message: "Completed migration import cannot be canceled",
+          });
         }
         if (
-          current.status === 'canceled' ||
-          current.status === 'expired' ||
-          current.status === 'failed'
+          current.status === "canceled" ||
+          current.status === "expired" ||
+          current.status === "failed"
         ) {
-          return toResponse(current, access.member.role)
+          return toResponse(current, access.member.role);
         }
         const result = await client.query<MigrationImportRow>(
-          current.status === 'committing'
+          current.status === "committing"
             ? `UPDATE migration_imports
                SET cancel_requested_at = COALESCE(cancel_requested_at, now()), updated_at = now()
                WHERE id = $1 AND workspace_id = $2
@@ -794,17 +797,17 @@ export function createPostgresMigrationImportService(
                WHERE id = $1 AND workspace_id = $2
                RETURNING ${IMPORT_COLUMNS}`,
           [importId, actor.workspaceId],
-        )
-        if (current.status !== 'committing') {
+        );
+        if (current.status !== "committing") {
           await client.query(
             `UPDATE migration_import_asset_uploads
              SET status = 'canceled', canceled_at = COALESCE(canceled_at, now()), updated_at = now()
              WHERE import_id = $1 AND workspace_id = $2 AND status IN ('pending', 'uploading', 'validating')`,
             [importId, actor.workspaceId],
-          )
+          );
         }
-        return toResponse(result.rows[0]!, access.member.role)
-      })
+        return toResponse(result.rows[0]!, access.member.role);
+      });
     },
 
     async commitImport(rawImportId, rawInput, actor) {
@@ -812,12 +815,12 @@ export function createPostgresMigrationImportService(
         userId: actor.userId,
         workspaceId: actor.workspaceId,
         allowedRoles: MIGRATION_IMPORT_WRITE_ROLES,
-      })
-      const importId = normalizeMigrationImportId(rawImportId)
-      const input = validateCommitRequest(rawInput)
-      const fingerprint = sha256(canonicalPayload(input))
+      });
+      const importId = normalizeMigrationImportId(rawImportId);
+      const input = validateCommitRequest(rawInput);
+      const fingerprint = sha256(canonicalPayload(input));
       return withTransaction(pool, async (client) => {
-        await lockWorkspaceStorageQuota(client, actor.workspaceId)
+        await lockWorkspaceStorageQuota(client, actor.workspaceId);
         const importResult = await client.query<CommitImportRow>(
           `
             SELECT ${IMPORT_COLUMNS},
@@ -829,33 +832,33 @@ export function createPostgresMigrationImportService(
             FOR UPDATE
           `,
           [importId, actor.workspaceId],
-        )
-        const current = importResult.rows[0] ?? migrationImportNotFound()
-        if (current.status === 'completed') {
+        );
+        const current = importResult.rows[0] ?? migrationImportNotFound();
+        if (current.status === "completed") {
           if (
             current.commit_idempotency_key !== input.idempotencyKey ||
             current.commit_request_fingerprint !== fingerprint
           ) {
             throw new AuthServiceError({
               statusCode: 409,
-              apiCode: 'IMPORT_CONFLICT',
+              apiCode: "IMPORT_CONFLICT",
               message:
-                'Migration import has already been committed with different request content',
-            })
+                "Migration import has already been committed with different request content",
+            });
           }
           const project = (
             await client.query<{
-              id: string
-              name: string
-              version: string | number
-              last_sequence: string | number
+              id: string;
+              name: string;
+              version: string | number;
+              last_sequence: string | number;
             }>(
               `SELECT id::text, name, version, last_sequence FROM projects WHERE id = $1 AND workspace_id = $2`,
               [current.committed_project_id, actor.workspaceId],
             )
-          ).rows[0]
+          ).rows[0];
           if (!project) {
-            throw new Error('Committed migration project is missing')
+            throw new Error("Committed migration project is missing");
           }
           const count =
             (
@@ -863,12 +866,12 @@ export function createPostgresMigrationImportService(
                 `SELECT count(*) AS count FROM migration_import_asset_uploads WHERE import_id = $1 AND workspace_id = $2 AND committed_asset_id IS NOT NULL`,
                 [importId, actor.workspaceId],
               )
-            ).rows[0]?.count ?? 0
+            ).rows[0]?.count ?? 0;
           const checkpointRow = (
             await client.query<{
-              id: string
-              project_version: string | number
-              last_sequence: string | number
+              id: string;
+              project_version: string | number;
+              last_sequence: string | number;
             }>(
               `
               SELECT id::text, project_version, last_sequence
@@ -880,7 +883,7 @@ export function createPostgresMigrationImportService(
             `,
               [project.id, project.version, project.last_sequence],
             )
-          ).rows[0]
+          ).rows[0];
           return commitResponse(
             current,
             {
@@ -897,14 +900,14 @@ export function createPostgresMigrationImportService(
                   sequence: Number(checkpointRow.last_sequence),
                 }
               : null,
-          )
+          );
         }
-        if (current.status !== 'ready') {
+        if (current.status !== "ready") {
           throw new AuthServiceError({
             statusCode: 409,
-            apiCode: 'IMPORT_CONFLICT',
-            message: 'Migration import is not ready to commit',
-          })
+            apiCode: "IMPORT_CONFLICT",
+            message: "Migration import is not ready to commit",
+          });
         }
 
         const uploadResult = await client.query<CommitUploadRow>(
@@ -918,35 +921,35 @@ export function createPostgresMigrationImportService(
             FOR UPDATE
           `,
           [importId, actor.workspaceId],
-        )
+        );
         if (
           uploadResult.rows.length !== Number(current.asset_count) ||
           uploadResult.rows.some(
             (upload) =>
-              upload.status !== 'completed' || upload.committed_asset_id,
+              upload.status !== "completed" || upload.committed_asset_id,
           )
         ) {
           throw new AuthServiceError({
             statusCode: 409,
-            apiCode: 'IMPORT_CONFLICT',
-            message: 'All migration assets must be completed before commit',
-          })
+            apiCode: "IMPORT_CONFLICT",
+            message: "All migration assets must be completed before commit",
+          });
         }
-        const strategy = input.strategy as MigrationImportCommitStrategy
-        if (strategy === 'replace') {
+        const strategy = input.strategy as MigrationImportCommitStrategy;
+        if (strategy === "replace") {
           if (
-            access.member.role !== 'owner' &&
-            access.member.role !== 'admin'
+            access.member.role !== "owner" &&
+            access.member.role !== "admin"
           ) {
             throw new AuthServiceError({
               statusCode: 403,
-              apiCode: 'ACCESS_DENIED',
+              apiCode: "ACCESS_DENIED",
               message:
-                'Only workspace owner or admin can replace a project during import',
-            })
+                "Only workspace owner or admin can replace a project during import",
+            });
           }
           if (
-            current.conflict_type !== 'project_exists' ||
+            current.conflict_type !== "project_exists" ||
             !current.target_project_id ||
             input.confirmReplace !== true ||
             input.expectedVersion === undefined ||
@@ -956,47 +959,50 @@ export function createPostgresMigrationImportService(
           ) {
             throw new AuthServiceError({
               statusCode: 409,
-              apiCode: 'PROJECT_VERSION_CONFLICT',
+              apiCode: "PROJECT_VERSION_CONFLICT",
               message:
-                'Replace requires explicit confirmation and the prepare version snapshot',
+                "Replace requires explicit confirmation and the prepare version snapshot",
               details: {
                 expectedVersion: Number(current.target_expected_version),
                 expectedSequence: Number(current.target_expected_sequence),
               },
-            })
+            });
           }
         }
 
-        const usage = await readWorkspaceStorageUsage(client, actor.workspaceId)
-        assertWorkspaceStorageCapacity(usage, 0)
+        const usage = await readWorkspaceStorageUsage(
+          client,
+          actor.workspaceId,
+        );
+        assertWorkspaceStorageCapacity(usage, 0);
         const targetProjectId =
-          strategy === 'replace' ? current.target_project_id! : randomUUID()
-        const projectName = current.project_record_json.name
-        if (strategy === 'copy') {
+          strategy === "replace" ? current.target_project_id! : randomUUID();
+        const projectName = current.project_record_json.name;
+        if (strategy === "copy") {
           try {
             await client.query(
               `INSERT INTO projects (id, workspace_id, name) VALUES ($1, $2, $3)`,
               [targetProjectId, actor.workspaceId, projectName],
-            )
+            );
           } catch (error) {
-            if ((error as { code?: string }).code === '23505') {
+            if ((error as { code?: string }).code === "23505") {
               throw new AuthServiceError({
                 statusCode: 409,
-                apiCode: 'IMPORT_CONFLICT',
+                apiCode: "IMPORT_CONFLICT",
                 message:
-                  'Target project ID became unavailable during import commit',
-              })
+                  "Target project ID became unavailable during import commit",
+              });
             }
-            throw error
+            throw error;
           }
         }
 
-        const assetIds = new Map<string, string>()
-        const assetPaths = new Map<string, string>()
+        const assetIds = new Map<string, string>();
+        const assetPaths = new Map<string, string>();
         for (const upload of uploadResult.rows) {
           const asset = current.asset_manifest_json.assets.find(
             (candidate) => candidate.logicalAssetId === upload.logical_asset_id,
-          )
+          );
           if (
             !asset ||
             asset.filePath !== upload.expected_file_path ||
@@ -1004,10 +1010,10 @@ export function createPostgresMigrationImportService(
           ) {
             throw new AuthServiceError({
               statusCode: 422,
-              apiCode: 'ASSET_VALIDATION_FAILED',
+              apiCode: "ASSET_VALIDATION_FAILED",
               message:
-                'Migration asset upload metadata no longer matches the import manifest',
-            })
+                "Migration asset upload metadata no longer matches the import manifest",
+            });
           }
           const reusableAssetId = await findReusableCompletedMigrationAsset(
             client,
@@ -1017,7 +1023,7 @@ export function createPostgresMigrationImportService(
               byteSize: asset.byteSize,
               mimeType: asset.mimeType,
             },
-          )
+          );
           const materialized =
             reusableAssetId ??
             (await materializeMigrationAsset(client, {
@@ -1026,9 +1032,9 @@ export function createPostgresMigrationImportService(
               createdByUserId: actor.userId,
               objectKey: upload.object_key,
               asset,
-            } satisfies MaterializeMigrationAssetInput))
-          assetIds.set(asset.logicalAssetId, materialized)
-          assetPaths.set(asset.filePath, materialized)
+            } satisfies MaterializeMigrationAssetInput));
+          assetIds.set(asset.logicalAssetId, materialized);
+          assetPaths.set(asset.filePath, materialized);
           await client.query(
             `UPDATE migration_import_asset_uploads SET committed_asset_id = $1 WHERE import_id = $2 AND workspace_id = $3 AND logical_asset_id = $4`,
             [
@@ -1037,46 +1043,46 @@ export function createPostgresMigrationImportService(
               actor.workspaceId,
               upload.logical_asset_id,
             ],
-          )
+          );
         }
 
         const identityMaps =
-          strategy === 'copy'
+          strategy === "copy"
             ? {
                 nodeIds: new Map<string, string>(),
                 edgeIds: new Map<string, string>(),
               }
-            : undefined
+            : undefined;
         const rewritten = rewriteMigrationGraph(
           current.graph_json,
           assetIds,
           assetPaths,
           identityMaps,
-        )
+        );
         const operations: ProjectGraphOperation[] = [
           ...rewritten.nodes.map(
-            (node) => ({ type: 'upsertNode', node }) as ProjectGraphOperation,
+            (node) => ({ type: "upsertNode", node }) as ProjectGraphOperation,
           ),
           ...rewritten.edges.map(
-            (edge) => ({ type: 'upsertEdge', edge }) as ProjectGraphOperation,
+            (edge) => ({ type: "upsertEdge", edge }) as ProjectGraphOperation,
           ),
-        ]
+        ];
         const graphResult = await applyImportGraphTransaction(client, {
           projectId: targetProjectId,
           workspaceId: actor.workspaceId,
           actorUserId: actor.userId,
-          expectedVersion: strategy === 'replace' ? input.expectedVersion! : 0,
+          expectedVersion: strategy === "replace" ? input.expectedVersion! : 0,
           expectedSequence:
-            strategy === 'replace' ? input.expectedSequence! : 0,
+            strategy === "replace" ? input.expectedSequence! : 0,
           operations,
-          replaceExisting: strategy === 'replace',
+          replaceExisting: strategy === "replace",
           idempotencyKey: `migration:${importId}`,
-        })
+        });
 
-        let checkpoint: MigrationImportCommitResponse['checkpoint'] = null
+        let checkpoint: MigrationImportCommitResponse["checkpoint"] = null;
         if (current.checkpoint_json) {
           const packageCheckpoint =
-            current.checkpoint_json as unknown as MigrationPackageCheckpoint
+            current.checkpoint_json as unknown as MigrationPackageCheckpoint;
           const checkpointGraph = rewriteMigrationGraph(
             {
               schemaVersion: 1,
@@ -1089,11 +1095,11 @@ export function createPostgresMigrationImportService(
             assetIds,
             assetPaths,
             identityMaps,
-          )
+          );
           const checkpointAssetManifest = packageCheckpoint.assetIds
             .map((assetId) => assetIds.get(assetId))
             .filter((assetId): assetId is string => Boolean(assetId))
-            .sort()
+            .sort();
           checkpoint = await insertImportCheckpointTransaction(client, {
             projectId: targetProjectId,
             projectName,
@@ -1108,7 +1114,7 @@ export function createPostgresMigrationImportService(
               >[],
             },
             assetManifest: checkpointAssetManifest,
-          })
+          });
         }
 
         await client.query(
@@ -1127,7 +1133,7 @@ export function createPostgresMigrationImportService(
             strategy,
             targetProjectId,
           ],
-        )
+        );
         return commitResponse(
           { ...current, commit_strategy: strategy },
           {
@@ -1138,8 +1144,8 @@ export function createPostgresMigrationImportService(
           },
           assetIds.size,
           checkpoint,
-        )
-      })
+        );
+      });
     },
-  }
+  };
 }

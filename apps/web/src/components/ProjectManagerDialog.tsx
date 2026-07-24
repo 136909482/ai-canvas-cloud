@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState } from "react";
 import {
   Archive,
   ArrowUpDown,
@@ -12,67 +12,74 @@ import {
   Search,
   Trash2,
   X,
-} from 'lucide-react'
-import { getProjectManagerStatusView } from '@/features/projectManager/projectManagerStatus'
-import { useDialogFocus } from '@/hooks/useDialogFocus'
-import { useFeedbackStore } from '@/store/useFeedbackStore'
-import { useProjectDialogStore } from '@/store/useProjectDialogStore'
-import { useProjectStore } from '@/store/useProjectStore'
-import { themeClasses } from '@/styles/themeClasses'
-import type { ProjectBundleImportCandidate, ProjectImportResolution } from '@/platform/types'
-import type { ProjectRecord } from '@/types'
+} from "lucide-react";
+import { getProjectManagerStatusView } from "@/features/projectManager/projectManagerStatus";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
+import { useFeedbackStore } from "@/store/useFeedbackStore";
+import { useProjectDialogStore } from "@/store/useProjectDialogStore";
+import { useProjectStore } from "@/store/useProjectStore";
+import { themeClasses } from "@/styles/themeClasses";
+import type {
+  ProjectBundleImportCandidate,
+  ProjectImportResolution,
+} from "@/platform/types";
+import type { ProjectRecord } from "@/types";
 import {
   ProjectNameDialog,
   ProjectPreviewCard,
   SidebarButton,
-} from '@/components/projectManager/ProjectManagerParts'
+} from "@/components/projectManager/ProjectManagerParts";
 import {
   filterAndSortProjects,
   type ProjectCategory,
   type ProjectSortMode,
   type ProjectViewMode,
-} from '@/components/projectManager/projectManagerModel'
+} from "@/components/projectManager/projectManagerModel";
 
 async function confirmProceedWhenDirty(
   dirty: boolean,
-  saveActiveProject: () => Promise<'saved' | 'storage-required' | 'no-project'>,
-  confirm: ReturnType<typeof useFeedbackStore.getState>['confirm'],
-  notify: ReturnType<typeof useFeedbackStore.getState>['notify'],
+  saveActiveProject: () => Promise<"saved" | "storage-required" | "no-project">,
+  confirm: ReturnType<typeof useFeedbackStore.getState>["confirm"],
+  notify: ReturnType<typeof useFeedbackStore.getState>["notify"],
 ) {
   if (!dirty) {
-    return true
+    return true;
   }
 
   const shouldSave = await confirm({
-    title: '保存当前改动',
-    message: '当前项目有未保存的改动，是否先保存？',
-    confirmLabel: '先保存',
-    cancelLabel: '不保存',
-  })
+    title: "保存当前改动",
+    message: "当前项目有未保存的改动，是否先保存？",
+    confirmLabel: "先保存",
+    cancelLabel: "不保存",
+  });
 
   if (shouldSave) {
-    let result: Awaited<ReturnType<typeof saveActiveProject>>
+    let result: Awaited<ReturnType<typeof saveActiveProject>>;
     try {
-      result = await saveActiveProject()
+      result = await saveActiveProject();
     } catch {
       // The project store reports the structured diagnostic and user feedback.
-      return false
+      return false;
     }
 
-    if (result === 'storage-required') {
-      notify({ tone: 'warning', title: '需要缓存目录', message: '首次保存前请先在存储设置里配置缓存目录。' })
-      return false
+    if (result === "storage-required") {
+      notify({
+        tone: "warning",
+        title: "需要缓存目录",
+        message: "首次保存前请先在存储设置里配置缓存目录。",
+      });
+      return false;
     }
 
-    return result === 'saved'
+    return result === "saved";
   }
 
   return confirm({
-    title: '放弃未保存改动',
-    message: '不保存当前改动，继续切换吗？',
-    confirmLabel: '继续切换',
-    tone: 'danger',
-  })
+    title: "放弃未保存改动",
+    message: "不保存当前改动，继续切换吗？",
+    confirmLabel: "继续切换",
+    tone: "danger",
+  });
 }
 
 function ProjectImportConflictDialog({
@@ -81,44 +88,80 @@ function ProjectImportConflictDialog({
   onCancel,
   onResolve,
 }: {
-  candidate: ProjectBundleImportCandidate | null
-  busy: boolean
-  onCancel: () => void
-  onResolve: (resolution: ProjectImportResolution) => void
+  candidate: ProjectBundleImportCandidate | null;
+  busy: boolean;
+  onCancel: () => void;
+  onResolve: (resolution: ProjectImportResolution) => void;
 }) {
-  const dialogRef = useDialogFocus<HTMLDivElement>(Boolean(candidate), onCancel)
-  if (!candidate) return null
+  const dialogRef = useDialogFocus<HTMLDivElement>(
+    Boolean(candidate),
+    onCancel,
+  );
+  if (!candidate) return null;
 
   return (
     <div className="absolute inset-0 z-[80] flex items-center justify-center bg-black/48 px-4 backdrop-blur-sm">
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="project-import-conflict-title" tabIndex={-1} className={`w-full max-w-md p-5 ${themeClasses.strongPanel}`} data-testid="project-import-conflict-dialog">
-        <div id="project-import-conflict-title" className={`text-sm font-semibold ${themeClasses.textPrimary}`}>项目 ID 已存在</div>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="project-import-conflict-title"
+        tabIndex={-1}
+        className={`w-full max-w-md p-5 ${themeClasses.strongPanel}`}
+        data-testid="project-import-conflict-dialog"
+      >
+        <div
+          id="project-import-conflict-title"
+          className={`text-sm font-semibold ${themeClasses.textPrimary}`}
+        >
+          项目 ID 已存在
+        </div>
         <p className={`mt-1 text-xs leading-5 ${themeClasses.textMuted}`}>
           请选择保留两个项目，或用目录包内容替换现有项目。
         </p>
 
         <dl className="mt-4 grid grid-cols-[5rem_1fr] gap-x-3 gap-y-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--control-bg)] p-3 text-xs">
           <dt className={themeClasses.textMuted}>项目名称</dt>
-          <dd className={`truncate ${themeClasses.textPrimary}`}>{candidate.project.name}</dd>
+          <dd className={`truncate ${themeClasses.textPrimary}`}>
+            {candidate.project.name}
+          </dd>
           <dt className={themeClasses.textMuted}>项目 ID</dt>
-          <dd className={`truncate font-mono text-[11px] ${themeClasses.textSecondary}`}>{candidate.project.id}</dd>
+          <dd
+            className={`truncate font-mono text-[11px] ${themeClasses.textSecondary}`}
+          >
+            {candidate.project.id}
+          </dd>
           <dt className={themeClasses.textMuted}>引用资产</dt>
-          <dd className={themeClasses.textSecondary}>{candidate.assetCount} 个</dd>
+          <dd className={themeClasses.textSecondary}>
+            {candidate.assetCount} 个
+          </dd>
         </dl>
 
         <div className="mt-4 space-y-2 text-xs leading-5">
-          <p className={themeClasses.textSecondary}><strong className={themeClasses.textPrimary}>导入副本：</strong>生成新的项目 ID，并把资产写入独立目录。</p>
-          <p className={themeClasses.textSecondary}><strong className={themeClasses.textPrimary}>替换现有：</strong>保留项目 ID，用导入内容更新现有项目；旧的未引用资产稍后可通过磁盘清理移除。</p>
+          <p className={themeClasses.textSecondary}>
+            <strong className={themeClasses.textPrimary}>导入副本：</strong>
+            生成新的项目 ID，并把资产写入独立目录。
+          </p>
+          <p className={themeClasses.textSecondary}>
+            <strong className={themeClasses.textPrimary}>替换现有：</strong>
+            保留项目
+            ID，用导入内容更新现有项目；旧的未引用资产稍后可通过磁盘清理移除。
+          </p>
         </div>
 
         <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button type="button" disabled={busy} onClick={onCancel} className={`${themeClasses.secondaryButton} h-9 px-4 text-sm disabled:opacity-50`}>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onCancel}
+            className={`${themeClasses.secondaryButton} h-9 px-4 text-sm disabled:opacity-50`}
+          >
             取消
           </button>
           <button
             type="button"
             disabled={busy}
-            onClick={() => onResolve('copy')}
+            onClick={() => onResolve("copy")}
             data-testid="project-import-copy"
             className={`${themeClasses.secondaryButton} h-9 px-4 text-sm disabled:opacity-50`}
           >
@@ -127,7 +170,7 @@ function ProjectImportConflictDialog({
           <button
             type="button"
             disabled={busy}
-            onClick={() => onResolve('replace')}
+            onClick={() => onResolve("replace")}
             data-testid="project-import-replace"
             className="h-9 rounded-lg bg-red-500 px-4 text-sm font-semibold text-white transition hover:bg-red-400 disabled:opacity-50"
           >
@@ -136,228 +179,310 @@ function ProjectImportConflictDialog({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 export function ProjectManagerDialog() {
-  const isOpen = useProjectDialogStore((state) => state.isOpen)
-  const close = useProjectDialogStore((state) => state.close)
-  const projects = useProjectStore((state) => state.projects)
-  const activeProjectId = useProjectStore((state) => state.activeProjectId)
-  const createProject = useProjectStore((state) => state.createProject)
-  const duplicateProject = useProjectStore((state) => state.duplicateProject)
-  const loadProject = useProjectStore((state) => state.loadProject)
-  const renameProject = useProjectStore((state) => state.renameProject)
-  const archiveProject = useProjectStore((state) => state.archiveProject)
-  const restoreProject = useProjectStore((state) => state.restoreProject)
-  const deleteProject = useProjectStore((state) => state.deleteProject)
-  const exportProject = useProjectStore((state) => state.exportProject)
-  const prepareProjectImport = useProjectStore((state) => state.prepareProjectImport)
-  const commitProjectImport = useProjectStore((state) => state.commitProjectImport)
-  const saveActiveProject = useProjectStore((state) => state.saveActiveProject)
-  const hasUnsavedChanges = useProjectStore((state) => state.hasUnsavedChanges)
-  const getActivePersistenceStatus = useProjectStore((state) => state.getActivePersistenceStatus)
-  const confirm = useFeedbackStore((state) => state.confirm)
-  const notify = useFeedbackStore((state) => state.notify)
-  const [dialogState, setDialogState] = useState<{ mode: 'create' | 'rename'; project: ProjectRecord | null } | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [activeCategory, setActiveCategory] = useState<ProjectCategory>('all')
-  const [viewMode, setViewMode] = useState<ProjectViewMode>('grid')
-  const [sortMode, setSortMode] = useState<ProjectSortMode>('updated')
-  const [batchMode, setBatchMode] = useState(false)
-  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([])
-  const [importCandidate, setImportCandidate] = useState<ProjectBundleImportCandidate | null>(null)
-  const [importBusy, setImportBusy] = useState(false)
-  const dialogRef = useDialogFocus<HTMLDivElement>(isOpen, close, '[data-dialog-initial-focus]')
+  const isOpen = useProjectDialogStore((state) => state.isOpen);
+  const close = useProjectDialogStore((state) => state.close);
+  const projects = useProjectStore((state) => state.projects);
+  const activeProjectId = useProjectStore((state) => state.activeProjectId);
+  const createProject = useProjectStore((state) => state.createProject);
+  const duplicateProject = useProjectStore((state) => state.duplicateProject);
+  const loadProject = useProjectStore((state) => state.loadProject);
+  const renameProject = useProjectStore((state) => state.renameProject);
+  const archiveProject = useProjectStore((state) => state.archiveProject);
+  const restoreProject = useProjectStore((state) => state.restoreProject);
+  const deleteProject = useProjectStore((state) => state.deleteProject);
+  const exportProject = useProjectStore((state) => state.exportProject);
+  const prepareProjectImport = useProjectStore(
+    (state) => state.prepareProjectImport,
+  );
+  const commitProjectImport = useProjectStore(
+    (state) => state.commitProjectImport,
+  );
+  const saveActiveProject = useProjectStore((state) => state.saveActiveProject);
+  const hasUnsavedChanges = useProjectStore((state) => state.hasUnsavedChanges);
+  const getActivePersistenceStatus = useProjectStore(
+    (state) => state.getActivePersistenceStatus,
+  );
+  const confirm = useFeedbackStore((state) => state.confirm);
+  const notify = useFeedbackStore((state) => state.notify);
+  const [dialogState, setDialogState] = useState<{
+    mode: "create" | "rename";
+    project: ProjectRecord | null;
+  } | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState<ProjectCategory>("all");
+  const [viewMode, setViewMode] = useState<ProjectViewMode>("grid");
+  const [sortMode, setSortMode] = useState<ProjectSortMode>("updated");
+  const [batchMode, setBatchMode] = useState(false);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [importCandidate, setImportCandidate] =
+    useState<ProjectBundleImportCandidate | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const dialogRef = useDialogFocus<HTMLDivElement>(
+    isOpen,
+    close,
+    "[data-dialog-initial-focus]",
+  );
 
-  const filteredProjects = useMemo(() => filterAndSortProjects(projects, {
-    category: activeCategory,
-    searchQuery,
-    sortMode,
-  }), [activeCategory, projects, searchQuery, sortMode])
+  const filteredProjects = useMemo(
+    () =>
+      filterAndSortProjects(projects, {
+        category: activeCategory,
+        searchQuery,
+        sortMode,
+      }),
+    [activeCategory, projects, searchQuery, sortMode],
+  );
 
   if (!isOpen) {
-    return null
+    return null;
   }
 
   const handleOpenProject = async (projectId: string) => {
-    const shouldProceed = await confirmProceedWhenDirty(hasUnsavedChanges(), saveActiveProject, confirm, notify)
+    const shouldProceed = await confirmProceedWhenDirty(
+      hasUnsavedChanges(),
+      saveActiveProject,
+      confirm,
+      notify,
+    );
 
     if (!shouldProceed) {
-      return
+      return;
     }
 
-    const success = await loadProject(projectId)
+    const success = await loadProject(projectId);
 
     if (success) {
-      close()
+      close();
     }
-  }
+  };
 
   const handleCreateProject = async (name: string) => {
-    setDialogState(null)
-    const shouldProceed = await confirmProceedWhenDirty(hasUnsavedChanges(), saveActiveProject, confirm, notify)
+    setDialogState(null);
+    const shouldProceed = await confirmProceedWhenDirty(
+      hasUnsavedChanges(),
+      saveActiveProject,
+      confirm,
+      notify,
+    );
 
     if (!shouldProceed) {
-      return
+      return;
     }
 
-    const projectId = await createProject(name)
+    const projectId = await createProject(name);
 
     if (projectId) {
-      close()
-      return
+      close();
+      return;
     }
 
-    notify({ tone: 'error', title: '项目创建失败', message: '云端服务暂时不可用，请稍后重试。' })
-  }
+    notify({
+      tone: "error",
+      title: "项目创建失败",
+      message: "云端服务暂时不可用，请稍后重试。",
+    });
+  };
 
   const handleRenameProject = async (name: string) => {
-    const target = dialogState?.project
-    setDialogState(null)
+    const target = dialogState?.project;
+    setDialogState(null);
 
     if (!target) {
-      return
+      return;
     }
 
-    await renameProject(target.id, name)
-  }
+    await renameProject(target.id, name);
+  };
 
   const handleDeleteProject = async (project: ProjectRecord) => {
     const confirmed = await confirm({
-      title: '删除项目',
-      message: project.id === activeProjectId
-        ? '删除当前项目后会切换到其他项目，确定继续吗？'
-        : '确定删除这个项目吗？',
-      confirmLabel: '删除',
-      tone: 'danger',
-    })
+      title: "删除项目",
+      message:
+        project.id === activeProjectId
+          ? "删除当前项目后会切换到其他项目，确定继续吗？"
+          : "确定删除这个项目吗？",
+      confirmLabel: "删除",
+      tone: "danger",
+    });
 
     if (!confirmed) {
-      return
+      return;
     }
 
-    await deleteProject(project.id)
-    setSelectedProjectIds((current) => current.filter((id) => id !== project.id))
-  }
+    await deleteProject(project.id);
+    setSelectedProjectIds((current) =>
+      current.filter((id) => id !== project.id),
+    );
+  };
 
   const handleDuplicateProject = async (project: ProjectRecord) => {
-    await duplicateProject(project.id)
-  }
+    await duplicateProject(project.id);
+  };
 
   const handleExportProject = async (project: ProjectRecord) => {
     try {
-      const exported = await exportProject(project.id)
+      const exported = await exportProject(project.id);
       if (!exported) {
-        notify({ tone: 'warning', title: '暂时无法导出', message: '云端项目尚未准备好，请稍后重试。' })
-        return
+        notify({
+          tone: "warning",
+          title: "暂时无法导出",
+          message: "云端项目尚未准备好，请稍后重试。",
+        });
+        return;
       }
-      notify({ tone: 'success', title: '项目已导出', message: `${project.name} 的目录包已创建。` })
-    } catch (error) {
-      notify({ tone: 'error', title: '导出失败', message: error instanceof Error ? error.message : String(error) })
-    }
-  }
-
-  const commitImport = async (candidate: ProjectBundleImportCandidate, resolution: ProjectImportResolution) => {
-    setImportBusy(true)
-    try {
-      const result = await commitProjectImport(candidate.candidateId, resolution)
-      setImportCandidate(null)
       notify({
-        tone: 'success',
-        title: resolution === 'replace' ? '项目已替换' : '项目已导入',
-        message: `${result.project.name} 已导入云端，共导入 ${result.importedAssetCount} 个资产。`,
-      })
+        tone: "success",
+        title: "项目已导出",
+        message: `${project.name} 的目录包已创建。`,
+      });
     } catch (error) {
-      notify({ tone: 'error', title: '导入失败', message: error instanceof Error ? error.message : String(error) })
-    } finally {
-      setImportBusy(false)
+      notify({
+        tone: "error",
+        title: "导出失败",
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
-  }
+  };
+
+  const commitImport = async (
+    candidate: ProjectBundleImportCandidate,
+    resolution: ProjectImportResolution,
+  ) => {
+    setImportBusy(true);
+    try {
+      const result = await commitProjectImport(
+        candidate.candidateId,
+        resolution,
+      );
+      setImportCandidate(null);
+      notify({
+        tone: "success",
+        title: resolution === "replace" ? "项目已替换" : "项目已导入",
+        message: `${result.project.name} 已导入云端，共导入 ${result.importedAssetCount} 个资产。`,
+      });
+    } catch (error) {
+      notify({
+        tone: "error",
+        title: "导入失败",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setImportBusy(false);
+    }
+  };
 
   const handlePrepareProjectImport = async () => {
     try {
-      const candidate = await prepareProjectImport()
+      const candidate = await prepareProjectImport();
       if (candidate.hasIdConflict) {
-        setImportCandidate(candidate)
-        return
+        setImportCandidate(candidate);
+        return;
       }
       const confirmed = await confirm({
-        title: '导入项目',
+        title: "导入项目",
         message: `将导入“${candidate.project.name}”（${candidate.assetCount} 个引用资产），是否继续？`,
-        confirmLabel: '导入',
-      })
-      if (confirmed) await commitImport(candidate, 'preserve')
+        confirmLabel: "导入",
+      });
+      if (confirmed) await commitImport(candidate, "preserve");
     } catch (error) {
-      notify({ tone: 'error', title: '无法读取项目目录包', message: error instanceof Error ? error.message : String(error) })
+      notify({
+        tone: "error",
+        title: "无法读取项目目录包",
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
-  }
+  };
 
   const handleArchiveProject = async (project: ProjectRecord) => {
     if (project.id === activeProjectId) {
-      const shouldProceed = await confirmProceedWhenDirty(hasUnsavedChanges(), saveActiveProject, confirm, notify)
-      if (!shouldProceed) return
+      const shouldProceed = await confirmProceedWhenDirty(
+        hasUnsavedChanges(),
+        saveActiveProject,
+        confirm,
+        notify,
+      );
+      if (!shouldProceed) return;
     }
 
     const confirmed = await confirm({
-      title: '归档项目',
-      message: project.id === activeProjectId
-        ? '归档当前项目后会切换到其他未归档项目；如果没有其他项目，画布将回到未打开状态。是否继续？'
-        : '归档后项目不会出现在“全部”和“最近编辑”中，可随时从“已归档”恢复。',
-      confirmLabel: '归档',
-    })
-    if (!confirmed) return
+      title: "归档项目",
+      message:
+        project.id === activeProjectId
+          ? "归档当前项目后会切换到其他未归档项目；如果没有其他项目，画布将回到未打开状态。是否继续？"
+          : "归档后项目不会出现在“全部”和“最近编辑”中，可随时从“已归档”恢复。",
+      confirmLabel: "归档",
+    });
+    if (!confirmed) return;
 
-    await archiveProject(project.id)
-    setSelectedProjectIds((current) => current.filter((id) => id !== project.id))
-  }
+    await archiveProject(project.id);
+    setSelectedProjectIds((current) =>
+      current.filter((id) => id !== project.id),
+    );
+  };
 
   const handleRestoreProject = async (project: ProjectRecord) => {
-    const restored = await restoreProject(project.id)
+    const restored = await restoreProject(project.id);
     if (restored) {
-      notify({ tone: 'success', title: '项目已恢复', message: `${project.name} 已回到项目列表。` })
+      notify({
+        tone: "success",
+        title: "项目已恢复",
+        message: `${project.name} 已回到项目列表。`,
+      });
     }
-  }
+  };
 
   const handleToggleProject = (projectId: string) => {
-    setSelectedProjectIds((current) => (
+    setSelectedProjectIds((current) =>
       current.includes(projectId)
         ? current.filter((id) => id !== projectId)
-        : [...current, projectId]
-    ))
-  }
+        : [...current, projectId],
+    );
+  };
 
   const handleBatchDelete = async () => {
     if (selectedProjectIds.length === 0) {
-      return
+      return;
     }
 
     const confirmed = await confirm({
-      title: '批量删除项目',
+      title: "批量删除项目",
       message: `确定删除选中的 ${selectedProjectIds.length} 个项目吗？`,
-      confirmLabel: '删除',
-      tone: 'danger',
-    })
+      confirmLabel: "删除",
+      tone: "danger",
+    });
 
     if (!confirmed) {
-      return
+      return;
     }
 
     for (const projectId of selectedProjectIds) {
-      await deleteProject(projectId)
+      await deleteProject(projectId);
     }
 
-    setSelectedProjectIds([])
-    setBatchMode(false)
-  }
+    setSelectedProjectIds([]);
+    setBatchMode(false);
+  };
 
-  const hasProjects = filteredProjects.length > 0
-  const activePersistenceStatus = getActivePersistenceStatus()
-  const activeProjectStatusView = getProjectManagerStatusView(activePersistenceStatus)
+  const hasProjects = filteredProjects.length > 0;
+  const activePersistenceStatus = getActivePersistenceStatus();
+  const activeProjectStatusView = getProjectManagerStatusView(
+    activePersistenceStatus,
+  );
 
   return (
     <div className="absolute inset-0 z-[55] flex items-center justify-center overflow-hidden bg-black/30 px-4 py-6 backdrop-blur-sm">
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="project-manager-title" tabIndex={-1} className={`relative flex h-[min(78vh,40rem)] w-[min(94vw,76rem)] overflow-hidden rounded-[12px] ${themeClasses.strongPanel}`}>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="project-manager-title"
+        tabIndex={-1}
+        className={`relative flex h-[min(78vh,40rem)] w-[min(94vw,76rem)] overflow-hidden rounded-[12px] ${themeClasses.strongPanel}`}
+      >
         <button
           type="button"
           onClick={close}
@@ -369,8 +494,15 @@ export function ProjectManagerDialog() {
 
         <aside className="relative hidden w-52 shrink-0 border-r border-[var(--border-subtle)] lg:flex lg:flex-col">
           <div className="px-7 pt-8">
-            <h2 id="project-manager-title" className={`text-[1.65rem] font-semibold tracking-[-0.06em] ${themeClasses.textPrimary}`}>项目管理</h2>
-            <p className={`mt-1.5 whitespace-nowrap text-[12px] leading-5 ${themeClasses.textMuted}`}>
+            <h2
+              id="project-manager-title"
+              className={`text-[1.65rem] font-semibold tracking-[-0.06em] ${themeClasses.textPrimary}`}
+            >
+              项目管理
+            </h2>
+            <p
+              className={`mt-1.5 whitespace-nowrap text-[12px] leading-5 ${themeClasses.textMuted}`}
+            >
               查看并管理你的历史创作记录
             </p>
           </div>
@@ -379,21 +511,21 @@ export function ProjectManagerDialog() {
             <div className="space-y-1.5">
               <SidebarButton
                 label="全部"
-                active={activeCategory === 'all'}
+                active={activeCategory === "all"}
                 icon={<FolderOpen className="h-4 w-4" />}
-                onClick={() => setActiveCategory('all')}
+                onClick={() => setActiveCategory("all")}
               />
               <SidebarButton
                 label="最近编辑"
-                active={activeCategory === 'recent'}
+                active={activeCategory === "recent"}
                 icon={<Clock3 className="h-4 w-4" />}
-                onClick={() => setActiveCategory('recent')}
+                onClick={() => setActiveCategory("recent")}
               />
               <SidebarButton
                 label="已归档"
-                active={activeCategory === 'archived'}
+                active={activeCategory === "archived"}
                 icon={<Archive className="h-4 w-4" />}
-                onClick={() => setActiveCategory('archived')}
+                onClick={() => setActiveCategory("archived")}
               />
             </div>
           </div>
@@ -419,35 +551,56 @@ export function ProjectManagerDialog() {
                   <ArrowUpDown className="h-4 w-4 text-[var(--text-muted)]" />
                   <select
                     value={sortMode}
-                    onChange={(event) => setSortMode(event.target.value as ProjectSortMode)}
+                    onChange={(event) =>
+                      setSortMode(event.target.value as ProjectSortMode)
+                    }
                     className="bg-transparent pr-1 text-sm font-medium text-[var(--text-primary)] outline-none"
                   >
-                    <option value="updated" className="bg-[var(--panel-bg-strong)]">最近更新</option>
-                    <option value="name-asc" className="bg-[var(--panel-bg-strong)]">名称 A-Z</option>
-                    <option value="name-desc" className="bg-[var(--panel-bg-strong)]">名称 Z-A</option>
+                    <option
+                      value="updated"
+                      className="bg-[var(--panel-bg-strong)]"
+                    >
+                      最近更新
+                    </option>
+                    <option
+                      value="name-asc"
+                      className="bg-[var(--panel-bg-strong)]"
+                    >
+                      名称 A-Z
+                    </option>
+                    <option
+                      value="name-desc"
+                      className="bg-[var(--panel-bg-strong)]"
+                    >
+                      名称 Z-A
+                    </option>
                   </select>
                 </label>
 
                 <div className="inline-flex h-10 items-center rounded-2xl border border-[var(--border-subtle)] bg-[var(--control-bg)] p-1">
                   <button
                     type="button"
-                    onClick={() => setViewMode('grid')}
+                    onClick={() => setViewMode("grid")}
                     aria-label="网格视图"
-                    aria-pressed={viewMode === 'grid'}
-                    className={viewMode === 'grid'
-                      ? 'inline-flex h-8 w-8 items-center justify-center rounded-xl bg-violet-500 text-white'
-                      : 'inline-flex h-8 w-8 items-center justify-center rounded-xl text-[var(--text-muted)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]'}
+                    aria-pressed={viewMode === "grid"}
+                    className={
+                      viewMode === "grid"
+                        ? "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-violet-500 text-white"
+                        : "inline-flex h-8 w-8 items-center justify-center rounded-xl text-[var(--text-muted)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
+                    }
                   >
                     <LayoutGrid className="h-4 w-4" />
                   </button>
                   <button
                     type="button"
-                    onClick={() => setViewMode('list')}
+                    onClick={() => setViewMode("list")}
                     aria-label="列表视图"
-                    aria-pressed={viewMode === 'list'}
-                    className={viewMode === 'list'
-                      ? 'inline-flex h-8 w-8 items-center justify-center rounded-xl bg-violet-500 text-white'
-                      : 'inline-flex h-8 w-8 items-center justify-center rounded-xl text-[var(--text-muted)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]'}
+                    aria-pressed={viewMode === "list"}
+                    className={
+                      viewMode === "list"
+                        ? "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-violet-500 text-white"
+                        : "inline-flex h-8 w-8 items-center justify-center rounded-xl text-[var(--text-muted)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
+                    }
                   >
                     <List className="h-4 w-4" />
                   </button>
@@ -456,13 +609,15 @@ export function ProjectManagerDialog() {
                 <button
                   type="button"
                   onClick={() => {
-                    setBatchMode((current) => !current)
-                    setSelectedProjectIds([])
+                    setBatchMode((current) => !current);
+                    setSelectedProjectIds([]);
                   }}
                   data-testid="project-batch-toggle"
-                  className={batchMode
-                    ? 'inline-flex h-10 items-center gap-2 rounded-2xl border border-violet-400/30 bg-violet-500 px-4 text-sm font-semibold text-white'
-                    : `${themeClasses.secondaryButton} h-10 gap-2 px-4 text-sm font-medium`}
+                  className={
+                    batchMode
+                      ? "inline-flex h-10 items-center gap-2 rounded-2xl border border-violet-400/30 bg-violet-500 px-4 text-sm font-semibold text-white"
+                      : `${themeClasses.secondaryButton} h-10 gap-2 px-4 text-sm font-medium`
+                  }
                 >
                   <CheckSquare className="h-4 w-4" />
                   批量管理
@@ -472,7 +627,7 @@ export function ProjectManagerDialog() {
                   <button
                     type="button"
                     onClick={() => {
-                      void handleBatchDelete()
+                      void handleBatchDelete();
                     }}
                     data-testid="project-batch-delete"
                     className="inline-flex h-10 items-center gap-2 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 text-sm font-medium text-red-500 transition hover:bg-red-500/14"
@@ -486,7 +641,9 @@ export function ProjectManagerDialog() {
                   <>
                     <button
                       type="button"
-                      onClick={() => { void handlePrepareProjectImport() }}
+                      onClick={() => {
+                        void handlePrepareProjectImport();
+                      }}
                       data-testid="import-project-button"
                       className={`${themeClasses.secondaryButton} h-10 gap-2 px-4 text-sm font-medium`}
                     >
@@ -495,7 +652,9 @@ export function ProjectManagerDialog() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setDialogState({ mode: 'create', project: null })}
+                      onClick={() =>
+                        setDialogState({ mode: "create", project: null })
+                      }
                       data-testid="create-project-button"
                       className="inline-flex h-10 items-center gap-2 rounded-2xl border border-violet-400/25 bg-violet-500 px-4 text-sm font-semibold text-white transition hover:bg-violet-400"
                     >
@@ -504,7 +663,6 @@ export function ProjectManagerDialog() {
                     </button>
                   </>
                 ) : null}
-
               </div>
             </div>
 
@@ -513,31 +671,37 @@ export function ProjectManagerDialog() {
                 <div className="flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <button
                     type="button"
-                    onClick={() => setActiveCategory('all')}
-                    aria-pressed={activeCategory === 'all'}
-                    className={activeCategory === 'all'
-                      ? 'rounded-full bg-violet-500 px-4 py-2 text-xs font-semibold text-white'
-                      : 'rounded-full border border-[var(--border-subtle)] bg-[var(--control-bg)] px-4 py-2 text-xs font-medium text-[var(--text-muted)]'}
+                    onClick={() => setActiveCategory("all")}
+                    aria-pressed={activeCategory === "all"}
+                    className={
+                      activeCategory === "all"
+                        ? "rounded-full bg-violet-500 px-4 py-2 text-xs font-semibold text-white"
+                        : "rounded-full border border-[var(--border-subtle)] bg-[var(--control-bg)] px-4 py-2 text-xs font-medium text-[var(--text-muted)]"
+                    }
                   >
                     全部
                   </button>
                   <button
                     type="button"
-                    onClick={() => setActiveCategory('recent')}
-                    aria-pressed={activeCategory === 'recent'}
-                    className={activeCategory === 'recent'
-                      ? 'rounded-full bg-violet-500 px-4 py-2 text-xs font-semibold text-white'
-                      : 'rounded-full border border-[var(--border-subtle)] bg-[var(--control-bg)] px-4 py-2 text-xs font-medium text-[var(--text-muted)]'}
+                    onClick={() => setActiveCategory("recent")}
+                    aria-pressed={activeCategory === "recent"}
+                    className={
+                      activeCategory === "recent"
+                        ? "rounded-full bg-violet-500 px-4 py-2 text-xs font-semibold text-white"
+                        : "rounded-full border border-[var(--border-subtle)] bg-[var(--control-bg)] px-4 py-2 text-xs font-medium text-[var(--text-muted)]"
+                    }
                   >
                     最近编辑
                   </button>
                   <button
                     type="button"
-                    onClick={() => setActiveCategory('archived')}
-                    aria-pressed={activeCategory === 'archived'}
-                    className={activeCategory === 'archived'
-                      ? 'rounded-full bg-violet-500 px-4 py-2 text-xs font-semibold text-white'
-                      : 'rounded-full border border-[var(--border-subtle)] bg-[var(--control-bg)] px-4 py-2 text-xs font-medium text-[var(--text-muted)]'}
+                    onClick={() => setActiveCategory("archived")}
+                    aria-pressed={activeCategory === "archived"}
+                    className={
+                      activeCategory === "archived"
+                        ? "rounded-full bg-violet-500 px-4 py-2 text-xs font-semibold text-white"
+                        : "rounded-full border border-[var(--border-subtle)] bg-[var(--control-bg)] px-4 py-2 text-xs font-medium text-[var(--text-muted)]"
+                    }
                   >
                     已归档
                   </button>
@@ -550,15 +714,17 @@ export function ProjectManagerDialog() {
             {!hasProjects ? (
               <div className="flex h-full min-h-56 items-center justify-center rounded-[26px] border border-dashed border-[var(--border-subtle)] bg-[var(--control-bg)] px-8 text-center">
                 <div>
-                  <div className="text-sm font-semibold text-[var(--text-primary)]">这里还没有符合条件的项目</div>
+                  <div className="text-sm font-semibold text-[var(--text-primary)]">
+                    这里还没有符合条件的项目
+                  </div>
                   <p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">
-                    {activeCategory === 'archived'
-                      ? '归档项目会保留完整快照和资产引用，并可随时恢复。'
-                      : '试试切换分类、清空搜索，或者直接新建一个项目开始。'}
+                    {activeCategory === "archived"
+                      ? "归档项目会保留完整快照和资产引用，并可随时恢复。"
+                      : "试试切换分类、清空搜索，或者直接新建一个项目开始。"}
                   </p>
                 </div>
               </div>
-            ) : viewMode === 'grid' ? (
+            ) : viewMode === "grid" ? (
               <div className="grid grid-cols-[repeat(auto-fit,minmax(14rem,14rem))] justify-center gap-3">
                 {filteredProjects.map((project) => (
                   <ProjectPreviewCard
@@ -568,25 +734,29 @@ export function ProjectManagerDialog() {
                     batchMode={batchMode}
                     selected={selectedProjectIds.includes(project.id)}
                     viewMode={viewMode}
-                    status={project.id === activeProjectId ? activeProjectStatusView : null}
+                    status={
+                      project.id === activeProjectId
+                        ? activeProjectStatusView
+                        : null
+                    }
                     onOpen={() => {
-                      void handleOpenProject(project.id)
+                      void handleOpenProject(project.id);
                     }}
-                    onRename={() => setDialogState({ mode: 'rename', project })}
+                    onRename={() => setDialogState({ mode: "rename", project })}
                     onDuplicate={() => {
-                      void handleDuplicateProject(project)
+                      void handleDuplicateProject(project);
                     }}
                     onExport={() => {
-                      void handleExportProject(project)
+                      void handleExportProject(project);
                     }}
                     onArchive={() => {
-                      void handleArchiveProject(project)
+                      void handleArchiveProject(project);
                     }}
                     onRestore={() => {
-                      void handleRestoreProject(project)
+                      void handleRestoreProject(project);
                     }}
                     onDelete={() => {
-                      void handleDeleteProject(project)
+                      void handleDeleteProject(project);
                     }}
                     onToggleSelect={() => handleToggleProject(project.id)}
                   />
@@ -602,25 +772,29 @@ export function ProjectManagerDialog() {
                     batchMode={batchMode}
                     selected={selectedProjectIds.includes(project.id)}
                     viewMode={viewMode}
-                    status={project.id === activeProjectId ? activeProjectStatusView : null}
+                    status={
+                      project.id === activeProjectId
+                        ? activeProjectStatusView
+                        : null
+                    }
                     onOpen={() => {
-                      void handleOpenProject(project.id)
+                      void handleOpenProject(project.id);
                     }}
-                    onRename={() => setDialogState({ mode: 'rename', project })}
+                    onRename={() => setDialogState({ mode: "rename", project })}
                     onDuplicate={() => {
-                      void handleDuplicateProject(project)
+                      void handleDuplicateProject(project);
                     }}
                     onExport={() => {
-                      void handleExportProject(project)
+                      void handleExportProject(project);
                     }}
                     onArchive={() => {
-                      void handleArchiveProject(project)
+                      void handleArchiveProject(project);
                     }}
                     onRestore={() => {
-                      void handleRestoreProject(project)
+                      void handleRestoreProject(project);
                     }}
                     onDelete={() => {
-                      void handleDeleteProject(project)
+                      void handleDeleteProject(project);
                     }}
                     onToggleSelect={() => handleToggleProject(project.id)}
                   />
@@ -630,24 +804,24 @@ export function ProjectManagerDialog() {
           </div>
 
           <ProjectNameDialog
-            key={`create-project-${dialogState?.mode === 'create'}`}
-            open={dialogState?.mode === 'create'}
+            key={`create-project-${dialogState?.mode === "create"}`}
+            open={dialogState?.mode === "create"}
             title="新建项目"
             defaultValue=""
             onClose={() => setDialogState(null)}
             onSubmit={(value) => {
-              void handleCreateProject(value)
+              void handleCreateProject(value);
             }}
           />
 
           <ProjectNameDialog
-            key={`${dialogState?.project?.id ?? 'rename-project'}-${dialogState?.mode === 'rename'}`}
-            open={dialogState?.mode === 'rename'}
+            key={`${dialogState?.project?.id ?? "rename-project"}-${dialogState?.mode === "rename"}`}
+            open={dialogState?.mode === "rename"}
             title="重命名"
-            defaultValue={dialogState?.project?.name ?? ''}
+            defaultValue={dialogState?.project?.name ?? ""}
             onClose={() => setDialogState(null)}
             onSubmit={(value) => {
-              void handleRenameProject(value)
+              void handleRenameProject(value);
             }}
           />
 
@@ -656,11 +830,12 @@ export function ProjectManagerDialog() {
             busy={importBusy}
             onCancel={() => setImportCandidate(null)}
             onResolve={(resolution) => {
-              if (importCandidate) void commitImport(importCandidate, resolution)
+              if (importCandidate)
+                void commitImport(importCandidate, resolution);
             }}
           />
         </section>
       </div>
     </div>
-  )
+  );
 }

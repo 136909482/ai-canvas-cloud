@@ -1,127 +1,145 @@
-import { platformBridge } from '@/platform'
+import { platformBridge } from "@/platform";
 import {
   buildWorkspaceThumbnailPath,
   getWorkspaceAssetPathParts,
-} from '@/features/projectManager/projectAssetPaths'
-import type { WorkspaceImageAsset } from '@/types'
+} from "@/features/projectManager/projectAssetPaths";
+import type { WorkspaceImageAsset } from "@/types";
 
-export const WORKSPACE_IMAGE_THUMBNAIL_MAX_EDGE = 768
+export const WORKSPACE_IMAGE_THUMBNAIL_MAX_EDGE = 768;
 
 type ImageDimensions = {
-  width: number
-  height: number
-}
+  width: number;
+  height: number;
+};
 
 type WorkspaceImageAssetInput = {
-  pathSegments: string[]
-  fileName: string
-  blob: Blob
-  originalWidth?: number
-  originalHeight?: number
-}
+  pathSegments: string[];
+  fileName: string;
+  blob: Blob;
+  originalWidth?: number;
+  originalHeight?: number;
+};
 
-type WorkspaceImageThumbnailInput = WorkspaceImageAssetInput
+type WorkspaceImageThumbnailInput = WorkspaceImageAssetInput;
 
 type RestoreWorkspaceImageThumbnailInput = {
-  asset: Pick<WorkspaceImageAsset, 'relativePath' | 'fileName' | 'thumbnailRelativePath' | 'originalWidth' | 'originalHeight' | 'projectId'>
-  imageUrl: string
-}
+  asset: Pick<
+    WorkspaceImageAsset,
+    | "relativePath"
+    | "fileName"
+    | "thumbnailRelativePath"
+    | "originalWidth"
+    | "originalHeight"
+    | "projectId"
+  >;
+  imageUrl: string;
+};
 
 type ThumbnailResult = {
-  blob: Blob
-  width: number
-  height: number
-}
+  blob: Blob;
+  width: number;
+  height: number;
+};
 
 function getSafeDimension(value: number | undefined) {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
+  return typeof value === "number" && Number.isFinite(value) && value > 0
     ? Math.round(value)
-    : 0
+    : 0;
 }
 
 function loadImageElementFromBlob(blob: Blob) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(blob)
-    const image = new Image()
+    const objectUrl = URL.createObjectURL(blob);
+    const image = new Image();
 
     image.onload = () => {
-      URL.revokeObjectURL(objectUrl)
-      resolve(image)
-    }
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
 
     image.onerror = () => {
-      URL.revokeObjectURL(objectUrl)
-      reject(new Error('Failed to read image asset dimensions'))
-    }
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Failed to read image asset dimensions"));
+    };
 
-    image.src = objectUrl
-  })
+    image.src = objectUrl;
+  });
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement) {
   return new Promise<Blob | null>((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), 'image/webp', 0.72)
-  })
+    canvas.toBlob((blob) => resolve(blob), "image/webp", 0.72);
+  });
 }
 
 function buildThumbnailFileName(fileName: string) {
-  const dotIndex = fileName.lastIndexOf('.')
-  const baseName = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName
-  return `${baseName || 'image'}-thumbnail.webp`
+  const dotIndex = fileName.lastIndexOf(".");
+  const baseName = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName;
+  return `${baseName || "image"}-thumbnail.webp`;
 }
 
 async function readBlobImageDimensions(blob: Blob): Promise<ImageDimensions> {
-  const image = await loadImageElementFromBlob(blob)
+  const image = await loadImageElementFromBlob(blob);
   return {
     width: getSafeDimension(image.naturalWidth || image.width),
     height: getSafeDimension(image.naturalHeight || image.height),
-  }
+  };
 }
 
-async function createThumbnail(blob: Blob, original: ImageDimensions): Promise<ThumbnailResult | null> {
+async function createThumbnail(
+  blob: Blob,
+  original: ImageDimensions,
+): Promise<ThumbnailResult | null> {
   if (original.width <= 0 || original.height <= 0) {
-    return null
+    return null;
   }
 
-  const scale = Math.min(1, WORKSPACE_IMAGE_THUMBNAIL_MAX_EDGE / Math.max(original.width, original.height))
+  const scale = Math.min(
+    1,
+    WORKSPACE_IMAGE_THUMBNAIL_MAX_EDGE /
+      Math.max(original.width, original.height),
+  );
   if (scale >= 1) {
-    return null
+    return null;
   }
 
-  const image = await loadImageElementFromBlob(blob)
-  const width = Math.max(1, Math.round(original.width * scale))
-  const height = Math.max(1, Math.round(original.height * scale))
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
+  const image = await loadImageElementFromBlob(blob);
+  const width = Math.max(1, Math.round(original.width * scale));
+  const height = Math.max(1, Math.round(original.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
 
-  const context = canvas.getContext('2d', { alpha: true })
+  const context = canvas.getContext("2d", { alpha: true });
   if (!context) {
-    return null
+    return null;
   }
 
-  context.imageSmoothingEnabled = true
-  context.imageSmoothingQuality = 'medium'
-  context.drawImage(image, 0, 0, width, height)
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "medium";
+  context.drawImage(image, 0, 0, width, height);
 
-  const thumbnailBlob = await canvasToBlob(canvas)
+  const thumbnailBlob = await canvasToBlob(canvas);
   if (!thumbnailBlob) {
-    return null
+    return null;
   }
 
   return {
     blob: thumbnailBlob,
     width,
     height,
-  }
+  };
 }
 
-export async function writeWorkspaceImageAsset(input: WorkspaceImageAssetInput): Promise<WorkspaceImageAsset> {
-  const originalWidth = getSafeDimension(input.originalWidth)
-  const originalHeight = getSafeDimension(input.originalHeight)
-  const original = originalWidth > 0 && originalHeight > 0
-    ? { width: originalWidth, height: originalHeight }
-    : await readBlobImageDimensions(input.blob)
+export async function writeWorkspaceImageAsset(
+  input: WorkspaceImageAssetInput,
+): Promise<WorkspaceImageAsset> {
+  const originalWidth = getSafeDimension(input.originalWidth);
+  const originalHeight = getSafeDimension(input.originalHeight);
+  const original =
+    originalWidth > 0 && originalHeight > 0
+      ? { width: originalWidth, height: originalHeight }
+      : await readBlobImageDimensions(input.blob);
 
   const asset = await platformBridge.writeWorkspaceAsset({
     pathSegments: input.pathSegments,
@@ -129,7 +147,7 @@ export async function writeWorkspaceImageAsset(input: WorkspaceImageAssetInput):
     blob: input.blob,
     width: original.width || undefined,
     height: original.height || undefined,
-  })
+  });
 
   const enrichedAsset: WorkspaceImageAsset = {
     ...asset,
@@ -137,31 +155,34 @@ export async function writeWorkspaceImageAsset(input: WorkspaceImageAssetInput):
     originalHeight: original.height || undefined,
     displayWidth: original.width || undefined,
     displayHeight: original.height || undefined,
-  }
+  };
 
   try {
     const thumbnailMeta = await writeWorkspaceImageThumbnailAsset({
       ...input,
       originalWidth: original.width,
       originalHeight: original.height,
-    })
+    });
 
     return {
       ...enrichedAsset,
       ...thumbnailMeta,
-    }
+    };
   } catch {
-    return enrichedAsset
+    return enrichedAsset;
   }
 }
 
-export async function writeWorkspaceImageThumbnailAsset(input: WorkspaceImageThumbnailInput): Promise<Partial<WorkspaceImageAsset>> {
-  const originalWidth = getSafeDimension(input.originalWidth)
-  const originalHeight = getSafeDimension(input.originalHeight)
-  const original = originalWidth > 0 && originalHeight > 0
-    ? { width: originalWidth, height: originalHeight }
-    : await readBlobImageDimensions(input.blob)
-  const thumbnail = await createThumbnail(input.blob, original)
+export async function writeWorkspaceImageThumbnailAsset(
+  input: WorkspaceImageThumbnailInput,
+): Promise<Partial<WorkspaceImageAsset>> {
+  const originalWidth = getSafeDimension(input.originalWidth);
+  const originalHeight = getSafeDimension(input.originalHeight);
+  const original =
+    originalWidth > 0 && originalHeight > 0
+      ? { width: originalWidth, height: originalHeight }
+      : await readBlobImageDimensions(input.blob);
+  const thumbnail = await createThumbnail(input.blob, original);
 
   if (!thumbnail) {
     return {
@@ -169,18 +190,18 @@ export async function writeWorkspaceImageThumbnailAsset(input: WorkspaceImageThu
       originalHeight: original.height || undefined,
       displayWidth: original.width || undefined,
       displayHeight: original.height || undefined,
-    }
+    };
   }
 
   const thumbnailAsset = await platformBridge.writeWorkspaceAsset({
     pathSegments: buildWorkspaceThumbnailPath(input.pathSegments),
     fileName: buildThumbnailFileName(input.fileName),
     blob: thumbnail.blob,
-    assetKind: 'thumbnail',
-    referenceRole: 'thumbnail',
+    assetKind: "thumbnail",
+    referenceRole: "thumbnail",
     width: thumbnail.width,
     height: thumbnail.height,
-  })
+  });
 
   return {
     thumbnailRelativePath: thumbnailAsset.relativePath,
@@ -188,26 +209,29 @@ export async function writeWorkspaceImageThumbnailAsset(input: WorkspaceImageThu
     originalHeight: original.height || undefined,
     displayWidth: thumbnail.width,
     displayHeight: thumbnail.height,
-  }
+  };
 }
 
-export async function restoreWorkspaceImageThumbnailAsset(input: RestoreWorkspaceImageThumbnailInput): Promise<Partial<WorkspaceImageAsset> | null> {
+export async function restoreWorkspaceImageThumbnailAsset(
+  input: RestoreWorkspaceImageThumbnailInput,
+): Promise<Partial<WorkspaceImageAsset> | null> {
   if (!input.asset.relativePath || !input.imageUrl) {
-    return null
+    return null;
   }
 
-  const response = await fetch(input.imageUrl)
+  const response = await fetch(input.imageUrl);
   if (!response.ok) {
-    throw new Error('原图读取失败，无法恢复预览图')
+    throw new Error("原图读取失败，无法恢复预览图");
   }
 
-  const blob = await response.blob()
-  const originalWidth = getSafeDimension(input.asset.originalWidth)
-  const originalHeight = getSafeDimension(input.asset.originalHeight)
-  const original = originalWidth > 0 && originalHeight > 0
-    ? { width: originalWidth, height: originalHeight }
-    : await readBlobImageDimensions(blob)
-  const thumbnail = await createThumbnail(blob, original)
+  const blob = await response.blob();
+  const originalWidth = getSafeDimension(input.asset.originalWidth);
+  const originalHeight = getSafeDimension(input.asset.originalHeight);
+  const original =
+    originalWidth > 0 && originalHeight > 0
+      ? { width: originalWidth, height: originalHeight }
+      : await readBlobImageDimensions(blob);
+  const thumbnail = await createThumbnail(blob, original);
 
   if (!thumbnail) {
     return {
@@ -215,7 +239,7 @@ export async function restoreWorkspaceImageThumbnailAsset(input: RestoreWorkspac
       originalHeight: original.height || undefined,
       displayWidth: original.width || undefined,
       displayHeight: original.height || undefined,
-    }
+    };
   }
 
   if (input.asset.thumbnailRelativePath) {
@@ -224,7 +248,7 @@ export async function restoreWorkspaceImageThumbnailAsset(input: RestoreWorkspac
       blob: thumbnail.blob,
       width: thumbnail.width,
       height: thumbnail.height,
-    })
+    });
 
     return {
       thumbnailRelativePath: restoredAsset.relativePath,
@@ -232,22 +256,28 @@ export async function restoreWorkspaceImageThumbnailAsset(input: RestoreWorkspac
       originalHeight: original.height || undefined,
       displayWidth: thumbnail.width,
       displayHeight: thumbnail.height,
-    }
+    };
   }
 
   const pathParts = input.asset.projectId
-    ? { pathSegments: ['projects', input.asset.projectId], fileName: input.asset.fileName }
-    : getWorkspaceAssetPathParts(input.asset.relativePath, input.asset.fileName)
+    ? {
+        pathSegments: ["projects", input.asset.projectId],
+        fileName: input.asset.fileName,
+      }
+    : getWorkspaceAssetPathParts(
+        input.asset.relativePath,
+        input.asset.fileName,
+      );
   const thumbnailAsset = await platformBridge.writeWorkspaceAsset({
     pathSegments: buildWorkspaceThumbnailPath(pathParts.pathSegments),
     fileName: buildThumbnailFileName(pathParts.fileName),
     blob: thumbnail.blob,
     projectId: input.asset.projectId,
-    assetKind: 'thumbnail',
-    referenceRole: 'thumbnail',
+    assetKind: "thumbnail",
+    referenceRole: "thumbnail",
     width: thumbnail.width,
     height: thumbnail.height,
-  })
+  });
 
   return {
     thumbnailRelativePath: thumbnailAsset.relativePath,
@@ -255,5 +285,5 @@ export async function restoreWorkspaceImageThumbnailAsset(input: RestoreWorkspac
     originalHeight: original.height || undefined,
     displayWidth: thumbnail.width,
     displayHeight: thumbnail.height,
-  }
+  };
 }

@@ -1,32 +1,32 @@
-import { useState } from 'react'
-import { Loader2, MailCheck } from 'lucide-react'
-import { resendAuthVerificationEmail } from './api'
-import { useAuthStore } from './useAuthStore'
+import { useState } from "react";
+import { Loader2, MailCheck } from "lucide-react";
+import { resendAuthVerificationEmail } from "./api";
+import { useAuthStore } from "./useAuthStore";
 
 export function EmailVerificationBanner() {
-  const session = useAuthStore((state) => state.session)
-  const [isSending, setIsSending] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const session = useAuthStore((state) => state.session);
+  const [isSending, setIsSending] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   if (!session || session.user.emailVerified) {
-    return null
+    return null;
   }
 
   const handleResend = async () => {
-    setIsSending(true)
-    setMessage(null)
-    setError(null)
+    setIsSending(true);
+    setMessage(null);
+    setError(null);
 
     try {
-      await resendAuthVerificationEmail()
-      setMessage('验证邮件已发送，请查看邮箱。')
+      await resendAuthVerificationEmail();
+      setMessage("验证邮件已发送，请查看邮箱。");
     } catch (error) {
-      setError(error instanceof Error ? error.message : String(error))
+      setError(error instanceof Error ? error.message : String(error));
     } finally {
-      setIsSending(false)
+      setIsSending(false);
     }
-  }
+  };
 
   return (
     <div className="pointer-events-none absolute left-1/2 top-14 z-40 w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2">
@@ -37,10 +37,17 @@ export function EmailVerificationBanner() {
         <div className="min-w-0 flex-1">
           <div className="font-semibold">邮箱还未验证</div>
           <div className="mt-1 leading-5 opacity-85">
-            当前账号 {session.user.email} 还没完成邮箱验证。先不影响登录使用，但正式运营前会用于找回账号和安全通知。
+            当前账号 {session.user.email}{" "}
+            还没完成邮箱验证。先不影响登录使用，但正式运营前会用于找回账号和安全通知。
           </div>
-          {message ? <div className="mt-1 text-emerald-600 dark:text-emerald-200">{message}</div> : null}
-          {error ? <div className="mt-1 text-red-500 dark:text-red-200">{error}</div> : null}
+          {message ? (
+            <div className="mt-1 text-emerald-600 dark:text-emerald-200">
+              {message}
+            </div>
+          ) : null}
+          {error ? (
+            <div className="mt-1 text-red-500 dark:text-red-200">{error}</div>
+          ) : null}
         </div>
         <button
           type="button"
@@ -53,5 +60,5 @@ export function EmailVerificationBanner() {
         </button>
       </div>
     </div>
-  )
+  );
 }

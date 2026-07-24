@@ -15,7 +15,11 @@
       }
     ],
     "edges": [
-      { "id": "edge-legacy", "source": "text-legacy", "target": "generate-legacy" }
+      {
+        "id": "edge-legacy",
+        "source": "text-legacy",
+        "target": "generate-legacy"
+      }
     ]
   },
   "taskQueue": {

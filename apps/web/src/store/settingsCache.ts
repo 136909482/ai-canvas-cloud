@@ -1,91 +1,58 @@
-import { redactWorkspaceConfigSecretsForCache } from '../features/settings/providerSecrets.ts'
-import type { ApiConfig, WorkspaceConfigFile } from '../types/index.ts'
-import type { LegacyConfigShape } from './settingsConfig.ts'
+import { redactWorkspaceConfigSecretsForCache } from "../features/settings/providerSecrets.ts";
+import type { WorkspaceConfigFile } from "../types/index.ts";
 
-const LEGACY_SETTINGS_STORAGE_KEY = 'ai-canvas-settings'
-const WORKSPACE_CONFIG_CACHE_KEY = 'ai-canvas-workspace-config-cache'
+const WORKSPACE_CONFIG_CACHE_KEY = "ai-canvas-workspace-config-cache";
 const DEVICE_ONLY_STORAGE_KEYS = [
-  'ai-canvas-generation-mode',
-  'ai-canvas-custom-task-cache',
-] as const
-
-type PersistedSettingsShape = {
-  state?: {
-    config?: Partial<ApiConfig> | LegacyConfigShape
-  }
-  config?: Partial<ApiConfig> | LegacyConfigShape
-}
-
-export function readLegacyPersistedConfig(): Partial<ApiConfig> | LegacyConfigShape | undefined {
-  if (typeof window === 'undefined') {
-    return undefined
-  }
-
-  try {
-    const raw = window.localStorage.getItem(LEGACY_SETTINGS_STORAGE_KEY)
-    if (!raw) {
-      return undefined
-    }
-
-    const parsed = JSON.parse(raw) as PersistedSettingsShape | Partial<ApiConfig> | LegacyConfigShape | null
-
-    if (parsed && typeof parsed === 'object' && 'state' in parsed && parsed.state?.config) {
-      return parsed.state.config
-    }
-
-    if (parsed && typeof parsed === 'object' && 'config' in parsed) {
-      return parsed.config
-    }
-
-    return parsed as Partial<ApiConfig> | LegacyConfigShape | undefined
-  } catch {
-    return undefined
-  }
-}
+  "ai-canvas-generation-mode",
+  "ai-canvas-custom-task-cache",
+] as const;
 
 export function readWorkspaceConfigCache(): WorkspaceConfigFile | null {
-  if (typeof window === 'undefined') {
-    return null
+  if (typeof window === "undefined") {
+    return null;
   }
 
   try {
-    const raw = window.localStorage.getItem(WORKSPACE_CONFIG_CACHE_KEY)
+    const raw = window.localStorage.getItem(WORKSPACE_CONFIG_CACHE_KEY);
     if (!raw) {
-      return null
+      return null;
     }
 
-    return JSON.parse(raw) as WorkspaceConfigFile
+    return JSON.parse(raw) as WorkspaceConfigFile;
   } catch {
-    return null
+    return null;
   }
 }
 
 export function writeWorkspaceConfigCache(config: WorkspaceConfigFile) {
-  if (typeof window === 'undefined') {
-    return
+  if (typeof window === "undefined") {
+    return;
   }
 
   try {
-    window.localStorage.setItem(WORKSPACE_CONFIG_CACHE_KEY, JSON.stringify(redactWorkspaceConfigSecretsForCache(config)))
+    window.localStorage.setItem(
+      WORKSPACE_CONFIG_CACHE_KEY,
+      JSON.stringify(redactWorkspaceConfigSecretsForCache(config)),
+    );
   } catch {
     // Ignore cache write failures; workspace persistence remains authoritative.
   }
 }
 
 export function clearLegacyPersistedConfig() {
-  if (typeof window === 'undefined') return
+  if (typeof window === "undefined") return;
   try {
-    window.localStorage.removeItem(LEGACY_SETTINGS_STORAGE_KEY)
+    window.localStorage.removeItem("ai-canvas-settings");
   } catch {
     // The in-memory Vault remains usable when localStorage is unavailable.
   }
 }
 
 export function clearDeviceOnlySettingsCache() {
-  if (typeof window === 'undefined') return
+  if (typeof window === "undefined") return;
   try {
     for (const key of DEVICE_ONLY_STORAGE_KEYS) {
-      window.localStorage.removeItem(key)
+      window.localStorage.removeItem(key);
     }
   } catch {
     // Best effort only. IndexedDB deletion remains authoritative for credentials.

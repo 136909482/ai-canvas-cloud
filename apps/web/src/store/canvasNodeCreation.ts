@@ -1,5 +1,5 @@
-import type { Node } from '@xyflow/react'
-import { DEFAULT_IMAGE_MODEL_ID } from '@/config/modelCatalog'
+import type { Node } from "@xyflow/react";
+import { DEFAULT_IMAGE_MODEL_ID } from "@/config/modelCatalog";
 import type {
   CompareNodeData,
   GenerateStatus,
@@ -17,7 +17,7 @@ import type {
   TextNodeData,
   VideoGenerateNodeData,
   VideoNodeData,
-} from '@/types'
+} from "@/types";
 import {
   createImageCropNodeData,
   createImageEditNodeData,
@@ -25,42 +25,42 @@ import {
   createTestImageNodeData,
   createVideoGenerateNodeData,
   createVideoNodeData,
-} from './canvasNodeData'
+} from "./canvasNodeData";
 
-const NODE_DRAG_HANDLE = '.node-drag-handle'
-export const DEFAULT_TEXT_NODE_LABEL = '提示词'
+const NODE_DRAG_HANDLE = ".node-drag-handle";
+export const DEFAULT_TEXT_NODE_LABEL = "提示词";
 
 export type LLMOutputTextNodeDraft = Pick<
   LLMOutputTextNodeData,
-  'text' | 'label' | 'status' | 'errorMsg' | 'outputFormat' | 'layoutMode'
->
+  "text" | "label" | "status" | "errorMsg" | "outputFormat" | "layoutMode"
+>;
 
 export type GeneratedPreviewNodeDraft = Pick<
   GeneratedPreviewNodeData,
-  | 'label'
-  | 'imageUrl'
-  | 'imageAsset'
-  | 'prompt'
-  | 'model'
-  | 'apiProfileName'
-  | 'ratio'
-  | 'status'
-  | 'errorMsg'
-  | 'imageWidth'
-  | 'imageHeight'
-  | 'sourceImageNodeId'
-  | 'originOperation'
-  | 'taskId'
->
+  | "label"
+  | "imageUrl"
+  | "imageAsset"
+  | "prompt"
+  | "model"
+  | "apiProfileName"
+  | "ratio"
+  | "status"
+  | "errorMsg"
+  | "imageWidth"
+  | "imageHeight"
+  | "sourceImageNodeId"
+  | "originOperation"
+  | "taskId"
+>;
 
 export interface CropPreviewNodeDraft {
-  label: string
-  imageUrl: string
-  imageAsset: GeneratedPreviewNodeData['imageAsset']
-  ratio: string
-  imageWidth: number
-  imageHeight: number
-  createdAt: number
+  label: string;
+  imageUrl: string;
+  imageAsset: GeneratedPreviewNodeData["imageAsset"];
+  ratio: string;
+  imageWidth: number;
+  imageHeight: number;
+  createdAt: number;
 }
 
 export function buildManualTextNode(
@@ -70,18 +70,18 @@ export function buildManualTextNode(
 ): Node<TextNodeData> {
   return {
     id,
-    type: 'textNode',
+    type: "textNode",
     dragHandle: NODE_DRAG_HANDLE,
     position,
     width: size.width,
     height: size.height,
     selected: true,
     data: {
-      text: '',
+      text: "",
       richPrompt: null,
       label: DEFAULT_TEXT_NODE_LABEL,
     },
-  }
+  };
 }
 
 export function buildManualInlineTextSplitterNode(
@@ -91,21 +91,21 @@ export function buildManualInlineTextSplitterNode(
 ): Node<InlineTextSplitterNodeData> {
   return {
     id,
-    type: 'inlineTextSplitterNode',
+    type: "inlineTextSplitterNode",
     dragHandle: NODE_DRAG_HANDLE,
     position,
     width: size.width,
     height: size.height,
     selected: true,
     data: {
-      inputText: '',
+      inputText: "",
       connectedTextNode: null,
-      separator: '*',
+      separator: "*",
       parts: [],
       lastRunAt: null,
-      errorMsg: '',
+      errorMsg: "",
     },
-  }
+  };
 }
 
 export function buildTextSplitterOutputTextNode(
@@ -115,7 +115,7 @@ export function buildTextSplitterOutputTextNode(
 ): Node<TextNodeData> {
   return {
     id,
-    type: 'textNode',
+    type: "textNode",
     dragHandle: NODE_DRAG_HANDLE,
     position: { x: 0, y: 0 },
     width: 280,
@@ -125,7 +125,7 @@ export function buildTextSplitterOutputTextNode(
       text,
       label,
     },
-  }
+  };
 }
 
 export function buildManualImageNode(
@@ -135,14 +135,14 @@ export function buildManualImageNode(
 ): Node<ImageNodeData> {
   return {
     id,
-    type: 'imageNode',
+    type: "imageNode",
     dragHandle: NODE_DRAG_HANDLE,
     position,
     width: size.width,
     height: size.height,
     selected: true,
     data: createImageNodeData(),
-  }
+  };
 }
 
 export function buildManualVideoNode(
@@ -152,14 +152,14 @@ export function buildManualVideoNode(
 ): Node<VideoNodeData> {
   return {
     id,
-    type: 'videoNode',
+    type: "videoNode",
     dragHandle: NODE_DRAG_HANDLE,
     position,
     width: size.width,
     height: size.height,
     selected: true,
     data: createVideoNodeData(),
-  }
+  };
 }
 
 export function buildManualVideoGenerateNode(
@@ -169,14 +169,14 @@ export function buildManualVideoGenerateNode(
 ): Node<VideoGenerateNodeData> {
   return {
     id,
-    type: 'videoGenerateNode',
+    type: "videoGenerateNode",
     dragHandle: NODE_DRAG_HANDLE,
     position,
     width: size.width,
     height: size.height,
     selected: true,
     data: createVideoGenerateNodeData(),
-  }
+  };
 }
 
 export function buildManualImageCropNode(
@@ -186,14 +186,14 @@ export function buildManualImageCropNode(
 ): Node<ImageCropNodeData> {
   return {
     id,
-    type: 'imageCropNode',
+    type: "imageCropNode",
     dragHandle: NODE_DRAG_HANDLE,
     position,
     width: size.width,
     height: size.height,
     selected: true,
     data: createImageCropNodeData(),
-  }
+  };
 }
 
 export function buildManualGenerateNode(
@@ -203,24 +203,24 @@ export function buildManualGenerateNode(
 ): Node<GenerateNodeData> {
   return {
     id,
-    type: 'generateNode',
+    type: "generateNode",
     dragHandle: NODE_DRAG_HANDLE,
     position,
     width: size.width,
     height: size.height,
     selected: true,
     data: {
-      prompt: '',
+      prompt: "",
       richPrompt: null,
-      negativePrompt: '',
+      negativePrompt: "",
       imageUrl: null,
       imageAsset: null,
-      status: 'idle',
-      errorMsg: '',
-      ratio: '1:1',
+      status: "idle",
+      errorMsg: "",
+      ratio: "1:1",
       model: DEFAULT_IMAGE_MODEL_ID,
-      resolution: '1K',
-      quality: 'auto',
+      resolution: "1K",
+      quality: "auto",
       googleSearch: false,
       googleImageSearch: false,
       connectedTextNode: null,
@@ -229,7 +229,7 @@ export function buildManualGenerateNode(
       maskSourceNodeId: null,
       activeTaskId: null,
     },
-  }
+  };
 }
 
 export function buildManualImageEditNode(
@@ -239,14 +239,14 @@ export function buildManualImageEditNode(
 ): Node<ImageEditNodeData> {
   return {
     id,
-    type: 'imageEditNode',
+    type: "imageEditNode",
     dragHandle: NODE_DRAG_HANDLE,
     position,
     width: size.width,
     height: size.height,
     selected: true,
     data: createImageEditNodeData(),
-  }
+  };
 }
 
 export function buildManualLLMFileNode(
@@ -256,7 +256,7 @@ export function buildManualLLMFileNode(
 ): Node<LLMFileNodeData> {
   return {
     id,
-    type: 'llmFileNode',
+    type: "llmFileNode",
     dragHandle: NODE_DRAG_HANDLE,
     position,
     width: size.width,
@@ -264,22 +264,22 @@ export function buildManualLLMFileNode(
     selected: true,
     data: {
       presetId: null,
-      instructionPrompt: '',
+      instructionPrompt: "",
       richPrompt: null,
-      inputText: '',
+      inputText: "",
       inputRichPrompt: null,
       connectedTextNode: null,
       inputImageSourceOrder: [],
-      model: '',
-      outputFormat: 'text',
+      model: "",
+      outputFormat: "text",
       outputNodeId: null,
-      outputText: '',
-      outputJson: '',
-      status: 'idle',
-      errorMsg: '',
+      outputText: "",
+      outputJson: "",
+      status: "idle",
+      errorMsg: "",
       inputFiles: [],
     },
-  }
+  };
 }
 
 export function buildGroupNode(
@@ -289,17 +289,17 @@ export function buildGroupNode(
 ): Node<GroupNodeData> {
   return {
     id,
-    type: 'groupNode',
+    type: "groupNode",
     position,
     width: size.width,
     height: size.height,
     selected: true,
     data: {
-      label: `\u7F16\u7EC4 ${id.split('-').at(-1) ?? ''}`.trim(),
-      layoutMode: 'manual',
-      color: 'violet',
+      label: `\u7F16\u7EC4 ${id.split("-").at(-1) ?? ""}`.trim(),
+      layoutMode: "manual",
+      color: "violet",
     },
-  }
+  };
 }
 
 export function buildLLMOutputTextNode(
@@ -310,7 +310,7 @@ export function buildLLMOutputTextNode(
 ): Node<LLMOutputTextNodeData> {
   return {
     id,
-    type: 'llmOutputTextNode',
+    type: "llmOutputTextNode",
     dragHandle: NODE_DRAG_HANDLE,
     position: { x: 0, y: 0 },
     width: size.width,
@@ -323,9 +323,9 @@ export function buildLLMOutputTextNode(
       sourceLLMNodeId,
       outputFormat: outputNode.outputFormat,
       createdAt: Date.now(),
-      layoutMode: outputNode.layoutMode ?? 'auto',
+      layoutMode: outputNode.layoutMode ?? "auto",
     },
-  }
+  };
 }
 
 export function buildGeneratedPreviewNode(
@@ -336,7 +336,7 @@ export function buildGeneratedPreviewNode(
 ): Node<GeneratedPreviewNodeData> {
   return {
     id,
-    type: 'generatedPreviewNode',
+    type: "generatedPreviewNode",
     dragHandle: NODE_DRAG_HANDLE,
     position: { x: 0, y: 0 },
     width: size.width,
@@ -355,12 +355,12 @@ export function buildGeneratedPreviewNode(
       imageHeight: preview.imageHeight,
       sourceGenerateNodeId,
       sourceImageNodeId: preview.sourceImageNodeId ?? null,
-      originOperation: preview.originOperation ?? 'generate',
+      originOperation: preview.originOperation ?? "generate",
       taskId: preview.taskId ?? null,
       createdAt: Date.now(),
-      layoutMode: 'auto',
+      layoutMode: "auto",
     },
-  }
+  };
 }
 
 export function buildGeneratedVideoNode(
@@ -371,13 +371,13 @@ export function buildGeneratedVideoNode(
 ): Node<VideoNodeData> {
   return {
     id,
-    type: 'videoNode',
+    type: "videoNode",
     dragHandle: NODE_DRAG_HANDLE,
     position,
     width: size.width,
     height: size.height,
     data: createVideoNodeData(video),
-  }
+  };
 }
 
 export function buildCropPreviewNode(
@@ -388,7 +388,7 @@ export function buildCropPreviewNode(
 ): Node<GeneratedPreviewNodeData> {
   return {
     id,
-    type: 'generatedPreviewNode',
+    type: "generatedPreviewNode",
     dragHandle: NODE_DRAG_HANDLE,
     position: { x: 0, y: 0 },
     width: size.width,
@@ -398,21 +398,21 @@ export function buildCropPreviewNode(
       label: preview.label,
       imageUrl: preview.imageUrl,
       imageAsset: preview.imageAsset,
-      prompt: '',
-      model: 'crop',
+      prompt: "",
+      model: "crop",
       ratio: preview.ratio,
-      status: 'done' satisfies GenerateStatus,
-      errorMsg: '',
+      status: "done" satisfies GenerateStatus,
+      errorMsg: "",
       imageWidth: preview.imageWidth,
       imageHeight: preview.imageHeight,
       sourceGenerateNodeId: sourceCropNodeId,
       sourceImageNodeId: null,
-      originOperation: 'crop',
+      originOperation: "crop",
       taskId: null,
       createdAt: preview.createdAt,
-      layoutMode: 'auto',
+      layoutMode: "auto",
     },
-  }
+  };
 }
 
 export function buildManualGeneratedPreviewNode(
@@ -422,32 +422,32 @@ export function buildManualGeneratedPreviewNode(
 ): Node<GeneratedPreviewNodeData> {
   return {
     id,
-    type: 'generatedPreviewNode',
+    type: "generatedPreviewNode",
     dragHandle: NODE_DRAG_HANDLE,
     position,
     width: size.width,
     height: size.height,
     selected: true,
     data: {
-      label: '预览图片',
-      imageUrl: '',
+      label: "预览图片",
+      imageUrl: "",
       imageAsset: null,
-      prompt: '',
+      prompt: "",
       model: DEFAULT_IMAGE_MODEL_ID,
       apiProfileName: null,
-      ratio: '1:1',
-      status: 'idle',
-      errorMsg: '',
+      ratio: "1:1",
+      status: "idle",
+      errorMsg: "",
       imageWidth: 0,
       imageHeight: 0,
-      sourceGenerateNodeId: 'manual-preview',
+      sourceGenerateNodeId: "manual-preview",
       sourceImageNodeId: null,
-      originOperation: 'generate',
+      originOperation: "generate",
       taskId: null,
       createdAt: Date.now(),
-      layoutMode: 'manual',
+      layoutMode: "manual",
     },
-  }
+  };
 }
 
 export function buildManualCompareNode(
@@ -457,18 +457,18 @@ export function buildManualCompareNode(
 ): Node<CompareNodeData> {
   return {
     id,
-    type: 'compareNode',
+    type: "compareNode",
     dragHandle: NODE_DRAG_HANDLE,
     position,
     width: size.width,
     height: size.height,
     selected: true,
     data: {
-      mode: 'slider',
-      activeSlot: 'image1',
+      mode: "slider",
+      activeSlot: "image1",
       sliderPosition: 50,
     },
-  }
+  };
 }
 
 export function buildManualTestImageNode(
@@ -478,14 +478,14 @@ export function buildManualTestImageNode(
 ): Node<TestImageNodeData> {
   return {
     id,
-    type: 'testImageNode',
+    type: "testImageNode",
     dragHandle: NODE_DRAG_HANDLE,
     position,
     width: size.width,
     height: size.height,
     selected: true,
     data: createTestImageNodeData(),
-  }
+  };
 }
 
 export function buildManualPanoramaNode(
@@ -495,7 +495,7 @@ export function buildManualPanoramaNode(
 ): Node<PanoramaNodeData> {
   return {
     id,
-    type: 'panoramaNode',
+    type: "panoramaNode",
     dragHandle: NODE_DRAG_HANDLE,
     position,
     width: size.width,
@@ -507,5 +507,5 @@ export function buildManualPanoramaNode(
       imageAsset: null,
       autoRotate: false,
     },
-  }
+  };
 }

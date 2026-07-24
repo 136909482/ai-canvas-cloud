@@ -1,59 +1,60 @@
 import type {
   WorkspaceProjectStorageSummary,
   WorkspaceUsageResponse,
-} from '@ai-canvas-cloud/contracts'
-import type { DbClient, DbPool } from '../../db/postgres.js'
-import { AuthServiceError } from '../auth/service.js'
-import type { ProjectActor } from '../projects/service.js'
+} from "@ai-canvas-cloud/contracts";
+import type { DbClient, DbPool } from "../../db/postgres.js";
+import { AuthServiceError } from "../auth/service.js";
+import type { ProjectActor } from "../projects/service.js";
 import {
   createWorkspaceAuthorizationService,
   type WorkspaceAuthorizationService,
-} from './authorization.js'
+} from "./authorization.js";
 
-export const DEFAULT_PERSONAL_WORKSPACE_STORAGE_QUOTA_BYTES = 20 * 1024 * 1024 * 1024
+export const DEFAULT_PERSONAL_WORKSPACE_STORAGE_QUOTA_BYTES =
+  20 * 1024 * 1024 * 1024;
 
 interface WorkspaceStorageUsageRow {
-  workspace_id: string
-  quota_bytes: string | number
-  used_bytes: string | number
-  reserved_bytes: string | number
+  workspace_id: string;
+  quota_bytes: string | number;
+  used_bytes: string | number;
+  reserved_bytes: string | number;
 }
 
 interface WorkspaceProjectStorageRow {
-  project_id: string
-  name: string
-  file_count: string | number
-  node_count: number
-  storage_bytes: string | number
-  archived_at: Date | string | null
-  updated_at: Date | string
+  project_id: string;
+  name: string;
+  file_count: string | number;
+  node_count: number;
+  storage_bytes: string | number;
+  archived_at: Date | string | null;
+  updated_at: Date | string;
 }
 
 export interface WorkspaceUsageService {
-  getCurrentUsage: (actor: ProjectActor) => Promise<WorkspaceUsageResponse>
+  getCurrentUsage: (actor: ProjectActor) => Promise<WorkspaceUsageResponse>;
 }
 
 function toSafeBytes(value: string | number, field: string) {
-  const bytes = Number(value)
+  const bytes = Number(value);
   if (!Number.isSafeInteger(bytes) || bytes < 0) {
-    throw new Error(`${field} must be a non-negative safe integer`)
+    throw new Error(`${field} must be a non-negative safe integer`);
   }
-  return bytes
+  return bytes;
 }
 
 export function calculateWorkspaceStorageUsage(input: {
-  workspaceId: string
-  quotaBytes: string | number
-  usedBytes: string | number
-  reservedBytes: string | number
-  projects?: WorkspaceProjectStorageSummary[]
+  workspaceId: string;
+  quotaBytes: string | number;
+  usedBytes: string | number;
+  reservedBytes: string | number;
+  projects?: WorkspaceProjectStorageSummary[];
 }): WorkspaceUsageResponse {
-  const quotaBytes = toSafeBytes(input.quotaBytes, 'quotaBytes')
-  const usedBytes = toSafeBytes(input.usedBytes, 'usedBytes')
-  const reservedBytes = toSafeBytes(input.reservedBytes, 'reservedBytes')
-  const totalBytes = usedBytes + reservedBytes
+  const quotaBytes = toSafeBytes(input.quotaBytes, "quotaBytes");
+  const usedBytes = toSafeBytes(input.usedBytes, "usedBytes");
+  const reservedBytes = toSafeBytes(input.reservedBytes, "reservedBytes");
+  const totalBytes = usedBytes + reservedBytes;
   if (!Number.isSafeInteger(totalBytes)) {
-    throw new Error('totalBytes must be a safe integer')
+    throw new Error("totalBytes must be a safe integer");
   }
 
   return {
@@ -66,15 +67,17 @@ export function calculateWorkspaceStorageUsage(input: {
       availableBytes: Math.max(quotaBytes - totalBytes, 0),
     },
     projects: input.projects ?? [],
-  }
+  };
 }
 
 function toIso(value: Date | string) {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }
 
 export async function readWorkspaceProjectStorageUsage(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   workspaceId: string,
 ) {
   const result = await client.query<WorkspaceProjectStorageRow>(
@@ -103,21 +106,21 @@ export async function readWorkspaceProjectStorageUsage(
       ORDER BY storage_bytes DESC, p.updated_at DESC, p.id DESC
     `,
     [workspaceId],
-  )
+  );
 
   return result.rows.map((row): WorkspaceProjectStorageSummary => ({
     projectId: row.project_id,
     name: row.name,
-    fileCount: toSafeBytes(row.file_count, 'fileCount'),
+    fileCount: toSafeBytes(row.file_count, "fileCount"),
     nodeCount: row.node_count,
-    storageBytes: toSafeBytes(row.storage_bytes, 'storageBytes'),
+    storageBytes: toSafeBytes(row.storage_bytes, "storageBytes"),
     archivedAt: row.archived_at ? toIso(row.archived_at) : null,
     updatedAt: toIso(row.updated_at),
-  }))
+  }));
 }
 
 export async function readWorkspaceStorageUsage(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   workspaceId: string,
 ) {
   const result = await client.query<WorkspaceStorageUsageRow>(
@@ -148,14 +151,14 @@ export async function readWorkspaceStorageUsage(
       LIMIT 1
     `,
     [workspaceId],
-  )
-  const row = result.rows[0]
+  );
+  const row = result.rows[0];
   if (!row) {
     throw new AuthServiceError({
       statusCode: 404,
-      apiCode: 'RESOURCE_NOT_FOUND',
-      message: 'Workspace not found',
-    })
+      apiCode: "RESOURCE_NOT_FOUND",
+      message: "Workspace not found",
+    });
   }
 
   return calculateWorkspaceStorageUsage({
@@ -163,7 +166,7 @@ export async function readWorkspaceStorageUsage(
     quotaBytes: row.quota_bytes,
     usedBytes: row.used_bytes,
     reservedBytes: row.reserved_bytes,
-  })
+  });
 }
 
 export async function lockWorkspaceStorageQuota(
@@ -179,13 +182,13 @@ export async function lockWorkspaceStorageQuota(
       FOR UPDATE
     `,
     [workspaceId],
-  )
+  );
   if (!result.rows[0]) {
     throw new AuthServiceError({
       statusCode: 404,
-      apiCode: 'RESOURCE_NOT_FOUND',
-      message: 'Workspace not found',
-    })
+      apiCode: "RESOURCE_NOT_FOUND",
+      message: "Workspace not found",
+    });
   }
 }
 
@@ -196,8 +199,8 @@ export function assertWorkspaceStorageCapacity(
   if (requestedBytes > usage.storage.availableBytes) {
     throw new AuthServiceError({
       statusCode: 409,
-      apiCode: 'QUOTA_EXCEEDED',
-      message: 'Workspace storage quota exceeded',
+      apiCode: "QUOTA_EXCEEDED",
+      message: "Workspace storage quota exceeded",
       details: {
         quotaBytes: usage.storage.quotaBytes,
         usedBytes: usage.storage.usedBytes,
@@ -205,7 +208,7 @@ export function assertWorkspaceStorageCapacity(
         availableBytes: usage.storage.availableBytes,
         requestedBytes,
       },
-    })
+    });
   }
 }
 
@@ -213,24 +216,25 @@ export function createPostgresWorkspaceUsageService(
   pool: DbPool,
   options: { authorizationService?: WorkspaceAuthorizationService } = {},
 ): WorkspaceUsageService {
-  const authorizationService = options.authorizationService ?? createWorkspaceAuthorizationService(pool)
+  const authorizationService =
+    options.authorizationService ?? createWorkspaceAuthorizationService(pool);
 
   return {
     async getCurrentUsage(actor) {
       await authorizationService.requireWorkspaceAccess({
         userId: actor.userId,
         workspaceId: actor.workspaceId,
-      })
+      });
       const [usage, projects] = await Promise.all([
         readWorkspaceStorageUsage(pool, actor.workspaceId),
         readWorkspaceProjectStorageUsage(pool, actor.workspaceId),
-      ])
+      ]);
       return {
         ...usage,
         projects,
-      }
+      };
     },
-  }
+  };
 }
 
 export function createUnavailableWorkspaceUsageService(): WorkspaceUsageService {
@@ -238,10 +242,10 @@ export function createUnavailableWorkspaceUsageService(): WorkspaceUsageService 
     async getCurrentUsage() {
       throw new AuthServiceError({
         statusCode: 503,
-        apiCode: 'SERVICE_UNAVAILABLE',
-        message: 'Workspace usage service is not configured',
+        apiCode: "SERVICE_UNAVAILABLE",
+        message: "Workspace usage service is not configured",
         retryable: true,
-      })
+      });
     },
-  }
+  };
 }

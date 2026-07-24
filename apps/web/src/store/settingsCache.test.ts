@@ -1,117 +1,42 @@
+import assert from "node:assert/strict";
+import test from "node:test";
 import {
-  readLegacyPersistedConfig,
   readWorkspaceConfigCache,
   writeWorkspaceConfigCache,
-} from './settingsCache.ts'
-import type { WorkspaceConfigFile } from '../types/index.ts'
+} from "./settingsCache.ts";
 
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) {
-    throw new Error(message)
-  }
-}
-
-class MemoryStorage implements Storage {
-  private readonly values = new Map<string, string>()
-
-  get length() {
-    return this.values.size
-  }
-
-  clear() {
-    this.values.clear()
-  }
-
-  getItem(key: string) {
-    return this.values.get(key) ?? null
-  }
-
-  key(index: number) {
-    return [...this.values.keys()][index] ?? null
-  }
-
-  removeItem(key: string) {
-    this.values.delete(key)
-  }
-
-  setItem(key: string, value: string) {
-    this.values.set(key, value)
-  }
-}
-
-function createWorkspaceConfig(): WorkspaceConfigFile {
-  return {
-    version: 1,
-    model: 'image-model',
-    customModels: [{
-      id: 'model-entry',
-      name: 'Image Model',
-      modelId: 'image-model',
-      kind: 'image',
-      enabled: true,
-    }],
-    providerProfiles: [{
-      id: 'provider-entry',
-      name: 'Provider',
-      kind: 'image',
-      apiKey: 'workspace-secret',
-      apiUrl: 'https://example.com/v1',
-      provider: 'openai',
-      requestMode: 'sync',
-      enabled: true,
-    }],
-    activeProviderProfileIds: { image: 'provider-entry' },
-    modelProviderProfileIds: { 'image-model': 'provider-entry' },
-    storage: {
-      autosaveIntervalMs: 60_000,
-      canvasTopBarCollapsed: false,
-      alignmentGuidesEnabled: true,
-      themeMode: 'dark',
-      canvasPerformanceMode: 'quality',
-      canvasGridEnabled: true,
-      edgeStyle: 'animated',
-      lowQualityPreviewEnabled: true,
-    },
-  }
-}
-
-function runSettingsCacheTests() {
-  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
-  const localStorage = new MemoryStorage()
-  Object.defineProperty(globalThis, 'window', {
+test("workspace cache stores only workspace settings", () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const values = new Map<string, string>();
+  Object.defineProperty(globalThis, "window", {
     configurable: true,
-    value: { localStorage },
-  })
-
-  try {
-    const workspaceConfig = createWorkspaceConfig()
-    writeWorkspaceConfigCache(workspaceConfig)
-
-    const cachedConfig = readWorkspaceConfigCache()
-    assert(cachedConfig?.model === '', 'workspace cache should omit the real model id')
-    assert(cachedConfig?.customModels.length === 0, 'workspace cache should omit local models')
-    assert(cachedConfig?.providerProfiles?.length === 0, 'workspace cache should omit provider profiles and endpoints')
-    assert(workspaceConfig.providerProfiles?.[0]?.apiKey === 'workspace-secret', 'cache writes should not mutate workspace config')
-
-    localStorage.setItem('ai-canvas-settings', JSON.stringify({
-      state: {
-        config: {
-          apiKey: 'legacy-secret',
-          apiUrl: 'https://legacy.example.com/v1',
-          model: 'legacy-model',
-        },
+    value: {
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+        removeItem: (key: string) => values.delete(key),
       },
-    }))
-
-    const legacyConfig = readLegacyPersistedConfig()
-    assert(legacyConfig?.model === 'legacy-model', 'legacy Zustand settings envelope should still hydrate')
+    },
+  });
+  try {
+    const config = {
+      version: 1 as const,
+      storage: {
+        autosaveIntervalMs: 60_000,
+        canvasTopBarCollapsed: false,
+        alignmentGuidesEnabled: true,
+        themeMode: "dark" as const,
+        canvasPerformanceMode: "quality" as const,
+        canvasGridEnabled: true,
+        edgeStyle: "animated" as const,
+        lowQualityPreviewEnabled: true,
+      },
+    };
+    writeWorkspaceConfigCache(config);
+    assert.deepEqual(readWorkspaceConfigCache(), config);
   } finally {
-    if (originalWindow) {
-      Object.defineProperty(globalThis, 'window', originalWindow)
-    } else {
-      Reflect.deleteProperty(globalThis, 'window')
-    }
+    if (originalWindow)
+      Object.defineProperty(globalThis, "window", originalWindow);
+    else Reflect.deleteProperty(globalThis, "window");
   }
-}
-
-runSettingsCacheTests()
+});

@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type MutableRefObject, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type MouseEvent as ReactMouseEvent,
+  type MutableRefObject,
+  type ReactNode,
+} from "react";
 import {
   ReactFlow,
   Background,
@@ -14,52 +24,74 @@ import {
   type OnNodeDrag,
   type ReactFlowInstance,
   type Viewport,
-} from '@xyflow/react'
-import { getAlignmentSnap, getNodeBox, getResizeAlignmentSnap, type AlignmentGuides } from '@/features/canvasAlignment/alignmentSnapping'
-import { getCanvasImagePreviewQuality, type CanvasImagePreviewQuality } from '@/features/canvasPerformance/rendering'
-import { nodeTypes } from '@/nodes/nodeRegistry'
-import { applyVisualNodeChanges } from '@/store/canvasLayoutGeometry'
-import { recordComponentRender } from '@/utils/performanceDiagnostics'
-import { clearCanvasImagePreviewCache, pauseThumbnailQueue, resumeThumbnailQueue } from '../canvasImagePreviewRuntime'
-import { CanvasPerformanceProvider } from '../CanvasPerformanceContext'
-import { ViewportControls } from '../ViewportControls'
-import { isEditableTarget } from './canvasDomUtils'
+} from "@xyflow/react";
+import {
+  getAlignmentSnap,
+  getNodeBox,
+  getResizeAlignmentSnap,
+  type AlignmentGuides,
+} from "@/features/canvasAlignment/alignmentSnapping";
+import {
+  getCanvasImagePreviewQuality,
+  type CanvasImagePreviewQuality,
+} from "@/features/canvasPerformance/rendering";
+import { nodeTypes } from "@/nodes/nodeRegistry";
+import { applyVisualNodeChanges } from "@/store/canvasLayoutGeometry";
+import { recordComponentRender } from "@/utils/performanceDiagnostics";
+import {
+  clearCanvasImagePreviewCache,
+  pauseThumbnailQueue,
+  resumeThumbnailQueue,
+} from "../canvasImagePreviewRuntime";
+import { CanvasPerformanceProvider } from "../CanvasPerformanceContext";
+import { ViewportControls } from "../ViewportControls";
+import { isEditableTarget } from "./canvasDomUtils";
 
-const VIEWPORT_INTERACTION_RESTORE_DELAY_MS = 140
-const NODE_DRAG_RENDER_RESTORE_DELAY_MS = 220
-const NODE_DRAG_POSITION_EPSILON = 0.01
+const VIEWPORT_INTERACTION_RESTORE_DELAY_MS = 140;
+const NODE_DRAG_RENDER_RESTORE_DELAY_MS = 220;
+const NODE_DRAG_POSITION_EPSILON = 0.01;
 
 type ResizeDimensionChange = NodeChange & {
-  id: string
-  type: 'dimensions'
-  dimensions: { width: number; height: number }
-  resizing: boolean
-}
+  id: string;
+  type: "dimensions";
+  dimensions: { width: number; height: number };
+  resizing: boolean;
+};
 
-function isResizeDimensionChange(change: NodeChange): change is ResizeDimensionChange {
+function isResizeDimensionChange(
+  change: NodeChange,
+): change is ResizeDimensionChange {
   return (
-    'id' in change
-    && change.type === 'dimensions'
-    && typeof change.resizing === 'boolean'
-    && typeof change.dimensions?.width === 'number'
-    && typeof change.dimensions?.height === 'number'
-  )
+    "id" in change &&
+    change.type === "dimensions" &&
+    typeof change.resizing === "boolean" &&
+    typeof change.dimensions?.width === "number" &&
+    typeof change.dimensions?.height === "number"
+  );
 }
 
 function getPositionChange(changes: NodeChange[], nodeId: string) {
-  return changes.find((change) => (
-    'id' in change
-    && change.id === nodeId
-    && change.type === 'position'
-    && change.position
-  ))
+  return changes.find(
+    (change) =>
+      "id" in change &&
+      change.id === nodeId &&
+      change.type === "position" &&
+      change.position,
+  );
 }
 
-function buildResizedNode(node: Node, changes: NodeChange[], resizeChange: ResizeDimensionChange): Node {
-  const positionChange = getPositionChange(changes, node.id)
-  const nextPosition = positionChange && positionChange.type === 'position' && positionChange.position
-    ? positionChange.position
-    : node.position
+function buildResizedNode(
+  node: Node,
+  changes: NodeChange[],
+  resizeChange: ResizeDimensionChange,
+): Node {
+  const positionChange = getPositionChange(changes, node.id);
+  const nextPosition =
+    positionChange &&
+    positionChange.type === "position" &&
+    positionChange.position
+      ? positionChange.position
+      : node.position;
 
   return {
     ...node,
@@ -71,101 +103,121 @@ function buildResizedNode(node: Node, changes: NodeChange[], resizeChange: Resiz
       width: resizeChange.dimensions.width,
       height: resizeChange.dimensions.height,
     },
-  }
+  };
 }
 
-function applyResizeSnapToChanges(changes: NodeChange[], node: Node, resizedNode: Node, snapBox: ReturnType<typeof getNodeBox>) {
-  const resizedBox = getNodeBox(resizedNode)
-  const nextPosition = { x: snapBox.x, y: snapBox.y }
-  const nextDimensions = { width: snapBox.width, height: snapBox.height }
-  const shouldUpdatePosition = resizedBox.x !== snapBox.x || resizedBox.y !== snapBox.y
-  let hasPositionChange = false
-  let insertedPositionChange = false
+function applyResizeSnapToChanges(
+  changes: NodeChange[],
+  node: Node,
+  resizedNode: Node,
+  snapBox: ReturnType<typeof getNodeBox>,
+) {
+  const resizedBox = getNodeBox(resizedNode);
+  const nextPosition = { x: snapBox.x, y: snapBox.y };
+  const nextDimensions = { width: snapBox.width, height: snapBox.height };
+  const shouldUpdatePosition =
+    resizedBox.x !== snapBox.x || resizedBox.y !== snapBox.y;
+  let hasPositionChange = false;
+  let insertedPositionChange = false;
 
   const snappedChanges = changes.flatMap((change): NodeChange[] => {
-    if (!('id' in change) || change.id !== node.id) {
-      return [change]
+    if (!("id" in change) || change.id !== node.id) {
+      return [change];
     }
 
-    if (change.type === 'position') {
-      hasPositionChange = true
+    if (change.type === "position") {
+      hasPositionChange = true;
       return shouldUpdatePosition
         ? [{ ...change, position: nextPosition }]
-        : [change]
+        : [change];
     }
 
-    if (change.type !== 'dimensions') {
-      return [change]
+    if (change.type !== "dimensions") {
+      return [change];
     }
 
     const dimensionChange: NodeChange = {
       ...change,
       dimensions: nextDimensions,
-    }
+    };
 
     if (shouldUpdatePosition && !hasPositionChange && !insertedPositionChange) {
-      insertedPositionChange = true
+      insertedPositionChange = true;
       return [
         {
           id: node.id,
-          type: 'position',
+          type: "position",
           position: nextPosition,
         },
         dimensionChange,
-      ]
+      ];
     }
 
-    return [dimensionChange]
-  })
+    return [dimensionChange];
+  });
 
-  return snappedChanges
+  return snappedChanges;
 }
 
 function hasAlignmentGuides(guides: AlignmentGuides) {
-  return Boolean(guides.vertical || guides.horizontal)
+  return Boolean(guides.vertical || guides.horizontal);
 }
 
 function isActivePositionDragChange(change: NodeChange) {
-  return 'id' in change && change.type === 'position' && change.dragging === true
+  return (
+    "id" in change && change.type === "position" && change.dragging === true
+  );
 }
 
 function isPureActivePositionDrag(changes: NodeChange[]) {
-  return changes.length > 0 && changes.every(isActivePositionDragChange)
+  return changes.length > 0 && changes.every(isActivePositionDragChange);
 }
 
 function isSettledPositionDragChange(change: NodeChange) {
-  return 'id' in change && change.type === 'position' && change.dragging === false
+  return (
+    "id" in change && change.type === "position" && change.dragging === false
+  );
 }
 
 function isPureSettledPositionDrag(changes: NodeChange[]) {
-  return changes.length > 0 && changes.every(isSettledPositionDragChange)
+  return changes.length > 0 && changes.every(isSettledPositionDragChange);
 }
 
-function isTransientDraggedNodeDeselect(change: NodeChange, draggedNodeIds: Set<string>) {
-  return 'id' in change
-    && change.type === 'select'
-    && change.selected === false
-    && draggedNodeIds.has(change.id)
+function isTransientDraggedNodeDeselect(
+  change: NodeChange,
+  draggedNodeIds: Set<string>,
+) {
+  return (
+    "id" in change &&
+    change.type === "select" &&
+    change.selected === false &&
+    draggedNodeIds.has(change.id)
+  );
 }
 
-function filterTransientDraggedNodeDeselects(changes: NodeChange[], draggedNodeIds: Set<string>) {
+function filterTransientDraggedNodeDeselects(
+  changes: NodeChange[],
+  draggedNodeIds: Set<string>,
+) {
   if (draggedNodeIds.size === 0) {
-    return changes
+    return changes;
   }
 
-  const filteredChanges = changes.filter((change) => !isTransientDraggedNodeDeselect(change, draggedNodeIds))
-  return filteredChanges.length === changes.length ? changes : filteredChanges
+  const filteredChanges = changes.filter(
+    (change) => !isTransientDraggedNodeDeselect(change, draggedNodeIds),
+  );
+  return filteredChanges.length === changes.length ? changes : filteredChanges;
 }
 
 function getDraggedNodePositions(node: Node, draggedNodes: Node[]) {
-  const activeDraggedNodes = draggedNodes.length > 0 ? draggedNodes : [node]
-  const positionById = new Map<string, { x: number; y: number }>()
+  const activeDraggedNodes = draggedNodes.length > 0 ? draggedNodes : [node];
+  const positionById = new Map<string, { x: number; y: number }>();
 
   for (const draggedNode of activeDraggedNodes) {
-    positionById.set(draggedNode.id, draggedNode.position)
+    positionById.set(draggedNode.id, draggedNode.position);
   }
 
-  return [...positionById].map(([id, position]) => ({ id, position }))
+  return [...positionById].map(([id, position]) => ({ id, position }));
 }
 
 function positionsChangedFromSnapshot(
@@ -173,34 +225,47 @@ function positionsChangedFromSnapshot(
   snapshot: Map<string, { x: number; y: number }>,
 ) {
   return positions.some(({ id, position }) => {
-    const previous = snapshot.get(id)
-    return !previous
-      || Math.abs(previous.x - position.x) > NODE_DRAG_POSITION_EPSILON
-      || Math.abs(previous.y - position.y) > NODE_DRAG_POSITION_EPSILON
-  })
+    const previous = snapshot.get(id);
+    return (
+      !previous ||
+      Math.abs(previous.x - position.x) > NODE_DRAG_POSITION_EPSILON ||
+      Math.abs(previous.y - position.y) > NODE_DRAG_POSITION_EPSILON
+    );
+  });
 }
 
-function positionChangesChangedFromSnapshot(changes: NodeChange[], snapshot: Map<string, { x: number; y: number }>) {
+function positionChangesChangedFromSnapshot(
+  changes: NodeChange[],
+  snapshot: Map<string, { x: number; y: number }>,
+) {
   return changes.some((change) => {
-    if (!('id' in change) || change.type !== 'position' || !change.position) {
-      return false
+    if (!("id" in change) || change.type !== "position" || !change.position) {
+      return false;
     }
 
-    const previous = snapshot.get(change.id)
-    return !previous
-      || Math.abs(previous.x - change.position.x) > NODE_DRAG_POSITION_EPSILON
-      || Math.abs(previous.y - change.position.y) > NODE_DRAG_POSITION_EPSILON
-  })
+    const previous = snapshot.get(change.id);
+    return (
+      !previous ||
+      Math.abs(previous.x - change.position.x) > NODE_DRAG_POSITION_EPSILON ||
+      Math.abs(previous.y - change.position.y) > NODE_DRAG_POSITION_EPSILON
+    );
+  });
 }
 
-function getSnappedDraggedNodePositions(node: Node, draggedNodes: Node[], delta: { x: number; y: number }) {
-  return getDraggedNodePositions(node, draggedNodes).map(({ id, position }) => ({
-    id,
-    position: {
-      x: position.x + delta.x,
-      y: position.y + delta.y,
-    },
-  }))
+function getSnappedDraggedNodePositions(
+  node: Node,
+  draggedNodes: Node[],
+  delta: { x: number; y: number },
+) {
+  return getDraggedNodePositions(node, draggedNodes).map(
+    ({ id, position }) => ({
+      id,
+      position: {
+        x: position.x + delta.x,
+        y: position.y + delta.y,
+      },
+    }),
+  );
 }
 
 function applyNodePositions(
@@ -209,98 +274,130 @@ function applyNodePositions(
   dragging: boolean,
 ) {
   if (positions.length === 0) {
-    return nodes
+    return nodes;
   }
 
-  return applyVisualNodeChanges(nodes, positions.map(({ id, position }) => ({
-    id,
-    type: 'position',
-    position,
-    dragging,
-  })))
+  return applyVisualNodeChanges(
+    nodes,
+    positions.map(({ id, position }) => ({
+      id,
+      type: "position",
+      position,
+      dragging,
+    })),
+  );
 }
 
-function applyNodeSelection(nodes: Node[], nodeIds: Set<string>, selected: boolean) {
+function applyNodeSelection(
+  nodes: Node[],
+  nodeIds: Set<string>,
+  selected: boolean,
+) {
   if (nodeIds.size === 0) {
-    return nodes
+    return nodes;
   }
 
-  return nodes.map((currentNode) => (
+  return nodes.map((currentNode) =>
     nodeIds.has(currentNode.id) && currentNode.selected !== selected
       ? { ...currentNode, selected }
-      : currentNode
-  ))
+      : currentNode,
+  );
 }
 
-function buildSettledPositionChanges(positions: Array<{ id: string; position: { x: number; y: number } }>): NodeChange[] {
+function buildSettledPositionChanges(
+  positions: Array<{ id: string; position: { x: number; y: number } }>,
+): NodeChange[] {
   return positions.map(({ id, position }) => ({
     id,
-    type: 'position',
+    type: "position",
     position,
     dragging: false,
-  }))
+  }));
 }
 
-function mergeQueuedSettledPositionChanges(existingChanges: NodeChange[], nextChanges: NodeChange[]) {
+function mergeQueuedSettledPositionChanges(
+  existingChanges: NodeChange[],
+  nextChanges: NodeChange[],
+) {
   if (existingChanges.length === 0) {
-    return nextChanges
+    return nextChanges;
   }
 
-  const mergedChanges = [...existingChanges]
-  const settledPositionIndexById = new Map<string, number>()
+  const mergedChanges = [...existingChanges];
+  const settledPositionIndexById = new Map<string, number>();
 
   mergedChanges.forEach((change, index) => {
-    if ('id' in change && change.type === 'position' && change.dragging === false) {
-      settledPositionIndexById.set(change.id, index)
+    if (
+      "id" in change &&
+      change.type === "position" &&
+      change.dragging === false
+    ) {
+      settledPositionIndexById.set(change.id, index);
     }
-  })
+  });
 
   for (const change of nextChanges) {
-    if ('id' in change && change.type === 'position' && change.dragging === false) {
-      const existingIndex = settledPositionIndexById.get(change.id)
+    if (
+      "id" in change &&
+      change.type === "position" &&
+      change.dragging === false
+    ) {
+      const existingIndex = settledPositionIndexById.get(change.id);
       if (existingIndex !== undefined) {
-        mergedChanges[existingIndex] = change
-        continue
+        mergedChanges[existingIndex] = change;
+        continue;
       }
 
-      settledPositionIndexById.set(change.id, mergedChanges.length)
+      settledPositionIndexById.set(change.id, mergedChanges.length);
     }
 
-    mergedChanges.push(change)
+    mergedChanges.push(change);
   }
 
-  return mergedChanges
+  return mergedChanges;
 }
 
 interface CanvasFlowLayerProps {
-  nodes: Node[]
-  edges: Edge[]
-  edgeOptions: DefaultEdgeOptions
-  onNodesChange: (changes: NodeChange[]) => void
-  onEdgesChange: (changes: EdgeChange[]) => void
-  onConnect: (connection: Connection) => void
-  onConnectStart: (event: MouseEvent | TouchEvent, params: { nodeId: string | null, handleId: string | null, handleType: string | null }) => void
-  onConnectEnd: (event: MouseEvent | TouchEvent, connectionState: { toNode: Node | null }) => void
-  onPaneContextMenu: (event: ReactMouseEvent<Element> | MouseEvent) => void
-  onDragOver: (event: DragEvent<HTMLDivElement>) => void
-  onDrop: (event: DragEvent<HTMLDivElement>) => void
-  beginTransaction: () => void
-  scheduleCommit: () => void
-  setNodePositions: (positions: Array<{ id: string; position: { x: number; y: number } }>) => void
-  flushPendingNodeDragRef: MutableRefObject<(() => void) | null>
-  shouldUseLiteRendering: boolean
-  imagePreviewCount: number
-  shouldShowAlignmentGuides: boolean
-  shouldUseInternalDrag: boolean
-  shouldCullOffscreenElements: boolean
-  shouldStabilizeViewportElements: boolean
-  shouldFitView: boolean
-  shouldShowBackground: boolean
-  shouldShowMiniMap: boolean
-  miniMapNodeColor: string
-  miniMapSelectedNodeColor: string
-  miniMapMaskColor: string
-  topLeftPanel: ReactNode
+  nodes: Node[];
+  edges: Edge[];
+  edgeOptions: DefaultEdgeOptions;
+  onNodesChange: (changes: NodeChange[]) => void;
+  onEdgesChange: (changes: EdgeChange[]) => void;
+  onConnect: (connection: Connection) => void;
+  onConnectStart: (
+    event: MouseEvent | TouchEvent,
+    params: {
+      nodeId: string | null;
+      handleId: string | null;
+      handleType: string | null;
+    },
+  ) => void;
+  onConnectEnd: (
+    event: MouseEvent | TouchEvent,
+    connectionState: { toNode: Node | null },
+  ) => void;
+  onPaneContextMenu: (event: ReactMouseEvent<Element> | MouseEvent) => void;
+  onDragOver: (event: DragEvent<HTMLDivElement>) => void;
+  onDrop: (event: DragEvent<HTMLDivElement>) => void;
+  beginTransaction: () => void;
+  scheduleCommit: () => void;
+  setNodePositions: (
+    positions: Array<{ id: string; position: { x: number; y: number } }>,
+  ) => void;
+  flushPendingNodeDragRef: MutableRefObject<(() => void) | null>;
+  shouldUseLiteRendering: boolean;
+  imagePreviewCount: number;
+  shouldShowAlignmentGuides: boolean;
+  shouldUseInternalDrag: boolean;
+  shouldCullOffscreenElements: boolean;
+  shouldStabilizeViewportElements: boolean;
+  shouldFitView: boolean;
+  shouldShowBackground: boolean;
+  shouldShowMiniMap: boolean;
+  miniMapNodeColor: string;
+  miniMapSelectedNodeColor: string;
+  miniMapMaskColor: string;
+  topLeftPanel: ReactNode;
 }
 
 export function CanvasFlowLayer({
@@ -333,491 +430,696 @@ export function CanvasFlowLayer({
   miniMapMaskColor,
   topLeftPanel,
 }: CanvasFlowLayerProps) {
-  recordComponentRender('CanvasFlowLayer')
-  const [isNodeDragging, setIsNodeDragging] = useState(false)
-  const [imagePreviewQuality, setImagePreviewQuality] = useState<CanvasImagePreviewQuality>('full')
-  const imagePreviewQualityRef = useRef<CanvasImagePreviewQuality>('full')
-  const lastViewportZoomRef = useRef(0.8)
-  const isViewportInteractingRef = useRef(false)
-  const isViewportThumbnailQueuePausedRef = useRef(false)
-  const isNodeDraggingRef = useRef(false)
-  const isNodeDragRenderingActiveRef = useRef(false)
-  const [interactiveNodes, setInteractiveNodes] = useState<Node[]>(nodes)
-  const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>({})
-  const dragStopSnapFrameRef = useRef<number | null>(null)
-  const dragStopCommitFrameRef = useRef<number | null>(null)
-  const nodeDragRenderRestoreTimeoutRef = useRef<number | null>(null)
-  const nodeDragRenderRestoreFrameRef = useRef<number | null>(null)
-  const pendingNodeDragSettledChangesRef = useRef<NodeChange[]>([])
-  const shouldCommitNodeDragSettledChangesRef = useRef(false)
-  const interactiveNodeFrameRef = useRef<number | null>(null)
-  const pendingInteractiveNodeChangesRef = useRef<NodeChange[]>([])
-  const hasAppliedInteractiveNodeDragChangeRef = useRef(false)
-  const hasMovedNodeDragRef = useRef(false)
-  const nodeDragStartPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
-  const activeNodeDragIdsRef = useRef<Set<string>>(new Set())
-  const viewportInteractionRestoreFrameRef = useRef<number | null>(null)
-  const viewportInteractionRestoreTimeoutRef = useRef<number | null>(null)
+  recordComponentRender("CanvasFlowLayer");
+  const [isNodeDragging, setIsNodeDragging] = useState(false);
+  const [imagePreviewQuality, setImagePreviewQuality] =
+    useState<CanvasImagePreviewQuality>("full");
+  const imagePreviewQualityRef = useRef<CanvasImagePreviewQuality>("full");
+  const lastViewportZoomRef = useRef(0.8);
+  const isViewportInteractingRef = useRef(false);
+  const isViewportThumbnailQueuePausedRef = useRef(false);
+  const isNodeDraggingRef = useRef(false);
+  const isNodeDragRenderingActiveRef = useRef(false);
+  const [interactiveNodes, setInteractiveNodes] = useState<Node[]>(nodes);
+  const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>({});
+  const dragStopSnapFrameRef = useRef<number | null>(null);
+  const dragStopCommitFrameRef = useRef<number | null>(null);
+  const nodeDragRenderRestoreTimeoutRef = useRef<number | null>(null);
+  const nodeDragRenderRestoreFrameRef = useRef<number | null>(null);
+  const pendingNodeDragSettledChangesRef = useRef<NodeChange[]>([]);
+  const shouldCommitNodeDragSettledChangesRef = useRef(false);
+  const interactiveNodeFrameRef = useRef<number | null>(null);
+  const pendingInteractiveNodeChangesRef = useRef<NodeChange[]>([]);
+  const hasAppliedInteractiveNodeDragChangeRef = useRef(false);
+  const hasMovedNodeDragRef = useRef(false);
+  const nodeDragStartPositionsRef = useRef<
+    Map<string, { x: number; y: number }>
+  >(new Map());
+  const activeNodeDragIdsRef = useRef<Set<string>>(new Set());
+  const viewportInteractionRestoreFrameRef = useRef<number | null>(null);
+  const viewportInteractionRestoreTimeoutRef = useRef<number | null>(null);
   const clearAlignmentGuides = useCallback(() => {
-    setAlignmentGuides((current) => (hasAlignmentGuides(current) ? {} : current))
-  }, [])
+    setAlignmentGuides((current) =>
+      hasAlignmentGuides(current) ? {} : current,
+    );
+  }, []);
 
   const clearViewportRestoreTimers = useCallback(() => {
     if (viewportInteractionRestoreTimeoutRef.current !== null) {
-      window.clearTimeout(viewportInteractionRestoreTimeoutRef.current)
-      viewportInteractionRestoreTimeoutRef.current = null
+      window.clearTimeout(viewportInteractionRestoreTimeoutRef.current);
+      viewportInteractionRestoreTimeoutRef.current = null;
     }
 
     if (viewportInteractionRestoreFrameRef.current !== null) {
-      window.cancelAnimationFrame(viewportInteractionRestoreFrameRef.current)
-      viewportInteractionRestoreFrameRef.current = null
+      window.cancelAnimationFrame(viewportInteractionRestoreFrameRef.current);
+      viewportInteractionRestoreFrameRef.current = null;
     }
-
-  }, [])
+  }, []);
 
   const clearNodeDragRenderRestoreTimers = useCallback(() => {
     if (nodeDragRenderRestoreTimeoutRef.current !== null) {
-      window.clearTimeout(nodeDragRenderRestoreTimeoutRef.current)
-      nodeDragRenderRestoreTimeoutRef.current = null
+      window.clearTimeout(nodeDragRenderRestoreTimeoutRef.current);
+      nodeDragRenderRestoreTimeoutRef.current = null;
     }
 
     if (nodeDragRenderRestoreFrameRef.current !== null) {
-      window.cancelAnimationFrame(nodeDragRenderRestoreFrameRef.current)
-      nodeDragRenderRestoreFrameRef.current = null
+      window.cancelAnimationFrame(nodeDragRenderRestoreFrameRef.current);
+      nodeDragRenderRestoreFrameRef.current = null;
     }
-  }, [])
+  }, []);
 
   const restoreNodeDragRendering = useCallback(() => {
-    clearNodeDragRenderRestoreTimers()
-    isNodeDragRenderingActiveRef.current = false
-    hasAppliedInteractiveNodeDragChangeRef.current = false
-    hasMovedNodeDragRef.current = false
-    nodeDragStartPositionsRef.current = new Map()
-    activeNodeDragIdsRef.current = new Set()
-    setIsNodeDragging(false)
-    setInteractiveNodes([])
-  }, [clearNodeDragRenderRestoreTimers])
+    clearNodeDragRenderRestoreTimers();
+    isNodeDragRenderingActiveRef.current = false;
+    hasAppliedInteractiveNodeDragChangeRef.current = false;
+    hasMovedNodeDragRef.current = false;
+    nodeDragStartPositionsRef.current = new Map();
+    activeNodeDragIdsRef.current = new Set();
+    setIsNodeDragging(false);
+    setInteractiveNodes([]);
+  }, [clearNodeDragRenderRestoreTimers]);
 
   const restoreNodeDragRenderingAfterStoreSync = useCallback(() => {
-    clearNodeDragRenderRestoreTimers()
+    clearNodeDragRenderRestoreTimers();
 
     nodeDragRenderRestoreFrameRef.current = window.requestAnimationFrame(() => {
-      nodeDragRenderRestoreFrameRef.current = null
-      restoreNodeDragRendering()
-    })
-  }, [clearNodeDragRenderRestoreTimers, restoreNodeDragRendering])
+      nodeDragRenderRestoreFrameRef.current = null;
+      restoreNodeDragRendering();
+    });
+  }, [clearNodeDragRenderRestoreTimers, restoreNodeDragRendering]);
 
   const flushNodeDragSettledChanges = useCallback(() => {
-    clearNodeDragRenderRestoreTimers()
+    clearNodeDragRenderRestoreTimers();
 
-    const pendingChanges = pendingNodeDragSettledChangesRef.current
-    const shouldCommit = shouldCommitNodeDragSettledChangesRef.current
-    pendingNodeDragSettledChangesRef.current = []
-    shouldCommitNodeDragSettledChangesRef.current = false
+    const pendingChanges = pendingNodeDragSettledChangesRef.current;
+    const shouldCommit = shouldCommitNodeDragSettledChangesRef.current;
+    pendingNodeDragSettledChangesRef.current = [];
+    shouldCommitNodeDragSettledChangesRef.current = false;
 
     if (pendingChanges.length > 0) {
-      onNodesChange(pendingChanges)
+      onNodesChange(pendingChanges);
     }
 
     if (shouldCommit) {
-      scheduleCommit()
+      scheduleCommit();
     }
 
     if (pendingChanges.length > 0) {
-      restoreNodeDragRenderingAfterStoreSync()
-      return
+      restoreNodeDragRenderingAfterStoreSync();
+      return;
     }
 
-    restoreNodeDragRendering()
-  }, [clearNodeDragRenderRestoreTimers, onNodesChange, restoreNodeDragRendering, restoreNodeDragRenderingAfterStoreSync, scheduleCommit])
+    restoreNodeDragRendering();
+  }, [
+    clearNodeDragRenderRestoreTimers,
+    onNodesChange,
+    restoreNodeDragRendering,
+    restoreNodeDragRenderingAfterStoreSync,
+    scheduleCommit,
+  ]);
 
   useEffect(() => {
-    flushPendingNodeDragRef.current = flushNodeDragSettledChanges
+    flushPendingNodeDragRef.current = flushNodeDragSettledChanges;
     return () => {
       if (flushPendingNodeDragRef.current === flushNodeDragSettledChanges) {
-        flushPendingNodeDragRef.current = null
+        flushPendingNodeDragRef.current = null;
       }
-    }
-  }, [flushNodeDragSettledChanges, flushPendingNodeDragRef])
+    };
+  }, [flushNodeDragSettledChanges, flushPendingNodeDragRef]);
 
-  const scheduleNodeDragSettledFlush = useCallback((options?: { commit?: boolean }) => {
-    clearNodeDragRenderRestoreTimers()
+  const scheduleNodeDragSettledFlush = useCallback(
+    (options?: { commit?: boolean }) => {
+      clearNodeDragRenderRestoreTimers();
 
-    shouldCommitNodeDragSettledChangesRef.current ||= Boolean(options?.commit)
+      shouldCommitNodeDragSettledChangesRef.current ||= Boolean(
+        options?.commit,
+      );
 
-    nodeDragRenderRestoreTimeoutRef.current = window.setTimeout(() => {
-      nodeDragRenderRestoreFrameRef.current = window.requestAnimationFrame(() => {
-        nodeDragRenderRestoreTimeoutRef.current = null
-        nodeDragRenderRestoreFrameRef.current = null
-        flushNodeDragSettledChanges()
-      })
-    }, NODE_DRAG_RENDER_RESTORE_DELAY_MS)
-  }, [clearNodeDragRenderRestoreTimers, flushNodeDragSettledChanges])
+      nodeDragRenderRestoreTimeoutRef.current = window.setTimeout(() => {
+        nodeDragRenderRestoreFrameRef.current = window.requestAnimationFrame(
+          () => {
+            nodeDragRenderRestoreTimeoutRef.current = null;
+            nodeDragRenderRestoreFrameRef.current = null;
+            flushNodeDragSettledChanges();
+          },
+        );
+      }, NODE_DRAG_RENDER_RESTORE_DELAY_MS);
+    },
+    [clearNodeDragRenderRestoreTimers, flushNodeDragSettledChanges],
+  );
 
-  const queueNodeDragSettledChanges = useCallback((changes: NodeChange[], options?: { commit?: boolean }) => {
-    pendingNodeDragSettledChangesRef.current = mergeQueuedSettledPositionChanges(
-      pendingNodeDragSettledChangesRef.current,
-      changes,
-    )
-    setInteractiveNodes((currentNodes) => applyVisualNodeChanges(currentNodes, changes))
-    scheduleNodeDragSettledFlush(options)
-  }, [scheduleNodeDragSettledFlush])
+  const queueNodeDragSettledChanges = useCallback(
+    (changes: NodeChange[], options?: { commit?: boolean }) => {
+      pendingNodeDragSettledChangesRef.current =
+        mergeQueuedSettledPositionChanges(
+          pendingNodeDragSettledChangesRef.current,
+          changes,
+        );
+      setInteractiveNodes((currentNodes) =>
+        applyVisualNodeChanges(currentNodes, changes),
+      );
+      scheduleNodeDragSettledFlush(options);
+    },
+    [scheduleNodeDragSettledFlush],
+  );
 
-  const updateImagePreviewQuality = useCallback((zoom: number, options?: { allowFullQualityRestore?: boolean }) => {
-    lastViewportZoomRef.current = zoom
-    const nextQuality = getCanvasImagePreviewQuality({
-      currentQuality: imagePreviewQualityRef.current,
-      zoom,
-      imageCount: imagePreviewCount,
-    })
-    if (
-      imagePreviewQualityRef.current === 'thumbnail'
-      && nextQuality === 'full'
-      && options?.allowFullQualityRestore === false
-    ) {
-      return
-    }
-    if (nextQuality === imagePreviewQualityRef.current) {
-      return
-    }
+  const updateImagePreviewQuality = useCallback(
+    (zoom: number, options?: { allowFullQualityRestore?: boolean }) => {
+      lastViewportZoomRef.current = zoom;
+      const nextQuality = getCanvasImagePreviewQuality({
+        currentQuality: imagePreviewQualityRef.current,
+        zoom,
+        imageCount: imagePreviewCount,
+      });
+      if (
+        imagePreviewQualityRef.current === "thumbnail" &&
+        nextQuality === "full" &&
+        options?.allowFullQualityRestore === false
+      ) {
+        return;
+      }
+      if (nextQuality === imagePreviewQualityRef.current) {
+        return;
+      }
 
-    imagePreviewQualityRef.current = nextQuality
-    setImagePreviewQuality(nextQuality)
-  }, [imagePreviewCount])
+      imagePreviewQualityRef.current = nextQuality;
+      setImagePreviewQuality(nextQuality);
+    },
+    [imagePreviewCount],
+  );
 
   const pauseViewportThumbnailWork = useCallback(() => {
     if (isViewportThumbnailQueuePausedRef.current) {
-      return
+      return;
     }
-    isViewportThumbnailQueuePausedRef.current = true
-    pauseThumbnailQueue()
-  }, [])
+    isViewportThumbnailQueuePausedRef.current = true;
+    pauseThumbnailQueue();
+  }, []);
 
   const resumeViewportThumbnailWork = useCallback(() => {
     if (!isViewportThumbnailQueuePausedRef.current) {
-      return
+      return;
     }
-    isViewportThumbnailQueuePausedRef.current = false
-    resumeThumbnailQueue()
-  }, [])
+    isViewportThumbnailQueuePausedRef.current = false;
+    resumeThumbnailQueue();
+  }, []);
 
   useEffect(() => {
-    updateImagePreviewQuality(lastViewportZoomRef.current)
-  }, [updateImagePreviewQuality])
+    updateImagePreviewQuality(lastViewportZoomRef.current);
+  }, [updateImagePreviewQuality]);
 
-  const handleReactFlowInit = useCallback((instance: ReactFlowInstance) => {
-    updateImagePreviewQuality(instance.getZoom())
-  }, [updateImagePreviewQuality])
+  const handleReactFlowInit = useCallback(
+    (instance: ReactFlowInstance) => {
+      updateImagePreviewQuality(instance.getZoom());
+    },
+    [updateImagePreviewQuality],
+  );
 
-  const handleViewportMoveStart = useCallback((_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
-    clearViewportRestoreTimers()
-    clearNodeDragRenderRestoreTimers()
-    isViewportInteractingRef.current = true
-    pauseViewportThumbnailWork()
-    updateImagePreviewQuality(viewport.zoom, { allowFullQualityRestore: false })
-  }, [clearNodeDragRenderRestoreTimers, clearViewportRestoreTimers, pauseViewportThumbnailWork, updateImagePreviewQuality])
+  const handleViewportMoveStart = useCallback(
+    (_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+      clearViewportRestoreTimers();
+      clearNodeDragRenderRestoreTimers();
+      isViewportInteractingRef.current = true;
+      pauseViewportThumbnailWork();
+      updateImagePreviewQuality(viewport.zoom, {
+        allowFullQualityRestore: false,
+      });
+    },
+    [
+      clearNodeDragRenderRestoreTimers,
+      clearViewportRestoreTimers,
+      pauseViewportThumbnailWork,
+      updateImagePreviewQuality,
+    ],
+  );
 
-  const handleViewportMove = useCallback((_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
-    updateImagePreviewQuality(viewport.zoom, { allowFullQualityRestore: false })
-    if (isViewportInteractingRef.current) {
-      return
-    }
-
-    clearViewportRestoreTimers()
-    clearNodeDragRenderRestoreTimers()
-    isViewportInteractingRef.current = true
-    pauseViewportThumbnailWork()
-  }, [clearNodeDragRenderRestoreTimers, clearViewportRestoreTimers, pauseViewportThumbnailWork, updateImagePreviewQuality])
-
-  const handleViewportMoveEnd = useCallback((_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
-    updateImagePreviewQuality(viewport.zoom, { allowFullQualityRestore: false })
-    clearViewportRestoreTimers()
-
-    if (!isViewportInteractingRef.current) {
-      resumeViewportThumbnailWork()
-      if (!isNodeDraggingRef.current && isNodeDragRenderingActiveRef.current) {
-        scheduleNodeDragSettledFlush({ commit: true })
+  const handleViewportMove = useCallback(
+    (_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+      updateImagePreviewQuality(viewport.zoom, {
+        allowFullQualityRestore: false,
+      });
+      if (isViewportInteractingRef.current) {
+        return;
       }
-      return
-    }
 
-    viewportInteractionRestoreTimeoutRef.current = window.setTimeout(() => {
-      viewportInteractionRestoreFrameRef.current = window.requestAnimationFrame(() => {
-        isViewportInteractingRef.current = false
-        resumeViewportThumbnailWork()
-        updateImagePreviewQuality(lastViewportZoomRef.current)
-        viewportInteractionRestoreFrameRef.current = null
-        viewportInteractionRestoreTimeoutRef.current = null
-      })
-    }, VIEWPORT_INTERACTION_RESTORE_DELAY_MS)
+      clearViewportRestoreTimers();
+      clearNodeDragRenderRestoreTimers();
+      isViewportInteractingRef.current = true;
+      pauseViewportThumbnailWork();
+    },
+    [
+      clearNodeDragRenderRestoreTimers,
+      clearViewportRestoreTimers,
+      pauseViewportThumbnailWork,
+      updateImagePreviewQuality,
+    ],
+  );
 
-    if (!isNodeDraggingRef.current && isNodeDragRenderingActiveRef.current) {
-      scheduleNodeDragSettledFlush({ commit: true })
-    }
-  }, [clearViewportRestoreTimers, resumeViewportThumbnailWork, scheduleNodeDragSettledFlush, updateImagePreviewQuality])
+  const handleViewportMoveEnd = useCallback(
+    (_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+      updateImagePreviewQuality(viewport.zoom, {
+        allowFullQualityRestore: false,
+      });
+      clearViewportRestoreTimers();
+
+      if (!isViewportInteractingRef.current) {
+        resumeViewportThumbnailWork();
+        if (
+          !isNodeDraggingRef.current &&
+          isNodeDragRenderingActiveRef.current
+        ) {
+          scheduleNodeDragSettledFlush({ commit: true });
+        }
+        return;
+      }
+
+      viewportInteractionRestoreTimeoutRef.current = window.setTimeout(() => {
+        viewportInteractionRestoreFrameRef.current =
+          window.requestAnimationFrame(() => {
+            isViewportInteractingRef.current = false;
+            resumeViewportThumbnailWork();
+            updateImagePreviewQuality(lastViewportZoomRef.current);
+            viewportInteractionRestoreFrameRef.current = null;
+            viewportInteractionRestoreTimeoutRef.current = null;
+          });
+      }, VIEWPORT_INTERACTION_RESTORE_DELAY_MS);
+
+      if (!isNodeDraggingRef.current && isNodeDragRenderingActiveRef.current) {
+        scheduleNodeDragSettledFlush({ commit: true });
+      }
+    },
+    [
+      clearViewportRestoreTimers,
+      resumeViewportThumbnailWork,
+      scheduleNodeDragSettledFlush,
+      updateImagePreviewQuality,
+    ],
+  );
 
   useEffect(() => {
     const handleHistoryShortcutCapture = (event: KeyboardEvent) => {
-      if (isEditableTarget(event.target) || (!event.ctrlKey && !event.metaKey)) {
-        return
+      if (
+        isEditableTarget(event.target) ||
+        (!event.ctrlKey && !event.metaKey)
+      ) {
+        return;
       }
 
-      const key = event.key.toLowerCase()
-      if (key === 'z' || key === 'y') {
-        flushNodeDragSettledChanges()
+      const key = event.key.toLowerCase();
+      if (key === "z" || key === "y") {
+        flushNodeDragSettledChanges();
       }
-    }
+    };
 
-    window.addEventListener('keydown', handleHistoryShortcutCapture, true)
-    return () => window.removeEventListener('keydown', handleHistoryShortcutCapture, true)
-  }, [flushNodeDragSettledChanges])
+    window.addEventListener("keydown", handleHistoryShortcutCapture, true);
+    return () =>
+      window.removeEventListener("keydown", handleHistoryShortcutCapture, true);
+  }, [flushNodeDragSettledChanges]);
 
   const clearPendingInteractiveNodeChanges = useCallback(() => {
-    pendingInteractiveNodeChangesRef.current = []
+    pendingInteractiveNodeChangesRef.current = [];
 
     if (interactiveNodeFrameRef.current !== null) {
-      window.cancelAnimationFrame(interactiveNodeFrameRef.current)
-      interactiveNodeFrameRef.current = null
+      window.cancelAnimationFrame(interactiveNodeFrameRef.current);
+      interactiveNodeFrameRef.current = null;
     }
-  }, [])
+  }, []);
 
-  const scheduleInteractiveNodeChanges = useCallback((changes: NodeChange[]) => {
-    const didMove = positionChangesChangedFromSnapshot(changes, nodeDragStartPositionsRef.current)
+  const scheduleInteractiveNodeChanges = useCallback(
+    (changes: NodeChange[]) => {
+      const didMove = positionChangesChangedFromSnapshot(
+        changes,
+        nodeDragStartPositionsRef.current,
+      );
 
-    if (!hasAppliedInteractiveNodeDragChangeRef.current) {
-      hasAppliedInteractiveNodeDragChangeRef.current = true
-      hasMovedNodeDragRef.current ||= didMove
-      if (didMove) {
-        setIsNodeDragging(true)
-      }
-      setInteractiveNodes((currentNodes) => applyVisualNodeChanges(currentNodes, changes))
-      return
-    }
-
-    hasMovedNodeDragRef.current ||= didMove
-    if (didMove) {
-      setIsNodeDragging(true)
-    }
-    pendingInteractiveNodeChangesRef.current = [
-      ...pendingInteractiveNodeChangesRef.current,
-      ...changes,
-    ]
-
-    if (interactiveNodeFrameRef.current !== null) {
-      return
-    }
-
-    interactiveNodeFrameRef.current = window.requestAnimationFrame(() => {
-      const pendingChanges = pendingInteractiveNodeChangesRef.current
-      pendingInteractiveNodeChangesRef.current = []
-      interactiveNodeFrameRef.current = null
-
-      if (pendingChanges.length === 0) {
-        return
-      }
-
-      setInteractiveNodes((currentNodes) => applyVisualNodeChanges(currentNodes, pendingChanges))
-    })
-  }, [])
-
-  const handleNodesChange = useCallback((changes: NodeChange[]) => {
-    if (!shouldShowAlignmentGuides && isNodeDraggingRef.current && isPureActivePositionDrag(changes)) {
-      if (!shouldUseInternalDrag) {
-        scheduleInteractiveNodeChanges(changes)
-      }
-      return
-    }
-
-    if (shouldShowAlignmentGuides && isNodeDraggingRef.current && isPureActivePositionDrag(changes)) {
-      return
-    }
-
-    const effectiveChanges = isNodeDragRenderingActiveRef.current
-      ? filterTransientDraggedNodeDeselects(changes, activeNodeDragIdsRef.current)
-      : changes
-
-    if (effectiveChanges.length === 0) {
-      return
-    }
-
-    if (isNodeDragRenderingActiveRef.current && isPureSettledPositionDrag(effectiveChanges)) {
-      const didMove = hasMovedNodeDragRef.current
-        || positionChangesChangedFromSnapshot(effectiveChanges, nodeDragStartPositionsRef.current)
-      if (!didMove) {
-        return
-      }
-      hasMovedNodeDragRef.current = true
-      queueNodeDragSettledChanges(effectiveChanges, { commit: true })
-      return
-    }
-
-    const resizeChange = effectiveChanges.find(isResizeDimensionChange)
-
-    if (!resizeChange || !shouldShowAlignmentGuides) {
-      if (resizeChange?.resizing === false) {
-        clearAlignmentGuides()
-      }
-      onNodesChange(effectiveChanges)
-      return
-    }
-
-    const originalNode = nodes.find((currentNode) => currentNode.id === resizeChange.id)
-    if (!originalNode) {
-      onNodesChange(effectiveChanges)
-      return
-    }
-
-    const resizedNode = buildResizedNode(originalNode, effectiveChanges, resizeChange)
-    const nextNodes = nodes.map((currentNode) => (
-      currentNode.id === resizedNode.id ? resizedNode : currentNode
-    ))
-    const alignmentSnap = getResizeAlignmentSnap(originalNode, resizedNode, nextNodes)
-    const snappedChanges = applyResizeSnapToChanges(effectiveChanges, originalNode, resizedNode, alignmentSnap.nextBox)
-
-    if (resizeChange.resizing) {
-      setAlignmentGuides(alignmentSnap.guides)
-    } else {
-      clearAlignmentGuides()
-    }
-    onNodesChange(snappedChanges)
-  }, [clearAlignmentGuides, nodes, onNodesChange, queueNodeDragSettledChanges, scheduleInteractiveNodeChanges, shouldShowAlignmentGuides, shouldUseInternalDrag])
-
-  const handleNodeDragStart: OnNodeDrag<Node> = useCallback((_event, node, draggedNodes) => {
-    if (pendingNodeDragSettledChangesRef.current.length > 0 || shouldCommitNodeDragSettledChangesRef.current) {
-      flushNodeDragSettledChanges()
-    }
-    clearNodeDragRenderRestoreTimers()
-    beginTransaction()
-    const startPositions = getDraggedNodePositions(node, draggedNodes)
-    const draggedNodeIds = new Set(startPositions.map(({ id }) => id))
-    nodeDragStartPositionsRef.current = new Map(startPositions.map(({ id, position }) => [id, position]))
-    activeNodeDragIdsRef.current = draggedNodeIds
-    setInteractiveNodes(applyNodeSelection(nodes, draggedNodeIds, true))
-    hasAppliedInteractiveNodeDragChangeRef.current = false
-    hasMovedNodeDragRef.current = false
-    isNodeDraggingRef.current = true
-    isNodeDragRenderingActiveRef.current = true
-    setIsNodeDragging(false)
-  }, [beginTransaction, clearNodeDragRenderRestoreTimers, flushNodeDragSettledChanges, nodes])
-
-  const handleNodeDrag: OnNodeDrag<Node> = useCallback((_event, node, draggedNodes) => {
-    const activeDraggedNodes = draggedNodes.length > 0 ? draggedNodes : [node]
-    const draggedNodeById = new Map(activeDraggedNodes.map((draggedNode) => [draggedNode.id, draggedNode]))
-    const nextNodes = nodes.map((currentNode) => draggedNodeById.get(currentNode.id) ?? currentNode)
-    const alignmentSnap = getAlignmentSnap(activeDraggedNodes, nextNodes)
-
-    const snappedPositions = getSnappedDraggedNodePositions(node, draggedNodes, alignmentSnap.delta)
-    const didMove = positionsChangedFromSnapshot(snappedPositions, nodeDragStartPositionsRef.current)
-    hasMovedNodeDragRef.current ||= didMove
-    if (didMove) {
-      setIsNodeDragging(true)
-    }
-    setInteractiveNodes((currentNodes) => applyNodePositions(currentNodes, snappedPositions, true))
-
-    setAlignmentGuides(alignmentSnap.guides)
-  }, [nodes])
-
-  const handleNodeDragStop: OnNodeDrag<Node> = useCallback((_event, node, draggedNodes) => {
-    const finalPositions = getDraggedNodePositions(node, draggedNodes)
-    const didMove = hasMovedNodeDragRef.current || positionsChangedFromSnapshot(finalPositions, nodeDragStartPositionsRef.current)
-
-    clearPendingInteractiveNodeChanges()
-    isNodeDraggingRef.current = false
-    clearAlignmentGuides()
-
-    if (!didMove) {
-      restoreNodeDragRendering()
-      return
-    }
-
-    if (!shouldShowAlignmentGuides) {
-      setInteractiveNodes((currentNodes) => applyNodePositions(currentNodes, finalPositions, false))
-      if (shouldUseInternalDrag) {
-        setNodePositions(getDraggedNodePositions(node, draggedNodes))
-        if (dragStopCommitFrameRef.current !== null) {
-          window.cancelAnimationFrame(dragStopCommitFrameRef.current)
+      if (!hasAppliedInteractiveNodeDragChangeRef.current) {
+        hasAppliedInteractiveNodeDragChangeRef.current = true;
+        hasMovedNodeDragRef.current ||= didMove;
+        if (didMove) {
+          setIsNodeDragging(true);
         }
-        dragStopCommitFrameRef.current = window.requestAnimationFrame(() => {
-          dragStopCommitFrameRef.current = null
-          scheduleNodeDragSettledFlush({ commit: true })
-        })
-        return
+        setInteractiveNodes((currentNodes) =>
+          applyVisualNodeChanges(currentNodes, changes),
+        );
+        return;
       }
-      queueNodeDragSettledChanges(buildSettledPositionChanges(finalPositions), { commit: true })
-      return
-    }
 
-    const activeDraggedNodes = draggedNodes.length > 0 ? draggedNodes : [node]
-    const draggedNodeById = new Map(activeDraggedNodes.map((draggedNode) => [draggedNode.id, draggedNode]))
-    const nextNodes = nodes.map((currentNode) => draggedNodeById.get(currentNode.id) ?? currentNode)
-    const alignmentSnap = getAlignmentSnap(activeDraggedNodes, nextNodes)
-    const shouldSnap = alignmentSnap.delta.x !== 0 || alignmentSnap.delta.y !== 0
-    const settledPositions = shouldSnap
-      ? getSnappedDraggedNodePositions(node, draggedNodes, alignmentSnap.delta)
-      : finalPositions
+      hasMovedNodeDragRef.current ||= didMove;
+      if (didMove) {
+        setIsNodeDragging(true);
+      }
+      pendingInteractiveNodeChangesRef.current = [
+        ...pendingInteractiveNodeChangesRef.current,
+        ...changes,
+      ];
 
-    setInteractiveNodes((currentNodes) => applyNodePositions(currentNodes, settledPositions, false))
+      if (interactiveNodeFrameRef.current !== null) {
+        return;
+      }
 
-    if (!shouldSnap) {
-      queueNodeDragSettledChanges(buildSettledPositionChanges(finalPositions), { commit: true })
-      return
-    }
+      interactiveNodeFrameRef.current = window.requestAnimationFrame(() => {
+        const pendingChanges = pendingInteractiveNodeChangesRef.current;
+        pendingInteractiveNodeChangesRef.current = [];
+        interactiveNodeFrameRef.current = null;
 
-    if (dragStopSnapFrameRef.current !== null) {
-      window.cancelAnimationFrame(dragStopSnapFrameRef.current)
-    }
+        if (pendingChanges.length === 0) {
+          return;
+        }
 
-    dragStopSnapFrameRef.current = window.requestAnimationFrame(() => {
-      queueNodeDragSettledChanges(buildSettledPositionChanges(settledPositions), { commit: true })
+        setInteractiveNodes((currentNodes) =>
+          applyVisualNodeChanges(currentNodes, pendingChanges),
+        );
+      });
+    },
+    [],
+  );
 
-      dragStopSnapFrameRef.current = null
-    })
-  }, [clearAlignmentGuides, clearPendingInteractiveNodeChanges, nodes, queueNodeDragSettledChanges, restoreNodeDragRendering, scheduleNodeDragSettledFlush, setNodePositions, shouldShowAlignmentGuides, shouldUseInternalDrag])
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      if (
+        !shouldShowAlignmentGuides &&
+        isNodeDraggingRef.current &&
+        isPureActivePositionDrag(changes)
+      ) {
+        if (!shouldUseInternalDrag) {
+          scheduleInteractiveNodeChanges(changes);
+        }
+        return;
+      }
 
-  useEffect(() => () => {
-    clearViewportRestoreTimers()
-    resumeViewportThumbnailWork()
-    clearCanvasImagePreviewCache()
-    clearPendingInteractiveNodeChanges()
-    clearNodeDragRenderRestoreTimers()
-    pendingNodeDragSettledChangesRef.current = []
-    shouldCommitNodeDragSettledChangesRef.current = false
+      if (
+        shouldShowAlignmentGuides &&
+        isNodeDraggingRef.current &&
+        isPureActivePositionDrag(changes)
+      ) {
+        return;
+      }
 
-    if (dragStopSnapFrameRef.current !== null) {
-      window.cancelAnimationFrame(dragStopSnapFrameRef.current)
-      dragStopSnapFrameRef.current = null
-    }
+      const effectiveChanges = isNodeDragRenderingActiveRef.current
+        ? filterTransientDraggedNodeDeselects(
+            changes,
+            activeNodeDragIdsRef.current,
+          )
+        : changes;
 
-    if (dragStopCommitFrameRef.current !== null) {
-      window.cancelAnimationFrame(dragStopCommitFrameRef.current)
-      dragStopCommitFrameRef.current = null
-    }
-  }, [clearNodeDragRenderRestoreTimers, clearPendingInteractiveNodeChanges, clearViewportRestoreTimers, resumeViewportThumbnailWork])
+      if (effectiveChanges.length === 0) {
+        return;
+      }
 
-  const shouldDeferThumbnailWork = isNodeDragging
+      if (
+        isNodeDragRenderingActiveRef.current &&
+        isPureSettledPositionDrag(effectiveChanges)
+      ) {
+        const didMove =
+          hasMovedNodeDragRef.current ||
+          positionChangesChangedFromSnapshot(
+            effectiveChanges,
+            nodeDragStartPositionsRef.current,
+          );
+        if (!didMove) {
+          return;
+        }
+        hasMovedNodeDragRef.current = true;
+        queueNodeDragSettledChanges(effectiveChanges, { commit: true });
+        return;
+      }
+
+      const resizeChange = effectiveChanges.find(isResizeDimensionChange);
+
+      if (!resizeChange || !shouldShowAlignmentGuides) {
+        if (resizeChange?.resizing === false) {
+          clearAlignmentGuides();
+        }
+        onNodesChange(effectiveChanges);
+        return;
+      }
+
+      const originalNode = nodes.find(
+        (currentNode) => currentNode.id === resizeChange.id,
+      );
+      if (!originalNode) {
+        onNodesChange(effectiveChanges);
+        return;
+      }
+
+      const resizedNode = buildResizedNode(
+        originalNode,
+        effectiveChanges,
+        resizeChange,
+      );
+      const nextNodes = nodes.map((currentNode) =>
+        currentNode.id === resizedNode.id ? resizedNode : currentNode,
+      );
+      const alignmentSnap = getResizeAlignmentSnap(
+        originalNode,
+        resizedNode,
+        nextNodes,
+      );
+      const snappedChanges = applyResizeSnapToChanges(
+        effectiveChanges,
+        originalNode,
+        resizedNode,
+        alignmentSnap.nextBox,
+      );
+
+      if (resizeChange.resizing) {
+        setAlignmentGuides(alignmentSnap.guides);
+      } else {
+        clearAlignmentGuides();
+      }
+      onNodesChange(snappedChanges);
+    },
+    [
+      clearAlignmentGuides,
+      nodes,
+      onNodesChange,
+      queueNodeDragSettledChanges,
+      scheduleInteractiveNodeChanges,
+      shouldShowAlignmentGuides,
+      shouldUseInternalDrag,
+    ],
+  );
+
+  const handleNodeDragStart: OnNodeDrag<Node> = useCallback(
+    (_event, node, draggedNodes) => {
+      if (
+        pendingNodeDragSettledChangesRef.current.length > 0 ||
+        shouldCommitNodeDragSettledChangesRef.current
+      ) {
+        flushNodeDragSettledChanges();
+      }
+      clearNodeDragRenderRestoreTimers();
+      beginTransaction();
+      const startPositions = getDraggedNodePositions(node, draggedNodes);
+      const draggedNodeIds = new Set(startPositions.map(({ id }) => id));
+      nodeDragStartPositionsRef.current = new Map(
+        startPositions.map(({ id, position }) => [id, position]),
+      );
+      activeNodeDragIdsRef.current = draggedNodeIds;
+      setInteractiveNodes(applyNodeSelection(nodes, draggedNodeIds, true));
+      hasAppliedInteractiveNodeDragChangeRef.current = false;
+      hasMovedNodeDragRef.current = false;
+      isNodeDraggingRef.current = true;
+      isNodeDragRenderingActiveRef.current = true;
+      setIsNodeDragging(false);
+    },
+    [
+      beginTransaction,
+      clearNodeDragRenderRestoreTimers,
+      flushNodeDragSettledChanges,
+      nodes,
+    ],
+  );
+
+  const handleNodeDrag: OnNodeDrag<Node> = useCallback(
+    (_event, node, draggedNodes) => {
+      const activeDraggedNodes =
+        draggedNodes.length > 0 ? draggedNodes : [node];
+      const draggedNodeById = new Map(
+        activeDraggedNodes.map((draggedNode) => [draggedNode.id, draggedNode]),
+      );
+      const nextNodes = nodes.map(
+        (currentNode) => draggedNodeById.get(currentNode.id) ?? currentNode,
+      );
+      const alignmentSnap = getAlignmentSnap(activeDraggedNodes, nextNodes);
+
+      const snappedPositions = getSnappedDraggedNodePositions(
+        node,
+        draggedNodes,
+        alignmentSnap.delta,
+      );
+      const didMove = positionsChangedFromSnapshot(
+        snappedPositions,
+        nodeDragStartPositionsRef.current,
+      );
+      hasMovedNodeDragRef.current ||= didMove;
+      if (didMove) {
+        setIsNodeDragging(true);
+      }
+      setInteractiveNodes((currentNodes) =>
+        applyNodePositions(currentNodes, snappedPositions, true),
+      );
+
+      setAlignmentGuides(alignmentSnap.guides);
+    },
+    [nodes],
+  );
+
+  const handleNodeDragStop: OnNodeDrag<Node> = useCallback(
+    (_event, node, draggedNodes) => {
+      const finalPositions = getDraggedNodePositions(node, draggedNodes);
+      const didMove =
+        hasMovedNodeDragRef.current ||
+        positionsChangedFromSnapshot(
+          finalPositions,
+          nodeDragStartPositionsRef.current,
+        );
+
+      clearPendingInteractiveNodeChanges();
+      isNodeDraggingRef.current = false;
+      clearAlignmentGuides();
+
+      if (!didMove) {
+        restoreNodeDragRendering();
+        return;
+      }
+
+      if (!shouldShowAlignmentGuides) {
+        setInteractiveNodes((currentNodes) =>
+          applyNodePositions(currentNodes, finalPositions, false),
+        );
+        if (shouldUseInternalDrag) {
+          setNodePositions(getDraggedNodePositions(node, draggedNodes));
+          if (dragStopCommitFrameRef.current !== null) {
+            window.cancelAnimationFrame(dragStopCommitFrameRef.current);
+          }
+          dragStopCommitFrameRef.current = window.requestAnimationFrame(() => {
+            dragStopCommitFrameRef.current = null;
+            scheduleNodeDragSettledFlush({ commit: true });
+          });
+          return;
+        }
+        queueNodeDragSettledChanges(
+          buildSettledPositionChanges(finalPositions),
+          { commit: true },
+        );
+        return;
+      }
+
+      const activeDraggedNodes =
+        draggedNodes.length > 0 ? draggedNodes : [node];
+      const draggedNodeById = new Map(
+        activeDraggedNodes.map((draggedNode) => [draggedNode.id, draggedNode]),
+      );
+      const nextNodes = nodes.map(
+        (currentNode) => draggedNodeById.get(currentNode.id) ?? currentNode,
+      );
+      const alignmentSnap = getAlignmentSnap(activeDraggedNodes, nextNodes);
+      const shouldSnap =
+        alignmentSnap.delta.x !== 0 || alignmentSnap.delta.y !== 0;
+      const settledPositions = shouldSnap
+        ? getSnappedDraggedNodePositions(
+            node,
+            draggedNodes,
+            alignmentSnap.delta,
+          )
+        : finalPositions;
+
+      setInteractiveNodes((currentNodes) =>
+        applyNodePositions(currentNodes, settledPositions, false),
+      );
+
+      if (!shouldSnap) {
+        queueNodeDragSettledChanges(
+          buildSettledPositionChanges(finalPositions),
+          { commit: true },
+        );
+        return;
+      }
+
+      if (dragStopSnapFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragStopSnapFrameRef.current);
+      }
+
+      dragStopSnapFrameRef.current = window.requestAnimationFrame(() => {
+        queueNodeDragSettledChanges(
+          buildSettledPositionChanges(settledPositions),
+          { commit: true },
+        );
+
+        dragStopSnapFrameRef.current = null;
+      });
+    },
+    [
+      clearAlignmentGuides,
+      clearPendingInteractiveNodeChanges,
+      nodes,
+      queueNodeDragSettledChanges,
+      restoreNodeDragRendering,
+      scheduleNodeDragSettledFlush,
+      setNodePositions,
+      shouldShowAlignmentGuides,
+      shouldUseInternalDrag,
+    ],
+  );
+
+  useEffect(
+    () => () => {
+      clearViewportRestoreTimers();
+      resumeViewportThumbnailWork();
+      clearCanvasImagePreviewCache();
+      clearPendingInteractiveNodeChanges();
+      clearNodeDragRenderRestoreTimers();
+      pendingNodeDragSettledChangesRef.current = [];
+      shouldCommitNodeDragSettledChangesRef.current = false;
+
+      if (dragStopSnapFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragStopSnapFrameRef.current);
+        dragStopSnapFrameRef.current = null;
+      }
+
+      if (dragStopCommitFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragStopCommitFrameRef.current);
+        dragStopCommitFrameRef.current = null;
+      }
+    },
+    [
+      clearNodeDragRenderRestoreTimers,
+      clearPendingInteractiveNodeChanges,
+      clearViewportRestoreTimers,
+      resumeViewportThumbnailWork,
+    ],
+  );
+
+  const shouldDeferThumbnailWork = isNodeDragging;
 
   useEffect(() => {
     if (!shouldDeferThumbnailWork) {
-      return
+      return;
     }
 
-    pauseThumbnailQueue()
-    return resumeThumbnailQueue
-  }, [shouldDeferThumbnailWork])
+    pauseThumbnailQueue();
+    return resumeThumbnailQueue;
+  }, [shouldDeferThumbnailWork]);
 
-  const canvasPerformanceContextValue = useMemo(() => ({
-    forceLowQualityImages: shouldUseLiteRendering,
-    imagePreviewQuality,
-    deferThumbnailWork: false,
-  }), [imagePreviewQuality, shouldUseLiteRendering])
+  const canvasPerformanceContextValue = useMemo(
+    () => ({
+      forceLowQualityImages: shouldUseLiteRendering,
+      imagePreviewQuality,
+      deferThumbnailWork: false,
+    }),
+    [imagePreviewQuality, shouldUseLiteRendering],
+  );
   const shouldCullReactFlowElements = shouldStabilizeViewportElements
     ? false
-    : shouldCullOffscreenElements
+    : shouldCullOffscreenElements;
 
   return (
     <CanvasPerformanceProvider value={canvasPerformanceContextValue}>
       <ReactFlow
-        nodes={isNodeDragging && !shouldUseInternalDrag ? interactiveNodes : nodes}
+        nodes={
+          isNodeDragging && !shouldUseInternalDrag ? interactiveNodes : nodes
+        }
         edges={edges}
         defaultEdgeOptions={edgeOptions}
         nodeTypes={nodeTypes}
@@ -841,7 +1143,7 @@ export function CanvasFlowLayer({
         fitViewOptions={{ padding: 0.2, maxZoom: 0.8 }}
         elevateNodesOnSelect={false}
         onlyRenderVisibleElements={shouldCullReactFlowElements}
-        className={`bg-[var(--canvas-bg)] ${shouldStabilizeViewportElements ? 'canvas-image-heavy-stable' : ''}`}
+        className={`bg-[var(--canvas-bg)] ${shouldStabilizeViewportElements ? "canvas-image-heavy-stable" : ""}`}
         onPaneContextMenu={onPaneContextMenu}
         onDragOver={onDragOver}
         onDrop={onDrop}
@@ -849,25 +1151,31 @@ export function CanvasFlowLayer({
         <Panel position="top-left" className="m-4">
           {topLeftPanel}
         </Panel>
-        {shouldShowBackground ? <Background color="var(--flow-grid)" gap={28} size={1.6} /> : null}
+        {shouldShowBackground ? (
+          <Background color="var(--flow-grid)" gap={28} size={1.6} />
+        ) : null}
         <ViewportControls onBeforeHistoryAction={flushNodeDragSettledChanges} />
         {shouldShowMiniMap ? (
           <MiniMap
             className="!right-5 !bottom-5 !h-28 !w-48 !overflow-hidden !rounded-lg !border !border-[var(--border-subtle)] !bg-[var(--panel-bg)] !shadow-[var(--shadow-panel)] !backdrop-blur-xl [&_.react-flow__minimap-mask]:!rx-2 [&_.react-flow__minimap-mask]:!ry-2 [&_.react-flow__minimap-node]:!stroke-[var(--border-subtle)] [&_svg]:!h-full [&_svg]:!w-full"
-            nodeColor={(node) => (node.selected ? miniMapSelectedNodeColor : miniMapNodeColor)}
+            nodeColor={(node) =>
+              node.selected ? miniMapSelectedNodeColor : miniMapNodeColor
+            }
             maskColor={miniMapMaskColor}
             pannable
             zoomable
           />
         ) : null}
-        {shouldShowAlignmentGuides && (alignmentGuides.vertical || alignmentGuides.horizontal) ? (
+        {shouldShowAlignmentGuides &&
+        (alignmentGuides.vertical || alignmentGuides.horizontal) ? (
           <ViewportPortal>
             {alignmentGuides.vertical ? (
               <div
                 className="pointer-events-none absolute z-[2] w-px bg-[var(--accent-violet-strong)] shadow-[0_0_8px_var(--accent-violet-glow)]"
                 style={{
                   transform: `translate(${alignmentGuides.vertical.x}px, ${alignmentGuides.vertical.y1}px)`,
-                  height: alignmentGuides.vertical.y2 - alignmentGuides.vertical.y1,
+                  height:
+                    alignmentGuides.vertical.y2 - alignmentGuides.vertical.y1,
                 }}
               />
             ) : null}
@@ -876,7 +1184,9 @@ export function CanvasFlowLayer({
                 className="pointer-events-none absolute z-[2] h-px bg-[var(--accent-violet-strong)] shadow-[0_0_8px_var(--accent-violet-glow)]"
                 style={{
                   transform: `translate(${alignmentGuides.horizontal.x1}px, ${alignmentGuides.horizontal.y}px)`,
-                  width: alignmentGuides.horizontal.x2 - alignmentGuides.horizontal.x1,
+                  width:
+                    alignmentGuides.horizontal.x2 -
+                    alignmentGuides.horizontal.x1,
                 }}
               />
             ) : null}
@@ -884,5 +1194,5 @@ export function CanvasFlowLayer({
         ) : null}
       </ReactFlow>
     </CanvasPerformanceProvider>
-  )
+  );
 }

@@ -1,5 +1,5 @@
-import type { Node } from '@xyflow/react'
-import { DEFAULT_IMAGE_MODEL_ID } from '@/config/modelCatalog'
+import type { Node } from "@xyflow/react";
+import { DEFAULT_IMAGE_MODEL_ID } from "@/config/modelCatalog";
 import type {
   CompareNodeData,
   GenerateNodeData,
@@ -14,7 +14,7 @@ import type {
   TextSplitterNodeData,
   VideoGenerateNodeData,
   VideoNodeData,
-} from '@/types'
+} from "@/types";
 import {
   createImageCropNodeData,
   createImageNodeData,
@@ -23,32 +23,46 @@ import {
   createVideoNodeData,
   sanitizeGptImageQuality,
   sanitizeRichPrompt,
-} from './canvasNodeData'
-import { DEFAULT_TEXT_NODE_LABEL } from './canvasNodeCreation'
-import { getAbsoluteNodePosition } from './canvasLayoutGeometry'
+} from "./canvasNodeData";
+import { DEFAULT_TEXT_NODE_LABEL } from "./canvasNodeCreation";
+import { getAbsoluteNodePosition } from "./canvasLayoutGeometry";
 
 export function canDuplicateNode(node: Node) {
-  return ['textNode', 'textSplitterNode', 'inlineTextSplitterNode', 'imageNode', 'videoNode', 'videoGenerateNode', 'imageCropNode', 'generateNode', 'imageEditNode', 'llmNode', 'llmFileNode', 'compareNode', 'testImageNode'].includes(node.type ?? '')
+  return [
+    "textNode",
+    "textSplitterNode",
+    "inlineTextSplitterNode",
+    "imageNode",
+    "videoNode",
+    "videoGenerateNode",
+    "imageCropNode",
+    "generateNode",
+    "imageEditNode",
+    "llmNode",
+    "llmFileNode",
+    "compareNode",
+    "testImageNode",
+  ].includes(node.type ?? "");
 }
 
 export function cloneNodeForDuplicate(
   node: Node,
   nodes: Node[],
-  takeNextNodeId: (type: Node['type']) => string | null,
+  takeNextNodeId: (type: Node["type"]) => string | null,
 ) {
-  const nextId = takeNextNodeId(node.type)
+  const nextId = takeNextNodeId(node.type);
 
   if (!nextId) {
-    return null
+    return null;
   }
 
-  const absolutePosition = getAbsoluteNodePosition(nodes, node)
+  const absolutePosition = getAbsoluteNodePosition(nodes, node);
   const duplicatedPosition = {
     x: absolutePosition.x + 32,
     y: absolutePosition.y + 32,
-  }
+  };
 
-  if (node.type === 'textNode') {
+  if (node.type === "textNode") {
     return {
       ...node,
       id: nextId,
@@ -57,16 +71,17 @@ export function cloneNodeForDuplicate(
       extent: undefined,
       selected: true,
       data: {
-        text: typeof node.data?.text === 'string' ? node.data.text : '',
+        text: typeof node.data?.text === "string" ? node.data.text : "",
         richPrompt: sanitizeRichPrompt(node.data),
-        label: typeof node.data?.label === 'string' && node.data.label !== 'Prompt'
-          ? node.data.label
-          : DEFAULT_TEXT_NODE_LABEL,
+        label:
+          typeof node.data?.label === "string" && node.data.label !== "Prompt"
+            ? node.data.label
+            : DEFAULT_TEXT_NODE_LABEL,
       } satisfies TextNodeData,
-    } satisfies Node<TextNodeData>
+    } satisfies Node<TextNodeData>;
   }
 
-  if (node.type === 'textSplitterNode') {
+  if (node.type === "textSplitterNode") {
     return {
       ...node,
       id: nextId,
@@ -75,17 +90,20 @@ export function cloneNodeForDuplicate(
       extent: undefined,
       selected: true,
       data: {
-        inputText: '',
+        inputText: "",
         connectedTextNode: null,
-        separator: typeof node.data?.separator === 'string' ? node.data.separator : '\\n\\n',
+        separator:
+          typeof node.data?.separator === "string"
+            ? node.data.separator
+            : "\\n\\n",
         outputNodeIds: [],
         lastRunAt: null,
-        errorMsg: '',
+        errorMsg: "",
       } satisfies TextSplitterNodeData,
-    } satisfies Node<TextSplitterNodeData>
+    } satisfies Node<TextSplitterNodeData>;
   }
 
-  if (node.type === 'inlineTextSplitterNode') {
+  if (node.type === "inlineTextSplitterNode") {
     return {
       ...node,
       id: nextId,
@@ -94,17 +112,20 @@ export function cloneNodeForDuplicate(
       extent: undefined,
       selected: true,
       data: {
-        inputText: '',
+        inputText: "",
         connectedTextNode: null,
-        separator: typeof node.data?.separator === 'string' ? node.data.separator : '\\n\\n',
+        separator:
+          typeof node.data?.separator === "string"
+            ? node.data.separator
+            : "\\n\\n",
         parts: [],
         lastRunAt: null,
-        errorMsg: '',
+        errorMsg: "",
       } satisfies InlineTextSplitterNodeData,
-    } satisfies Node<InlineTextSplitterNodeData>
+    } satisfies Node<InlineTextSplitterNodeData>;
   }
 
-  if (node.type === 'imageNode') {
+  if (node.type === "imageNode") {
     return {
       ...node,
       id: nextId,
@@ -113,10 +134,10 @@ export function cloneNodeForDuplicate(
       extent: undefined,
       selected: true,
       data: createImageNodeData(node.data),
-    } satisfies Node<ImageNodeData>
+    } satisfies Node<ImageNodeData>;
   }
 
-  if (node.type === 'videoNode') {
+  if (node.type === "videoNode") {
     return {
       ...node,
       id: nextId,
@@ -125,10 +146,10 @@ export function cloneNodeForDuplicate(
       extent: undefined,
       selected: true,
       data: createVideoNodeData(node.data),
-    } satisfies Node<VideoNodeData>
+    } satisfies Node<VideoNodeData>;
   }
 
-  if (node.type === 'videoGenerateNode') {
+  if (node.type === "videoGenerateNode") {
     return {
       ...node,
       id: nextId,
@@ -142,13 +163,13 @@ export function cloneNodeForDuplicate(
         referenceSourceOrder: [],
         firstFrameSourceNodeId: null,
         lastFrameSourceNodeId: null,
-        status: 'idle',
-        errorMsg: '',
+        status: "idle",
+        errorMsg: "",
       },
-    } satisfies Node<VideoGenerateNodeData>
+    } satisfies Node<VideoGenerateNodeData>;
   }
 
-  if (node.type === 'imageCropNode') {
+  if (node.type === "imageCropNode") {
     return {
       ...node,
       id: nextId,
@@ -161,13 +182,13 @@ export function cloneNodeForDuplicate(
         sourceImageNodeId: null,
         outputPreviewNodeIds: [],
         lastRunAt: null,
-        status: 'idle',
-        errorMsg: '',
+        status: "idle",
+        errorMsg: "",
       } satisfies ImageCropNodeData,
-    } satisfies Node<ImageCropNodeData>
+    } satisfies Node<ImageCropNodeData>;
   }
 
-  if (node.type === 'generateNode') {
+  if (node.type === "generateNode") {
     return {
       ...node,
       id: nextId,
@@ -176,16 +197,25 @@ export function cloneNodeForDuplicate(
       extent: undefined,
       selected: true,
       data: {
-        prompt: typeof node.data?.prompt === 'string' ? node.data.prompt : '',
+        prompt: typeof node.data?.prompt === "string" ? node.data.prompt : "",
         richPrompt: sanitizeRichPrompt(node.data),
-        negativePrompt: typeof node.data?.negativePrompt === 'string' ? node.data.negativePrompt : '',
+        negativePrompt:
+          typeof node.data?.negativePrompt === "string"
+            ? node.data.negativePrompt
+            : "",
         imageUrl: null,
         imageAsset: null,
-        status: 'idle',
-        errorMsg: '',
-        ratio: typeof node.data?.ratio === 'string' ? node.data.ratio : '1:1',
-        model: typeof node.data?.model === 'string' ? node.data.model : DEFAULT_IMAGE_MODEL_ID,
-        resolution: typeof node.data?.resolution === 'string' ? node.data.resolution : '1K',
+        status: "idle",
+        errorMsg: "",
+        ratio: typeof node.data?.ratio === "string" ? node.data.ratio : "1:1",
+        model:
+          typeof node.data?.model === "string"
+            ? node.data.model
+            : DEFAULT_IMAGE_MODEL_ID,
+        resolution:
+          typeof node.data?.resolution === "string"
+            ? node.data.resolution
+            : "1K",
         quality: sanitizeGptImageQuality(node.data?.quality),
         googleSearch: node.data?.googleSearch === true,
         googleImageSearch: node.data?.googleImageSearch === true,
@@ -195,10 +225,10 @@ export function cloneNodeForDuplicate(
         maskSourceNodeId: null,
         activeTaskId: null,
       } satisfies GenerateNodeData,
-    } satisfies Node<GenerateNodeData>
+    } satisfies Node<GenerateNodeData>;
   }
 
-  if (node.type === 'imageEditNode') {
+  if (node.type === "imageEditNode") {
     return {
       ...node,
       id: nextId,
@@ -208,25 +238,40 @@ export function cloneNodeForDuplicate(
       selected: true,
       data: {
         sourceImageNodeId: null,
-        prompt: typeof node.data?.prompt === 'string' ? node.data.prompt : '',
-        negativePrompt: typeof node.data?.negativePrompt === 'string' ? node.data.negativePrompt : '',
-        model: typeof node.data?.model === 'string' ? node.data.model : DEFAULT_IMAGE_MODEL_ID,
-        ratio: typeof node.data?.ratio === 'string' ? node.data.ratio : '1:1',
-        resolution: typeof node.data?.resolution === 'string' ? node.data.resolution : '1K',
-        status: 'idle',
-        errorMsg: '',
+        prompt: typeof node.data?.prompt === "string" ? node.data.prompt : "",
+        negativePrompt:
+          typeof node.data?.negativePrompt === "string"
+            ? node.data.negativePrompt
+            : "",
+        model:
+          typeof node.data?.model === "string"
+            ? node.data.model
+            : DEFAULT_IMAGE_MODEL_ID,
+        ratio: typeof node.data?.ratio === "string" ? node.data.ratio : "1:1",
+        resolution:
+          typeof node.data?.resolution === "string"
+            ? node.data.resolution
+            : "1K",
+        status: "idle",
+        errorMsg: "",
         referenceSourceOrder: [],
         activeTaskId: null,
         maskDataUrl: null,
         maskUpdatedAt: null,
-        brushSize: typeof node.data?.brushSize === 'number' ? Math.max(4, Math.min(96, node.data.brushSize)) : 28,
-        brushMode: node.data?.brushMode === 'erase' ? 'erase' : 'paint',
-        maskVisible: typeof node.data?.maskVisible === 'boolean' ? node.data.maskVisible : true,
+        brushSize:
+          typeof node.data?.brushSize === "number"
+            ? Math.max(4, Math.min(96, node.data.brushSize))
+            : 28,
+        brushMode: node.data?.brushMode === "erase" ? "erase" : "paint",
+        maskVisible:
+          typeof node.data?.maskVisible === "boolean"
+            ? node.data.maskVisible
+            : true,
       } satisfies ImageEditNodeData,
-    } satisfies Node<ImageEditNodeData>
+    } satisfies Node<ImageEditNodeData>;
   }
 
-  if (node.type === 'llmNode') {
+  if (node.type === "llmNode") {
     return {
       ...node,
       id: nextId,
@@ -235,25 +280,33 @@ export function cloneNodeForDuplicate(
       extent: undefined,
       selected: true,
       data: {
-        presetId: typeof node.data?.presetId === 'string' ? node.data.presetId : null,
-        instructionPrompt: typeof node.data?.instructionPrompt === 'string' ? node.data.instructionPrompt : '',
+        presetId:
+          typeof node.data?.presetId === "string" ? node.data.presetId : null,
+        instructionPrompt:
+          typeof node.data?.instructionPrompt === "string"
+            ? node.data.instructionPrompt
+            : "",
         richPrompt: sanitizeRichPrompt(node.data),
-        inputText: '',
+        inputText: "",
         inputRichPrompt: null,
         connectedTextNode: null,
         inputImageSourceOrder: [],
-        model: typeof node.data?.model === 'string' ? node.data.model : '',
-        outputFormat: node.data?.outputFormat === 'json' || node.data?.outputFormat === 'markdown' ? node.data.outputFormat : 'text',
+        model: typeof node.data?.model === "string" ? node.data.model : "",
+        outputFormat:
+          node.data?.outputFormat === "json" ||
+          node.data?.outputFormat === "markdown"
+            ? node.data.outputFormat
+            : "text",
         outputNodeId: null,
-        outputText: '',
-        outputJson: '',
-        status: 'idle',
-        errorMsg: '',
+        outputText: "",
+        outputJson: "",
+        status: "idle",
+        errorMsg: "",
       } satisfies LLMNodeData,
-    } satisfies Node<LLMNodeData>
+    } satisfies Node<LLMNodeData>;
   }
 
-  if (node.type === 'llmFileNode') {
+  if (node.type === "llmFileNode") {
     return {
       ...node,
       id: nextId,
@@ -262,30 +315,40 @@ export function cloneNodeForDuplicate(
       extent: undefined,
       selected: true,
       data: {
-        presetId: typeof node.data?.presetId === 'string' ? node.data.presetId : null,
-        instructionPrompt: typeof node.data?.instructionPrompt === 'string' ? node.data.instructionPrompt : '',
+        presetId:
+          typeof node.data?.presetId === "string" ? node.data.presetId : null,
+        instructionPrompt:
+          typeof node.data?.instructionPrompt === "string"
+            ? node.data.instructionPrompt
+            : "",
         richPrompt: sanitizeRichPrompt(node.data),
-        inputText: '',
+        inputText: "",
         inputRichPrompt: null,
         connectedTextNode: null,
         inputImageSourceOrder: [],
-        model: typeof node.data?.model === 'string' ? node.data.model : '',
-        outputFormat: node.data?.outputFormat === 'json' || node.data?.outputFormat === 'markdown' ? node.data.outputFormat : 'text',
+        model: typeof node.data?.model === "string" ? node.data.model : "",
+        outputFormat:
+          node.data?.outputFormat === "json" ||
+          node.data?.outputFormat === "markdown"
+            ? node.data.outputFormat
+            : "text",
         outputNodeId: null,
-        outputText: '',
-        outputJson: '',
-        status: 'idle',
-        errorMsg: '',
+        outputText: "",
+        outputJson: "",
+        status: "idle",
+        errorMsg: "",
         inputFiles: Array.isArray(node.data?.inputFiles)
           ? node.data.inputFiles
-            .filter((file): file is LLMFileNodeData['inputFiles'][number] => Boolean(file && typeof file === 'object'))
-            .map((file) => ({ ...file }))
+              .filter((file): file is LLMFileNodeData["inputFiles"][number] =>
+                Boolean(file && typeof file === "object"),
+              )
+              .map((file) => ({ ...file }))
           : [],
       } satisfies LLMFileNodeData,
-    } satisfies Node<LLMFileNodeData>
+    } satisfies Node<LLMFileNodeData>;
   }
 
-  if (node.type === 'compareNode') {
+  if (node.type === "compareNode") {
     return {
       ...node,
       id: nextId,
@@ -294,14 +357,17 @@ export function cloneNodeForDuplicate(
       extent: undefined,
       selected: true,
       data: {
-        mode: node.data?.mode === 'toggle' ? 'toggle' : 'slider',
-        activeSlot: node.data?.activeSlot === 'image2' ? 'image2' : 'image1',
-        sliderPosition: typeof node.data?.sliderPosition === 'number' ? node.data.sliderPosition : 50,
+        mode: node.data?.mode === "toggle" ? "toggle" : "slider",
+        activeSlot: node.data?.activeSlot === "image2" ? "image2" : "image1",
+        sliderPosition:
+          typeof node.data?.sliderPosition === "number"
+            ? node.data.sliderPosition
+            : 50,
       } satisfies CompareNodeData,
-    } satisfies Node<CompareNodeData>
+    } satisfies Node<CompareNodeData>;
   }
 
-  if (node.type === 'testImageNode') {
+  if (node.type === "testImageNode") {
     return {
       ...node,
       id: nextId,
@@ -310,8 +376,8 @@ export function cloneNodeForDuplicate(
       extent: undefined,
       selected: true,
       data: createTestImageNodeData(node.data),
-    } satisfies Node<TestImageNodeData>
+    } satisfies Node<TestImageNodeData>;
   }
 
-  return null
+  return null;
 }

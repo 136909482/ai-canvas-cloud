@@ -1,63 +1,69 @@
-import { create } from 'zustand'
-import { useNotificationStore } from './useNotificationStore.ts'
+import { create } from "zustand";
+import { useNotificationStore } from "./useNotificationStore.ts";
 
-export type FeedbackToastTone = 'info' | 'success' | 'warning' | 'error'
-export type FeedbackConfirmTone = 'default' | 'danger'
+export type FeedbackToastTone = "info" | "success" | "warning" | "error";
+export type FeedbackConfirmTone = "default" | "danger";
 
 export interface FeedbackToast {
-  id: string
-  tone: FeedbackToastTone
-  title: string
-  message?: string
-  durationMs: number
-  diagnosticId?: string
+  id: string;
+  tone: FeedbackToastTone;
+  title: string;
+  message?: string;
+  durationMs: number;
+  diagnosticId?: string;
 }
 
 export interface FeedbackConfirmRequest {
-  id: string
-  title: string
-  message: string
-  confirmLabel: string
-  cancelLabel: string
-  tone: FeedbackConfirmTone
-  resolve: (confirmed: boolean) => void
+  id: string;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  tone: FeedbackConfirmTone;
+  resolve: (confirmed: boolean) => void;
 }
 
 type NotifyOptions = {
-  title: string
-  message?: string
-  tone?: FeedbackToastTone
-  durationMs?: number
-  diagnosticId?: string
-}
+  title: string;
+  message?: string;
+  tone?: FeedbackToastTone;
+  durationMs?: number;
+  diagnosticId?: string;
+};
 
 type ConfirmOptions = {
-  title: string
-  message: string
-  confirmLabel?: string
-  cancelLabel?: string
-  tone?: FeedbackConfirmTone
-}
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  tone?: FeedbackConfirmTone;
+};
 
 interface FeedbackStore {
-  toasts: FeedbackToast[]
-  confirmRequest: FeedbackConfirmRequest | null
-  notify: (options: NotifyOptions) => string
-  dismissToast: (id: string) => void
-  confirm: (options: ConfirmOptions) => Promise<boolean>
-  resolveConfirm: (confirmed: boolean) => void
+  toasts: FeedbackToast[];
+  confirmRequest: FeedbackConfirmRequest | null;
+  notify: (options: NotifyOptions) => string;
+  dismissToast: (id: string) => void;
+  confirm: (options: ConfirmOptions) => Promise<boolean>;
+  resolveConfirm: (confirmed: boolean) => void;
 }
 
 function createFeedbackId(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export const useFeedbackStore = create<FeedbackStore>()((set, get) => ({
   toasts: [],
   confirmRequest: null,
 
-  notify: ({ title, message, tone = 'info', durationMs = 3600, diagnosticId }) => {
-    const id = createFeedbackId('toast')
+  notify: ({
+    title,
+    message,
+    tone = "info",
+    durationMs = 3600,
+    diagnosticId,
+  }) => {
+    const id = createFeedbackId("toast");
     const toast: FeedbackToast = {
       id,
       tone,
@@ -65,23 +71,23 @@ export const useFeedbackStore = create<FeedbackStore>()((set, get) => ({
       message,
       durationMs,
       diagnosticId,
-    }
+    };
 
     set((state) => ({
       toasts: [...state.toasts, toast].slice(-4),
-    }))
+    }));
 
-    if (tone === 'error' || tone === 'warning') {
+    if (tone === "error" || tone === "warning") {
       useNotificationStore.getState().push({
-        kind: tone === 'error' ? 'error' : 'system',
+        kind: tone === "error" ? "error" : "system",
         level: tone,
         title,
         message,
         diagnosticId,
-      })
+      });
     }
 
-    return id
+    return id;
   },
 
   dismissToast: (id) =>
@@ -90,31 +96,31 @@ export const useFeedbackStore = create<FeedbackStore>()((set, get) => ({
     })),
 
   confirm: (options) => {
-    const previousRequest = get().confirmRequest
-    previousRequest?.resolve(false)
+    const previousRequest = get().confirmRequest;
+    previousRequest?.resolve(false);
 
     return new Promise<boolean>((resolve) => {
       set({
         confirmRequest: {
-          id: createFeedbackId('confirm'),
+          id: createFeedbackId("confirm"),
           title: options.title,
           message: options.message,
-          confirmLabel: options.confirmLabel ?? '确认',
-          cancelLabel: options.cancelLabel ?? '取消',
-          tone: options.tone ?? 'default',
+          confirmLabel: options.confirmLabel ?? "确认",
+          cancelLabel: options.cancelLabel ?? "取消",
+          tone: options.tone ?? "default",
           resolve,
         },
-      })
-    })
+      });
+    });
   },
 
   resolveConfirm: (confirmed) => {
-    const request = get().confirmRequest
+    const request = get().confirmRequest;
     if (!request) {
-      return
+      return;
     }
 
-    request.resolve(confirmed)
-    set({ confirmRequest: null })
+    request.resolve(confirmed);
+    set({ confirmRequest: null });
   },
-}))
+}));

@@ -1,21 +1,28 @@
-import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
-import { X } from 'lucide-react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 
 type ZoomableImagePreviewProps = {
-  imageUrl: string
-  alt: string
-  closeLabel: string
-  onClose: () => void
-  children?: ReactNode
-  overlayClassName?: string
-  closeButtonClassName?: string
-  captionClassName?: string
-}
+  imageUrl: string;
+  alt: string;
+  closeLabel: string;
+  onClose: () => void;
+  children?: ReactNode;
+  overlayClassName?: string;
+  closeButtonClassName?: string;
+  captionClassName?: string;
+};
 
-const DEFAULT_OVERLAY_CLASS_NAME = 'bg-black/90'
-const DEFAULT_CLOSE_BUTTON_CLASS_NAME = 'border-white/10 bg-black/50 text-white/70 hover:border-white/20 hover:bg-black/70 hover:text-white'
-const DEFAULT_CAPTION_CLASS_NAME = 'text-white/60'
+const DEFAULT_OVERLAY_CLASS_NAME = "bg-black/90";
+const DEFAULT_CLOSE_BUTTON_CLASS_NAME =
+  "border-white/10 bg-black/50 text-white/70 hover:border-white/20 hover:bg-black/70 hover:text-white";
+const DEFAULT_CAPTION_CLASS_NAME = "text-white/60";
 
 export function ZoomableImagePreview({
   imageUrl,
@@ -27,85 +34,88 @@ export function ZoomableImagePreview({
   closeButtonClassName = DEFAULT_CLOSE_BUTTON_CLASS_NAME,
   captionClassName = DEFAULT_CAPTION_CLASS_NAME,
 }: ZoomableImagePreviewProps) {
-  const [zoom, setZoom] = useState(1)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragState, setDragState] = useState<{
-    pointerId: number
-    startX: number
-    startY: number
-    panX: number
-    panY: number
-  } | null>(null)
-  const overlayRef = useRef<HTMLDivElement | null>(null)
+    pointerId: number;
+    startX: number;
+    startY: number;
+    panX: number;
+    panY: number;
+  } | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const overlay = overlayRef.current
+    const overlay = overlayRef.current;
 
     if (!overlay) {
-      return undefined
+      return undefined;
     }
 
     const handleWheel = (event: globalThis.WheelEvent) => {
-      event.preventDefault()
-      event.stopPropagation()
+      event.preventDefault();
+      event.stopPropagation();
 
-      const direction = event.deltaY < 0 ? 1 : -1
+      const direction = event.deltaY < 0 ? 1 : -1;
       setZoom((value) => {
-        const nextZoom = Math.min(4, Math.max(0.25, Number((value + direction * 0.12).toFixed(2))))
+        const nextZoom = Math.min(
+          4,
+          Math.max(0.25, Number((value + direction * 0.12).toFixed(2))),
+        );
         if (nextZoom <= 1) {
-          setPan({ x: 0, y: 0 })
+          setPan({ x: 0, y: 0 });
         }
-        return nextZoom
-      })
-    }
+        return nextZoom;
+      });
+    };
 
-    overlay.addEventListener('wheel', handleWheel, { passive: false })
+    overlay.addEventListener("wheel", handleWheel, { passive: false });
 
     return () => {
-      overlay.removeEventListener('wheel', handleWheel)
-    }
-  }, [])
+      overlay.removeEventListener("wheel", handleWheel);
+    };
+  }, []);
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
-      return
+      return;
     }
 
-    event.preventDefault()
-    event.stopPropagation()
-    event.currentTarget.setPointerCapture(event.pointerId)
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
     setDragState({
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
       panX: pan.x,
       panY: pan.y,
-    })
-  }
+    });
+  };
 
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
     if (!dragState || dragState.pointerId !== event.pointerId) {
-      return
+      return;
     }
 
-    event.preventDefault()
-    event.stopPropagation()
+    event.preventDefault();
+    event.stopPropagation();
     setPan({
       x: dragState.panX + event.clientX - dragState.startX,
       y: dragState.panY + event.clientY - dragState.startY,
-    })
-  }
+    });
+  };
 
   const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
     if (!dragState || dragState.pointerId !== event.pointerId) {
-      return
+      return;
     }
 
-    event.preventDefault()
-    event.stopPropagation()
-    event.currentTarget.releasePointerCapture(event.pointerId)
-    setDragState(null)
-  }
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    setDragState(null);
+  };
 
   return createPortal(
     <div
@@ -123,7 +133,11 @@ export function ZoomableImagePreview({
       </button>
       <div className="flex h-full w-full items-center justify-center">
         <div
-          className={dragState ? 'cursor-grabbing select-none' : 'cursor-grab select-none'}
+          className={
+            dragState
+              ? "cursor-grabbing select-none"
+              : "cursor-grab select-none"
+          }
           onClick={(event) => event.stopPropagation()}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
@@ -133,7 +147,7 @@ export function ZoomableImagePreview({
           <img
             src={imageUrl}
             alt={alt}
-            className={`pointer-events-none max-h-screen max-w-screen object-contain shadow-[0_0_80px_rgba(255,255,255,0.04)] ${dragState ? '' : 'transition-transform duration-100'}`}
+            className={`pointer-events-none max-h-screen max-w-screen object-contain shadow-[0_0_80px_rgba(255,255,255,0.04)] ${dragState ? "" : "transition-transform duration-100"}`}
             style={{
               transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
             }}
@@ -150,5 +164,5 @@ export function ZoomableImagePreview({
       ) : null}
     </div>,
     document.body,
-  )
+  );
 }

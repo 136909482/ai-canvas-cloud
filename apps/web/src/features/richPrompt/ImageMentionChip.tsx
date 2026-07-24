@@ -1,13 +1,13 @@
-import { NodeViewWrapper, type NodeViewProps } from '@tiptap/react'
-import { CanvasImagePreview } from '@/components/CanvasImagePreview'
+import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
+import { CanvasImagePreview } from "@/components/CanvasImagePreview";
 
 export function ImageMentionChip({ node }: NodeViewProps) {
   const attrs = node.attrs as {
-    sourceNodeId: string
-    label: string
-    imageUrl: string
-    thumbnailRelativePath?: string
-  }
+    sourceNodeId: string;
+    label: string;
+    imageUrl: string;
+    thumbnailRelativePath?: string;
+  };
 
   return (
     <NodeViewWrapper
@@ -20,12 +20,16 @@ export function ImageMentionChip({ node }: NodeViewProps) {
         <CanvasImagePreview
           src={attrs.imageUrl}
           alt=""
-          imageAsset={attrs.thumbnailRelativePath ? { thumbnailRelativePath: attrs.thumbnailRelativePath } : null}
+          imageAsset={
+            attrs.thumbnailRelativePath
+              ? { thumbnailRelativePath: attrs.thumbnailRelativePath }
+              : null
+          }
           className="h-full w-full object-cover"
           draggable={false}
         />
       </span>
       <span className="truncate">{attrs.label}</span>
     </NodeViewWrapper>
-  )
+  );
 }

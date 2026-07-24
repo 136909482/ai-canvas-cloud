@@ -223,12 +223,16 @@ commit 在一个事务中完成项目策略、资产 UUID 映射、图/引用/ch
 
 ## 浏览器本地状态
 
-浏览器 Vault 不是 PostgreSQL 数据模型，也不通过 Cloud 同步。当前格式为 `schemaVersion=1`、`cipherVersion=1`：单个版本化文档保存 Provider、endpoint、API Key、本地模型和绑定；设备模式使用不可导出的 WebCrypto AES-256-GCM `CryptoKey`、96 位随机 IV 和 128 位认证标签加密，AAD 绑定 cipher/schema version、当前 Origin 和可信 session 用户 ID。IndexedDB 的密文记录与 Key 记录按可信用户 ID 分区；两个独立浏览器设备各自持有独立数据库与 Key，不存在隐式同步。
+浏览器 Vault 不是 PostgreSQL 数据模型，也不通过 Cloud 同步。当前格式为 `schemaVersion=2`、`cipherVersion=1`：单个版本化文档保存 Provider 配置、按 `providerProfileId` 索引的 API Key 凭据、模型条目和匿名绑定。`ModelEntry.id` 是唯一身份；`modelId` 仅在运行时请求上游，不能作为任何持久化引用身份。设备模式使用不可导出的 WebCrypto AES-256-GCM `CryptoKey`、96 位随机 IV 和 128 位认证标签加密，AAD 绑定 cipher/schema version、当前 Origin 和可信 session 用户 ID。IndexedDB 的密文记录与 Key 记录按可信用户 ID 分区；两个独立浏览器设备各自持有独立数据库与 Key，不存在隐式同步。
+
+模型发现的导入以单个 Vault 文档写入为边界：Provider、其 `providerProfileId` 凭据槽和选中的新 `ModelEntry` 必须一起写入；取消不创建或更新任何 Vault 内容。再次发现按 `(providerProfileId, modelId)` 精确 reconcile：仅 `source=discovered` 条目可更新 `lastSeenAt/status`，上游缺失为 `missing`、重现为 `available`；`displayName/category/enabled` 和全部 `source=manual` 条目不被覆盖。
 
 设备持久化是唯一用户可见模式，不提供 persistence 或单独删除入口。Vault 保存与本地任务写入在浏览器内串行执行；登出/session 失效/换账号只清空内存明文并保留按账号隔离的设备密文。用户清除当前网站数据时，浏览器删除 IndexedDB 中的密文、CryptoKey、模型绑定和本地任务缓存。异步完成只有在可信用户、内部持久化状态与状态代次仍一致时才能更新运行态。
 
-旧 `ai-canvas-settings` 明文只在设备加密写入成功后删除，失败时保留供重试。workspace 配置、workspace/localStorage 缓存、项目图、checkpoint、迁移包、Cloud API 请求、日志、指标、诊断、PostgreSQL 和 Admin 均不保存真实 Provider、endpoint、模型 ID、绑定或 Key。
+当前内测环境没有历史数据，因此不读取或迁移旧 `ai-canvas-settings` 明文、旧 Vault 或旧任务缓存。workspace 配置、workspace/localStorage 缓存、项目图、checkpoint、迁移包、Cloud API 请求、日志、指标、诊断、PostgreSQL 和 Admin 均不保存真实 Provider、endpoint、模型 ID、绑定或 Key。
 
-P8-6/P8-7 不新增 PostgreSQL 表。项目图中的模型字段仅保存 `local:<uuid>`，真实模型 ID 只存在 Vault 的 `localModelBindings` 映射中；Cloud 图还会移除 profile/Provider/endpoint/Key、task ID、remote task、上游错误和运行态。生成媒体先作为私有 `assets` 上传，完成后项目图只引用 Cloud asset UUID，不保存 Provider 临时 URL。
+P8-6/P8-7 不新增 PostgreSQL 表。项目图中的模型字段仅保存 `local:<uuid>`，其 Vault 绑定值是 `modelEntryId`；真实模型 ID 只存在对应 Vault 模型条目中。Cloud 图还会移除 profile/Provider/endpoint/Key、task ID、remote task、上游错误和运行态。生成媒体先作为私有 `assets` 上传，完成后项目图只引用 Cloud asset UUID，不保存 Provider 临时 URL。
 
-本地任务缓存是独立加密文档：`schemaVersion=1`、`cipherVersion=1`，IndexedDB 数据库版本为 2；复用同一不可导出 AES-256-GCM 设备 Key，AAD 在 Origin/可信用户之外额外绑定项目 ID。记录包含本地任务状态和受控异步 `remoteTaskId`，按用户/项目分区并持久化到当前浏览器；项目删除会删除对应项目密文，清除当前网站数据会删除全部本地任务密文。该缓存不进入 workspace/project record 持久化、checkpoint、迁移包、Cloud API、日志、诊断或 PostgreSQL。
+节点选择先按服务商过滤，再按该服务商和节点类别过滤可执行 `ModelEntry`。未绑定、已删除、上游缺失、模型/服务商停用或凭据无效的引用可作为节点当前状态显示，但不得执行。对已绑定匿名引用，运行时只使用绑定的 `modelEntryId` 解析其唯一 Provider 和凭据；本地任务记录同样保存解析后的 `modelEntryId`，不会以匿名引用或显示名称猜测路由。
+
+本地任务缓存是独立加密文档：`schemaVersion=2`、`cipherVersion=1`，IndexedDB 数据库版本为 2；复用同一不可导出 AES-256-GCM 设备 Key，AAD 在 Origin/可信用户之外额外绑定项目 ID。记录包含以 `modelEntryId` 引用的本地任务状态和受控异步 `remoteTaskId`，按用户/项目分区并持久化到当前浏览器；项目删除会删除对应项目密文，清除当前网站数据会删除全部本地任务密文。该缓存不进入 workspace/project record 持久化、checkpoint、迁移包、Cloud API、日志、诊断或 PostgreSQL。

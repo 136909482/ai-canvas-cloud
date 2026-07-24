@@ -1,7 +1,7 @@
 type ZhipuIconProps = {
-  className?: string
-  title?: string
-}
+  className?: string;
+  title?: string;
+};
 
 export function ZhipuIcon({ className, title }: ZhipuIconProps) {
   return (
@@ -9,7 +9,7 @@ export function ZhipuIcon({ className, title }: ZhipuIconProps) {
       viewBox="0 0 24 24"
       className={className}
       aria-hidden={title ? undefined : true}
-      role={title ? 'img' : undefined}
+      role={title ? "img" : undefined}
     >
       {title ? <title>{title}</title> : null}
       <path
@@ -18,5 +18,5 @@ export function ZhipuIcon({ className, title }: ZhipuIconProps) {
         fillRule="nonzero"
       />
     </svg>
-  )
+  );
 }

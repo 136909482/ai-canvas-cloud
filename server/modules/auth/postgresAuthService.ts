@@ -1,5 +1,5 @@
-import { betterAuth, APIError } from 'better-auth'
-import { splitSetCookieHeader } from 'better-auth/cookies'
+import { betterAuth, APIError } from "better-auth";
+import { splitSetCookieHeader } from "better-auth/cookies";
 import type {
   AuthDevicesResponse,
   AuthSessionResponse,
@@ -20,211 +20,228 @@ import type {
   WorkspaceRole,
   WorkspaceStatus,
   WorkspaceType,
-} from '@ai-canvas-cloud/contracts'
-import type { DbClient, DbPool } from '../../db/postgres.js'
-import { AuthServiceError, createPersonalWorkspaceName, normalizeEmail, normalizeRegistrationInput, validatePassword, type AuthRequestContext, type AuthService, type RevokedAuthSession } from './service.js'
-import type { AuthEmailService } from './email.js'
+} from "@ai-canvas-cloud/contracts";
+import type { DbClient, DbPool } from "../../db/postgres.js";
+import {
+  AuthServiceError,
+  createPersonalWorkspaceName,
+  normalizeEmail,
+  normalizeRegistrationInput,
+  validatePassword,
+  type AuthRequestContext,
+  type AuthService,
+  type RevokedAuthSession,
+} from "./service.js";
+import type { AuthEmailService } from "./email.js";
 
 export interface PostgresAuthServiceOptions {
-  baseURL?: string
-  secret?: string
-  publicWebUrl?: string
-  environment?: string
-  trustedOrigins?: string[]
-  emailService?: AuthEmailService
-  authApi?: BetterAuthApi
+  baseURL?: string;
+  secret?: string;
+  publicWebUrl?: string;
+  environment?: string;
+  trustedOrigins?: string[];
+  emailService?: AuthEmailService;
+  authApi?: BetterAuthApi;
 }
 
 interface BetterAuthUser {
-  id: string
-  email: string
-  emailVerified: boolean
-  name: string
-  image?: string | null
-  createdAt: Date | string
-  updatedAt: Date | string
+  id: string;
+  email: string;
+  emailVerified: boolean;
+  name: string;
+  image?: string | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
 }
 
 interface BetterAuthSession {
-  id: string
-  token: string
-  userId: string
-  expiresAt: Date | string
-  createdAt: Date | string
-  updatedAt: Date | string
+  id: string;
+  token: string;
+  userId: string;
+  expiresAt: Date | string;
+  createdAt: Date | string;
+  updatedAt: Date | string;
 }
 
 interface EndpointResult<T> {
-  response: T
-  headers: Headers
+  response: T;
+  headers: Headers;
 }
 
 interface BetterAuthApi {
   signUpEmail: (input: {
-    body: { email: string; password: string; name: string; rememberMe?: boolean }
-    headers?: Headers
-    returnHeaders?: boolean
-  }) => Promise<EndpointResult<{ token: string | null; user: BetterAuthUser }>>
+    body: {
+      email: string;
+      password: string;
+      name: string;
+      rememberMe?: boolean;
+    };
+    headers?: Headers;
+    returnHeaders?: boolean;
+  }) => Promise<EndpointResult<{ token: string | null; user: BetterAuthUser }>>;
   signInEmail: (input: {
-    body: { email: string; password: string; rememberMe?: boolean }
-    headers?: Headers
-    returnHeaders?: boolean
-  }) => Promise<EndpointResult<{ redirect: boolean; token: string; user: BetterAuthUser }>>
+    body: { email: string; password: string; rememberMe?: boolean };
+    headers?: Headers;
+    returnHeaders?: boolean;
+  }) => Promise<
+    EndpointResult<{ redirect: boolean; token: string; user: BetterAuthUser }>
+  >;
   getSession: (input: {
-    headers: Headers
-    query?: { disableCookieCache?: boolean; disableRefresh?: boolean }
-  }) => Promise<{ session: BetterAuthSession; user: BetterAuthUser } | null>
+    headers: Headers;
+    query?: { disableCookieCache?: boolean; disableRefresh?: boolean };
+  }) => Promise<{ session: BetterAuthSession; user: BetterAuthUser } | null>;
   signOut: (input: {
-    headers: Headers
-    returnHeaders?: boolean
-  }) => Promise<EndpointResult<{ success: boolean }>>
-  listSessions: (input: {
-    headers: Headers
-  }) => Promise<BetterAuthSession[]>
+    headers: Headers;
+    returnHeaders?: boolean;
+  }) => Promise<EndpointResult<{ success: boolean }>>;
+  listSessions: (input: { headers: Headers }) => Promise<BetterAuthSession[]>;
   revokeSession: (input: {
-    body: { token: string }
-    headers: Headers
-    returnHeaders?: boolean
-  }) => Promise<EndpointResult<{ status: boolean }>>
+    body: { token: string };
+    headers: Headers;
+    returnHeaders?: boolean;
+  }) => Promise<EndpointResult<{ status: boolean }>>;
   sendVerificationEmail: (input: {
-    body: { email: string; callbackURL?: string }
-    headers?: Headers
-  }) => Promise<{ status: boolean }>
+    body: { email: string; callbackURL?: string };
+    headers?: Headers;
+  }) => Promise<{ status: boolean }>;
   verifyEmail: (input: {
-    query: { token: string; callbackURL?: string }
-    headers?: Headers
-  }) => Promise<{ status: boolean } | void>
+    query: { token: string; callbackURL?: string };
+    headers?: Headers;
+  }) => Promise<{ status: boolean } | void>;
   requestPasswordReset: (input: {
-    body: { email: string; redirectTo?: string }
-    headers?: Headers
-  }) => Promise<{ status: boolean; message: string }>
+    body: { email: string; redirectTo?: string };
+    headers?: Headers;
+  }) => Promise<{ status: boolean; message: string }>;
   resetPassword: (input: {
-    body: { newPassword: string; token?: string }
-    headers?: Headers
-  }) => Promise<{ status: boolean }>
+    body: { newPassword: string; token?: string };
+    headers?: Headers;
+  }) => Promise<{ status: boolean }>;
 }
 
 interface AuthRows {
-  user_id: string
-  user_no: string | number
-  email: string
-  email_verified: boolean
-  user_status: UserStatus
-  workspace_id: string
-  workspace_type: WorkspaceType
-  workspace_name: string
-  workspace_status: WorkspaceStatus
-  workspace_role: WorkspaceRole
-  plan_key: string
+  user_id: string;
+  user_no: string | number;
+  email: string;
+  email_verified: boolean;
+  user_status: UserStatus;
+  workspace_id: string;
+  workspace_type: WorkspaceType;
+  workspace_name: string;
+  workspace_status: WorkspaceStatus;
+  workspace_role: WorkspaceRole;
+  plan_key: string;
 }
 
 interface AuthDeviceRow {
-  id: string
-  user_agent: string | null
-  first_seen_at: Date | string
-  last_seen_at: Date | string
-  current: boolean
+  id: string;
+  user_agent: string | null;
+  first_seen_at: Date | string;
+  last_seen_at: Date | string;
+  current: boolean;
 }
 
 interface ActiveSessionRow {
-  user_agent: string | null
+  user_agent: string | null;
 }
 
-const DEFAULT_BASE_URL = 'http://localhost:8787'
-const DEFAULT_SECRET = 'ai-canvas-cloud-dev-secret-change-me-in-env'
-const DEFAULT_PUBLIC_WEB_URL = 'http://localhost:5173'
-const EMAIL_VERIFICATION_EXPIRES_IN_SECONDS = 60 * 60
-const PASSWORD_RESET_EXPIRES_IN_SECONDS = 60 * 60
+const DEFAULT_BASE_URL = "http://localhost:8787";
+const DEFAULT_SECRET = "ai-canvas-cloud-dev-secret-change-me-in-env";
+const DEFAULT_PUBLIC_WEB_URL = "http://localhost:5173";
+const EMAIL_VERIFICATION_EXPIRES_IN_SECONDS = 60 * 60;
+const PASSWORD_RESET_EXPIRES_IN_SECONDS = 60 * 60;
 const BETTER_AUTH_FIELD_MAPPING = {
   user: {
-    emailVerified: 'email_verified',
-    createdAt: 'created_at',
-    updatedAt: 'updated_at',
+    emailVerified: "email_verified",
+    createdAt: "created_at",
+    updatedAt: "updated_at",
   },
   session: {
-    expiresAt: 'expires_at',
-    createdAt: 'created_at',
-    updatedAt: 'updated_at',
-    ipAddress: 'ip_address',
-    userAgent: 'user_agent',
-    userId: 'user_id',
+    expiresAt: "expires_at",
+    createdAt: "created_at",
+    updatedAt: "updated_at",
+    ipAddress: "ip_address",
+    userAgent: "user_agent",
+    userId: "user_id",
   },
   account: {
-    accountId: 'account_id',
-    providerId: 'provider_id',
-    userId: 'user_id',
-    accessToken: 'access_token',
-    refreshToken: 'refresh_token',
-    idToken: 'id_token',
-    accessTokenExpiresAt: 'access_token_expires_at',
-    refreshTokenExpiresAt: 'refresh_token_expires_at',
-    createdAt: 'created_at',
-    updatedAt: 'updated_at',
+    accountId: "account_id",
+    providerId: "provider_id",
+    userId: "user_id",
+    accessToken: "access_token",
+    refreshToken: "refresh_token",
+    idToken: "id_token",
+    accessTokenExpiresAt: "access_token_expires_at",
+    refreshTokenExpiresAt: "refresh_token_expires_at",
+    createdAt: "created_at",
+    updatedAt: "updated_at",
   },
   verification: {
-    expiresAt: 'expires_at',
-    createdAt: 'created_at',
-    updatedAt: 'updated_at',
+    expiresAt: "expires_at",
+    createdAt: "created_at",
+    updatedAt: "updated_at",
   },
-} as const
+} as const;
 
 export function getAuthCookieSecurityOptions(environment?: string) {
-  const secure = environment === 'production' || environment === 'staging'
+  const secure = environment === "production" || environment === "staging";
   return {
     useSecureCookies: secure,
     defaultCookieAttributes: {
       secure,
       httpOnly: true,
-      sameSite: 'lax' as const,
-      path: '/',
+      sameSite: "lax" as const,
+      path: "/",
     },
-  }
+  };
 }
 
 function toIsoString(value: Date | string | null) {
   if (!value) {
-    return null
+    return null;
   }
 
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }
 
 function getSetCookieHeaders(headers: Headers) {
-  const getSetCookie = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie
-  if (typeof getSetCookie === 'function') {
-    return getSetCookie.call(headers)
+  const getSetCookie = (headers as Headers & { getSetCookie?: () => string[] })
+    .getSetCookie;
+  if (typeof getSetCookie === "function") {
+    return getSetCookie.call(headers);
   }
 
-  return splitSetCookieHeader(headers.get('set-cookie') ?? '')
+  return splitSetCookieHeader(headers.get("set-cookie") ?? "");
 }
 
 function createRequestHeaders(context: AuthRequestContext) {
-  const headers = new Headers()
+  const headers = new Headers();
 
   if (context.cookieHeader) {
-    headers.set('cookie', context.cookieHeader)
+    headers.set("cookie", context.cookieHeader);
   }
 
   if (context.userAgent) {
-    headers.set('user-agent', context.userAgent)
+    headers.set("user-agent", context.userAgent);
   }
 
   if (context.ipAddress) {
-    headers.set('x-forwarded-for', context.ipAddress)
+    headers.set("x-forwarded-for", context.ipAddress);
   }
 
-  return headers
+  return headers;
 }
 
-function toUserStatus(row: Pick<AuthRows, 'user_status'>): UserStatus {
-  return row.user_status
+function toUserStatus(row: Pick<AuthRows, "user_status">): UserStatus {
+  return row.user_status;
 }
 
 function toAuthSessionResponse(row: AuthRows): AuthSessionResponse {
-  const userNumber = Number(row.user_no)
+  const userNumber = Number(row.user_no);
 
   if (!Number.isSafeInteger(userNumber) || userNumber < 10001) {
-    throw new Error('Authenticated user number is invalid')
+    throw new Error("Authenticated user number is invalid");
   }
 
   return {
@@ -243,47 +260,62 @@ function toAuthSessionResponse(row: AuthRows): AuthSessionResponse {
       status: row.workspace_status,
       planKey: row.plan_key,
     },
-  }
+  };
 }
 
-function toAuthSuccessResponse(row: AuthRows, expiresAt: Date | string): AuthSuccessResponse {
+function toAuthSuccessResponse(
+  row: AuthRows,
+  expiresAt: Date | string,
+): AuthSuccessResponse {
   return {
     ...toAuthSessionResponse(row),
     session: {
       expiresAt: toIsoString(expiresAt) ?? new Date().toISOString(),
     },
-  }
+  };
 }
 
 function getUserDisplayName(emailNormalized: string) {
-  const [localPart] = emailNormalized.split('@')
-  return localPart?.trim() || emailNormalized
+  const [localPart] = emailNormalized.split("@");
+  return localPart?.trim() || emailNormalized;
 }
 
 function createPublicEmailVerificationUrl(publicWebUrl: string, token: string) {
-  const url = new URL('/auth/verify-email', publicWebUrl)
-  url.searchParams.set('token', token)
-  return url.toString()
+  const url = new URL("/auth/verify-email", publicWebUrl);
+  url.searchParams.set("token", token);
+  return url.toString();
 }
 
 function createPublicPasswordResetUrl(publicWebUrl: string, token: string) {
-  const url = new URL('/auth/reset-password', publicWebUrl)
-  url.searchParams.set('token', token)
-  return url.toString()
+  const url = new URL("/auth/reset-password", publicWebUrl);
+  url.searchParams.set("token", token);
+  return url.toString();
 }
 
-function toSessionSummary(session: BetterAuthSession, currentToken: string | null): SessionSummary {
-  const userAgent = 'userAgent' in session && typeof session.userAgent === 'string' ? session.userAgent : null
-  const ipAddress = 'ipAddress' in session && typeof session.ipAddress === 'string' ? session.ipAddress : null
+function toSessionSummary(
+  session: BetterAuthSession,
+  currentToken: string | null,
+): SessionSummary {
+  const userAgent =
+    "userAgent" in session && typeof session.userAgent === "string"
+      ? session.userAgent
+      : null;
+  const ipAddress =
+    "ipAddress" in session && typeof session.ipAddress === "string"
+      ? session.ipAddress
+      : null;
 
   return {
     id: session.id,
     deviceLabel: userAgent || ipAddress || null,
     createdAt: toIsoString(session.createdAt) ?? new Date().toISOString(),
-    lastUsedAt: toIsoString(session.updatedAt) ?? toIsoString(session.createdAt) ?? new Date().toISOString(),
+    lastUsedAt:
+      toIsoString(session.updatedAt) ??
+      toIsoString(session.createdAt) ??
+      new Date().toISOString(),
     expiresAt: toIsoString(session.expiresAt) ?? new Date().toISOString(),
     current: currentToken !== null && session.token === currentToken,
-  }
+  };
 }
 
 function toDeviceSummary(row: AuthDeviceRow): DeviceSummary {
@@ -293,71 +325,83 @@ function toDeviceSummary(row: AuthDeviceRow): DeviceSummary {
     firstSeenAt: toIsoString(row.first_seen_at) ?? new Date().toISOString(),
     lastSeenAt: toIsoString(row.last_seen_at) ?? new Date().toISOString(),
     current: row.current,
-  }
+  };
 }
 
 function isApiError(error: unknown): error is APIError {
-  return error instanceof APIError
+  return error instanceof APIError;
 }
 
 function toAuthServiceError(error: unknown): AuthServiceError {
   if (isApiError(error)) {
-    const code = error.body?.code
-    const message = error.body?.message ?? error.message
+    const code = error.body?.code;
+    const message = error.body?.message ?? error.message;
 
-    if (code === 'INVALID_TOKEN' || code === 'TOKEN_EXPIRED') {
+    if (code === "INVALID_TOKEN" || code === "TOKEN_EXPIRED") {
       return new AuthServiceError({
         statusCode: 400,
-        apiCode: 'VALIDATION_FAILED',
-        message: message || 'Verification link is invalid or expired',
-      })
+        apiCode: "VALIDATION_FAILED",
+        message: message || "Verification link is invalid or expired",
+      });
     }
 
     if (error.statusCode === 401) {
       return new AuthServiceError({
         statusCode: 401,
-        apiCode: 'AUTH_REQUIRED',
-        message: message || 'Invalid email or password',
-      })
+        apiCode: "AUTH_REQUIRED",
+        message: message || "Invalid email or password",
+      });
     }
 
     if (error.statusCode === 403) {
       return new AuthServiceError({
         statusCode: 403,
-        apiCode: code === 'EMAIL_NOT_VERIFIED' ? 'EMAIL_NOT_VERIFIED' : 'ACCESS_DENIED',
-        message: message || 'Access denied',
-      })
+        apiCode:
+          code === "EMAIL_NOT_VERIFIED"
+            ? "EMAIL_NOT_VERIFIED"
+            : "ACCESS_DENIED",
+        message: message || "Access denied",
+      });
     }
 
-    if (error.statusCode === 422 || code === 'USER_ALREADY_EXISTS') {
+    if (error.statusCode === 422 || code === "USER_ALREADY_EXISTS") {
       return new AuthServiceError({
         statusCode: 409,
-        apiCode: 'VALIDATION_FAILED',
-        message: message || 'Email is already registered',
-      })
+        apiCode: "VALIDATION_FAILED",
+        message: message || "Email is already registered",
+      });
     }
 
     return new AuthServiceError({
-      statusCode: error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 503,
-      apiCode: error.statusCode >= 400 && error.statusCode < 500 ? 'VALIDATION_FAILED' : 'SERVICE_UNAVAILABLE',
-      message: message || 'Authentication failed',
+      statusCode:
+        error.statusCode >= 400 && error.statusCode < 500
+          ? error.statusCode
+          : 503,
+      apiCode:
+        error.statusCode >= 400 && error.statusCode < 500
+          ? "VALIDATION_FAILED"
+          : "SERVICE_UNAVAILABLE",
+      message: message || "Authentication failed",
       retryable: error.statusCode >= 500,
-    })
+    });
   }
 
   if (error instanceof AuthServiceError) {
-    return error
+    return error;
   }
 
   return new AuthServiceError({
     statusCode: 503,
-    apiCode: 'SERVICE_UNAVAILABLE',
-    message: 'Authentication service failed',
+    apiCode: "SERVICE_UNAVAILABLE",
+    message: "Authentication service failed",
     retryable: true,
-  })
+  });
 }
 
-async function ensurePersonalWorkspace(client: Pick<DbClient, 'query'>, user: Pick<BetterAuthUser, 'id' | 'email'>) {
+async function ensurePersonalWorkspace(
+  client: Pick<DbClient, "query">,
+  user: Pick<BetterAuthUser, "id" | "email">,
+) {
   const workspaceResult = await client.query<{ id: string }>(
     `
       INSERT INTO workspaces (type, name, owner_user_id, status, plan_key)
@@ -368,11 +412,11 @@ async function ensurePersonalWorkspace(client: Pick<DbClient, 'query'>, user: Pi
       RETURNING id
     `,
     [createPersonalWorkspaceName(user.email), user.id],
-  )
-  const workspaceId = workspaceResult.rows[0]?.id
+  );
+  const workspaceId = workspaceResult.rows[0]?.id;
 
   if (!workspaceId) {
-    throw new Error('Failed to create workspace')
+    throw new Error("Failed to create workspace");
   }
 
   await client.query(
@@ -382,7 +426,7 @@ async function ensurePersonalWorkspace(client: Pick<DbClient, 'query'>, user: Pi
       ON CONFLICT (workspace_id, user_id) DO NOTHING
     `,
     [workspaceId, user.id],
-  )
+  );
   await client.query(
     `
       INSERT INTO workspace_user_state (workspace_id, user_id)
@@ -390,12 +434,15 @@ async function ensurePersonalWorkspace(client: Pick<DbClient, 'query'>, user: Pi
       ON CONFLICT (workspace_id, user_id) DO NOTHING
     `,
     [workspaceId, user.id],
-  )
+  );
 
-  return workspaceId
+  return workspaceId;
 }
 
-async function getPrimaryWorkspace(client: Pick<DbClient, 'query'>, userId: string) {
+async function getPrimaryWorkspace(
+  client: Pick<DbClient, "query">,
+  userId: string,
+) {
   const result = await client.query<AuthRows>(
     `
       SELECT
@@ -420,32 +467,36 @@ async function getPrimaryWorkspace(client: Pick<DbClient, 'query'>, userId: stri
       LIMIT 1
     `,
     [userId],
-  )
+  );
 
-  return result.rows[0] ?? null
+  return result.rows[0] ?? null;
 }
 
-function resolveDeviceKey(deviceId: string | undefined, context: AuthRequestContext) {
-  const provided = deviceId?.trim()
+function resolveDeviceKey(
+  deviceId: string | undefined,
+  context: AuthRequestContext,
+) {
+  const provided = deviceId?.trim();
 
   if (provided) {
     if (!/^[a-zA-Z0-9._:-]{1,128}$/.test(provided)) {
       throw new AuthServiceError({
         statusCode: 400,
-        apiCode: 'VALIDATION_FAILED',
-        message: 'Invalid device identifier',
-      })
+        apiCode: "VALIDATION_FAILED",
+        message: "Invalid device identifier",
+      });
     }
 
-    return provided
+    return provided;
   }
 
-  const fallbackSource = context.userAgent || context.ipAddress || 'unknown-device'
-  return `legacy:${Buffer.from(fallbackSource).toString('base64url').slice(0, 96)}`
+  const fallbackSource =
+    context.userAgent || context.ipAddress || "unknown-device";
+  return `legacy:${Buffer.from(fallbackSource).toString("base64url").slice(0, 96)}`;
 }
 
 async function findOtherActiveSession(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   userId: string,
   currentToken: string,
 ) {
@@ -460,44 +511,44 @@ async function findOtherActiveSession(
       LIMIT 1
     `,
     [userId, currentToken],
-  )
+  );
 
-  return result.rows[0] ?? null
+  return result.rows[0] ?? null;
 }
 
 async function deleteCurrentLoginAttempt(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   userId: string,
   currentToken: string,
 ) {
   await client.query(
     'DELETE FROM "session" WHERE user_id = $1 AND token = $2',
     [userId, currentToken],
-  )
+  );
 }
 
 async function revokeOtherUserSessions(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   userId: string,
   currentToken: string,
 ) {
   await client.query(
     'DELETE FROM "session" WHERE user_id = $1 AND token <> $2',
     [userId, currentToken],
-  )
+  );
 }
 
 async function upsertDeviceHistory(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   options: {
-    userId: string
-    currentToken: string | null
-    deviceKey: string
-    userAgent: string | null
+    userId: string;
+    currentToken: string | null;
+    deviceKey: string;
+    userAgent: string | null;
   },
 ) {
   if (!options.currentToken) {
-    return
+    return;
   }
 
   await client.query(
@@ -518,8 +569,13 @@ async function upsertDeviceHistory(
           last_seen_at = now(),
           last_session_id = EXCLUDED.last_session_id
     `,
-    [options.userId, options.deviceKey, options.userAgent?.slice(0, 2048) || null, options.currentToken],
-  )
+    [
+      options.userId,
+      options.deviceKey,
+      options.userAgent?.slice(0, 2048) || null,
+      options.currentToken,
+    ],
+  );
   await client.query(
     `
       DELETE FROM auth_devices
@@ -528,22 +584,32 @@ async function upsertDeviceHistory(
         AND device_key <> $2
         AND user_agent IS NOT DISTINCT FROM $3
     `,
-    [options.userId, options.deviceKey, options.userAgent?.slice(0, 2048) || null],
-  )
+    [
+      options.userId,
+      options.deviceKey,
+      options.userAgent?.slice(0, 2048) || null,
+    ],
+  );
 }
 
 async function touchCurrentDevice(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   sessionId: string,
 ) {
   await client.query(
-    'UPDATE auth_devices SET last_seen_at = now() WHERE last_session_id = $1',
+    "UPDATE auth_devices SET last_seen_at = now() WHERE last_session_id = $1",
     [sessionId],
-  )
+  );
 }
 
-function createDefaultBetterAuthApi(pool: DbPool, options: PostgresAuthServiceOptions): BetterAuthApi {
-  const publicWebUrl = options.publicWebUrl ?? process.env.WEB_PUBLIC_URL ?? DEFAULT_PUBLIC_WEB_URL
+function createDefaultBetterAuthApi(
+  pool: DbPool,
+  options: PostgresAuthServiceOptions,
+): BetterAuthApi {
+  const publicWebUrl =
+    options.publicWebUrl ??
+    process.env.WEB_PUBLIC_URL ??
+    DEFAULT_PUBLIC_WEB_URL;
   const auth = betterAuth({
     baseURL: options.baseURL ?? process.env.BETTER_AUTH_URL ?? DEFAULT_BASE_URL,
     secret: options.secret ?? process.env.BETTER_AUTH_SECRET ?? DEFAULT_SECRET,
@@ -562,7 +628,7 @@ function createDefaultBetterAuthApi(pool: DbPool, options: PostgresAuthServiceOp
               to: user.email,
               resetUrl: createPublicPasswordResetUrl(publicWebUrl, token),
               expiresInSeconds: PASSWORD_RESET_EXPIRES_IN_SECONDS,
-            })
+            });
           }
         : undefined,
     },
@@ -573,9 +639,12 @@ function createDefaultBetterAuthApi(pool: DbPool, options: PostgresAuthServiceOp
         ? async ({ user, token }) => {
             await options.emailService?.sendVerificationEmail({
               to: user.email,
-              verificationUrl: createPublicEmailVerificationUrl(publicWebUrl, token),
+              verificationUrl: createPublicEmailVerificationUrl(
+                publicWebUrl,
+                token,
+              ),
               expiresInSeconds: EMAIL_VERIFICATION_EXPIRES_IN_SECONDS,
-            })
+            });
           }
         : undefined,
     },
@@ -583,9 +652,9 @@ function createDefaultBetterAuthApi(pool: DbPool, options: PostgresAuthServiceOp
       fields: BETTER_AUTH_FIELD_MAPPING.user,
       additionalFields: {
         status: {
-          type: 'string',
+          type: "string",
           required: false,
-          defaultValue: 'active',
+          defaultValue: "active",
           input: false,
         },
       },
@@ -603,22 +672,22 @@ function createDefaultBetterAuthApi(pool: DbPool, options: PostgresAuthServiceOp
       enabled: true,
     },
     advanced: getAuthCookieSecurityOptions(options.environment),
-  })
+  });
 
-  return auth.api as unknown as BetterAuthApi
+  return auth.api as unknown as BetterAuthApi;
 }
 
 export function createPostgresAuthService(
   pool: DbPool,
   options: PostgresAuthServiceOptions = {},
 ): AuthService {
-  const authApi = options.authApi ?? createDefaultBetterAuthApi(pool, options)
+  const authApi = options.authApi ?? createDefaultBetterAuthApi(pool, options);
 
   return {
     async register(input: RegisterRequest, context: AuthRequestContext) {
       try {
-        const normalized = normalizeRegistrationInput(input)
-        const deviceKey = resolveDeviceKey(input.deviceId, context)
+        const normalized = normalizeRegistrationInput(input);
+        const deviceKey = resolveDeviceKey(input.deviceId, context);
         const result = await authApi.signUpEmail({
           body: {
             email: normalized.emailNormalized,
@@ -628,34 +697,37 @@ export function createPostgresAuthService(
           },
           headers: createRequestHeaders(context),
           returnHeaders: true,
-        })
+        });
 
-        await ensurePersonalWorkspace(pool, result.response.user)
+        await ensurePersonalWorkspace(pool, result.response.user);
         await upsertDeviceHistory(pool, {
           userId: result.response.user.id,
           currentToken: result.response.token,
           deviceKey,
           userAgent: context.userAgent ?? null,
-        })
-        const row = await getPrimaryWorkspace(pool, result.response.user.id)
+        });
+        const row = await getPrimaryWorkspace(pool, result.response.user.id);
 
         if (!row) {
-          throw new Error('Failed to load registered workspace')
+          throw new Error("Failed to load registered workspace");
         }
 
         return {
-          response: toAuthSuccessResponse(row, new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
+          response: toAuthSuccessResponse(
+            row,
+            new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          ),
           setCookieHeaders: getSetCookieHeaders(result.headers),
-        }
+        };
       } catch (error) {
-        throw toAuthServiceError(error)
+        throw toAuthServiceError(error);
       }
     },
 
     async login(input: LoginRequest, context: AuthRequestContext) {
       try {
-        const emailNormalized = input.email.trim().toLowerCase()
-        const deviceKey = resolveDeviceKey(input.deviceId, context)
+        const emailNormalized = input.email.trim().toLowerCase();
+        const deviceKey = resolveDeviceKey(input.deviceId, context);
         const result = await authApi.signInEmail({
           body: {
             email: emailNormalized,
@@ -664,52 +736,67 @@ export function createPostgresAuthService(
           },
           headers: createRequestHeaders(context),
           returnHeaders: true,
-        })
+        });
 
         const otherActiveSession = await findOtherActiveSession(
           pool,
           result.response.user.id,
           result.response.token,
-        )
+        );
 
         if (otherActiveSession && !input.force) {
-          await deleteCurrentLoginAttempt(pool, result.response.user.id, result.response.token)
+          await deleteCurrentLoginAttempt(
+            pool,
+            result.response.user.id,
+            result.response.token,
+          );
           throw new AuthServiceError({
             statusCode: 409,
-            apiCode: 'ACTIVE_SESSION_EXISTS',
-            message: 'This account is already signed in on another device',
+            apiCode: "ACTIVE_SESSION_EXISTS",
+            message: "This account is already signed in on another device",
             details: {
               activeDeviceLabel: otherActiveSession.user_agent,
             },
-          })
+          });
         }
 
-        await revokeOtherUserSessions(pool, result.response.user.id, result.response.token)
+        await revokeOtherUserSessions(
+          pool,
+          result.response.user.id,
+          result.response.token,
+        );
 
-        await ensurePersonalWorkspace(pool, result.response.user)
+        await ensurePersonalWorkspace(pool, result.response.user);
         await upsertDeviceHistory(pool, {
           userId: result.response.user.id,
           currentToken: result.response.token,
           deviceKey,
           userAgent: context.userAgent ?? null,
-        })
-        const row = await getPrimaryWorkspace(pool, result.response.user.id)
+        });
+        const row = await getPrimaryWorkspace(pool, result.response.user.id);
 
         if (!row) {
-          await deleteCurrentLoginAttempt(pool, result.response.user.id, result.response.token)
+          await deleteCurrentLoginAttempt(
+            pool,
+            result.response.user.id,
+            result.response.token,
+          );
           throw new AuthServiceError({
             statusCode: 403,
-            apiCode: 'ACCESS_DENIED',
-            message: 'Account access is disabled',
-          })
+            apiCode: "ACCESS_DENIED",
+            message: "Account access is disabled",
+          });
         }
 
         return {
-          response: toAuthSuccessResponse(row, new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
+          response: toAuthSuccessResponse(
+            row,
+            new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          ),
           setCookieHeaders: getSetCookieHeaders(result.headers),
-        }
+        };
       } catch (error) {
-        throw toAuthServiceError(error)
+        throw toAuthServiceError(error);
       }
     },
 
@@ -720,83 +807,93 @@ export function createPostgresAuthService(
           query: {
             disableCookieCache: true,
           },
-        })
+        });
 
         if (!session) {
           throw new AuthServiceError({
             statusCode: 401,
-            apiCode: 'SESSION_EXPIRED',
-            message: 'Session expired',
-          })
+            apiCode: "SESSION_EXPIRED",
+            message: "Session expired",
+          });
         }
 
-        await ensurePersonalWorkspace(pool, session.user)
-        await touchCurrentDevice(pool, session.session.id)
-        const row = await getPrimaryWorkspace(pool, session.user.id)
+        await ensurePersonalWorkspace(pool, session.user);
+        await touchCurrentDevice(pool, session.session.id);
+        const row = await getPrimaryWorkspace(pool, session.user.id);
 
         if (!row) {
           throw new AuthServiceError({
             statusCode: 403,
-            apiCode: 'ACCESS_DENIED',
-            message: 'Workspace is not available',
-          })
+            apiCode: "ACCESS_DENIED",
+            message: "Workspace is not available",
+          });
         }
 
-        return toAuthSessionResponse(row)
+        return toAuthSessionResponse(row);
       } catch (error) {
-        throw toAuthServiceError(error)
+        throw toAuthServiceError(error);
       }
     },
 
-    async listSessions(context: AuthRequestContext): Promise<AuthSessionsResponse> {
+    async listSessions(
+      context: AuthRequestContext,
+    ): Promise<AuthSessionsResponse> {
       try {
-        const headers = createRequestHeaders(context)
+        const headers = createRequestHeaders(context);
         const currentSession = await authApi.getSession({
           headers,
           query: {
             disableCookieCache: true,
           },
-        })
+        });
 
         if (!currentSession) {
           throw new AuthServiceError({
             statusCode: 401,
-            apiCode: 'SESSION_EXPIRED',
-            message: 'Session expired',
-          })
+            apiCode: "SESSION_EXPIRED",
+            message: "Session expired",
+          });
         }
 
-        const sessions = await authApi.listSessions({ headers })
+        const sessions = await authApi.listSessions({ headers });
 
         return {
           sessions: sessions
-            .map((session) => toSessionSummary(session, currentSession.session.token))
-            .sort((left, right) => Number(right.current) - Number(left.current)
-              || new Date(right.lastUsedAt).getTime() - new Date(left.lastUsedAt).getTime()),
-        }
+            .map((session) =>
+              toSessionSummary(session, currentSession.session.token),
+            )
+            .sort(
+              (left, right) =>
+                Number(right.current) - Number(left.current) ||
+                new Date(right.lastUsedAt).getTime() -
+                  new Date(left.lastUsedAt).getTime(),
+            ),
+        };
       } catch (error) {
-        throw toAuthServiceError(error)
+        throw toAuthServiceError(error);
       }
     },
 
-    async listDevices(context: AuthRequestContext): Promise<AuthDevicesResponse> {
+    async listDevices(
+      context: AuthRequestContext,
+    ): Promise<AuthDevicesResponse> {
       try {
         const currentSession = await authApi.getSession({
           headers: createRequestHeaders(context),
           query: {
             disableCookieCache: true,
           },
-        })
+        });
 
         if (!currentSession) {
           throw new AuthServiceError({
             statusCode: 401,
-            apiCode: 'SESSION_EXPIRED',
-            message: 'Session expired',
-          })
+            apiCode: "SESSION_EXPIRED",
+            message: "Session expired",
+          });
         }
 
-        await touchCurrentDevice(pool, currentSession.session.id)
+        await touchCurrentDevice(pool, currentSession.session.id);
         const result = await pool.query<AuthDeviceRow>(
           `
             SELECT
@@ -810,62 +907,67 @@ export function createPostgresAuthService(
             ORDER BY current DESC, last_seen_at DESC
           `,
           [currentSession.user.id, currentSession.session.id],
-        )
+        );
 
         return {
           devices: result.rows.map(toDeviceSummary),
-        }
+        };
       } catch (error) {
-        throw toAuthServiceError(error)
+        throw toAuthServiceError(error);
       }
     },
 
-    async resendVerificationEmail(context: AuthRequestContext): Promise<EmailVerificationResponse> {
+    async resendVerificationEmail(
+      context: AuthRequestContext,
+    ): Promise<EmailVerificationResponse> {
       try {
-        const headers = createRequestHeaders(context)
+        const headers = createRequestHeaders(context);
         const currentSession = await authApi.getSession({
           headers,
           query: {
             disableCookieCache: true,
           },
-        })
+        });
 
         if (!currentSession) {
           throw new AuthServiceError({
             statusCode: 401,
-            apiCode: 'SESSION_EXPIRED',
-            message: 'Session expired',
-          })
+            apiCode: "SESSION_EXPIRED",
+            message: "Session expired",
+          });
         }
 
         if (currentSession.user.emailVerified) {
-          return { ok: true }
+          return { ok: true };
         }
 
         await authApi.sendVerificationEmail({
           body: {
             email: currentSession.user.email,
-            callbackURL: '/',
+            callbackURL: "/",
           },
           headers,
-        })
+        });
 
-        return { ok: true }
+        return { ok: true };
       } catch (error) {
-        throw toAuthServiceError(error)
+        throw toAuthServiceError(error);
       }
     },
 
-    async verifyEmail(input: EmailVerifyRequest, context: AuthRequestContext): Promise<EmailVerificationResponse> {
+    async verifyEmail(
+      input: EmailVerifyRequest,
+      context: AuthRequestContext,
+    ): Promise<EmailVerificationResponse> {
       try {
-        const token = input.token.trim()
+        const token = input.token.trim();
 
         if (!token) {
           throw new AuthServiceError({
             statusCode: 400,
-            apiCode: 'VALIDATION_FAILED',
-            message: 'Verification token is required',
-          })
+            apiCode: "VALIDATION_FAILED",
+            message: "Verification token is required",
+          });
         }
 
         await authApi.verifyEmail({
@@ -873,59 +975,69 @@ export function createPostgresAuthService(
             token,
           },
           headers: createRequestHeaders(context),
-        })
+        });
 
-        return { ok: true }
+        return { ok: true };
       } catch (error) {
-        throw toAuthServiceError(error)
+        throw toAuthServiceError(error);
       }
     },
 
-    async requestPasswordReset(input: PasswordForgotRequest, context: AuthRequestContext): Promise<PasswordResetResponse> {
+    async requestPasswordReset(
+      input: PasswordForgotRequest,
+      context: AuthRequestContext,
+    ): Promise<PasswordResetResponse> {
       try {
-        const email = normalizeEmail(input.email)
+        const email = normalizeEmail(input.email);
 
         await authApi.requestPasswordReset({
           body: {
             email,
           },
           headers: createRequestHeaders(context),
-        })
+        });
 
-        return { ok: true }
+        return { ok: true };
       } catch (error) {
-        if (error instanceof Error && error.message === 'Invalid email address') {
+        if (
+          error instanceof Error &&
+          error.message === "Invalid email address"
+        ) {
           throw new AuthServiceError({
             statusCode: 400,
-            apiCode: 'VALIDATION_FAILED',
-            message: 'Invalid email address',
-          })
+            apiCode: "VALIDATION_FAILED",
+            message: "Invalid email address",
+          });
         }
 
-        throw toAuthServiceError(error)
+        throw toAuthServiceError(error);
       }
     },
 
-    async resetPassword(input: PasswordResetRequest, context: AuthRequestContext): Promise<PasswordResetResponse> {
+    async resetPassword(
+      input: PasswordResetRequest,
+      context: AuthRequestContext,
+    ): Promise<PasswordResetResponse> {
       try {
-        const token = input.token.trim()
+        const token = input.token.trim();
 
         if (!token) {
           throw new AuthServiceError({
             statusCode: 400,
-            apiCode: 'VALIDATION_FAILED',
-            message: 'Reset token is required',
-          })
+            apiCode: "VALIDATION_FAILED",
+            message: "Reset token is required",
+          });
         }
 
         try {
-          validatePassword(input.password)
+          validatePassword(input.password);
         } catch (error) {
           throw new AuthServiceError({
             statusCode: 400,
-            apiCode: 'VALIDATION_FAILED',
-            message: error instanceof Error ? error.message : 'Invalid password',
-          })
+            apiCode: "VALIDATION_FAILED",
+            message:
+              error instanceof Error ? error.message : "Invalid password",
+          });
         }
 
         await authApi.resetPassword({
@@ -934,55 +1046,62 @@ export function createPostgresAuthService(
             token,
           },
           headers: createRequestHeaders(context),
-        })
+        });
 
-        return { ok: true }
+        return { ok: true };
       } catch (error) {
-        throw toAuthServiceError(error)
+        throw toAuthServiceError(error);
       }
     },
 
-    async revokeSession(sessionId: string, context: AuthRequestContext): Promise<RevokedAuthSession & {
-      response: RevokeSessionResponse
-    }> {
+    async revokeSession(
+      sessionId: string,
+      context: AuthRequestContext,
+    ): Promise<
+      RevokedAuthSession & {
+        response: RevokeSessionResponse;
+      }
+    > {
       try {
-        const headers = createRequestHeaders(context)
+        const headers = createRequestHeaders(context);
         const currentSession = await authApi.getSession({
           headers,
           query: {
             disableCookieCache: true,
           },
-        })
+        });
 
         if (!currentSession) {
           throw new AuthServiceError({
             statusCode: 401,
-            apiCode: 'SESSION_EXPIRED',
-            message: 'Session expired',
-          })
+            apiCode: "SESSION_EXPIRED",
+            message: "Session expired",
+          });
         }
 
-        const sessions = await authApi.listSessions({ headers })
-        const targetSession = sessions.find((session) => session.id === sessionId)
+        const sessions = await authApi.listSessions({ headers });
+        const targetSession = sessions.find(
+          (session) => session.id === sessionId,
+        );
 
         if (!targetSession) {
           throw new AuthServiceError({
             statusCode: 404,
-            apiCode: 'RESOURCE_NOT_FOUND',
-            message: 'Session not found',
-          })
+            apiCode: "RESOURCE_NOT_FOUND",
+            message: "Session not found",
+          });
         }
 
         if (targetSession.token === currentSession.session.token) {
           const result = await authApi.signOut({
             headers,
             returnHeaders: true,
-          })
+          });
 
           return {
             response: { ok: true },
             setCookieHeaders: getSetCookieHeaders(result.headers),
-          }
+          };
         }
 
         await authApi.revokeSession({
@@ -991,25 +1110,32 @@ export function createPostgresAuthService(
           },
           headers,
           returnHeaders: true,
-        })
+        });
 
         return {
           response: { ok: true },
           setCookieHeaders: [],
-        }
+        };
       } catch (error) {
-        throw toAuthServiceError(error)
+        throw toAuthServiceError(error);
       }
     },
 
-    async removeDevice(deviceId: string, context: AuthRequestContext): Promise<RemoveDeviceResponse> {
+    async removeDevice(
+      deviceId: string,
+      context: AuthRequestContext,
+    ): Promise<RemoveDeviceResponse> {
       try {
-        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceId)) {
+        if (
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+            deviceId,
+          )
+        ) {
           throw new AuthServiceError({
             statusCode: 400,
-            apiCode: 'VALIDATION_FAILED',
-            message: 'Invalid device identifier',
-          })
+            apiCode: "VALIDATION_FAILED",
+            message: "Invalid device identifier",
+          });
         }
 
         const currentSession = await authApi.getSession({
@@ -1017,56 +1143,60 @@ export function createPostgresAuthService(
           query: {
             disableCookieCache: true,
           },
-        })
+        });
 
         if (!currentSession) {
           throw new AuthServiceError({
             statusCode: 401,
-            apiCode: 'SESSION_EXPIRED',
-            message: 'Session expired',
-          })
+            apiCode: "SESSION_EXPIRED",
+            message: "Session expired",
+          });
         }
 
-        const target = await pool.query<{ id: string; last_session_id: string | null; current: boolean }>(
+        const target = await pool.query<{
+          id: string;
+          last_session_id: string | null;
+          current: boolean;
+        }>(
           `
             SELECT id::text, last_session_id, last_session_id = $3 AS current
             FROM auth_devices
             WHERE id = $1 AND user_id = $2
           `,
           [deviceId, currentSession.user.id, currentSession.session.id],
-        )
-        const device = target.rows[0]
+        );
+        const device = target.rows[0];
 
         if (!device) {
           throw new AuthServiceError({
             statusCode: 404,
-            apiCode: 'RESOURCE_NOT_FOUND',
-            message: 'Device not found',
-          })
+            apiCode: "RESOURCE_NOT_FOUND",
+            message: "Device not found",
+          });
         }
 
         if (device.current) {
           throw new AuthServiceError({
             statusCode: 400,
-            apiCode: 'VALIDATION_FAILED',
-            message: 'Current device cannot be removed',
-          })
+            apiCode: "VALIDATION_FAILED",
+            message: "Current device cannot be removed",
+          });
         }
 
         if (device.last_session_id) {
           await pool.query(
             'DELETE FROM "session" WHERE id = $1 AND user_id = $2',
             [device.last_session_id, currentSession.user.id],
-          )
+          );
         }
         await pool.query(
-          'DELETE FROM auth_devices WHERE id = $1 AND user_id = $2',
+          "DELETE FROM auth_devices WHERE id = $1 AND user_id = $2",
           [deviceId, currentSession.user.id],
-        )
+        );
 
-        return { ok: true }
+        return { ok: true };
       } catch (error) {
-        throw toAuthServiceError(error)
+        throw toAuthServiceError(error);
       }
     },
 
@@ -1075,14 +1205,14 @@ export function createPostgresAuthService(
         const result = await authApi.signOut({
           headers: createRequestHeaders(context),
           returnHeaders: true,
-        })
+        });
 
         return {
           setCookieHeaders: getSetCookieHeaders(result.headers),
-        }
+        };
       } catch (error) {
-        throw toAuthServiceError(error)
+        throw toAuthServiceError(error);
       }
     },
-  }
+  };
 }

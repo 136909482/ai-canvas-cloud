@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomUUID } from "node:crypto";
 import type {
   AssetKind,
   AssetResponse,
@@ -10,95 +10,112 @@ import type {
   CreateAssetUploadRequest,
   MigrationPackageAsset,
   WorkspaceRole,
-} from '@ai-canvas-cloud/contracts'
-import type { DbPool, DbClient } from '../../db/postgres.js'
-import { AuthServiceError } from '../auth/service.js'
-import type { ProjectActor } from '../projects/service.js'
+} from "@ai-canvas-cloud/contracts";
+import type { DbPool, DbClient } from "../../db/postgres.js";
+import { AuthServiceError } from "../auth/service.js";
+import type { ProjectActor } from "../projects/service.js";
 import {
   createWorkspaceAuthorizationService,
   type WorkspaceAuthorizationService,
-} from '../workspaces/authorization.js'
+} from "../workspaces/authorization.js";
 import {
   assertWorkspaceStorageCapacity,
   lockWorkspaceStorageQuota,
   readWorkspaceStorageUsage,
-} from '../workspaces/usage.js'
+} from "../workspaces/usage.js";
 
-export const ASSET_UPLOAD_MAX_BYTES = 50 * 1024 * 1024
-const FILE_NAME_MAX_LENGTH = 255
-const MIME_TYPE_MAX_LENGTH = 120
-const IDEMPOTENCY_KEY_MAX_LENGTH = 200
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const SHA256_PATTERN = /^[a-f0-9]{64}$/
+export const ASSET_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
+const FILE_NAME_MAX_LENGTH = 255;
+const MIME_TYPE_MAX_LENGTH = 120;
+const IDEMPOTENCY_KEY_MAX_LENGTH = 200;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const ALLOWED_MIME_TYPES = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'video/mp4',
-  'video/webm',
-  'video/quicktime',
-])
-const ALLOWED_ASSET_KINDS = new Set(['upload', 'generated', 'edit', 'crop', 'thumbnail', 'preview', 'video'])
-const ALLOWED_REFERENCE_ROLES = new Set(['source', 'result', 'thumbnail', 'preview', 'mask', 'attachment'])
-const ASSET_WRITE_ROLES: readonly WorkspaceRole[] = ['owner', 'admin', 'editor']
-const UPLOAD_URL_TTL_SECONDS = 15 * 60
-const READ_URL_TTL_SECONDS = 5 * 60
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+]);
+const ALLOWED_ASSET_KINDS = new Set([
+  "upload",
+  "generated",
+  "edit",
+  "crop",
+  "thumbnail",
+  "preview",
+  "video",
+]);
+const ALLOWED_REFERENCE_ROLES = new Set([
+  "source",
+  "result",
+  "thumbnail",
+  "preview",
+  "mask",
+  "attachment",
+]);
+const ASSET_WRITE_ROLES: readonly WorkspaceRole[] = [
+  "owner",
+  "admin",
+  "editor",
+];
+const UPLOAD_URL_TTL_SECONDS = 15 * 60;
+const READ_URL_TTL_SECONDS = 5 * 60;
 
 export interface AssetService {
   createUpload: (
     input: CreateAssetUploadRequest,
     actor: ProjectActor,
-  ) => Promise<AssetUploadResponse>
+  ) => Promise<AssetUploadResponse>;
   completeUpload: (
     uploadId: string,
     actor: ProjectActor,
-  ) => Promise<CompleteAssetUploadResponse>
-  getAsset: (
-    assetId: string,
-    actor: ProjectActor,
-  ) => Promise<AssetResponse>
+  ) => Promise<CompleteAssetUploadResponse>;
+  getAsset: (assetId: string, actor: ProjectActor) => Promise<AssetResponse>;
   getAssetUrl: (
     assetId: string,
     actor: ProjectActor,
-  ) => Promise<AssetUrlResponse>
+  ) => Promise<AssetUrlResponse>;
 }
 
 export interface AssetObjectStorage {
   createPresignedUpload: (input: {
-    objectKey: string
-    mimeType: string
-    byteSize: number
-    expiresInSeconds: number
-  }) => Promise<AssetUploadResponse['directUpload']>
+    objectKey: string;
+    mimeType: string;
+    byteSize: number;
+    expiresInSeconds: number;
+  }) => Promise<AssetUploadResponse["directUpload"]>;
   createPresignedDownload: (input: {
-    objectKey: string
-    expiresInSeconds: number
-  }) => Promise<Pick<AssetUrlResponse, 'url' | 'expiresAt'>>
+    objectKey: string;
+    expiresInSeconds: number;
+  }) => Promise<Pick<AssetUrlResponse, "url" | "expiresAt">>;
   getObjectMetadata: (objectKey: string) => Promise<{
-    byteSize: number
-    mimeType: string | null
-  }>
-  calculateObjectSha256: (objectKey: string) => Promise<string>
+    byteSize: number;
+    mimeType: string | null;
+  }>;
+  calculateObjectSha256: (objectKey: string) => Promise<string>;
 }
 
 export interface MaterializeMigrationAssetInput {
-  workspaceId: string
-  projectId: string
-  createdByUserId: string
-  objectKey: string
-  asset: MigrationPackageAsset
-  assetId?: string
+  workspaceId: string;
+  projectId: string;
+  createdByUserId: string;
+  objectKey: string;
+  asset: MigrationPackageAsset;
+  assetId?: string;
 }
 
 export interface ReusableMigrationAssetInput {
-  workspaceId: string
-  sha256: string
-  byteSize: number
-  mimeType: string
+  workspaceId: string;
+  sha256: string;
+  byteSize: number;
+  mimeType: string;
 }
 
 export async function findReusableCompletedMigrationAsset(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   input: ReusableMigrationAssetInput,
 ) {
   const result = await client.query<{ id: string }>(
@@ -116,12 +133,12 @@ export async function findReusableCompletedMigrationAsset(
       FOR SHARE
     `,
     [input.workspaceId, input.sha256, input.byteSize, input.mimeType],
-  )
-  return result.rows[0]?.id ?? null
+  );
+  return result.rows[0]?.id ?? null;
 }
 
 export async function materializeMigrationAsset(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   input: MaterializeMigrationAssetInput,
 ) {
   const result = await client.query<{ id: string }>(
@@ -148,141 +165,167 @@ export async function materializeMigrationAsset(
       input.asset.height,
       input.asset.assetKind,
     ],
-  )
+  );
   if (!result.rows[0]) {
-    throw new Error('Migration asset was not materialized')
+    throw new Error("Migration asset was not materialized");
   }
-  return result.rows[0].id
+  return result.rows[0].id;
 }
 
 interface AssetRow {
-  asset_id: string
-  project_id: string | null
-  original_file_name: string | null
-  asset_mime_type: string
-  asset_byte_size: string | number
-  asset_sha256: string | null
-  width: number | null
-  height: number | null
-  asset_kind: AssetKind
-  asset_status: AssetSummary['status']
-  asset_created_at: Date | string
-  asset_updated_at: Date | string
-  object_key: string
+  asset_id: string;
+  project_id: string | null;
+  original_file_name: string | null;
+  asset_mime_type: string;
+  asset_byte_size: string | number;
+  asset_sha256: string | null;
+  width: number | null;
+  height: number | null;
+  asset_kind: AssetKind;
+  asset_status: AssetSummary["status"];
+  asset_created_at: Date | string;
+  asset_updated_at: Date | string;
+  object_key: string;
 }
 
 interface AssetUploadRow extends AssetRow {
-  upload_id: string
-  original_file_name: string
-  expected_mime_type: string
-  expected_byte_size: string | number
-  expected_sha256: string | null
-  asset_kind: AssetKind
-  upload_status: AssetUploadSummary['status']
-  expires_at: Date | string
-  upload_created_at: Date | string
+  upload_id: string;
+  original_file_name: string;
+  expected_mime_type: string;
+  expected_byte_size: string | number;
+  expected_sha256: string | null;
+  asset_kind: AssetKind;
+  upload_status: AssetUploadSummary["status"];
+  expires_at: Date | string;
+  upload_created_at: Date | string;
 }
 
 function validationError(message: string): never {
   throw new AuthServiceError({
     statusCode: 400,
-    apiCode: 'VALIDATION_FAILED',
+    apiCode: "VALIDATION_FAILED",
     message,
-  })
+  });
 }
 
 function resourceNotFound(message: string): never {
   throw new AuthServiceError({
     statusCode: 404,
-    apiCode: 'RESOURCE_NOT_FOUND',
+    apiCode: "RESOURCE_NOT_FOUND",
     message,
-  })
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function requireTrimmedString(value: unknown, field: string, maxLength: number) {
-  if (typeof value !== 'string') {
-    return validationError(`${field} must be a string`)
+function requireTrimmedString(
+  value: unknown,
+  field: string,
+  maxLength: number,
+) {
+  if (typeof value !== "string") {
+    return validationError(`${field} must be a string`);
   }
 
-  const normalized = value.trim()
+  const normalized = value.trim();
   if (normalized.length < 1 || normalized.length > maxLength) {
-    return validationError(`${field} must be between 1 and ${maxLength} characters`)
+    return validationError(
+      `${field} must be between 1 and ${maxLength} characters`,
+    );
   }
 
-  return normalized
+  return normalized;
 }
 
 function normalizeOptionalProjectId(value: unknown) {
-  if (value === undefined || value === null || value === '') {
-    return null
+  if (value === undefined || value === null || value === "") {
+    return null;
   }
 
-  const projectId = requireTrimmedString(value, 'projectId', 64)
+  const projectId = requireTrimmedString(value, "projectId", 64);
   if (!UUID_PATTERN.test(projectId)) {
-    return validationError('projectId must be a valid UUID')
+    return validationError("projectId must be a valid UUID");
   }
 
-  return projectId.toLowerCase()
+  return projectId.toLowerCase();
 }
 
 function normalizeOptionalPositiveInteger(value: unknown, field: string) {
   if (value === undefined || value === null) {
-    return null
+    return null;
   }
 
   if (!Number.isSafeInteger(value) || Number(value) <= 0) {
-    return validationError(`${field} must be a positive safe integer`)
+    return validationError(`${field} must be a positive safe integer`);
   }
 
-  return Number(value)
+  return Number(value);
 }
 
 function normalizeOptionalSha256(value: unknown) {
-  if (value === undefined || value === null || value === '') {
-    return null
+  if (value === undefined || value === null || value === "") {
+    return null;
   }
 
-  const sha256 = requireTrimmedString(value, 'sha256', 64).toLowerCase()
+  const sha256 = requireTrimmedString(value, "sha256", 64).toLowerCase();
   if (!SHA256_PATTERN.test(sha256)) {
-    return validationError('sha256 must be a lowercase hex SHA-256 digest')
+    return validationError("sha256 must be a lowercase hex SHA-256 digest");
   }
 
-  return sha256
+  return sha256;
 }
 
-export function validateCreateAssetUploadRequest(input: CreateAssetUploadRequest): CreateAssetUploadRequest {
+export function validateCreateAssetUploadRequest(
+  input: CreateAssetUploadRequest,
+): CreateAssetUploadRequest {
   if (!isRecord(input)) {
-    return validationError('Asset upload request must be an object')
+    return validationError("Asset upload request must be an object");
   }
 
-  const originalFileName = requireTrimmedString(input.originalFileName, 'originalFileName', FILE_NAME_MAX_LENGTH)
-  if (originalFileName.includes('/') || originalFileName.includes('\\')) {
-    return validationError('originalFileName must not contain path separators')
+  const originalFileName = requireTrimmedString(
+    input.originalFileName,
+    "originalFileName",
+    FILE_NAME_MAX_LENGTH,
+  );
+  if (originalFileName.includes("/") || originalFileName.includes("\\")) {
+    return validationError("originalFileName must not contain path separators");
   }
 
-  const mimeType = requireTrimmedString(input.mimeType, 'mimeType', MIME_TYPE_MAX_LENGTH).toLowerCase()
+  const mimeType = requireTrimmedString(
+    input.mimeType,
+    "mimeType",
+    MIME_TYPE_MAX_LENGTH,
+  ).toLowerCase();
   if (!ALLOWED_MIME_TYPES.has(mimeType)) {
-    return validationError('mimeType is not allowed')
+    return validationError("mimeType is not allowed");
   }
 
-  if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 1 || input.byteSize > ASSET_UPLOAD_MAX_BYTES) {
-    return validationError(`byteSize must be between 1 and ${ASSET_UPLOAD_MAX_BYTES}`)
+  if (
+    !Number.isSafeInteger(input.byteSize) ||
+    input.byteSize < 1 ||
+    input.byteSize > ASSET_UPLOAD_MAX_BYTES
+  ) {
+    return validationError(
+      `byteSize must be between 1 and ${ASSET_UPLOAD_MAX_BYTES}`,
+    );
   }
 
-  const assetKind = requireTrimmedString(input.assetKind, 'assetKind', 32)
+  const assetKind = requireTrimmedString(input.assetKind, "assetKind", 32);
   if (!ALLOWED_ASSET_KINDS.has(assetKind)) {
-    return validationError('assetKind is not allowed')
+    return validationError("assetKind is not allowed");
   }
 
-  const referenceRole = input.referenceRole === undefined || input.referenceRole === null
-    ? undefined
-    : requireTrimmedString(input.referenceRole, 'referenceRole', 32)
-  if (referenceRole !== undefined && !ALLOWED_REFERENCE_ROLES.has(referenceRole)) {
-    return validationError('referenceRole is not allowed')
+  const referenceRole =
+    input.referenceRole === undefined || input.referenceRole === null
+      ? undefined
+      : requireTrimmedString(input.referenceRole, "referenceRole", 32);
+  if (
+    referenceRole !== undefined &&
+    !ALLOWED_REFERENCE_ROLES.has(referenceRole)
+  ) {
+    return validationError("referenceRole is not allowed");
   }
 
   return {
@@ -291,34 +334,40 @@ export function validateCreateAssetUploadRequest(input: CreateAssetUploadRequest
     mimeType,
     byteSize: input.byteSize,
     sha256: normalizeOptionalSha256(input.sha256),
-    width: normalizeOptionalPositiveInteger(input.width, 'width'),
-    height: normalizeOptionalPositiveInteger(input.height, 'height'),
+    width: normalizeOptionalPositiveInteger(input.width, "width"),
+    height: normalizeOptionalPositiveInteger(input.height, "height"),
     assetKind,
     ...(referenceRole === undefined ? {} : { referenceRole }),
-    idempotencyKey: requireTrimmedString(input.idempotencyKey, 'idempotencyKey', IDEMPOTENCY_KEY_MAX_LENGTH),
-  } as CreateAssetUploadRequest
+    idempotencyKey: requireTrimmedString(
+      input.idempotencyKey,
+      "idempotencyKey",
+      IDEMPOTENCY_KEY_MAX_LENGTH,
+    ),
+  } as CreateAssetUploadRequest;
 }
 
 function validateUploadId(uploadId: unknown) {
-  const normalized = requireTrimmedString(uploadId, 'uploadId', 64)
+  const normalized = requireTrimmedString(uploadId, "uploadId", 64);
   if (!UUID_PATTERN.test(normalized)) {
-    return validationError('uploadId must be a valid UUID')
+    return validationError("uploadId must be a valid UUID");
   }
 
-  return normalized.toLowerCase()
+  return normalized.toLowerCase();
 }
 
 function validateAssetId(assetId: unknown) {
-  const normalized = requireTrimmedString(assetId, 'assetId', 64)
+  const normalized = requireTrimmedString(assetId, "assetId", 64);
   if (!UUID_PATTERN.test(normalized)) {
-    return validationError('assetId must be a valid UUID')
+    return validationError("assetId must be a valid UUID");
   }
 
-  return normalized.toLowerCase()
+  return normalized.toLowerCase();
 }
 
 function toIso(value: Date | string) {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }
 
 function toAssetSummary(row: AssetRow): AssetSummary {
@@ -335,16 +384,16 @@ function toAssetSummary(row: AssetRow): AssetSummary {
     status: row.asset_status,
     createdAt: toIso(row.asset_created_at),
     updatedAt: toIso(row.asset_updated_at),
-  }
+  };
 }
 
 function assertAssetReadable(row: AssetRow) {
-  if (row.asset_status !== 'completed') {
+  if (row.asset_status !== "completed") {
     throw new AuthServiceError({
       statusCode: 409,
-      apiCode: 'ASSET_NOT_READY',
-      message: 'Asset is not ready for reading',
-    })
+      apiCode: "ASSET_NOT_READY",
+      message: "Asset is not ready for reading",
+    });
   }
 }
 
@@ -361,161 +410,174 @@ function toUploadSummary(row: AssetUploadRow): AssetUploadSummary {
     status: row.upload_status,
     expiresAt: toIso(row.expires_at),
     createdAt: toIso(row.upload_created_at),
-  }
+  };
 }
 
-function assertExistingUploadMatchesRequest(row: AssetUploadRow, request: CreateAssetUploadRequest) {
-  const mismatched = row.project_id !== (request.projectId ?? null)
-    || row.original_file_name !== request.originalFileName
-    || row.expected_mime_type !== request.mimeType
-    || Number(row.expected_byte_size) !== request.byteSize
-    || row.expected_sha256 !== (request.sha256 ?? null)
-    || row.asset_kind !== request.assetKind
+function assertExistingUploadMatchesRequest(
+  row: AssetUploadRow,
+  request: CreateAssetUploadRequest,
+) {
+  const mismatched =
+    row.project_id !== (request.projectId ?? null) ||
+    row.original_file_name !== request.originalFileName ||
+    row.expected_mime_type !== request.mimeType ||
+    Number(row.expected_byte_size) !== request.byteSize ||
+    row.expected_sha256 !== (request.sha256 ?? null) ||
+    row.asset_kind !== request.assetKind;
 
   if (mismatched) {
     throw new AuthServiceError({
       statusCode: 409,
-      apiCode: 'VALIDATION_FAILED',
-      message: 'Asset upload idempotency key was already used for different metadata',
-    })
+      apiCode: "VALIDATION_FAILED",
+      message:
+        "Asset upload idempotency key was already used for different metadata",
+    });
   }
 
-  if (row.upload_status !== 'pending' || new Date(row.expires_at).getTime() <= Date.now()) {
+  if (
+    row.upload_status !== "pending" ||
+    new Date(row.expires_at).getTime() <= Date.now()
+  ) {
     throw new AuthServiceError({
       statusCode: 409,
-      apiCode: 'ASSET_UPLOAD_EXPIRED',
-      message: 'Asset upload is no longer pending',
-    })
+      apiCode: "ASSET_UPLOAD_EXPIRED",
+      message: "Asset upload is no longer pending",
+    });
   }
 }
 
 function assertUploadCanBeCompleted(row: AssetUploadRow) {
-  if (row.upload_status === 'completed' && row.asset_status === 'completed') {
-    return 'completed' as const
+  if (row.upload_status === "completed" && row.asset_status === "completed") {
+    return "completed" as const;
   }
 
-  if (row.upload_status !== 'pending' || row.asset_status !== 'pending') {
+  if (row.upload_status !== "pending" || row.asset_status !== "pending") {
     throw new AuthServiceError({
       statusCode: 409,
-      apiCode: 'ASSET_NOT_READY',
-      message: 'Asset upload is not pending',
-    })
+      apiCode: "ASSET_NOT_READY",
+      message: "Asset upload is not pending",
+    });
   }
 
   if (new Date(row.expires_at).getTime() <= Date.now()) {
     throw new AuthServiceError({
       statusCode: 409,
-      apiCode: 'ASSET_UPLOAD_EXPIRED',
-      message: 'Asset upload is expired',
-    })
+      apiCode: "ASSET_UPLOAD_EXPIRED",
+      message: "Asset upload is expired",
+    });
   }
 
-  return 'pending' as const
+  return "pending" as const;
 }
 
 function normalizeMimeType(value: string | null) {
-  return value?.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+  return value?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
 }
 
 async function assertUploadedObjectMatches(
   objectStorage: AssetObjectStorage,
   row: AssetUploadRow,
 ) {
-  let metadata: Awaited<ReturnType<AssetObjectStorage['getObjectMetadata']>>
+  let metadata: Awaited<ReturnType<AssetObjectStorage["getObjectMetadata"]>>;
 
   try {
-    metadata = await objectStorage.getObjectMetadata(row.object_key)
+    metadata = await objectStorage.getObjectMetadata(row.object_key);
   } catch {
     throw new AuthServiceError({
       statusCode: 409,
-      apiCode: 'ASSET_NOT_READY',
-      message: 'Uploaded object is not available',
-    })
+      apiCode: "ASSET_NOT_READY",
+      message: "Uploaded object is not available",
+    });
   }
 
   if (metadata.byteSize !== Number(row.expected_byte_size)) {
     throw new AuthServiceError({
       statusCode: 422,
-      apiCode: 'ASSET_VALIDATION_FAILED',
-      message: 'Uploaded object size does not match the upload session',
+      apiCode: "ASSET_VALIDATION_FAILED",
+      message: "Uploaded object size does not match the upload session",
       details: {
         expectedByteSize: Number(row.expected_byte_size),
         actualByteSize: metadata.byteSize,
       },
-    })
+    });
   }
 
-  const actualMimeType = normalizeMimeType(metadata.mimeType)
+  const actualMimeType = normalizeMimeType(metadata.mimeType);
   if (actualMimeType !== row.expected_mime_type) {
     throw new AuthServiceError({
       statusCode: 422,
-      apiCode: 'ASSET_VALIDATION_FAILED',
-      message: 'Uploaded object MIME type does not match the upload session',
+      apiCode: "ASSET_VALIDATION_FAILED",
+      message: "Uploaded object MIME type does not match the upload session",
       details: {
         expectedMimeType: row.expected_mime_type,
         actualMimeType,
       },
-    })
+    });
   }
 
   if (row.expected_sha256) {
-    const actualSha256 = await objectStorage.calculateObjectSha256(row.object_key)
+    const actualSha256 = await objectStorage.calculateObjectSha256(
+      row.object_key,
+    );
 
     if (actualSha256 !== row.expected_sha256) {
       throw new AuthServiceError({
         statusCode: 422,
-        apiCode: 'ASSET_VALIDATION_FAILED',
-        message: 'Uploaded object SHA-256 does not match the upload session',
-      })
+        apiCode: "ASSET_VALIDATION_FAILED",
+        message: "Uploaded object SHA-256 does not match the upload session",
+      });
     }
   }
 }
 
 function getExtension(mimeType: string) {
-  if (mimeType === 'image/jpeg') {
-    return 'jpg'
+  if (mimeType === "image/jpeg") {
+    return "jpg";
   }
-  if (mimeType === 'image/png') {
-    return 'png'
+  if (mimeType === "image/png") {
+    return "png";
   }
-  if (mimeType === 'image/webp') {
-    return 'webp'
+  if (mimeType === "image/webp") {
+    return "webp";
   }
-  if (mimeType === 'video/webm') {
-    return 'webm'
+  if (mimeType === "video/webm") {
+    return "webm";
   }
-  if (mimeType === 'video/quicktime') {
-    return 'mov'
+  if (mimeType === "video/quicktime") {
+    return "mov";
   }
-  return 'mp4'
+  return "mp4";
 }
 
 function createObjectKey(input: {
-  workspaceId: string
-  projectId: string | null
-  assetId: string
-  mimeType: string
-  assetKind: string
+  workspaceId: string;
+  projectId: string | null;
+  assetId: string;
+  mimeType: string;
+  assetKind: string;
 }) {
-  const projectSegment = input.projectId ? `projects/${input.projectId}` : 'workspace'
-  const kindSegment = input.assetKind === 'generated'
-    ? `generated/${new Date().toISOString().slice(0, 10)}`
-    : input.assetKind === 'edit'
-      ? 'edits'
-      : input.assetKind === 'crop'
-        ? 'crops'
-        : input.assetKind === 'thumbnail'
-          ? 'thumbnails'
-          : input.assetKind === 'preview'
-            ? 'previews'
-            : input.assetKind === 'video'
-              ? 'videos'
-              : 'uploads'
-  return `workspaces/${input.workspaceId}/${projectSegment}/${kindSegment}/${input.assetId}.${getExtension(input.mimeType)}`
+  const projectSegment = input.projectId
+    ? `projects/${input.projectId}`
+    : "workspace";
+  const kindSegment =
+    input.assetKind === "generated"
+      ? `generated/${new Date().toISOString().slice(0, 10)}`
+      : input.assetKind === "edit"
+        ? "edits"
+        : input.assetKind === "crop"
+          ? "crops"
+          : input.assetKind === "thumbnail"
+            ? "thumbnails"
+            : input.assetKind === "preview"
+              ? "previews"
+              : input.assetKind === "video"
+                ? "videos"
+                : "uploads";
+  return `workspaces/${input.workspaceId}/${projectSegment}/${kindSegment}/${input.assetId}.${getExtension(input.mimeType)}`;
 }
 
 async function findUploadByIdempotencyKey(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   workspaceId: string,
   idempotencyKey: string,
 ) {
@@ -549,13 +611,13 @@ async function findUploadByIdempotencyKey(
       LIMIT 1
     `,
     [workspaceId, idempotencyKey],
-  )
+  );
 
-  return result.rows[0] ?? null
+  return result.rows[0] ?? null;
 }
 
 async function findUploadById(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   workspaceId: string,
   uploadId: string,
 ) {
@@ -589,13 +651,13 @@ async function findUploadById(
       LIMIT 1
     `,
     [workspaceId, uploadId],
-  )
+  );
 
-  return result.rows[0] ?? null
+  return result.rows[0] ?? null;
 }
 
 async function findAssetById(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   workspaceId: string,
   assetId: string,
 ) {
@@ -623,13 +685,13 @@ async function findAssetById(
       LIMIT 1
     `,
     [workspaceId, assetId],
-  )
+  );
 
-  return result.rows[0] ?? null
+  return result.rows[0] ?? null;
 }
 
 async function markUploadCompleted(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   workspaceId: string,
   uploadId: string,
 ) {
@@ -690,18 +752,18 @@ async function markUploadCompleted(
       LIMIT 1
     `,
     [workspaceId, uploadId],
-  )
+  );
 
-  return result.rows[0] ?? null
+  return result.rows[0] ?? null;
 }
 
 async function assertProjectCanReceiveAsset(
-  client: Pick<DbClient, 'query'>,
+  client: Pick<DbClient, "query">,
   projectId: string | null | undefined,
   workspaceId: string,
 ) {
   if (!projectId) {
-    return null
+    return null;
   }
 
   const result = await client.query<{ id: string }>(
@@ -715,27 +777,29 @@ async function assertProjectCanReceiveAsset(
       LIMIT 1
     `,
     [projectId, workspaceId],
-  )
+  );
 
   if (!result.rows[0]) {
-    return resourceNotFound('Project not found')
+    return resourceNotFound("Project not found");
   }
 
-  return projectId
+  return projectId;
 }
 
 export function createPostgresAssetService(
   pool: DbPool,
   options: {
-    authorizationService?: WorkspaceAuthorizationService
-    objectStorage: AssetObjectStorage
-    uploadUrlTtlSeconds?: number
-    readUrlTtlSeconds?: number
+    authorizationService?: WorkspaceAuthorizationService;
+    objectStorage: AssetObjectStorage;
+    uploadUrlTtlSeconds?: number;
+    readUrlTtlSeconds?: number;
   },
 ): AssetService {
-  const authorizationService = options.authorizationService ?? createWorkspaceAuthorizationService(pool)
-  const uploadUrlTtlSeconds = options.uploadUrlTtlSeconds ?? UPLOAD_URL_TTL_SECONDS
-  const readUrlTtlSeconds = options.readUrlTtlSeconds ?? READ_URL_TTL_SECONDS
+  const authorizationService =
+    options.authorizationService ?? createWorkspaceAuthorizationService(pool);
+  const uploadUrlTtlSeconds =
+    options.uploadUrlTtlSeconds ?? UPLOAD_URL_TTL_SECONDS;
+  const readUrlTtlSeconds = options.readUrlTtlSeconds ?? READ_URL_TTL_SECONDS;
 
   async function createDirectUpload(row: AssetUploadRow) {
     return options.objectStorage.createPresignedUpload({
@@ -743,66 +807,74 @@ export function createPostgresAssetService(
       mimeType: row.expected_mime_type,
       byteSize: Number(row.expected_byte_size),
       expiresInSeconds: uploadUrlTtlSeconds,
-    })
+    });
   }
 
   async function requireReadableAsset(assetId: string, actor: ProjectActor) {
-    const normalizedAssetId = validateAssetId(assetId)
+    const normalizedAssetId = validateAssetId(assetId);
     await authorizationService.requireWorkspaceAccess({
       userId: actor.userId,
       workspaceId: actor.workspaceId,
-    })
+    });
 
-    const row = await findAssetById(pool, actor.workspaceId, normalizedAssetId)
+    const row = await findAssetById(pool, actor.workspaceId, normalizedAssetId);
     if (!row) {
-      return resourceNotFound('Asset not found')
+      return resourceNotFound("Asset not found");
     }
 
-    assertAssetReadable(row)
-    return row
+    assertAssetReadable(row);
+    return row;
   }
 
   return {
     async createUpload(input, actor) {
-      const request = validateCreateAssetUploadRequest(input)
+      const request = validateCreateAssetUploadRequest(input);
       await authorizationService.requireWorkspaceAccess({
         userId: actor.userId,
         workspaceId: actor.workspaceId,
         allowedRoles: ASSET_WRITE_ROLES,
-      })
+      });
 
-      const client = await pool.connect()
+      const client = await pool.connect();
 
       try {
-        await client.query('BEGIN')
-        await lockWorkspaceStorageQuota(client, actor.workspaceId)
+        await client.query("BEGIN");
+        await lockWorkspaceStorageQuota(client, actor.workspaceId);
 
-        const existing = await findUploadByIdempotencyKey(client, actor.workspaceId, request.idempotencyKey)
+        const existing = await findUploadByIdempotencyKey(
+          client,
+          actor.workspaceId,
+          request.idempotencyKey,
+        );
         if (existing) {
-          assertExistingUploadMatchesRequest(existing, request)
-          await client.query('COMMIT')
+          assertExistingUploadMatchesRequest(existing, request);
+          await client.query("COMMIT");
           return {
             upload: toUploadSummary(existing),
             asset: toAssetSummary(existing),
             directUpload: await createDirectUpload(existing),
-          }
+          };
         }
 
-        const projectId = await assertProjectCanReceiveAsset(client, request.projectId, actor.workspaceId)
+        const projectId = await assertProjectCanReceiveAsset(
+          client,
+          request.projectId,
+          actor.workspaceId,
+        );
         assertWorkspaceStorageCapacity(
           await readWorkspaceStorageUsage(client, actor.workspaceId),
           request.byteSize,
-        )
-        const assetId = randomUUID()
-        const uploadId = randomUUID()
+        );
+        const assetId = randomUUID();
+        const uploadId = randomUUID();
         const objectKey = createObjectKey({
           workspaceId: actor.workspaceId,
           projectId,
           assetId,
           mimeType: request.mimeType,
           assetKind: request.assetKind,
-        })
-        const expiresAt = new Date(Date.now() + uploadUrlTtlSeconds * 1000)
+        });
+        const expiresAt = new Date(Date.now() + uploadUrlTtlSeconds * 1000);
 
         const result = await client.query<AssetUploadRow>(
           `
@@ -888,88 +960,96 @@ export function createPostgresAssetService(
             request.idempotencyKey,
             expiresAt,
           ],
-        )
-        const row = result.rows[0]
+        );
+        const row = result.rows[0];
 
         if (!row) {
-          throw new Error('Asset upload was not created')
+          throw new Error("Asset upload was not created");
         }
 
-        await client.query('COMMIT')
+        await client.query("COMMIT");
 
         return {
           upload: toUploadSummary(row),
           asset: toAssetSummary(row),
           directUpload: await createDirectUpload(row),
-        }
+        };
       } catch (error) {
-        await client.query('ROLLBACK').catch(() => undefined)
-        throw error
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
       } finally {
-        client.release()
+        client.release();
       }
     },
 
     async completeUpload(uploadId, actor) {
-      const normalizedUploadId = validateUploadId(uploadId)
+      const normalizedUploadId = validateUploadId(uploadId);
       await authorizationService.requireWorkspaceAccess({
         userId: actor.userId,
         workspaceId: actor.workspaceId,
         allowedRoles: ASSET_WRITE_ROLES,
-      })
+      });
 
-      const before = await findUploadById(pool, actor.workspaceId, normalizedUploadId)
+      const before = await findUploadById(
+        pool,
+        actor.workspaceId,
+        normalizedUploadId,
+      );
       if (!before) {
-        return resourceNotFound('Asset upload not found')
+        return resourceNotFound("Asset upload not found");
       }
 
-      const completionState = assertUploadCanBeCompleted(before)
-      if (completionState === 'pending') {
-        await assertUploadedObjectMatches(options.objectStorage, before)
+      const completionState = assertUploadCanBeCompleted(before);
+      if (completionState === "pending") {
+        await assertUploadedObjectMatches(options.objectStorage, before);
       }
 
-      const client = await pool.connect()
+      const client = await pool.connect();
 
       try {
-        await client.query('BEGIN')
-        const row = await markUploadCompleted(client, actor.workspaceId, normalizedUploadId)
+        await client.query("BEGIN");
+        const row = await markUploadCompleted(
+          client,
+          actor.workspaceId,
+          normalizedUploadId,
+        );
 
         if (!row) {
-          return resourceNotFound('Asset upload not found')
+          return resourceNotFound("Asset upload not found");
         }
 
-        await client.query('COMMIT')
+        await client.query("COMMIT");
 
         return {
           upload: toUploadSummary(row),
           asset: toAssetSummary(row),
-        }
+        };
       } catch (error) {
-        await client.query('ROLLBACK').catch(() => undefined)
-        throw error
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
       } finally {
-        client.release()
+        client.release();
       }
     },
 
     async getAsset(assetId, actor) {
-      const row = await requireReadableAsset(assetId, actor)
-      return { asset: toAssetSummary(row) }
+      const row = await requireReadableAsset(assetId, actor);
+      return { asset: toAssetSummary(row) };
     },
 
     async getAssetUrl(assetId, actor) {
-      const row = await requireReadableAsset(assetId, actor)
+      const row = await requireReadableAsset(assetId, actor);
       const signed = await options.objectStorage.createPresignedDownload({
         objectKey: row.object_key,
         expiresInSeconds: readUrlTtlSeconds,
-      })
+      });
 
       return {
         assetId: row.asset_id,
         ...signed,
-      }
+      };
     },
-  }
+  };
 }
 
 export function createUnavailableAssetService(): AssetService {
@@ -977,34 +1057,34 @@ export function createUnavailableAssetService(): AssetService {
     async createUpload() {
       throw new AuthServiceError({
         statusCode: 503,
-        apiCode: 'SERVICE_UNAVAILABLE',
-        message: 'Asset service is not configured',
+        apiCode: "SERVICE_UNAVAILABLE",
+        message: "Asset service is not configured",
         retryable: true,
-      })
+      });
     },
     async completeUpload() {
       throw new AuthServiceError({
         statusCode: 503,
-        apiCode: 'SERVICE_UNAVAILABLE',
-        message: 'Asset service is not configured',
+        apiCode: "SERVICE_UNAVAILABLE",
+        message: "Asset service is not configured",
         retryable: true,
-      })
+      });
     },
     async getAsset() {
       throw new AuthServiceError({
         statusCode: 503,
-        apiCode: 'SERVICE_UNAVAILABLE',
-        message: 'Asset service is not configured',
+        apiCode: "SERVICE_UNAVAILABLE",
+        message: "Asset service is not configured",
         retryable: true,
-      })
+      });
     },
     async getAssetUrl() {
       throw new AuthServiceError({
         statusCode: 503,
-        apiCode: 'SERVICE_UNAVAILABLE',
-        message: 'Asset service is not configured',
+        apiCode: "SERVICE_UNAVAILABLE",
+        message: "Asset service is not configured",
         retryable: true,
-      })
+      });
     },
-  }
+  };
 }

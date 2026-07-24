@@ -1,95 +1,131 @@
-import type { ReactNode } from 'react'
-import { ClaudeIcon } from '@/components/icons/ClaudeIcon'
-import { NanoBananaIcon } from '@/components/NanoBananaIcon'
-import { OpenAIIcon } from '@/components/OpenAIIcon'
-import { QwenIcon } from '@/components/QwenIcon'
-import { ZhipuIcon } from '@/components/ZhipuIcon'
-import { isClaudeModel } from '@/features/settings/modelBrand'
-import { themeClasses } from '@/styles/themeClasses'
-import type { ProviderId } from '@/config/modelCatalog'
-import type { CustomImageModelConfig } from '@/types'
+import type { ReactNode } from "react";
+import { ClaudeIcon } from "@/components/icons/ClaudeIcon";
+import { NanoBananaIcon } from "@/components/NanoBananaIcon";
+import { OpenAIIcon } from "@/components/OpenAIIcon";
+import { QwenIcon } from "@/components/QwenIcon";
+import { ZhipuIcon } from "@/components/ZhipuIcon";
+import { isClaudeModel } from "@/features/settings/modelBrand";
+import { themeClasses } from "@/styles/themeClasses";
+import type { ProviderId } from "@/config/modelCatalog";
+import type { ModelEntry } from "@/types";
 
-function getModelIconMeta(model: Pick<CustomImageModelConfig, 'modelId' | 'name'> & { provider?: ProviderId }) {
-  const normalized = `${model.name} ${model.modelId}`.toLowerCase()
+function getModelIconMeta(
+  model: Pick<ModelEntry, "modelId" | "displayName"> & {
+    provider?: ProviderId;
+  },
+) {
+  const normalized = `${model.displayName} ${model.modelId}`.toLowerCase();
 
-  if (normalized.includes('banana')) {
+  if (normalized.includes("banana")) {
     return {
-      glyph: '🍌',
-      className: 'border-amber-300/25 bg-amber-300/12 text-amber-200',
-    }
+      glyph: "🍌",
+      className: "border-amber-300/25 bg-amber-300/12 text-amber-200",
+    };
   }
 
-  if (normalized.includes('gpt')) {
+  if (normalized.includes("gpt")) {
     return {
-      glyph: '◎',
-      className: 'border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-secondary)]',
-    }
+      glyph: "◎",
+      className:
+        "border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-secondary)]",
+    };
   }
 
-  if (normalized.includes('qwen')) {
+  if (normalized.includes("qwen")) {
     return {
-      glyph: '',
-      className: '',
-    }
+      glyph: "",
+      className: "",
+    };
   }
 
-  if (model.provider === 'openai') {
+  if (model.provider === "openai") {
     return {
-      glyph: '◎',
-      className: 'border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-secondary)]',
-    }
+      glyph: "◎",
+      className:
+        "border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-secondary)]",
+    };
   }
 
   return {
-    glyph: '✦',
-    className: 'border-[var(--accent-violet-muted)] bg-[var(--accent-violet-soft)] text-[var(--accent-violet-strong)]',
-  }
+    glyph: "✦",
+    className:
+      "border-[var(--accent-violet-muted)] bg-[var(--accent-violet-soft)] text-[var(--accent-violet-strong)]",
+  };
 }
 
-export function ModelOptionIcon({ model }: { model: Pick<CustomImageModelConfig, 'modelId' | 'name'> & { provider?: ProviderId } }) {
-  const normalized = `${model.name} ${model.modelId}`.toLowerCase()
+export function ModelOptionIcon({
+  model,
+}: {
+  model: Pick<ModelEntry, "modelId" | "displayName"> & {
+    provider?: ProviderId;
+  };
+}) {
+  const normalized = `${model.displayName} ${model.modelId}`.toLowerCase();
 
   if (isClaudeModel(model)) {
     return (
-      <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+      <span
+        aria-hidden="true"
+        className="inline-flex h-4 w-4 shrink-0 items-center justify-center"
+      >
         <ClaudeIcon className="h-3.5 w-3.5" />
       </span>
-    )
+    );
   }
 
-  if (normalized.includes('gemini-3.1-flash-image-preview') || normalized.includes('gemini-3-pro-image-preview') || normalized.includes('gemini')) {
+  if (
+    normalized.includes("gemini-3.1-flash-image-preview") ||
+    normalized.includes("gemini-3-pro-image-preview") ||
+    normalized.includes("gemini")
+  ) {
     return (
-      <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+      <span
+        aria-hidden="true"
+        className="inline-flex h-4 w-4 shrink-0 items-center justify-center"
+      >
         <NanoBananaIcon className="h-3.5 w-3.5" />
       </span>
-    )
+    );
   }
 
-  if (normalized.includes('qwen')) {
+  if (normalized.includes("qwen")) {
     return (
-      <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+      <span
+        aria-hidden="true"
+        className="inline-flex h-4 w-4 shrink-0 items-center justify-center"
+      >
         <QwenIcon className="h-3.5 w-3.5" />
       </span>
-    )
+    );
   }
 
-  if (normalized.includes('glm') || normalized.includes('zhipu') || normalized.includes('智谱')) {
+  if (
+    normalized.includes("glm") ||
+    normalized.includes("zhipu") ||
+    normalized.includes("智谱")
+  ) {
     return (
-      <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+      <span
+        aria-hidden="true"
+        className="inline-flex h-4 w-4 shrink-0 items-center justify-center"
+      >
         <ZhipuIcon className="h-3.5 w-3.5" />
       </span>
-    )
+    );
   }
 
-  if (normalized.includes('gpt') || model.provider === 'openai') {
+  if (normalized.includes("gpt") || model.provider === "openai") {
     return (
-      <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[var(--text-secondary)]">
+      <span
+        aria-hidden="true"
+        className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[var(--text-secondary)]"
+      >
         <OpenAIIcon className="h-3 w-3" />
       </span>
-    )
+    );
   }
 
-  const iconMeta = getModelIconMeta(model)
+  const iconMeta = getModelIconMeta(model);
 
   return (
     <span
@@ -98,34 +134,45 @@ export function ModelOptionIcon({ model }: { model: Pick<CustomImageModelConfig,
     >
       {iconMeta.glyph}
     </span>
-  )
+  );
 }
 
 export function RatioPreview({ ratio }: { ratio: string }) {
-  const [rawWidth, rawHeight] = ratio.split(':').map(Number)
+  const [rawWidth, rawHeight] = ratio.split(":").map(Number);
 
-  if (!Number.isFinite(rawWidth) || !Number.isFinite(rawHeight) || rawWidth <= 0 || rawHeight <= 0) {
+  if (
+    !Number.isFinite(rawWidth) ||
+    !Number.isFinite(rawHeight) ||
+    rawWidth <= 0 ||
+    rawHeight <= 0
+  ) {
     return (
-      <span aria-hidden="true" className="inline-flex h-5 w-7 shrink-0 items-center justify-center">
+      <span
+        aria-hidden="true"
+        className="inline-flex h-5 w-7 shrink-0 items-center justify-center"
+      >
         <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] border border-dashed border-[color-mix(in_srgb,var(--text-primary)_70%,transparent)] bg-transparent" />
       </span>
-    )
+    );
   }
 
-  const maxWidth = 20
-  const maxHeight = 16
-  const scale = Math.min(maxWidth / rawWidth, maxHeight / rawHeight)
-  const width = Math.round(rawWidth * scale)
-  const height = Math.round(rawHeight * scale)
+  const maxWidth = 20;
+  const maxHeight = 16;
+  const scale = Math.min(maxWidth / rawWidth, maxHeight / rawHeight);
+  const width = Math.round(rawWidth * scale);
+  const height = Math.round(rawHeight * scale);
 
   return (
-    <span aria-hidden="true" className="inline-flex h-5 w-7 shrink-0 items-center justify-center">
+    <span
+      aria-hidden="true"
+      className="inline-flex h-5 w-7 shrink-0 items-center justify-center"
+    >
       <span
         className="inline-flex shrink-0 items-center justify-center rounded-[3px] border border-[color-mix(in_srgb,var(--text-primary)_80%,transparent)] bg-transparent"
         style={{ width, height }}
       />
     </span>
-  )
+  );
 }
 
 export function SettingsSegment<T extends string>({
@@ -134,39 +181,44 @@ export function SettingsSegment<T extends string>({
   ariaLabel,
   onChange,
   renderOption,
-  groupClassName = '',
-  buttonClassName = '',
+  groupClassName = "",
+  buttonClassName = "",
   slider = false,
   gridSlider,
 }: {
-  value: T | string
-  options: readonly T[]
-  ariaLabel: string
-  onChange: (value: T) => void
-  renderOption?: (value: T, active: boolean) => ReactNode
-  groupClassName?: string
-  buttonClassName?: string
-  slider?: boolean
+  value: T | string;
+  options: readonly T[];
+  ariaLabel: string;
+  onChange: (value: T) => void;
+  renderOption?: (value: T, active: boolean) => ReactNode;
+  groupClassName?: string;
+  buttonClassName?: string;
+  slider?: boolean;
   gridSlider?: {
-    columns: number
-    rowHeightRem: number
-    columnGapRem: number
-    rowGapRem: number
-    insetRem: number
-  }
+    columns: number;
+    rowHeightRem: number;
+    columnGapRem: number;
+    rowGapRem: number;
+    insetRem: number;
+  };
 }) {
-  const activeIndex = Math.max(0, options.findIndex((option) => option === value))
-  const sliderGapRem = 0.25
-  const sliderHorizontalInsetRem = 0.5
-  const sliderTotalGapRem = Math.max(0, options.length - 1) * sliderGapRem
-  const hasAnimatedIndicator = slider || Boolean(gridSlider)
-  const gridColumn = gridSlider ? activeIndex % gridSlider.columns : 0
-  const gridRow = gridSlider ? Math.floor(activeIndex / gridSlider.columns) : 0
-  const gridTotalColumnGapRem = gridSlider ? Math.max(0, gridSlider.columns - 1) * gridSlider.columnGapRem : 0
+  const activeIndex = Math.max(
+    0,
+    options.findIndex((option) => option === value),
+  );
+  const sliderGapRem = 0.25;
+  const sliderHorizontalInsetRem = 0.5;
+  const sliderTotalGapRem = Math.max(0, options.length - 1) * sliderGapRem;
+  const hasAnimatedIndicator = slider || Boolean(gridSlider);
+  const gridColumn = gridSlider ? activeIndex % gridSlider.columns : 0;
+  const gridRow = gridSlider ? Math.floor(activeIndex / gridSlider.columns) : 0;
+  const gridTotalColumnGapRem = gridSlider
+    ? Math.max(0, gridSlider.columns - 1) * gridSlider.columnGapRem
+    : 0;
 
   return (
     <div
-      className={`${themeClasses.nodeSegmentGroup} ${hasAnimatedIndicator ? 'relative' : ''} ${slider ? 'gap-1' : ''} ${groupClassName}`}
+      className={`${themeClasses.nodeSegmentGroup} ${hasAnimatedIndicator ? "relative" : ""} ${slider ? "gap-1" : ""} ${groupClassName}`}
       role="group"
       aria-label={ariaLabel}
     >
@@ -194,36 +246,36 @@ export function SettingsSegment<T extends string>({
         />
       )}
       {options.map((option) => {
-        const active = option === value
+        const active = option === value;
 
         return (
           <button
             key={option}
             type="button"
-            className={`${themeClasses.nodeSegmentButton} ${hasAnimatedIndicator ? 'relative z-10 bg-transparent shadow-none' : ''} ${buttonClassName} ${
+            className={`${themeClasses.nodeSegmentButton} ${hasAnimatedIndicator ? "relative z-10 bg-transparent shadow-none" : ""} ${buttonClassName} ${
               active
                 ? hasAnimatedIndicator
-                  ? 'text-[var(--text-primary)]'
+                  ? "text-[var(--text-primary)]"
                   : themeClasses.nodeSegmentButtonActive
-                : ''
+                : ""
             }`}
             aria-pressed={active}
             onClick={() => onChange(option)}
           >
             {renderOption ? renderOption(option, active) : option}
           </button>
-        )
+        );
       })}
     </div>
-  )
+  );
 }
 
 export function SettingsSection({
   title,
   children,
 }: {
-  title: string
-  children: ReactNode
+  title: string;
+  children: ReactNode;
 }) {
   return (
     <section>
@@ -232,5 +284,5 @@ export function SettingsSection({
       </div>
       {children}
     </section>
-  )
+  );
 }

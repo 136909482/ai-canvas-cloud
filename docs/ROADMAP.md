@@ -629,7 +629,7 @@ P8 已取消官方模型、积分、计费和平台代生成路线。平台只�
 - Provider、endpoint、API Key、模型和绑定关系进入同一个版本化 IndexedDB Vault，按 Origin 与可信用户 ID 隔离。
 - 默认使用不可导出的 WebCrypto AES-GCM Key 加密并保存到当前浏览器，不提供 persistence 或单独删除入口；清除当前网站数据会由浏览器删除密文、CryptoKey、绑定和本地任务缓存。
 - 登出清空内存明文但保留按账号隔离的设备密文；同一账号再次登录可恢复，其他浏览器或设备必须重新配置。
-- 旧本地配置一次性迁入 Vault，成功后删除旧明文缓存。
+- 当前内测环境没有历史数据；Provider/模型重构直接从 Vault v2 初始化，不保留旧本地配置迁移或回滚路径。
 - 生产 endpoint 强制 HTTPS，拒绝 URL 凭据和 fragment；连接测试由浏览器直连。
 
 验收：
@@ -663,7 +663,7 @@ P8 已取消官方模型、积分、计费和平台代生成路线。平台只�
 
 验收：
 
-- `npm run test` 297/297 通过，覆盖 IndexedDB v1→v2 升级、任务密文与 Origin/用户/项目 AAD、两账号/两设备隔离、网站数据清除边界、同步任务中断、remote task 恢复、项目持久化/导出排除任务缓存和原匿名引用手动绑定。
+- 后续验收覆盖 Vault/任务缓存 v2 的 Origin、用户、项目 AAD、两账号/两设备隔离、网站数据清除边界、同步任务中断、remote task 恢复、项目持久化/导出排除任务缓存和原匿名引用手动绑定；当前内测环境不保留 v1→v2 数据迁移覆盖。
 - `npm run lint`、完整 TypeScript/Vite 构建和 `git diff --check` 通过；本阶段没有 PostgreSQL schema、数据库角色或 Cloud HTTP contract 变更，因此未重复运行数据库迁移门禁。
 - 真实浏览器在同一 Cloud 项目完成“设备模型保存 → 新设备配置不同名称/ID 模型仍不自动替换 → 手动选择后绑定”流程；两个独立 `IDBFactory` 覆盖清除网站数据后的空设备边界；390px 无横向溢出或控件重叠，控制台 0 error。
 - 两个独立 `IDBFactory` 验证 Vault、任务密文和不可导出 Key 不隐式同步；Cloud 图、项目持久化、checkpoint、迁移包和 API 契约均不携带任务缓存、remote task ID 或私有 Provider 配置。
@@ -678,8 +678,10 @@ P8 已取消官方模型、积分、计费和平台代生成路线。平台只�
 当前进展（未完成）：
 
 - 用户列表、用户详情、封禁、解封、session 撤销、脱敏管理审计和最小聚合仪表盘已落地；普通 API readiness 检查 PostgreSQL、Redis 与对象存储，Admin API readiness 只检查其实际依赖的 PostgreSQL 与对象存储。
-- `npm run test` 309/309（110 个测试文件）、`npm run lint`、完整构建、数据库角色 provision/check、schema release 校验、生产依赖高危审计、生产源码凭据格式扫描和 `git diff --check` 已通过；29 个迁移与 release manifest 一致，本阶段没有 schema 变更，因此未机械重复数据库迁移门禁。
+- 服务商模型发现 P1-P5 已完成：Vault/任务缓存切换到 v2，Provider Key 独立于配置保存，模型条目以 `modelEntryId` 为身份，旧 `modelProviderProfileIds` 与历史本地配置迁移路径已移除；浏览器受控 `/v1/models` 发现覆盖 URL 规范化、私网 HTTP 限制、超时/响应上限、错误分类、脱敏预览、节流与并发复用；Provider 设置页仅保留服务商主列表，模型只在所属服务商详情中发现、添加、编辑和删除，不存在独立模型中心或服务商模型发现 feature flag。图像、聊天和视频节点已接入服务商到模型的两级选择，仅显示可执行候选，并保留未绑定/删除/缺失/停用引用的不可执行状态；同上游模型 ID 的不同 Provider 路由彼此隔离。匿名 `local:<uuid>` 绑定后，节点保留匿名值，运行时和本地任务只使用绑定解析出的 `modelEntryId`，不存在按名称、默认值或第一个模型回退。
+- `npm run test` 325/325（112 个测试文件）、`npm run lint`、完整构建、数据库角色 provision/check、schema release 校验、生产依赖高危审计、生产源码凭据格式扫描和 `git diff --check` 已通过；29 个迁移与 release manifest 一致，本阶段没有 schema 变更，因此未机械重复数据库迁移门禁。
 - `dev:restart` 只启动 Web、API、Admin Web、Admin API；真实浏览器已完成 Admin 登录、Dashboard、用户搜索/详情、封禁后登录拒绝、解封、重新登录、session 撤销和审计记录检查，桌面与 390px 无横向溢出或控件重叠。普通用户最终保持 active，测试 session 已撤销。
+- 服务商模型发现的认证画布验收仍待可用的普通用户测试会话：需要覆盖服务商设置、图像/聊天/视频节点两级选择、已绑定匿名引用和降级矩阵；当前不通过创建持久化测试账号或注入 Provider 凭据替代该验收。
 - 当前缺少 `infra/deploy/staging/staging.env`，本机也没有可用 Docker CLI/daemon，无法真实执行 staging 配置门禁和隔离恢复演练；该外部验收补齐前 P8-8 保持未完成，P8-9 不启动。
 
 ## P9：生产灰度与正式上线

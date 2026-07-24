@@ -1,167 +1,146 @@
-import {
-  getModelDraftValidationMessage,
-  getProviderProfileValidationMessage,
-  PROVIDER_CONFIG_MESSAGES,
-  resolveRuntimeModelConfig,
-  validateProviderProfileDraft,
-} from './providerConfig.ts'
-import type { ApiConfig, CustomImageModelConfig, ProviderProfileConfig } from '@/types'
+import assert from "node:assert/strict";
+import test from "node:test";
+import { resolveRuntimeModelConfig } from "./providerConfig.ts";
+import { normalizeConfig } from "@/store/settingsConfig.ts";
 
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) {
-    throw new Error(message)
+test("runtime resolution uses model entry identity and its owning provider", () => {
+  const config = normalizeConfig({
+    providerProfiles: [
+      {
+        id: "provider-a",
+        name: "Provider A",
+        protocol: "openai-compatible",
+        baseUrl: "https://example.com/v1",
+        enabled: true,
+        imageRequestMode: "async",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+    providerApiKeys: { "provider-a": "key-a" },
+    modelEntries: [
+      {
+        id: "entry-a",
+        providerProfileId: "provider-a",
+        modelId: "gpt-image",
+        displayName: "Image",
+        category: "image",
+        source: "manual",
+        status: "available",
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+  });
+  const resolved = resolveRuntimeModelConfig(config, {
+    modelEntryId: "entry-a",
+    category: "image",
+    requireCredentials: true,
+  });
+  assert.equal(resolved.ok, true);
+  if (resolved.ok) {
+    assert.equal(resolved.runtimeConfig.modelId, "gpt-image");
+    assert.equal(resolved.runtimeConfig.apiKey, "key-a");
   }
-}
+});
 
-function createModel(overrides: Partial<CustomImageModelConfig> = {}): CustomImageModelConfig {
-  return {
-    id: 'model-1',
-    name: 'Image Model',
-    modelId: 'image-model',
-    kind: 'image',
-    enabled: true,
-    testStatus: 'idle',
-    testMessage: '',
-    lastTestedAt: null,
-    ...overrides,
+test("same upstream model ids resolve to their selected provider route", () => {
+  const config = normalizeConfig({
+    providerProfiles: [
+      {
+        id: "provider-a",
+        name: "Provider A",
+        protocol: "openai-compatible",
+        baseUrl: "https://a.example/v1",
+        enabled: true,
+        imageRequestMode: "sync",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: "provider-b",
+        name: "Provider B",
+        protocol: "openai-compatible",
+        baseUrl: "https://b.example/v1",
+        enabled: true,
+        imageRequestMode: "async",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+    providerApiKeys: { "provider-a": "key-a", "provider-b": "key-b" },
+    modelEntries: [
+      {
+        id: "entry-a",
+        providerProfileId: "provider-a",
+        modelId: "gpt-4o",
+        displayName: "GPT A",
+        category: "chat",
+        source: "manual",
+        status: "available",
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: "entry-b",
+        providerProfileId: "provider-b",
+        modelId: "gpt-4o",
+        displayName: "GPT B",
+        category: "chat",
+        source: "manual",
+        status: "available",
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+  });
+
+  const routeA = resolveRuntimeModelConfig(config, {
+    modelEntryId: "entry-a",
+    category: "chat",
+    requireCredentials: true,
+  });
+  const routeB = resolveRuntimeModelConfig(config, {
+    modelEntryId: "entry-b",
+    category: "chat",
+    requireCredentials: true,
+  });
+
+  assert.equal(routeA.ok, true);
+  assert.equal(routeB.ok, true);
+  if (routeA.ok && routeB.ok) {
+    assert.equal(routeA.runtimeConfig.modelId, routeB.runtimeConfig.modelId);
+    assert.equal(routeA.runtimeConfig.apiUrl, "https://a.example/v1");
+    assert.equal(routeA.runtimeConfig.apiKey, "key-a");
+    assert.equal(routeB.runtimeConfig.apiUrl, "https://b.example/v1");
+    assert.equal(routeB.runtimeConfig.apiKey, "key-b");
   }
-}
+});
 
-function createProfile(overrides: Partial<ProviderProfileConfig> = {}): ProviderProfileConfig {
-  return {
-    id: 'profile-1',
-    name: 'Provider',
-    kind: 'image',
-    apiKey: ' key ',
-    apiUrl: ' https://dashscope.aliyuncs.com/compatible-mode/v1 ',
-    provider: 'aliyun',
-    requestMode: 'sync',
-    enabled: true,
-    testStatus: 'idle',
-    testMessage: '',
-    lastTestedAt: null,
-    ...overrides,
-  }
-}
-
-function createConfig(overrides: Partial<ApiConfig> = {}): ApiConfig {
-  const model = createModel()
-  const profile = createProfile()
-
-  return {
-    model: model.modelId,
-    customModels: [model],
-    providerProfiles: [profile],
-    activeProviderProfileIds: { image: profile.id },
-    modelProviderProfileIds: {},
-    storage: {
-      autosaveIntervalMs: 60000,
-      canvasTopBarCollapsed: false,
-      alignmentGuidesEnabled: true,
-      themeMode: 'dark',
-      canvasPerformanceMode: 'quality',
-      canvasGridEnabled: true,
-      edgeStyle: 'animated',
-      lowQualityPreviewEnabled: true,
-      workspaceDirectoryName: '',
-      workspaceConfigured: false,
-    },
-    ...overrides,
-    localModelBindings: overrides.localModelBindings ?? {},
-  }
-}
-
-function runProviderConfigTests() {
-  assert(
-    getModelDraftValidationMessage(createModel({ modelId: '   ' })) === PROVIDER_CONFIG_MESSAGES.emptyModelId,
-    'empty model ids should use the shared diagnostic message',
-  )
-  assert(
-    getModelDraftValidationMessage(createModel({ modelId: 'model-a' })) === '',
-    'non-empty model ids should pass draft validation',
-  )
-  assert(
-    getProviderProfileValidationMessage(null) === PROVIDER_CONFIG_MESSAGES.emptyProviderProfile,
-    'missing provider profiles should be explicit',
-  )
-  assert(
-    getProviderProfileValidationMessage(createProfile({ apiKey: ' ', apiUrl: 'https://example.com/v1' })) === PROVIDER_CONFIG_MESSAGES.emptyApiKey,
-    'empty api keys should be diagnosed before requests run',
-  )
-  assert(
-    getProviderProfileValidationMessage(createProfile({ apiKey: 'key', apiUrl: ' ' })) === PROVIDER_CONFIG_MESSAGES.emptyApiUrl,
-    'empty api urls should be diagnosed before requests run',
-  )
-  assert(
-    validateProviderProfileDraft(createProfile({ apiUrl: 'ftp://provider.example/v1' }))?.code === 'invalidApiUrl',
-    'provider endpoints should only accept HTTP(S)',
-  )
-  assert(
-    validateProviderProfileDraft(createProfile({ apiUrl: 'https://name:password@provider.example/v1' }))?.code === 'apiUrlCredentials',
-    'provider endpoints should reject URL credentials',
-  )
-  assert(
-    validateProviderProfileDraft(createProfile({ apiUrl: 'https://provider.example/v1#fragment' }))?.code === 'apiUrlFragment',
-    'provider endpoints should reject fragments',
-  )
-  assert(
-    validateProviderProfileDraft(createProfile({ apiUrl: 'http://provider.example/v1' }), { requireHttps: true })?.code === 'insecureApiUrl',
-    'production provider endpoints should require HTTPS',
-  )
-
-  const resolved = resolveRuntimeModelConfig(createConfig(), {
-    modelId: 'image-model',
-    kind: 'image',
+test("unbound entries cannot execute", () => {
+  const config = normalizeConfig({
+    modelEntries: [
+      {
+        id: "entry-a",
+        providerProfileId: null,
+        modelId: "model",
+        displayName: "Model",
+        category: "chat",
+        source: "manual",
+        status: "unbound",
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+  });
+  const resolved = resolveRuntimeModelConfig(config, {
+    modelEntryId: "entry-a",
     requireCredentials: true,
-  })
-  assert(resolved.ok, 'valid model/provider config should resolve')
-  assert(resolved.runtimeConfig.apiKey === 'key', 'runtime config should trim api keys')
-  assert(
-    resolved.runtimeConfig.apiUrl === 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    'runtime config should trim api urls',
-  )
-
-  const disabledModel = resolveRuntimeModelConfig(createConfig({
-    customModels: [createModel({ enabled: false })],
-  }), {
-    modelId: 'image-model',
-    kind: 'image',
-    requireCredentials: true,
-  })
-  assert(!disabledModel.ok && disabledModel.diagnostic.code === 'modelDisabled', 'disabled models should not resolve')
-
-  const disabledExplicitProfile = resolveRuntimeModelConfig(createConfig({
-    providerProfiles: [createProfile({ enabled: false })],
-  }), {
-    modelId: 'image-model',
-    kind: 'image',
-    profileId: 'profile-1',
-    requireCredentials: true,
-  })
-  assert(
-    !disabledExplicitProfile.ok && disabledExplicitProfile.diagnostic.code === 'providerProfileDisabled',
-    'disabled explicit provider profiles should not silently fall back',
-  )
-
-  const missingExplicitProfile = resolveRuntimeModelConfig(createConfig(), {
-    modelId: 'image-model',
-    kind: 'image',
-    profileId: 'missing-profile',
-    requireCredentials: true,
-  })
-  assert(
-    !missingExplicitProfile.ok && missingExplicitProfile.diagnostic.code === 'providerProfileMissing',
-    'missing explicit provider profiles should be reported',
-  )
-
-  const fallbackFromMissingProfile = resolveRuntimeModelConfig(createConfig(), {
-    modelId: 'image-model',
-    kind: 'image',
-    profileId: 'missing-profile',
-    requireCredentials: true,
-    allowProfileFallback: true,
-  })
-  assert(fallbackFromMissingProfile.ok, 'callers can opt into provider profile fallback')
-}
-
-runProviderConfigTests()
+  });
+  assert.equal(resolved.ok, false);
+  if (!resolved.ok) assert.equal(resolved.diagnostic.code, "modelUnbound");
+});

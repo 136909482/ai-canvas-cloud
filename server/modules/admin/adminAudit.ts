@@ -1,14 +1,20 @@
-import type { DbClient, DbPool } from '../../db/postgres.js'
-import { hashAdminRequestIdentity, redactAdminAuditPayload } from './security.js'
-import type { AdminAuditEventInput } from './types.js'
+import type { DbClient, DbPool } from "../../db/postgres.js";
+import {
+  hashAdminRequestIdentity,
+  redactAdminAuditPayload,
+} from "./security.js";
+import type { AdminAuditEventInput } from "./types.js";
 
 export async function insertAdminAuditEvent(
-  database: Pick<DbPool | DbClient, 'query'>,
+  database: Pick<DbPool | DbClient, "query">,
   input: AdminAuditEventInput,
   pepper: string,
 ) {
-  if (!/^[a-z0-9_.:-]{1,96}$/i.test(input.action) || !/^.{1,128}$/.test(input.requestId)) {
-    throw new Error('Audit event identifiers are invalid')
+  if (
+    !/^[a-z0-9_.:-]{1,96}$/i.test(input.action) ||
+    !/^.{1,128}$/.test(input.requestId)
+  ) {
+    throw new Error("Audit event identifiers are invalid");
   }
   await database.query(
     `
@@ -30,5 +36,5 @@ export async function insertAdminAuditEvent(
       JSON.stringify(redactAdminAuditPayload(input.before)),
       JSON.stringify(redactAdminAuditPayload(input.after)),
     ],
-  )
+  );
 }

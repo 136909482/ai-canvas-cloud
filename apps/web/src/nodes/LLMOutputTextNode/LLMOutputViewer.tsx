@@ -1,16 +1,25 @@
-import { useEffect, useMemo, type SyntheticEvent, type WheelEvent } from 'react'
-import { EditorContent, useEditor } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
-import type { LLMOutputFormat, LLMOutputNodeStatus } from '@/types'
-import { formatJsonForDisplay, markdownToHtml } from '@/features/llm/outputViewer'
+import {
+  useEffect,
+  useMemo,
+  type SyntheticEvent,
+  type WheelEvent,
+} from "react";
+import { EditorContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import type { LLMOutputFormat, LLMOutputNodeStatus } from "@/types";
+import {
+  formatJsonForDisplay,
+  markdownToHtml,
+} from "@/features/llm/outputViewer";
 
 type LLMOutputViewerProps = {
-  text: string
-  outputFormat: LLMOutputFormat
-  status: LLMOutputNodeStatus
-}
+  text: string;
+  outputFormat: LLMOutputFormat;
+  status: LLMOutputNodeStatus;
+};
 
-const viewerFrameClassName = 'node-scrollbar nowheel nodrag nopan h-full w-full overflow-y-auto overscroll-contain px-3 py-2.5 text-sm leading-6 text-[var(--text-primary)]'
+const viewerFrameClassName =
+  "node-scrollbar nowheel nodrag nopan h-full w-full overflow-y-auto overscroll-contain px-3 py-2.5 text-sm leading-6 text-[var(--text-primary)]";
 const richTextClassName = `${viewerFrameClassName}
   [&_.ProseMirror]:min-h-full [&_.ProseMirror]:outline-none
   [&_.ProseMirror_h1]:mb-2 [&_.ProseMirror_h1]:mt-0 [&_.ProseMirror_h1]:text-lg [&_.ProseMirror_h1]:font-semibold
@@ -24,18 +33,20 @@ const richTextClassName = `${viewerFrameClassName}
   [&_.ProseMirror_code]:rounded [&_.ProseMirror_code]:border [&_.ProseMirror_code]:border-[var(--border-subtle)] [&_.ProseMirror_code]:bg-[var(--control-bg-hover)] [&_.ProseMirror_code]:px-1 [&_.ProseMirror_code]:py-0.5 [&_.ProseMirror_code]:font-mono [&_.ProseMirror_code]:text-[12px]
   [&_.ProseMirror_pre]:my-2 [&_.ProseMirror_pre]:overflow-x-auto [&_.ProseMirror_pre]:rounded-lg [&_.ProseMirror_pre]:border [&_.ProseMirror_pre]:border-[var(--border-subtle)] [&_.ProseMirror_pre]:bg-[color-mix(in_srgb,var(--control-bg-hover)_80%,black_8%)] [&_.ProseMirror_pre]:p-3
   [&_.ProseMirror_pre_code]:border-0 [&_.ProseMirror_pre_code]:bg-transparent [&_.ProseMirror_pre_code]:p-0 [&_.ProseMirror_pre_code]:text-[12px]
-  [&_.ProseMirror_a]:text-[var(--accent-violet-strong)] [&_.ProseMirror_a]:underline`
+  [&_.ProseMirror_a]:text-[var(--accent-violet-strong)] [&_.ProseMirror_a]:underline`;
 
-export function LLMOutputViewer({ text, outputFormat, status }: LLMOutputViewerProps) {
-  const isDone = status === 'done'
+export function LLMOutputViewer({
+  text,
+  outputFormat,
+  status,
+}: LLMOutputViewerProps) {
+  const isDone = status === "done";
   const jsonDisplay = useMemo(
-    () => (outputFormat === 'json' && isDone ? formatJsonForDisplay(text) : null),
+    () =>
+      outputFormat === "json" && isDone ? formatJsonForDisplay(text) : null,
     [isDone, outputFormat, text],
-  )
-  const markdownHtml = useMemo(
-    () => markdownToHtml(text || ' '),
-    [text],
-  )
+  );
+  const markdownHtml = useMemo(() => markdownToHtml(text || " "), [text]);
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -46,36 +57,36 @@ export function LLMOutputViewer({ text, outputFormat, status }: LLMOutputViewerP
     content: markdownHtml,
     editorProps: {
       attributes: {
-        spellcheck: 'false',
+        spellcheck: "false",
       },
     },
-  })
+  });
 
   useEffect(() => {
-    if (!editor || outputFormat !== 'markdown') {
-      return
+    if (!editor || outputFormat !== "markdown") {
+      return;
     }
 
-    editor.commands.setContent(markdownHtml, { emitUpdate: false })
-  }, [editor, markdownHtml, outputFormat])
+    editor.commands.setContent(markdownHtml, { emitUpdate: false });
+  }, [editor, markdownHtml, outputFormat]);
 
   const stopCanvasGesture = (event: SyntheticEvent) => {
-    event.stopPropagation()
-  }
+    event.stopPropagation();
+  };
 
   const handleWheelCapture = (event: WheelEvent<HTMLElement>) => {
-    event.stopPropagation()
-  }
+    event.stopPropagation();
+  };
 
   const sharedInteractionProps = {
     onPointerDown: stopCanvasGesture,
     onMouseDown: stopCanvasGesture,
     onClick: stopCanvasGesture,
     onWheelCapture: handleWheelCapture,
-  }
+  };
 
-  if (outputFormat === 'json') {
-    const displayText = jsonDisplay?.text ?? text
+  if (outputFormat === "json") {
+    const displayText = jsonDisplay?.text ?? text;
 
     return (
       <pre
@@ -84,17 +95,17 @@ export function LLMOutputViewer({ text, outputFormat, status }: LLMOutputViewerP
       >
         {displayText}
       </pre>
-    )
+    );
   }
 
-  if (outputFormat === 'markdown') {
+  if (outputFormat === "markdown") {
     return (
       <EditorContent
         editor={editor}
         {...sharedInteractionProps}
         className={`${richTextClassName} select-text [&_.ProseMirror]:select-text`}
       />
-    )
+    );
   }
 
   return (
@@ -104,5 +115,5 @@ export function LLMOutputViewer({ text, outputFormat, status }: LLMOutputViewerP
     >
       {text}
     </pre>
-  )
+  );
 }

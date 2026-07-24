@@ -1,237 +1,174 @@
-import { getProviderDefinition } from '../../config/modelCatalog.ts'
-import { validateProviderEndpoint } from './providerEndpoint.ts'
+import { inferProviderFromApiUrl } from "../../config/modelCatalog.ts";
+import { validateProviderEndpoint } from "./providerEndpoint.ts";
 import type {
   ApiConfig,
-  CustomImageModelConfig,
-  CustomModelKind,
+  ModelCategory,
+  ModelEntry,
   ProviderProfileConfig,
   RuntimeModelConfig,
-} from '../../types'
+} from "../../types";
 
 export const PROVIDER_CONFIG_MESSAGES = {
-  emptyModelId: '\u8bf7\u5148\u586b\u5199\u6a21\u578b ID',
-  emptyProviderProfile: '\u8bf7\u5148\u9009\u62e9\u670d\u52a1\u5546\u63a5\u53e3',
-  modelMissing: '\u5f53\u524d\u4efb\u52a1\u4f7f\u7528\u7684\u6a21\u578b\u4e0d\u5b58\u5728',
-  modelDisabled: '\u5f53\u524d\u4efb\u52a1\u4f7f\u7528\u7684\u6a21\u578b\u5df2\u88ab\u7981\u7528',
-  providerProfileMissing: '\u5f53\u524d\u6a21\u578b\u5bf9\u5e94\u7684\u670d\u52a1\u5546\u63a5\u53e3\u4e0d\u5b58\u5728',
-  providerProfileDisabled: '\u5f53\u524d\u6a21\u578b\u5bf9\u5e94\u7684\u670d\u52a1\u5546\u63a5\u53e3\u5df2\u88ab\u7981\u7528',
-  providerKindMismatch: '\u5f53\u524d\u6a21\u578b\u4e0e\u670d\u52a1\u5546\u63a5\u53e3\u7684\u7c7b\u578b\u4e0d\u5339\u914d',
-  emptyApiKey: '\u8bf7\u5148\u586b\u5199 API Key',
-  emptyApiUrl: '\u8bf7\u5148\u586b\u5199 API \u8bf7\u6c42\u5730\u5740',
-  invalidApiUrl: '请输入有效的 HTTP(S) endpoint',
-  insecureApiUrl: '生产环境 endpoint 必须使用 HTTPS',
-  apiUrlCredentials: 'endpoint 不得包含用户名或密码',
-  apiUrlFragment: 'endpoint 不得包含 fragment',
-} as const
+  emptyModelEntryId: "请先选择模型",
+  emptyProviderProfile: "请先选择服务商",
+  modelMissing: "当前任务使用的模型不存在",
+  modelDisabled: "当前任务使用的模型已被禁用",
+  modelMissingUpstream: "上游服务商中未找到当前模型",
+  modelUnbound: "当前模型未绑定到此设备的服务商",
+  providerProfileMissing: "当前模型对应的服务商不存在",
+  providerProfileDisabled: "当前模型对应的服务商已被停用",
+  providerCategoryMismatch: "当前模型与请求类型不匹配",
+  emptyApiKey: "请先填写 API Key",
+  emptyApiUrl: "请先填写 API 请求地址",
+  invalidApiUrl: "请输入有效的 HTTP(S) endpoint",
+  insecureApiUrl: "生产环境 endpoint 必须使用 HTTPS",
+  apiUrlCredentials: "endpoint 不得包含用户名或密码",
+  apiUrlFragment: "endpoint 不得包含 fragment",
+} as const;
 
-export type ProviderConfigIssueCode = keyof typeof PROVIDER_CONFIG_MESSAGES
-
-export type ProviderConfigField = 'modelId' | 'providerProfile' | 'apiKey' | 'apiUrl'
+export type ProviderConfigIssueCode = keyof typeof PROVIDER_CONFIG_MESSAGES;
+export type ProviderConfigField =
+  "modelEntryId" | "providerProfile" | "apiKey" | "apiUrl";
 
 export interface ProviderConfigDiagnostic {
-  code: ProviderConfigIssueCode
-  field: ProviderConfigField
-  message: string
+  code: ProviderConfigIssueCode;
+  field: ProviderConfigField;
+  message: string;
 }
 
 export interface ResolveRuntimeModelConfigOptions {
-  modelId?: string | null
-  kind?: CustomModelKind
-  profileId?: string | null
-  requireCredentials?: boolean
-  allowProfileFallback?: boolean
+  modelEntryId?: string | null;
+  category?: ModelCategory;
+  requireCredentials?: boolean;
 }
 
 export type RuntimeModelConfigResolution =
   | {
-    ok: true
-    model: CustomImageModelConfig
-    profile: ProviderProfileConfig
-    runtimeConfig: RuntimeModelConfig
-  }
-  | {
-    ok: false
-    diagnostic: ProviderConfigDiagnostic
-  }
+      ok: true;
+      model: ModelEntry;
+      profile: ProviderProfileConfig;
+      runtimeConfig: RuntimeModelConfig;
+    }
+  | { ok: false; diagnostic: ProviderConfigDiagnostic };
 
 const ISSUE_FIELDS: Record<ProviderConfigIssueCode, ProviderConfigField> = {
-  emptyModelId: 'modelId',
-  emptyProviderProfile: 'providerProfile',
-  modelMissing: 'modelId',
-  modelDisabled: 'modelId',
-  providerProfileMissing: 'providerProfile',
-  providerProfileDisabled: 'providerProfile',
-  providerKindMismatch: 'providerProfile',
-  emptyApiKey: 'apiKey',
-  emptyApiUrl: 'apiUrl',
-  invalidApiUrl: 'apiUrl',
-  insecureApiUrl: 'apiUrl',
-  apiUrlCredentials: 'apiUrl',
-  apiUrlFragment: 'apiUrl',
-}
+  emptyModelEntryId: "modelEntryId",
+  emptyProviderProfile: "providerProfile",
+  modelMissing: "modelEntryId",
+  modelDisabled: "modelEntryId",
+  modelMissingUpstream: "modelEntryId",
+  modelUnbound: "modelEntryId",
+  providerProfileMissing: "providerProfile",
+  providerProfileDisabled: "providerProfile",
+  providerCategoryMismatch: "modelEntryId",
+  emptyApiKey: "apiKey",
+  emptyApiUrl: "apiUrl",
+  invalidApiUrl: "apiUrl",
+  insecureApiUrl: "apiUrl",
+  apiUrlCredentials: "apiUrl",
+  apiUrlFragment: "apiUrl",
+};
 
-function createDiagnostic(code: ProviderConfigIssueCode): ProviderConfigDiagnostic {
+function createDiagnostic(
+  code: ProviderConfigIssueCode,
+): ProviderConfigDiagnostic {
   return {
     code,
     field: ISSUE_FIELDS[code],
     message: PROVIDER_CONFIG_MESSAGES[code],
-  }
-}
-
-function getTrimmedModelId(modelId?: string | null) {
-  return modelId?.trim() ?? ''
-}
-
-function getProfileId(profileId?: string | null) {
-  const trimmed = profileId?.trim() ?? ''
-  return trimmed || null
-}
-
-function findModel(config: ApiConfig, modelId: string, kind?: CustomModelKind) {
-  return config.customModels.find((model) => (
-    model.modelId === modelId
-    && (kind ? model.kind === kind : true)
-  )) ?? null
-}
-
-function findProfile(config: ApiConfig, profileId: string | null) {
-  if (!profileId) {
-    return null
-  }
-
-  return config.providerProfiles.find((profile) => profile.id === profileId) ?? null
-}
-
-function findFallbackProfile(config: ApiConfig, model: CustomImageModelConfig, kind: CustomModelKind) {
-  const modelProfileId = config.modelProviderProfileIds[model.modelId]
-  const modelProfile = findProfile(config, modelProfileId ?? null)
-
-  if (modelProfile?.enabled && modelProfile.kind === kind) {
-    return modelProfile
-  }
-
-  const activeProfileId = config.activeProviderProfileIds[kind]
-  const activeProfile = findProfile(config, activeProfileId ?? null)
-
-  if (activeProfile?.enabled && activeProfile.kind === kind) {
-    return activeProfile
-  }
-
-  return config.providerProfiles.find((profile) => profile.enabled && profile.kind === kind) ?? null
-}
-
-function validateProfileAvailability(profile: ProviderProfileConfig, kind: CustomModelKind) {
-  if (profile.kind !== kind) {
-    return createDiagnostic('providerKindMismatch')
-  }
-
-  if (!profile.enabled) {
-    return createDiagnostic('providerProfileDisabled')
-  }
-
-  return null
+  };
 }
 
 export function getProviderConfigIssueMessage(code: ProviderConfigIssueCode) {
-  return PROVIDER_CONFIG_MESSAGES[code]
+  return PROVIDER_CONFIG_MESSAGES[code];
 }
 
-export function validateModelDraftLike(model: Pick<CustomImageModelConfig, 'modelId'> | null | undefined) {
-  return getTrimmedModelId(model?.modelId) ? null : createDiagnostic('emptyModelId')
+export function validateModelDraftLike(
+  model: Pick<ModelEntry, "modelId"> | null | undefined,
+) {
+  return model?.modelId.trim() ? null : createDiagnostic("emptyModelEntryId");
 }
 
-export function getModelDraftValidationMessage(model: Pick<CustomImageModelConfig, 'modelId'> | null | undefined) {
-  return validateModelDraftLike(model)?.message ?? ''
+export function getModelDraftValidationMessage(
+  model: Pick<ModelEntry, "modelId"> | null | undefined,
+) {
+  return validateModelDraftLike(model)?.message ?? "";
 }
 
 export function validateProviderProfileDraft(
-  profile: Pick<ProviderProfileConfig, 'apiKey' | 'apiUrl'> | null | undefined,
+  profile: Pick<ProviderProfileConfig, "baseUrl"> | null | undefined,
+  apiKey: string,
   options?: { requireHttps?: boolean },
 ) {
-  if (!profile) {
-    return createDiagnostic('emptyProviderProfile')
-  }
+  if (!profile) return createDiagnostic("emptyProviderProfile");
+  if (!apiKey.trim()) return createDiagnostic("emptyApiKey");
 
-  if (!profile.apiKey.trim()) {
-    return createDiagnostic('emptyApiKey')
-  }
-
-  if (!profile.apiUrl.trim()) {
-    return createDiagnostic('emptyApiUrl')
-  }
-
-  const endpointValidation = validateProviderEndpoint(profile.apiUrl, {
+  const endpointValidation = validateProviderEndpoint(profile.baseUrl, {
     production: options?.requireHttps ?? Boolean(import.meta.env?.PROD),
-  })
-  if (!endpointValidation.ok) return createDiagnostic(endpointValidation.code)
-
-  return null
+  });
+  if (!endpointValidation.ok) return createDiagnostic(endpointValidation.code);
+  return null;
 }
 
 export function getProviderProfileValidationMessage(
-  profile: Pick<ProviderProfileConfig, 'apiKey' | 'apiUrl'> | null | undefined,
+  profile: Pick<ProviderProfileConfig, "baseUrl"> | null | undefined,
+  apiKey: string,
 ) {
-  return validateProviderProfileDraft(profile)?.message ?? ''
+  return validateProviderProfileDraft(profile, apiKey)?.message ?? "";
 }
 
-export function resolveProviderApiUrl(profile: Pick<ProviderProfileConfig, 'apiUrl' | 'provider'>) {
-  return profile.apiUrl.trim() || getProviderDefinition(profile.provider).defaultApiUrl
+export function resolveProviderApiUrl(
+  profile: Pick<ProviderProfileConfig, "baseUrl">,
+) {
+  return profile.baseUrl.trim();
 }
 
 export function resolveRuntimeModelConfig(
   config: ApiConfig,
   options: ResolveRuntimeModelConfigOptions,
 ): RuntimeModelConfigResolution {
-  const modelId = getTrimmedModelId(options.modelId)
+  const modelEntryId = options.modelEntryId?.trim() ?? "";
+  if (!modelEntryId)
+    return { ok: false, diagnostic: createDiagnostic("emptyModelEntryId") };
 
-  if (!modelId) {
-    return { ok: false, diagnostic: createDiagnostic('emptyModelId') }
+  const model = config.modelEntries.find((entry) => entry.id === modelEntryId);
+  if (!model)
+    return { ok: false, diagnostic: createDiagnostic("modelMissing") };
+  if (options.category && model.category !== options.category) {
+    return {
+      ok: false,
+      diagnostic: createDiagnostic("providerCategoryMismatch"),
+    };
   }
-
-  const model = findModel(config, modelId, options.kind)
-
-  if (!model) {
-    return { ok: false, diagnostic: createDiagnostic('modelMissing') }
+  if (!model.enabled)
+    return { ok: false, diagnostic: createDiagnostic("modelDisabled") };
+  if (model.status === "unbound" || !model.providerProfileId) {
+    return { ok: false, diagnostic: createDiagnostic("modelUnbound") };
   }
+  if (model.status === "missing")
+    return { ok: false, diagnostic: createDiagnostic("modelMissingUpstream") };
 
-  if (!model.enabled) {
-    return { ok: false, diagnostic: createDiagnostic('modelDisabled') }
-  }
+  const profile = config.providerProfiles.find(
+    (candidate) => candidate.id === model.providerProfileId,
+  );
+  if (!profile)
+    return {
+      ok: false,
+      diagnostic: createDiagnostic("providerProfileMissing"),
+    };
+  if (!profile.enabled)
+    return {
+      ok: false,
+      diagnostic: createDiagnostic("providerProfileDisabled"),
+    };
 
-  const kind = options.kind ?? model.kind
-  const explicitProfileId = getProfileId(options.profileId)
-  const explicitProfile = findProfile(config, explicitProfileId)
-  const allowProfileFallback = options.allowProfileFallback ?? false
-  let profile = explicitProfile
-
-  if (explicitProfileId && !explicitProfile && !allowProfileFallback) {
-    return { ok: false, diagnostic: createDiagnostic('providerProfileMissing') }
-  }
-
-  if (explicitProfile) {
-    const profileDiagnostic = validateProfileAvailability(explicitProfile, kind)
-    if (profileDiagnostic && !allowProfileFallback) {
-      return { ok: false, diagnostic: profileDiagnostic }
-    }
-    profile = profileDiagnostic ? null : explicitProfile
-  }
-
-  profile ??= findFallbackProfile(config, model, kind)
-
-  if (!profile) {
-    return { ok: false, diagnostic: createDiagnostic('providerProfileMissing') }
-  }
-
-  const profileDiagnostic = validateProfileAvailability(profile, kind)
-  if (profileDiagnostic) {
-    return { ok: false, diagnostic: profileDiagnostic }
-  }
-
+  const apiKey = config.providerApiKeys[profile.id]?.trim() ?? "";
+  if (options.requireCredentials && !apiKey)
+    return { ok: false, diagnostic: createDiagnostic("emptyApiKey") };
   if (options.requireCredentials) {
-    const credentialsDiagnostic = validateProviderProfileDraft(profile)
-    if (credentialsDiagnostic) {
-      return { ok: false, diagnostic: credentialsDiagnostic }
-    }
+    const endpointDiagnostic = validateProviderProfileDraft(profile, apiKey);
+    if (endpointDiagnostic)
+      return { ok: false, diagnostic: endpointDiagnostic };
   }
 
   return {
@@ -240,10 +177,12 @@ export function resolveRuntimeModelConfig(
     profile,
     runtimeConfig: {
       ...model,
-      apiKey: profile.apiKey.trim(),
+      apiKey,
+      baseUrl: resolveProviderApiUrl(profile),
       apiUrl: resolveProviderApiUrl(profile),
-      provider: profile.provider,
-      requestMode: profile.requestMode,
+      provider: inferProviderFromApiUrl(profile.baseUrl),
+      imageRequestMode: profile.imageRequestMode,
+      requestMode: profile.imageRequestMode,
     },
-  }
+  };
 }

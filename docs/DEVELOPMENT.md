@@ -140,27 +140,32 @@ Admin 不提供官方 Provider、官方模型、积分调整或服务器任务�
 
 P8-5 Vault 的当前不变量：
 
-- Provider、endpoint、Key、模型和绑定进入同一 `schemaVersion=1` Vault；`cipherVersion=1` 使用 WebCrypto AES-256-GCM、96 位随机 IV 和 128 位认证标签。
+- Provider 配置、按 `providerProfileId` 索引的 Key 凭据、模型条目和匿名绑定进入同一 `schemaVersion=2` Vault；`cipherVersion=1` 使用 WebCrypto AES-256-GCM、96 位随机 IV 和 128 位认证标签。Provider 配置不得含 API Key；模型条目以 `modelEntryId` 为唯一身份，运行时再解析 Provider 与上游 `modelId`。
 - 记住设备使用不可导出的 `CryptoKey`。AAD 固定绑定 cipher/schema version、当前 Origin 和可信 session 用户 ID；IndexedDB 记录按可信用户 ID 分区，跨 Origin 或跨用户不能解密。
 - Provider 与模型配置固定使用设备持久化，不向用户提供 persistence 或单独删除入口。Vault 保存与本地任务写入共用 FIFO 操作队列。
 - 登出、session 失效和换账号清空内存明文，但保留当前浏览器中按账号隔离的设备密文；同一账号再次登录可恢复，其他浏览器或设备必须重新配置。不支持加密 IndexedDB 时必须显示错误，不得静默退化为明文或临时保存模式。
 - 清除当前网站数据会由浏览器删除密文、CryptoKey、模型绑定和本地任务缓存。所有异步回写必须仍匹配同一可信用户、同一内部 persistence 和同一状态代次。
-- 旧 `ai-canvas-settings` 明文只在设备加密保存成功后删除；迁移失败保留原缓存以便重试。workspace 文件及 workspace/localStorage 缓存始终通过脱敏转换移除 Provider、endpoint、Key 与绑定。
+- 当前内测环境没有历史数据，不实现旧 `ai-canvas-settings`、Vault 或任务缓存的迁移、回滚或兼容读取；遇到旧密文记录时拒绝使用，需清除网站数据后重新配置。workspace 文件及 workspace/localStorage 缓存始终通过脱敏转换移除 Provider、endpoint、Key 与绑定。
 - 项目图、checkpoint、目录包、Cloud API 请求、日志、指标、诊断和 Admin 均不保存真实 Provider 配置；不同浏览器设备的 IndexedDB/`CryptoKey` 相互独立，登录与云端项目加载不会同步 Vault。
 - endpoint 配置校验在 production 强制 HTTPS，并拒绝 URL 凭据和 fragment。
+- 服务商模型发现仅允许浏览器直连受控 OpenAI Compatible `GET /v1/models`：固定 Bearer/Accept 请求头、`credentials=omit`、`redirect=error`、`referrerPolicy=no-referrer`、`cache=no-store`、CORS 模式、15 秒超时和 2 MiB 流式响应上限；平台不新增发现 API、Provider 代理或任意路径探测。开发环境的私网 HTTP 直连仍受浏览器 Private Network Access 限制，目标服务必须自行正确配置 CORS 与 `Access-Control-Allow-Private-Network`。
+- 导入确认前，Provider 草稿、Key、发现结果和勾选只存在组件内存；确认通过单次 store 状态变更和单次加密 Vault 写入同时落下 Provider、凭据槽和模型。reconcile 精确按 `(providerProfileId, modelId)` 更新仅 `source=discovered` 条目，保留用户显示名、分类和启用编辑；上游缺失标为 `missing`，重现恢复 `available`，手工条目不参与。
+- 设置页固定以服务商为主视图：仅服务商可出现在主列表；模型只在当前服务商的详情区域显示、创建和编辑。手工创建模型时必须归属当前服务商，UI 不提供独立模型中心、按类别激活服务商或发现流程 feature flag。
 
 P8-6 的当前不变量：
 
 - 只实现受控 OpenAI Compatible 与阿里 DashScope chat/image/video 协议；请求路径、Header 和 Body 由适配器固定，不接受任意脚本或请求模板。
 - 浏览器从 Vault 取出明文后直连 Provider，不使用 Vite/Cloud Provider 代理。生产 endpoint 必须 HTTPS、无 URL 凭据和 fragment；浏览器不能直连时由用户配置自己的固定 CORS 网关。
 - Base64/二进制/结果 URL 统一转换为 Blob。Cloud 模式下上传失败会使任务失败，不把 Provider 临时 URL 写入项目；成功后只保存私有 Cloud 资产引用。
-- Cloud 图在 diff/分批写入前把真实模型 ID 替换为 `local:<uuid>`，删除 Provider/profile/endpoint/Key、remote task、运行状态和上游错误；同设备加载时用 Vault 解析。
+- Cloud 图在 diff/分批写入前把 `modelEntryId` 替换为 `local:<uuid>`，删除 Provider/profile/endpoint/Key、真实模型 ID、remote task、运行状态和上游错误；同设备加载时用 Vault 解析。
 - 新设备缺少绑定时保留匿名引用，显示“此设备未绑定的模型”并禁止执行，不按名称或 ID 自动替换。
+- 图像、聊天和视频节点固定使用“服务商 → 模型”两级选择。候选必须类别匹配、模型与服务商均已启用、模型仍可用且 endpoint/Key 有效；相同上游 `modelId` 在不同服务商下仍是不同 `modelEntryId` 路由，不得按名称合并。
+- 节点持续显示未绑定、已删除、上游缺失或停用的当前引用，但禁止执行。用户为 `local:<uuid>` 明确选择本机模型时，只写入该匿名引用到 `modelEntryId` 的 Vault 绑定，节点字段保持匿名值；运行时经绑定解析该模型及其所属服务商/Key，绝不回退到默认或第一个模型。
 - 生成资产文件名只使用本地 task ID；项目图、Cloud API、日志和 session 诊断不记录真实模型、Provider、endpoint 或 Key。
 
 P8-7 的当前不变量：
 
-- IndexedDB 数据库版本为 2；配置 Vault 与本地任务缓存分别使用 `schemaVersion=1`，共享 `cipherVersion=1` 和同一不可导出设备 `CryptoKey`。任务 AAD 额外绑定项目 ID，任务密文按可信用户/项目分区。
+- IndexedDB 数据库版本为 2；配置 Vault 与本地任务缓存分别使用 `schemaVersion=2`，共享 `cipherVersion=1` 和同一不可导出设备 `CryptoKey`。任务 AAD 额外绑定项目 ID，任务密文按可信用户/项目分区。
 - 当前项目任务队列写入加密 IndexedDB。任务写入与 Vault 保存共用 FIFO 队列；陈旧用户或内部持久化上下文不能回写。
 - 刷新或关闭页面会把未取得 remote task ID 的运行中同步任务标记为已中断，必须由用户重试；只有仍为 running 且已有受控异步 `remoteTaskId` 的任务会在同一设备恢复轮询。
 - 项目图、workspace/project 持久化、checkpoint、目录包、Cloud API、PostgreSQL、日志和诊断均不携带本地任务缓存。删除项目删除其设备任务缓存；登出只清内存，清除当前网站数据删除当前 Origin 的全部设备任务密文。

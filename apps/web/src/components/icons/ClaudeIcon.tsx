@@ -1,8 +1,8 @@
 type ClaudeIconProps = {
-  className?: string
-}
+  className?: string;
+};
 
-export function ClaudeIcon({ className = 'h-4 w-4' }: ClaudeIconProps) {
+export function ClaudeIcon({ className = "h-4 w-4" }: ClaudeIconProps) {
   return (
     <svg
       className={className}
@@ -10,7 +10,7 @@ export function ClaudeIcon({ className = 'h-4 w-4' }: ClaudeIconProps) {
       viewBox="0 0 24 24"
       width="16"
       xmlns="http://www.w3.org/2000/svg"
-      style={{ flex: '0 0 auto', lineHeight: 1 }}
+      style={{ flex: "0 0 auto", lineHeight: 1 }}
       aria-hidden="true"
     >
       <title>Claude</title>
@@ -20,5 +20,5 @@ export function ClaudeIcon({ className = 'h-4 w-4' }: ClaudeIconProps) {
         fillRule="nonzero"
       />
     </svg>
-  )
+  );
 }

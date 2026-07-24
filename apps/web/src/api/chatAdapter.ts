@@ -1,123 +1,135 @@
-import type { LLMInputFileData, LLMOutputFormat, RuntimeModelConfig } from '@/types'
-import { createChatCompletionStreamParser } from './chatStream.ts'
+import type {
+  LLMInputFileData,
+  LLMOutputFormat,
+  RuntimeModelConfig,
+} from "@/types";
+import { createChatCompletionStreamParser } from "./chatStream.ts";
 
 function normalizeApiUrl(apiUrl: string) {
-  return apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl
+  return apiUrl.endsWith("/") ? apiUrl.slice(0, -1) : apiUrl;
 }
 
 function toSafeUrl(apiUrl: string) {
   try {
-    return new URL(apiUrl)
+    return new URL(apiUrl);
   } catch {
-    return new URL(`https://${apiUrl}`)
+    return new URL(`https://${apiUrl}`);
   }
 }
 
 function toProviderUrl(targetUrl: string) {
-  return toSafeUrl(targetUrl).toString()
+  return toSafeUrl(targetUrl).toString();
 }
 
 export function buildChatCompletionsUrl(apiUrl: string) {
-  const normalized = normalizeApiUrl(apiUrl.trim())
-  const parsed = toSafeUrl(normalized)
-  const pathname = parsed.pathname
+  const normalized = normalizeApiUrl(apiUrl.trim());
+  const parsed = toSafeUrl(normalized);
+  const pathname = parsed.pathname;
 
-  if (pathname.endsWith('/v1/chat/completions') || pathname.endsWith('/chat/completions')) {
-    return toProviderUrl(parsed.toString())
+  if (
+    pathname.endsWith("/v1/chat/completions") ||
+    pathname.endsWith("/chat/completions")
+  ) {
+    return toProviderUrl(parsed.toString());
   }
 
-  if (pathname.endsWith('/v1/models')) {
-    return toProviderUrl(`${parsed.origin}${pathname.slice(0, -'/models'.length)}/chat/completions`)
+  if (pathname.endsWith("/v1/models")) {
+    return toProviderUrl(
+      `${parsed.origin}${pathname.slice(0, -"/models".length)}/chat/completions`,
+    );
   }
 
-  if (pathname.endsWith('/v1')) {
-    return toProviderUrl(`${parsed.origin}${pathname}/chat/completions`)
+  if (pathname.endsWith("/v1")) {
+    return toProviderUrl(`${parsed.origin}${pathname}/chat/completions`);
   }
 
-  return toProviderUrl(`${parsed.origin}${pathname === '/' ? '' : pathname}/v1/chat/completions`)
+  return toProviderUrl(
+    `${parsed.origin}${pathname === "/" ? "" : pathname}/v1/chat/completions`,
+  );
 }
 
 async function readError(response: Response) {
-  const text = await response.text()
-  return text || response.statusText || 'Unknown error'
+  const text = await response.text();
+  return text || response.statusText || "Unknown error";
 }
 
 function buildOutputInstruction(outputFormat: LLMOutputFormat) {
   switch (outputFormat) {
-    case 'json':
-      return '请只输出合法 JSON，不要附加解释、代码块标记或多余前后缀。'
-    case 'markdown':
-      return '请使用结构清晰的 Markdown 输出。'
+    case "json":
+      return "请只输出合法 JSON，不要附加解释、代码块标记或多余前后缀。";
+    case "markdown":
+      return "请使用结构清晰的 Markdown 输出。";
     default:
-      return '请使用纯文本输出，除非用户要求，否则不要附加多余说明。'
+      return "请使用纯文本输出，除非用户要求，否则不要附加多余说明。";
   }
 }
 
 type ChatTextContentPart = {
-  type: 'text'
-  text: string
-}
+  type: "text";
+  text: string;
+};
 
 type ChatImageContentPart = {
-  type: 'image_url'
+  type: "image_url";
   image_url: {
-    url: string
-  }
-}
+    url: string;
+  };
+};
 
 type ChatMessage = {
-  role: 'system' | 'user'
-  content: string | Array<ChatTextContentPart | ChatImageContentPart>
-}
+  role: "system" | "user";
+  content: string | Array<ChatTextContentPart | ChatImageContentPart>;
+};
 
 function buildVisionInstruction(inputImageUrls: string[]) {
   if (inputImageUrls.length <= 1) {
-    return ''
+    return "";
   }
 
   const referenceLabels = inputImageUrls
     .map((_imageUrl, index) => `图片 ${index + 1}`)
-    .join('、')
+    .join("、");
 
-  return `以下图片按顺序提供：${referenceLabels}。如引用编号，请按出现顺序理解。`
+  return `以下图片按顺序提供：${referenceLabels}。如引用编号，请按出现顺序理解。`;
 }
 
-function buildFileInstruction(inputFiles: Array<Pick<LLMInputFileData, 'name' | 'content'>>) {
+function buildFileInstruction(
+  inputFiles: Array<Pick<LLMInputFileData, "name" | "content">>,
+) {
   if (inputFiles.length === 0) {
-    return ''
+    return "";
   }
 
   return inputFiles
-    .map((file, index) => [
-      `附件 ${index + 1}：${file.name}`,
-      file.content.trim(),
-    ].join('\n'))
-    .join('\n\n')
+    .map((file, index) =>
+      [`附件 ${index + 1}：${file.name}`, file.content.trim()].join("\n"),
+    )
+    .join("\n\n");
 }
 
 export type ExecuteChatPromptParams = {
-  model: Pick<RuntimeModelConfig, 'apiKey' | 'apiUrl' | 'modelId'>
-  systemPrompt?: string
-  instructionPrompt: string
-  inputText: string
-  inputImageUrls?: string[]
-  inputFiles?: Array<Pick<LLMInputFileData, 'name' | 'content'>>
-  outputFormat: LLMOutputFormat
-}
+  model: Pick<RuntimeModelConfig, "apiKey" | "apiUrl" | "modelId">;
+  systemPrompt?: string;
+  instructionPrompt: string;
+  inputText: string;
+  inputImageUrls?: string[];
+  inputFiles?: Array<Pick<LLMInputFileData, "name" | "content">>;
+  outputFormat: LLMOutputFormat;
+};
 
 function buildChatMessages({
-  systemPrompt = '',
+  systemPrompt = "",
   instructionPrompt,
   inputText,
   inputImageUrls = [],
   inputFiles = [],
   outputFormat,
-}: Omit<ExecuteChatPromptParams, 'model'>) {
-  const messages: ChatMessage[] = []
-  const normalizedSystemPrompt = systemPrompt.trim()
+}: Omit<ExecuteChatPromptParams, "model">) {
+  const messages: ChatMessage[] = [];
+  const normalizedSystemPrompt = systemPrompt.trim();
 
   if (normalizedSystemPrompt) {
-    messages.push({ role: 'system', content: normalizedSystemPrompt })
+    messages.push({ role: "system", content: normalizedSystemPrompt });
   }
 
   const userSegments = [
@@ -126,56 +138,56 @@ function buildChatMessages({
     buildFileInstruction(inputFiles),
     buildVisionInstruction(inputImageUrls),
     buildOutputInstruction(outputFormat),
-  ].filter(Boolean)
-  const userText = userSegments.join('\n\n')
+  ].filter(Boolean);
+  const userText = userSegments.join("\n\n");
 
   if (inputImageUrls.length === 0) {
-    messages.push({ role: 'user', content: userText })
+    messages.push({ role: "user", content: userText });
   } else {
     messages.push({
-      role: 'user',
+      role: "user",
       content: [
-        { type: 'text', text: userText },
+        { type: "text", text: userText },
         ...inputImageUrls.map((imageUrl) => ({
-          type: 'image_url' as const,
+          type: "image_url" as const,
           image_url: { url: imageUrl },
         })),
       ],
-    })
+    });
   }
 
-  return messages
+  return messages;
 }
 
 function extractChatCompletionText(payload: {
   choices?: Array<{
     message?: {
-      content?: string | Array<{ type?: string; text?: string }>
-    }
-  }>
+      content?: string | Array<{ type?: string; text?: string }>;
+    };
+  }>;
 }) {
-  const content = payload.choices?.[0]?.message?.content
-  if (typeof content === 'string') {
-    return content.trim()
+  const content = payload.choices?.[0]?.message?.content;
+  if (typeof content === "string") {
+    return content.trim();
   }
 
   if (Array.isArray(content)) {
     const joined = content
-      .map((item) => (typeof item?.text === 'string' ? item.text : ''))
-      .join('')
-      .trim()
+      .map((item) => (typeof item?.text === "string" ? item.text : ""))
+      .join("")
+      .trim();
 
     if (joined) {
-      return joined
+      return joined;
     }
   }
 
-  return ''
+  return "";
 }
 
 export async function executeChatPrompt({
   model,
-  systemPrompt = '',
+  systemPrompt = "",
   instructionPrompt,
   inputText,
   inputImageUrls = [],
@@ -189,46 +201,51 @@ export async function executeChatPrompt({
     inputImageUrls,
     inputFiles,
     outputFormat,
-  })
+  });
 
   const response = await fetch(buildChatCompletionsUrl(model.apiUrl), {
-    method: 'POST',
+    method: "POST",
     headers: {
       Authorization: `Bearer ${model.apiKey}`,
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({
       model: model.modelId,
       messages,
       stream: false,
     }),
-  })
+  });
 
   if (!response.ok) {
-    throw new Error(`调用失败：${response.status} ${await readError(response)}`)
+    throw new Error(
+      `调用失败：${response.status} ${await readError(response)}`,
+    );
   }
 
-  const text = extractChatCompletionText(await response.json())
+  const text = extractChatCompletionText(await response.json());
   if (text) {
-    return text
+    return text;
   }
 
-  throw new Error('模型未返回可用内容')
+  throw new Error("模型未返回可用内容");
 }
 
 export type ExecuteChatPromptStreamCallbacks = {
-  onDelta?: (delta: string, fullText: string) => void
-}
+  onDelta?: (delta: string, fullText: string) => void;
+};
 
-export async function executeChatPromptStream({
-  model,
-  systemPrompt = '',
-  instructionPrompt,
-  inputText,
-  inputImageUrls = [],
-  inputFiles = [],
-  outputFormat,
-}: ExecuteChatPromptParams, callbacks: ExecuteChatPromptStreamCallbacks = {}) {
+export async function executeChatPromptStream(
+  {
+    model,
+    systemPrompt = "",
+    instructionPrompt,
+    inputText,
+    inputImageUrls = [],
+    inputFiles = [],
+    outputFormat,
+  }: ExecuteChatPromptParams,
+  callbacks: ExecuteChatPromptStreamCallbacks = {},
+) {
   const messages = buildChatMessages({
     systemPrompt,
     instructionPrompt,
@@ -236,74 +253,76 @@ export async function executeChatPromptStream({
     inputImageUrls,
     inputFiles,
     outputFormat,
-  })
+  });
 
   const response = await fetch(buildChatCompletionsUrl(model.apiUrl), {
-    method: 'POST',
+    method: "POST",
     headers: {
       Authorization: `Bearer ${model.apiKey}`,
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({
       model: model.modelId,
       messages,
       stream: true,
     }),
-  })
+  });
 
   if (!response.ok) {
-    throw new Error(`调用失败：${response.status} ${await readError(response)}`)
+    throw new Error(
+      `调用失败：${response.status} ${await readError(response)}`,
+    );
   }
 
-  const contentType = response.headers.get('content-type') ?? ''
-  if (contentType.includes('application/json')) {
-    const text = extractChatCompletionText(await response.json())
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const text = extractChatCompletionText(await response.json());
     if (text) {
-      callbacks.onDelta?.(text, text)
-      return text
+      callbacks.onDelta?.(text, text);
+      return text;
     }
-    throw new Error('模型未返回可用内容')
+    throw new Error("模型未返回可用内容");
   }
 
   if (!response.body) {
-    throw new Error('模型未返回可读取的流式内容')
+    throw new Error("模型未返回可读取的流式内容");
   }
 
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  const parser = createChatCompletionStreamParser()
-  let fullText = ''
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const parser = createChatCompletionStreamParser();
+  let fullText = "";
 
   while (true) {
-    const { value, done } = await reader.read()
+    const { value, done } = await reader.read();
     if (done) {
-      break
+      break;
     }
 
-    const parsed = parser.push(decoder.decode(value, { stream: true }))
+    const parsed = parser.push(decoder.decode(value, { stream: true }));
     for (const delta of parsed.deltas) {
-      fullText += delta
-      callbacks.onDelta?.(delta, fullText)
+      fullText += delta;
+      callbacks.onDelta?.(delta, fullText);
     }
 
     if (parsed.done) {
-      break
+      break;
     }
   }
 
-  const trailing = decoder.decode()
+  const trailing = decoder.decode();
   if (trailing) {
-    const parsed = parser.push(trailing)
+    const parsed = parser.push(trailing);
     for (const delta of parsed.deltas) {
-      fullText += delta
-      callbacks.onDelta?.(delta, fullText)
+      fullText += delta;
+      callbacks.onDelta?.(delta, fullText);
     }
   }
 
-  const result = fullText.trim()
+  const result = fullText.trim();
   if (result) {
-    return result
+    return result;
   }
 
-  throw new Error('模型未返回可用内容')
+  throw new Error("模型未返回可用内容");
 }

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   Archive,
   ArchiveRestore,
@@ -9,21 +9,27 @@ import {
   MoreHorizontal,
   PenSquare,
   Trash2,
-} from 'lucide-react'
-import type { ProjectManagerStatusView } from '@/features/projectManager/projectManagerStatus'
-import { themeClasses } from '@/styles/themeClasses'
-import { isImageSourceNodeType, type ProjectRecord } from '@/types'
-import type { ProjectViewMode } from './projectManagerModel'
-import { handleMenuKeyboard } from '@/utils/menuKeyboard'
-import { useDialogFocus } from '@/hooks/useDialogFocus'
+} from "lucide-react";
+import type { ProjectManagerStatusView } from "@/features/projectManager/projectManagerStatus";
+import { themeClasses } from "@/styles/themeClasses";
+import { isImageSourceNodeType, type ProjectRecord } from "@/types";
+import type { ProjectViewMode } from "./projectManagerModel";
+import { handleMenuKeyboard } from "@/utils/menuKeyboard";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 
-const PROJECT_STATUS_TONE_CLASS: Record<ProjectManagerStatusView['tone'], string> = {
-  neutral: 'border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-muted)]',
-  success: 'border-emerald-400/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-200',
-  warning: 'border-amber-400/25 bg-amber-500/10 text-amber-700 dark:text-amber-200',
-  danger: 'border-red-400/25 bg-red-500/10 text-red-600 dark:text-red-200',
-  info: 'border-violet-400/25 bg-violet-500/10 text-violet-600 dark:text-violet-200',
-}
+const PROJECT_STATUS_TONE_CLASS: Record<
+  ProjectManagerStatusView["tone"],
+  string
+> = {
+  neutral:
+    "border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-muted)]",
+  success:
+    "border-emerald-400/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-200",
+  warning:
+    "border-amber-400/25 bg-amber-500/10 text-amber-700 dark:text-amber-200",
+  danger: "border-red-400/25 bg-red-500/10 text-red-600 dark:text-red-200",
+  info: "border-violet-400/25 bg-violet-500/10 text-violet-600 dark:text-violet-200",
+};
 
 function ProjectStatusBadge({ status }: { status: ProjectManagerStatusView }) {
   return (
@@ -35,83 +41,86 @@ function ProjectStatusBadge({ status }: { status: ProjectManagerStatusView }) {
     >
       {status.label}
     </span>
-  )
+  );
 }
 
 function formatRelativeTime(value: number) {
-  const diffMs = Math.max(Date.now() - value, 0)
-  const minutes = Math.floor(diffMs / 60000)
+  const diffMs = Math.max(Date.now() - value, 0);
+  const minutes = Math.floor(diffMs / 60000);
 
   if (minutes < 1) {
-    return '刚刚'
+    return "刚刚";
   }
 
   if (minutes < 60) {
-    return `${minutes} 分钟前`
+    return `${minutes} 分钟前`;
   }
 
-  const hours = Math.floor(minutes / 60)
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) {
-    return `${hours} 小时前`
+    return `${hours} 小时前`;
   }
 
-  const days = Math.floor(hours / 24)
+  const days = Math.floor(hours / 24);
   if (days < 30) {
-    return `${days} 天前`
+    return `${days} 天前`;
   }
 
-  return new Date(value).toLocaleDateString('zh-CN', {
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-  })
+  return new Date(value).toLocaleDateString("zh-CN", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
 }
 
 function formatTimestamp(value: number) {
-  return new Date(value).toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
+  return new Date(value).toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
     hour12: false,
-  })
+  });
 }
 
 function getProjectNodePreview(project: ProjectRecord) {
-  const nodes = project.workingSnapshot.canvas.nodes
+  const nodes = project.workingSnapshot.canvas.nodes;
 
   if (nodes.length === 0) {
-    return []
+    return [];
   }
 
-  const bounds = nodes.reduce((accumulator, node) => {
-    const width = typeof node.width === 'number' ? node.width : 120
-    const height = typeof node.height === 'number' ? node.height : 90
+  const bounds = nodes.reduce(
+    (accumulator, node) => {
+      const width = typeof node.width === "number" ? node.width : 120;
+      const height = typeof node.height === "number" ? node.height : 90;
 
-    return {
-      minX: Math.min(accumulator.minX, node.position.x),
-      minY: Math.min(accumulator.minY, node.position.y),
-      maxX: Math.max(accumulator.maxX, node.position.x + width),
-      maxY: Math.max(accumulator.maxY, node.position.y + height),
-    }
-  }, {
-    minX: Number.POSITIVE_INFINITY,
-    minY: Number.POSITIVE_INFINITY,
-    maxX: Number.NEGATIVE_INFINITY,
-    maxY: Number.NEGATIVE_INFINITY,
-  })
+      return {
+        minX: Math.min(accumulator.minX, node.position.x),
+        minY: Math.min(accumulator.minY, node.position.y),
+        maxX: Math.max(accumulator.maxX, node.position.x + width),
+        maxY: Math.max(accumulator.maxY, node.position.y + height),
+      };
+    },
+    {
+      minX: Number.POSITIVE_INFINITY,
+      minY: Number.POSITIVE_INFINITY,
+      maxX: Number.NEGATIVE_INFINITY,
+      maxY: Number.NEGATIVE_INFINITY,
+    },
+  );
 
-  const width = Math.max(bounds.maxX - bounds.minX, 1)
-  const height = Math.max(bounds.maxY - bounds.minY, 1)
+  const width = Math.max(bounds.maxX - bounds.minX, 1);
+  const height = Math.max(bounds.maxY - bounds.minY, 1);
 
   return nodes.slice(0, 8).map((node, index) => {
-    const nodeWidth = typeof node.width === 'number' ? node.width : 120
-    const nodeHeight = typeof node.height === 'number' ? node.height : 90
-    const left = ((node.position.x - bounds.minX) / width) * 100
-    const top = ((node.position.y - bounds.minY) / height) * 100
-    const previewWidth = (nodeWidth / width) * 100
-    const previewHeight = (nodeHeight / height) * 100
+    const nodeWidth = typeof node.width === "number" ? node.width : 120;
+    const nodeHeight = typeof node.height === "number" ? node.height : 90;
+    const left = ((node.position.x - bounds.minX) / width) * 100;
+    const top = ((node.position.y - bounds.minY) / height) * 100;
+    const previewWidth = (nodeWidth / width) * 100;
+    const previewHeight = (nodeHeight / height) * 100;
 
     return {
       id: `${node.id}-${index}`,
@@ -120,15 +129,15 @@ function getProjectNodePreview(project: ProjectRecord) {
       width: `${Math.max(10, Math.min(previewWidth, 52))}%`,
       height: `${Math.max(8, Math.min(previewHeight, 34))}%`,
       tone:
-        node.type === 'generateNode'
-          ? 'bg-violet-400/24'
-          : node.type === 'textNode'
-            ? 'bg-[var(--control-bg-hover)]'
+        node.type === "generateNode"
+          ? "bg-violet-400/24"
+          : node.type === "textNode"
+            ? "bg-[var(--control-bg-hover)]"
             : isImageSourceNodeType(node.type)
-              ? 'bg-violet-400/16'
-              : 'bg-[var(--control-bg)]',
-    }
-  })
+              ? "bg-violet-400/16"
+              : "bg-[var(--control-bg)]",
+    };
+  });
 }
 
 export function ProjectNameDialog({
@@ -138,24 +147,42 @@ export function ProjectNameDialog({
   onClose,
   onSubmit,
 }: {
-  open: boolean
-  title: string
-  defaultValue: string
-  onClose: () => void
-  onSubmit: (value: string) => void
+  open: boolean;
+  title: string;
+  defaultValue: string;
+  onClose: () => void;
+  onSubmit: (value: string) => void;
 }) {
-  const [value, setValue] = useState(defaultValue)
-  const dialogRef = useDialogFocus<HTMLDivElement>(open, onClose, '[data-testid="project-name-input"]')
+  const [value, setValue] = useState(defaultValue);
+  const dialogRef = useDialogFocus<HTMLDivElement>(
+    open,
+    onClose,
+    '[data-testid="project-name-input"]',
+  );
 
   if (!open) {
-    return null
+    return null;
   }
 
   return (
     <div className="absolute inset-0 z-[70] flex items-center justify-center bg-black/48 px-4 backdrop-blur-sm">
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="project-name-dialog-title" tabIndex={-1} className={`w-full max-w-sm p-5 ${themeClasses.strongPanel}`}>
-        <div id="project-name-dialog-title" className={`text-sm font-semibold tracking-[-0.02em] ${themeClasses.textPrimary}`}>{title}</div>
-        <p className={`mt-1 text-xs leading-5 ${themeClasses.textMuted}`}>名称会立即同步到项目列表。</p>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="project-name-dialog-title"
+        tabIndex={-1}
+        className={`w-full max-w-sm p-5 ${themeClasses.strongPanel}`}
+      >
+        <div
+          id="project-name-dialog-title"
+          className={`text-sm font-semibold tracking-[-0.02em] ${themeClasses.textPrimary}`}
+        >
+          {title}
+        </div>
+        <p className={`mt-1 text-xs leading-5 ${themeClasses.textMuted}`}>
+          名称会立即同步到项目列表。
+        </p>
 
         <input
           autoFocus
@@ -186,7 +213,7 @@ export function ProjectNameDialog({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 export function SidebarButton({
@@ -195,29 +222,31 @@ export function SidebarButton({
   icon,
   onClick,
 }: {
-  label: string
-  active: boolean
-  icon: ReactNode
-  onClick: () => void
+  label: string;
+  active: boolean;
+  icon: ReactNode;
+  onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={active
-        ? 'relative flex h-8 w-full items-center gap-2 rounded-2xl bg-[var(--control-bg-hover)] px-3 text-[13px] font-semibold text-[var(--text-primary)]'
-        : 'relative flex h-8 w-full items-center gap-2 rounded-2xl px-3 text-[13px] text-[var(--text-secondary)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]'}
+      className={
+        active
+          ? "relative flex h-8 w-full items-center gap-2 rounded-2xl bg-[var(--control-bg-hover)] px-3 text-[13px] font-semibold text-[var(--text-primary)]"
+          : "relative flex h-8 w-full items-center gap-2 rounded-2xl px-3 text-[13px] text-[var(--text-secondary)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
+      }
     >
       <span className="relative z-10">{icon}</span>
       <span className="relative z-10">{label}</span>
     </button>
-  )
+  );
 }
 
 function ProjectCardActionsMenu({
   projectId,
-  className = 'relative',
+  className = "relative",
   onRename,
   onDuplicate,
   onExport,
@@ -226,41 +255,46 @@ function ProjectCardActionsMenu({
   onRestore,
   onDelete,
 }: {
-  projectId: string
-  className?: string
-  onRename: () => void
-  onDuplicate: () => void
-  onExport: () => void
-  archived: boolean
-  onArchive: () => void
-  onRestore: () => void
-  onDelete: () => void
+  projectId: string;
+  className?: string;
+  onRename: () => void;
+  onDuplicate: () => void;
+  onExport: () => void;
+  archived: boolean;
+  onArchive: () => void;
+  onRestore: () => void;
+  onDelete: () => void;
 }) {
-  const [open, setOpen] = useState(false)
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
-  const menuRef = useRef<HTMLDivElement | null>(null)
-  const menuId = useId()
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuId = useId();
 
   useEffect(() => {
-    if (open) window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus())
-  }, [open])
+    if (open)
+      window.requestAnimationFrame(() =>
+        menuRef.current
+          ?.querySelector<HTMLElement>('[role="menuitem"]')
+          ?.focus(),
+      );
+  }, [open]);
 
   const closeMenu = () => {
-    setOpen(false)
-    window.requestAnimationFrame(() => triggerRef.current?.focus())
-  }
+    setOpen(false);
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  };
 
   const handleAction = (action: () => void) => {
-    setOpen(false)
-    action()
-  }
+    setOpen(false);
+    action();
+  };
 
   return (
     <div
       className={className}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) {
-          setOpen(false)
+          setOpen(false);
         }
       }}
     >
@@ -273,9 +307,9 @@ function ProjectCardActionsMenu({
         aria-haspopup="menu"
         aria-controls={open ? menuId : undefined}
         onKeyDown={(event) => {
-          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            event.preventDefault()
-            setOpen(true)
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setOpen(true);
           }
         }}
         data-testid={`project-more-${projectId}`}
@@ -285,7 +319,16 @@ function ProjectCardActionsMenu({
       </button>
 
       {open ? (
-        <div id={menuId} ref={menuRef} role="menu" aria-label="项目操作" onKeyDown={(event) => handleMenuKeyboard(event.nativeEvent, menuRef.current, closeMenu)} className={`absolute right-0 top-full z-40 mt-1.5 w-28 overflow-hidden p-1 ${themeClasses.strongPanel}`}>
+        <div
+          id={menuId}
+          ref={menuRef}
+          role="menu"
+          aria-label="项目操作"
+          onKeyDown={(event) =>
+            handleMenuKeyboard(event.nativeEvent, menuRef.current, closeMenu)
+          }
+          className={`absolute right-0 top-full z-40 mt-1.5 w-28 overflow-hidden p-1 ${themeClasses.strongPanel}`}
+        >
           {!archived ? (
             <>
               <button
@@ -366,7 +409,7 @@ function ProjectCardActionsMenu({
         </div>
       ) : null}
     </div>
-  )
+  );
 }
 
 export function ProjectPreviewCard({
@@ -385,46 +428,58 @@ export function ProjectPreviewCard({
   onToggleSelect,
   status,
 }: {
-  project: ProjectRecord
-  active: boolean
-  batchMode: boolean
-  selected: boolean
-  viewMode: ProjectViewMode
-  onOpen: () => void
-  onRename: () => void
-  onDuplicate: () => void
-  onExport: () => void
-  onArchive: () => void
-  onRestore: () => void
-  onDelete: () => void
-  onToggleSelect: () => void
-  status?: ProjectManagerStatusView | null
+  project: ProjectRecord;
+  active: boolean;
+  batchMode: boolean;
+  selected: boolean;
+  viewMode: ProjectViewMode;
+  onOpen: () => void;
+  onRename: () => void;
+  onDuplicate: () => void;
+  onExport: () => void;
+  onArchive: () => void;
+  onRestore: () => void;
+  onDelete: () => void;
+  onToggleSelect: () => void;
+  status?: ProjectManagerStatusView | null;
 }) {
-  const previewNodes = getProjectNodePreview(project)
-  const archived = Boolean(project.archivedAt)
+  const previewNodes = getProjectNodePreview(project);
+  const archived = Boolean(project.archivedAt);
 
-  if (viewMode === 'list') {
+  if (viewMode === "list") {
     return (
-      <div className={active
-        ? 'group relative flex items-center gap-3 rounded-[20px] border border-violet-400/30 bg-violet-400/8 p-3'
-        : 'group relative flex items-center gap-3 rounded-[20px] border border-[var(--border-subtle)] bg-[var(--control-bg)] p-3 transition hover:border-violet-400/30 hover:bg-[var(--control-bg-hover)]'}>
+      <div
+        className={
+          active
+            ? "group relative flex items-center gap-3 rounded-[20px] border border-violet-400/30 bg-violet-400/8 p-3"
+            : "group relative flex items-center gap-3 rounded-[20px] border border-[var(--border-subtle)] bg-[var(--control-bg)] p-3 transition hover:border-violet-400/30 hover:bg-[var(--control-bg-hover)]"
+        }
+      >
         {batchMode ? (
           <button
             type="button"
             onClick={onToggleSelect}
-            aria-label={selected ? '取消选择' : '选择项目'}
-            className={selected
-              ? 'inline-flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-xl border border-violet-400/30 bg-violet-500 text-white'
-              : 'inline-flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-muted)]'}
+            aria-label={selected ? "取消选择" : "选择项目"}
+            className={
+              selected
+                ? "inline-flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-xl border border-violet-400/30 bg-violet-500 text-white"
+                : "inline-flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-muted)]"
+            }
           >
-            {selected ? <CheckSquare className="h-4 w-4" /> : <span className="h-4 w-4 rounded-[4px] border border-current" />}
+            {selected ? (
+              <CheckSquare className="h-4 w-4" />
+            ) : (
+              <span className="h-4 w-4 rounded-[4px] border border-current" />
+            )}
           </button>
         ) : null}
 
         <button
           type="button"
           onClick={batchMode ? onToggleSelect : archived ? undefined : onOpen}
-          aria-label={batchMode ? (selected ? '取消选择项目' : '选择项目') : undefined}
+          aria-label={
+            batchMode ? (selected ? "取消选择项目" : "选择项目") : undefined
+          }
           data-testid={`project-open-${project.id}`}
           className="min-w-0 flex flex-1 items-center gap-3 text-left"
         >
@@ -449,7 +504,9 @@ export function ProjectPreviewCard({
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <div className="truncate text-[13px] font-medium text-[var(--text-primary)]">{project.name}</div>
+              <div className="truncate text-[13px] font-medium text-[var(--text-primary)]">
+                {project.name}
+              </div>
               {active ? (
                 <span className="rounded-full border border-violet-400/25 bg-violet-400/10 px-1.5 py-0.5 text-[9px] font-medium text-violet-500">
                   当前
@@ -486,23 +543,33 @@ export function ProjectPreviewCard({
           />
         ) : null}
       </div>
-    )
+    );
   }
 
   return (
-    <div className={active
-      ? 'group relative w-full max-w-[14rem] rounded-[22px] bg-transparent p-0 shadow-none'
-      : 'group relative w-full max-w-[14rem] rounded-[22px] bg-transparent p-0 shadow-none transition duration-200 hover:-translate-y-0.5'}>
+    <div
+      className={
+        active
+          ? "group relative w-full max-w-[14rem] rounded-[22px] bg-transparent p-0 shadow-none"
+          : "group relative w-full max-w-[14rem] rounded-[22px] bg-transparent p-0 shadow-none transition duration-200 hover:-translate-y-0.5"
+      }
+    >
       {batchMode ? (
         <button
           type="button"
           onClick={onToggleSelect}
-          aria-label={selected ? '取消选择' : '选择项目'}
-          className={selected
-            ? 'absolute right-3 top-3 z-20 inline-flex h-7.5 w-7.5 items-center justify-center rounded-lg border border-violet-400/30 bg-violet-500 text-white'
-            : 'absolute right-3 top-3 z-20 inline-flex h-7.5 w-7.5 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--panel-bg)] text-[var(--text-muted)] backdrop-blur-md'}
+          aria-label={selected ? "取消选择" : "选择项目"}
+          className={
+            selected
+              ? "absolute right-3 top-3 z-20 inline-flex h-7.5 w-7.5 items-center justify-center rounded-lg border border-violet-400/30 bg-violet-500 text-white"
+              : "absolute right-3 top-3 z-20 inline-flex h-7.5 w-7.5 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--panel-bg)] text-[var(--text-muted)] backdrop-blur-md"
+          }
         >
-          {selected ? <CheckSquare className="h-4 w-4" /> : <span className="h-4 w-4 rounded-[4px] border border-current" />}
+          {selected ? (
+            <CheckSquare className="h-4 w-4" />
+          ) : (
+            <span className="h-4 w-4 rounded-[4px] border border-current" />
+          )}
         </button>
       ) : (
         <ProjectCardActionsMenu
@@ -521,7 +588,9 @@ export function ProjectPreviewCard({
       <button
         type="button"
         onClick={batchMode ? onToggleSelect : archived ? undefined : onOpen}
-        aria-label={batchMode ? (selected ? '取消选择项目' : '选择项目') : undefined}
+        aria-label={
+          batchMode ? (selected ? "取消选择项目" : "选择项目") : undefined
+        }
         data-testid={`project-open-${project.id}`}
         className="block w-full text-left"
       >
@@ -549,7 +618,9 @@ export function ProjectPreviewCard({
           <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-[var(--panel-bg-strong)] via-[var(--panel-bg)] to-transparent" />
           <div className="absolute inset-x-4 bottom-2.5">
             <div className="flex items-center gap-1.5">
-              <div className="truncate text-[12px] font-medium text-[var(--text-primary)]">{project.name}</div>
+              <div className="truncate text-[12px] font-medium text-[var(--text-primary)]">
+                {project.name}
+              </div>
               {active ? (
                 <span className="rounded-full border border-violet-400/25 bg-violet-400/10 px-1.5 py-0.5 text-[8px] font-medium text-violet-500">
                   当前
@@ -564,11 +635,13 @@ export function ProjectPreviewCard({
             </div>
             <div className="mt-1 flex items-center gap-1 text-[9px] text-[var(--text-muted)]">
               <Clock3 className="h-2.5 w-2.5" />
-              <span className="font-mono">{formatRelativeTime(project.lastOpenedAt)}</span>
+              <span className="font-mono">
+                {formatRelativeTime(project.lastOpenedAt)}
+              </span>
             </div>
           </div>
         </div>
       </button>
     </div>
-  )
+  );
 }

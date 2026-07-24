@@ -1,21 +1,24 @@
-import { generateImage } from './imageAdapter'
-import type { RuntimeModelConfig } from '@/types'
+import { generateImage } from "./imageAdapter";
+import type { RuntimeModelConfig } from "@/types";
 
-const TEST_PROMPT = 'A minimal blue square icon on a light background.'
+const TEST_PROMPT = "A minimal blue square icon on a light background.";
 
 export async function testImageModelConnection(
-  model: Pick<RuntimeModelConfig, 'apiKey' | 'apiUrl' | 'modelId' | 'provider' | 'requestMode'>,
+  model: Pick<
+    RuntimeModelConfig,
+    "apiKey" | "apiUrl" | "modelId" | "provider" | "requestMode"
+  >,
 ) {
   const imageUrl = await generateImage({
     prompt: TEST_PROMPT,
-    ratio: '1:1',
+    ratio: "1:1",
     apiKey: model.apiKey,
     apiUrl: model.apiUrl,
     model: model.modelId,
     provider: model.provider,
     requestMode: model.requestMode,
-    operationType: 'text-to-image',
-  })
+    operationType: "text-to-image",
+  });
 
-  return imageUrl
+  return imageUrl;
 }

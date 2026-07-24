@@ -1,62 +1,66 @@
-import type { AdminDashboardResponse, AdminDependencyHealth } from '@ai-canvas-cloud/contracts'
-import type { DbPool } from '../../db/postgres.js'
-import type { AdminService } from './service.js'
-import type { AdminRequestContext } from './types.js'
+import type {
+  AdminDashboardResponse,
+  AdminDependencyHealth,
+} from "@ai-canvas-cloud/contracts";
+import type { DbPool } from "../../db/postgres.js";
+import type { AdminService } from "./service.js";
+import type { AdminRequestContext } from "./types.js";
 
 interface AdminDashboardRow {
-  registrations_total: string | number
-  registrations_24h: string | number
-  registrations_7d: string | number
-  active_users_24h: string | number
-  active_users_7d: string | number
-  active_sessions: string | number
-  storage_used_bytes: string | number
-  storage_reserved_bytes: string | number
-  storage_quota_bytes: string | number
-  asset_count: string | number
-  verified_users: string | number
-  unverified_users: string | number
-  disabled_users: string | number
+  registrations_total: string | number;
+  registrations_24h: string | number;
+  registrations_7d: string | number;
+  active_users_24h: string | number;
+  active_users_7d: string | number;
+  active_sessions: string | number;
+  storage_used_bytes: string | number;
+  storage_reserved_bytes: string | number;
+  storage_quota_bytes: string | number;
+  asset_count: string | number;
+  verified_users: string | number;
+  unverified_users: string | number;
+  disabled_users: string | number;
 }
 
 export interface AdminDashboardService {
-  getDashboard(context: AdminRequestContext): Promise<AdminDashboardResponse>
+  getDashboard(context: AdminRequestContext): Promise<AdminDashboardResponse>;
 }
 
 export interface AdminInfrastructureHealth {
-  postgres: AdminDependencyHealth
-  objectStorage: AdminDependencyHealth
+  postgres: AdminDependencyHealth;
+  objectStorage: AdminDependencyHealth;
 }
 
 export interface PostgresAdminDashboardOptions {
-  adminService: Pick<AdminService, 'requirePermission'>
-  readInfrastructureHealth: () => Promise<AdminInfrastructureHealth>
+  adminService: Pick<AdminService, "requirePermission">;
+  readInfrastructureHealth: () => Promise<AdminInfrastructureHealth>;
 }
 
 export function createUnavailableAdminDashboardService(): AdminDashboardService {
   return {
     async getDashboard() {
-      throw new Error('Administrator dashboard service is unavailable')
+      throw new Error("Administrator dashboard service is unavailable");
     },
-  }
+  };
 }
 
 const UNKNOWN_INFRASTRUCTURE: AdminInfrastructureHealth = {
-  postgres: { ok: false, latencyMs: 0, error: 'unknown' },
-  objectStorage: { ok: false, latencyMs: 0, error: 'unknown' },
-}
+  postgres: { ok: false, latencyMs: 0, error: "unknown" },
+  objectStorage: { ok: false, latencyMs: 0, error: "unknown" },
+};
 
 function toSafeInteger(value: string | number, field: string) {
-  const parsed = typeof value === 'number' ? value : Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`${field} is outside the safe integer range`)
-  return parsed
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0)
+    throw new Error(`${field} is outside the safe integer range`);
+  return parsed;
 }
 
 async function readSafeInfrastructure(options: PostgresAdminDashboardOptions) {
   try {
-    return await options.readInfrastructureHealth()
+    return await options.readInfrastructureHealth();
   } catch {
-    return UNKNOWN_INFRASTRUCTURE
+    return UNKNOWN_INFRASTRUCTURE;
   }
 }
 
@@ -66,7 +70,7 @@ export function createPostgresAdminDashboardService(
 ): AdminDashboardService {
   return {
     async getDashboard(context) {
-      await options.adminService.requirePermission(context, 'dashboard.read')
+      await options.adminService.requirePermission(context, "dashboard.read");
       const [result, infrastructure] = await Promise.all([
         pool.query<AdminDashboardRow>(`
           WITH user_totals AS (
@@ -132,34 +136,65 @@ export function createPostgresAdminDashboardService(
           FROM user_totals, session_totals, asset_totals, workspace_totals, import_totals
         `),
         readSafeInfrastructure(options),
-      ])
-      const row = result.rows[0]
-      if (!row) throw new Error('Administrator dashboard aggregate is unavailable')
+      ]);
+      const row = result.rows[0];
+      if (!row)
+        throw new Error("Administrator dashboard aggregate is unavailable");
       return {
         generatedAt: new Date().toISOString(),
         registrations: {
-          total: toSafeInteger(row.registrations_total, 'registrations.total'),
-          past24Hours: toSafeInteger(row.registrations_24h, 'registrations.past24Hours'),
-          past7Days: toSafeInteger(row.registrations_7d, 'registrations.past7Days'),
+          total: toSafeInteger(row.registrations_total, "registrations.total"),
+          past24Hours: toSafeInteger(
+            row.registrations_24h,
+            "registrations.past24Hours",
+          ),
+          past7Days: toSafeInteger(
+            row.registrations_7d,
+            "registrations.past7Days",
+          ),
         },
         activity: {
-          activeUsers24Hours: toSafeInteger(row.active_users_24h, 'activity.activeUsers24Hours'),
-          activeUsers7Days: toSafeInteger(row.active_users_7d, 'activity.activeUsers7Days'),
-          activeSessions: toSafeInteger(row.active_sessions, 'activity.activeSessions'),
+          activeUsers24Hours: toSafeInteger(
+            row.active_users_24h,
+            "activity.activeUsers24Hours",
+          ),
+          activeUsers7Days: toSafeInteger(
+            row.active_users_7d,
+            "activity.activeUsers7Days",
+          ),
+          activeSessions: toSafeInteger(
+            row.active_sessions,
+            "activity.activeSessions",
+          ),
         },
         storage: {
-          usedBytes: toSafeInteger(row.storage_used_bytes, 'storage.usedBytes'),
-          reservedBytes: toSafeInteger(row.storage_reserved_bytes, 'storage.reservedBytes'),
-          quotaBytes: toSafeInteger(row.storage_quota_bytes, 'storage.quotaBytes'),
-          assetCount: toSafeInteger(row.asset_count, 'storage.assetCount'),
+          usedBytes: toSafeInteger(row.storage_used_bytes, "storage.usedBytes"),
+          reservedBytes: toSafeInteger(
+            row.storage_reserved_bytes,
+            "storage.reservedBytes",
+          ),
+          quotaBytes: toSafeInteger(
+            row.storage_quota_bytes,
+            "storage.quotaBytes",
+          ),
+          assetCount: toSafeInteger(row.asset_count, "storage.assetCount"),
         },
         authentication: {
-          verifiedUsers: toSafeInteger(row.verified_users, 'authentication.verifiedUsers'),
-          unverifiedUsers: toSafeInteger(row.unverified_users, 'authentication.unverifiedUsers'),
-          disabledUsers: toSafeInteger(row.disabled_users, 'authentication.disabledUsers'),
+          verifiedUsers: toSafeInteger(
+            row.verified_users,
+            "authentication.verifiedUsers",
+          ),
+          unverifiedUsers: toSafeInteger(
+            row.unverified_users,
+            "authentication.unverifiedUsers",
+          ),
+          disabledUsers: toSafeInteger(
+            row.disabled_users,
+            "authentication.disabledUsers",
+          ),
         },
         infrastructure,
-      }
+      };
     },
-  }
+  };
 }

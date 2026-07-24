@@ -1,5 +1,5 @@
-import type { Edge, Node } from '@xyflow/react'
-import { buildSyncedGraphState } from './canvasConnectionDerivedData'
+import type { Edge, Node } from "@xyflow/react";
+import { buildSyncedGraphState } from "./canvasConnectionDerivedData";
 import {
   filterEdgeDeletedGraph,
   filterEdgesDeletedBySourceTargetExceptHandleGraph,
@@ -7,16 +7,24 @@ import {
   filterEdgesDeletedBySourceTargetHandleGraph,
   filterNodeDeletedGraph,
   filterSelectedElementsDeletedGraph,
-} from './canvasGraphDeletionFilters'
+} from "./canvasGraphDeletionFilters";
 
-export function buildNodeDeletedGraphState(nodes: Node[], edges: Edge[], nodeId: string) {
-  const filteredGraph = filterNodeDeletedGraph(nodes, edges, nodeId)
-  return buildSyncedGraphState(filteredGraph.nodes, filteredGraph.edges)
+export function buildNodeDeletedGraphState(
+  nodes: Node[],
+  edges: Edge[],
+  nodeId: string,
+) {
+  const filteredGraph = filterNodeDeletedGraph(nodes, edges, nodeId);
+  return buildSyncedGraphState(filteredGraph.nodes, filteredGraph.edges);
 }
 
-export function buildEdgeDeletedGraphState(nodes: Node[], edges: Edge[], edgeId: string) {
-  const filteredGraph = filterEdgeDeletedGraph(nodes, edges, edgeId)
-  return buildSyncedGraphState(filteredGraph.nodes, filteredGraph.edges)
+export function buildEdgeDeletedGraphState(
+  nodes: Node[],
+  edges: Edge[],
+  edgeId: string,
+) {
+  const filteredGraph = filterEdgeDeletedGraph(nodes, edges, edgeId);
+  return buildSyncedGraphState(filteredGraph.nodes, filteredGraph.edges);
 }
 
 export function buildEdgesDeletedBySourceTargetState(
@@ -25,8 +33,13 @@ export function buildEdgesDeletedBySourceTargetState(
   sourceId: string,
   targetId: string,
 ) {
-  const filteredGraph = filterEdgesDeletedBySourceTargetGraph(nodes, edges, sourceId, targetId)
-  return buildSyncedGraphState(filteredGraph.nodes, filteredGraph.edges)
+  const filteredGraph = filterEdgesDeletedBySourceTargetGraph(
+    nodes,
+    edges,
+    sourceId,
+    targetId,
+  );
+  return buildSyncedGraphState(filteredGraph.nodes, filteredGraph.edges);
 }
 
 export function buildEdgesDeletedBySourceTargetHandleState(
@@ -36,8 +49,14 @@ export function buildEdgesDeletedBySourceTargetHandleState(
   targetId: string,
   targetHandle: string,
 ) {
-  const filteredGraph = filterEdgesDeletedBySourceTargetHandleGraph(nodes, edges, sourceId, targetId, targetHandle)
-  return buildSyncedGraphState(filteredGraph.nodes, filteredGraph.edges)
+  const filteredGraph = filterEdgesDeletedBySourceTargetHandleGraph(
+    nodes,
+    edges,
+    sourceId,
+    targetId,
+    targetHandle,
+  );
+  return buildSyncedGraphState(filteredGraph.nodes, filteredGraph.edges);
 }
 
 export function buildEdgesDeletedBySourceTargetExceptHandleState(
@@ -47,15 +66,24 @@ export function buildEdgesDeletedBySourceTargetExceptHandleState(
   targetId: string,
   excludedTargetHandle: string,
 ) {
-  const filteredGraph = filterEdgesDeletedBySourceTargetExceptHandleGraph(nodes, edges, sourceId, targetId, excludedTargetHandle)
-  return buildSyncedGraphState(filteredGraph.nodes, filteredGraph.edges)
+  const filteredGraph = filterEdgesDeletedBySourceTargetExceptHandleGraph(
+    nodes,
+    edges,
+    sourceId,
+    targetId,
+    excludedTargetHandle,
+  );
+  return buildSyncedGraphState(filteredGraph.nodes, filteredGraph.edges);
 }
 
-export function buildSelectedElementsDeletedGraphState(nodes: Node[], edges: Edge[]) {
-  const filteredGraph = filterSelectedElementsDeletedGraph(nodes, edges)
+export function buildSelectedElementsDeletedGraphState(
+  nodes: Node[],
+  edges: Edge[],
+) {
+  const filteredGraph = filterSelectedElementsDeletedGraph(nodes, edges);
   if (!filteredGraph) {
-    return null
+    return null;
   }
 
-  return buildSyncedGraphState(filteredGraph.nodes, filteredGraph.edges)
+  return buildSyncedGraphState(filteredGraph.nodes, filteredGraph.edges);
 }

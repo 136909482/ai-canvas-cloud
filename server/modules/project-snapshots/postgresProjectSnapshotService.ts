@@ -11,24 +11,28 @@ import type {
   ProjectRevisionsResponse,
   ProjectSummary,
   WorkspaceRole,
-} from '@ai-canvas-cloud/contracts'
-import { randomUUID } from 'node:crypto'
-import { withTransaction, type DbClient, type DbPool } from '../../db/postgres.js'
-import { AuthServiceError } from '../auth/service.js'
+} from "@ai-canvas-cloud/contracts";
+import { randomUUID } from "node:crypto";
+import {
+  withTransaction,
+  type DbClient,
+  type DbPool,
+} from "../../db/postgres.js";
+import { AuthServiceError } from "../auth/service.js";
 import {
   collectAssetIdsFromNodeReferenceChanges,
   collectNodeAssetReferenceChangesForNodes,
   normalizeAssetManifest,
   type NodeAssetReferenceChange,
-} from '../project-graph/assetReferences.js'
+} from "../project-graph/assetReferences.js";
 import {
   replaceProjectNodeAssetReferences,
   requireCompletedAssetReferences,
-} from '../project-graph/postgresAssetReferences.js'
+} from "../project-graph/postgresAssetReferences.js";
 import {
   createWorkspaceAuthorizationService,
   type WorkspaceAuthorizationService,
-} from '../workspaces/authorization.js'
+} from "../workspaces/authorization.js";
 import {
   PROJECT_SNAPSHOT_RECORD_SCHEMA_VERSION,
   validateCreateProjectCheckpointRequest,
@@ -36,71 +40,78 @@ import {
   validateProjectRevisionVersion,
   validateRestoreProjectRevisionRequest,
   type ProjectSnapshotService,
-} from './service.js'
+} from "./service.js";
 
-const PROJECT_SNAPSHOT_WRITE_ROLES: readonly WorkspaceRole[] = ['owner', 'admin', 'editor']
-const PROJECT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const PROJECT_SNAPSHOT_WRITE_ROLES: readonly WorkspaceRole[] = [
+  "owner",
+  "admin",
+  "editor",
+];
+const PROJECT_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 interface LockedProjectRow {
-  id: string
-  name: string
-  version: string | number
-  last_sequence: string | number
-  node_count: number
-  edge_count: number
-  task_count: number
-  archived_at: Date | string | null
-  created_at: Date | string
-  updated_at: Date | string
+  id: string;
+  name: string;
+  version: string | number;
+  last_sequence: string | number;
+  node_count: number;
+  edge_count: number;
+  task_count: number;
+  archived_at: Date | string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
 }
 
 interface SnapshotGraphRow {
-  nodes_json: ProjectGraphNode[]
-  edges_json: ProjectGraphEdge[]
+  nodes_json: ProjectGraphNode[];
+  edges_json: ProjectGraphEdge[];
 }
 
 interface SnapshotRow {
-  id: string
-  project_id: string
-  project_version: string | number
-  last_sequence: string | number
-  snapshot_type: ProjectCheckpointType
-  schema_version: number
-  byte_size: string | number
-  is_valid: boolean
-  created_at: Date | string
+  id: string;
+  project_id: string;
+  project_version: string | number;
+  last_sequence: string | number;
+  snapshot_type: ProjectCheckpointType;
+  schema_version: number;
+  byte_size: string | number;
+  is_valid: boolean;
+  created_at: Date | string;
 }
 
 interface SnapshotDetailRow extends SnapshotRow {
-  record_json: ProjectRevisionRecord
-  asset_manifest_json: unknown
+  record_json: ProjectRevisionRecord;
+  asset_manifest_json: unknown;
 }
 
 interface RevisionCursor {
-  createdAt: string
-  id: string
+  createdAt: string;
+  id: string;
 }
 
 function toIso(value: Date | string) {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }
 
 function assertProjectId(projectId: string) {
   if (!PROJECT_ID_PATTERN.test(projectId)) {
     throw new AuthServiceError({
       statusCode: 400,
-      apiCode: 'VALIDATION_FAILED',
-      message: 'Invalid project id',
-    })
+      apiCode: "VALIDATION_FAILED",
+      message: "Invalid project id",
+    });
   }
 }
 
 function projectNotFound(): never {
   throw new AuthServiceError({
     statusCode: 404,
-    apiCode: 'RESOURCE_NOT_FOUND',
-    message: 'Project not found',
-  })
+    apiCode: "RESOURCE_NOT_FOUND",
+    message: "Project not found",
+  });
 }
 
 function toProjectSummary(row: LockedProjectRow): ProjectSummary {
@@ -115,7 +126,7 @@ function toProjectSummary(row: LockedProjectRow): ProjectSummary {
     archivedAt: row.archived_at ? toIso(row.archived_at) : null,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
-  }
+  };
 }
 
 function toCheckpointSummary(row: SnapshotRow): ProjectCheckpointSummary {
@@ -129,47 +140,51 @@ function toCheckpointSummary(row: SnapshotRow): ProjectCheckpointSummary {
     byteSize: Number(row.byte_size),
     isValid: row.is_valid,
     createdAt: toIso(row.created_at),
-  }
+  };
 }
 
 function revisionNotFound(): never {
   throw new AuthServiceError({
     statusCode: 404,
-    apiCode: 'RESOURCE_NOT_FOUND',
-    message: 'Project revision not found',
-  })
+    apiCode: "RESOURCE_NOT_FOUND",
+    message: "Project revision not found",
+  });
 }
 
 function encodeCursor(revision: ProjectCheckpointSummary) {
-  return Buffer.from(JSON.stringify({
-    createdAt: revision.createdAt,
-    id: revision.id,
-  } satisfies RevisionCursor)).toString('base64url')
+  return Buffer.from(
+    JSON.stringify({
+      createdAt: revision.createdAt,
+      id: revision.id,
+    } satisfies RevisionCursor),
+  ).toString("base64url");
 }
 
 function decodeCursor(cursor: string): RevisionCursor {
   try {
-    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Partial<RevisionCursor>
+    const parsed = JSON.parse(
+      Buffer.from(cursor, "base64url").toString("utf8"),
+    ) as Partial<RevisionCursor>;
 
     if (
-      typeof parsed.createdAt !== 'string'
-      || Number.isNaN(Date.parse(parsed.createdAt))
-      || typeof parsed.id !== 'string'
-      || !PROJECT_ID_PATTERN.test(parsed.id)
+      typeof parsed.createdAt !== "string" ||
+      Number.isNaN(Date.parse(parsed.createdAt)) ||
+      typeof parsed.id !== "string" ||
+      !PROJECT_ID_PATTERN.test(parsed.id)
     ) {
-      throw new Error('Invalid cursor payload')
+      throw new Error("Invalid cursor payload");
     }
 
     return {
       createdAt: parsed.createdAt,
       id: parsed.id,
-    }
+    };
   } catch {
     throw new AuthServiceError({
       statusCode: 400,
-      apiCode: 'VALIDATION_FAILED',
-      message: 'Invalid project revisions cursor',
-    })
+      apiCode: "VALIDATION_FAILED",
+      message: "Invalid project revisions cursor",
+    });
   }
 }
 
@@ -208,12 +223,15 @@ async function readCurrentGraph(client: DbClient, projectId: string) {
         ), '[]'::jsonb) AS edges_json
     `,
     [projectId],
-  )
+  );
 
-  return result.rows[0] ?? { nodes_json: [], edges_json: [] }
+  return result.rows[0] ?? { nodes_json: [], edges_json: [] };
 }
 
-function createSnapshotRecord(project: LockedProjectRow, graph: SnapshotGraphRow): ProjectRevisionRecord {
+function createSnapshotRecord(
+  project: LockedProjectRow,
+  graph: SnapshotGraphRow,
+): ProjectRevisionRecord {
   return {
     schemaVersion: PROJECT_SNAPSHOT_RECORD_SCHEMA_VERSION,
     project: {
@@ -229,18 +247,21 @@ function createSnapshotRecord(project: LockedProjectRow, graph: SnapshotGraphRow
     taskQueue: {
       tasks: [],
     },
-  }
+  };
 }
 
 function collectSnapshotAssetReferenceChanges(nodes: ProjectGraphNode[]) {
   try {
-    return collectNodeAssetReferenceChangesForNodes(nodes)
+    return collectNodeAssetReferenceChangesForNodes(nodes);
   } catch (error) {
     throw new AuthServiceError({
       statusCode: 409,
-      apiCode: 'VALIDATION_FAILED',
-      message: error instanceof Error ? error.message : 'Checkpoint contains invalid asset references',
-    })
+      apiCode: "VALIDATION_FAILED",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Checkpoint contains invalid asset references",
+    });
   }
 }
 
@@ -248,27 +269,30 @@ function validateSnapshotAssetManifest(
   value: unknown,
   changes: NodeAssetReferenceChange[],
 ) {
-  let storedAssetIds: string[]
+  let storedAssetIds: string[];
   try {
-    storedAssetIds = normalizeAssetManifest(value)
+    storedAssetIds = normalizeAssetManifest(value);
   } catch (error) {
     throw new AuthServiceError({
       statusCode: 409,
-      apiCode: 'VALIDATION_FAILED',
-      message: error instanceof Error ? error.message : 'Checkpoint asset manifest is invalid',
-    })
+      apiCode: "VALIDATION_FAILED",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Checkpoint asset manifest is invalid",
+    });
   }
 
-  const derivedAssetIds = collectAssetIdsFromNodeReferenceChanges(changes)
+  const derivedAssetIds = collectAssetIdsFromNodeReferenceChanges(changes);
   if (
-    storedAssetIds.length !== derivedAssetIds.length
-    || storedAssetIds.some((assetId, index) => assetId !== derivedAssetIds[index])
+    storedAssetIds.length !== derivedAssetIds.length ||
+    storedAssetIds.some((assetId, index) => assetId !== derivedAssetIds[index])
   ) {
     throw new AuthServiceError({
       statusCode: 409,
-      apiCode: 'VALIDATION_FAILED',
-      message: 'Checkpoint asset manifest does not match its graph record',
-    })
+      apiCode: "VALIDATION_FAILED",
+      message: "Checkpoint asset manifest does not match its graph record",
+    });
   }
 }
 
@@ -281,8 +305,8 @@ async function insertSnapshot(
   record: ProjectRevisionRecord,
   assetManifest: string[],
 ) {
-  const recordJson = JSON.stringify(record)
-  const byteSize = Buffer.byteLength(recordJson, 'utf8')
+  const recordJson = JSON.stringify(record);
+  const byteSize = Buffer.byteLength(recordJson, "utf8");
   const snapshotResult = await client.query<SnapshotRow>(
     `
       INSERT INTO project_snapshots (
@@ -317,22 +341,22 @@ async function insertSnapshot(
       byteSize,
       JSON.stringify(assetManifest),
     ],
-  )
+  );
 
-  return snapshotResult.rows[0]!
+  return snapshotResult.rows[0]!;
 }
 
 export async function insertImportCheckpointTransaction(
   client: DbClient,
   input: {
-    projectId: string
-    projectName: string
-    projectVersion: number
-    sequence: number
-    nodes: ProjectGraphNode[]
-    edges: ProjectGraphEdge[]
-    taskQueue: { tasks: Record<string, unknown>[] }
-    assetManifest: string[]
+    projectId: string;
+    projectName: string;
+    projectVersion: number;
+    sequence: number;
+    nodes: ProjectGraphNode[];
+    edges: ProjectGraphEdge[];
+    taskQueue: { tasks: Record<string, unknown>[] };
+    assetManifest: string[];
   },
 ) {
   const record: ProjectRevisionRecord = {
@@ -348,27 +372,32 @@ export async function insertImportCheckpointTransaction(
       edges: input.edges,
     },
     taskQueue: input.taskQueue,
-  }
-  validateRevisionRecord(record, input.projectId)
+  };
+  validateRevisionRecord(record, input.projectId);
   await requireCompletedAssetReferences(
     client,
-    (await client.query<{ workspace_id: string }>(`SELECT workspace_id::text FROM projects WHERE id = $1`, [input.projectId])).rows[0]?.workspace_id ?? '',
+    (
+      await client.query<{ workspace_id: string }>(
+        `SELECT workspace_id::text FROM projects WHERE id = $1`,
+        [input.projectId],
+      )
+    ).rows[0]?.workspace_id ?? "",
     collectNodeAssetReferenceChangesForNodes(input.nodes),
-  )
+  );
   const snapshot = await insertSnapshot(
     client,
     input.projectId,
     input.projectVersion,
     input.sequence,
-    'import',
+    "import",
     record,
     input.assetManifest,
-  )
+  );
   return {
     id: snapshot.id,
     projectVersion: Number(snapshot.project_version),
     sequence: Number(snapshot.last_sequence),
-  }
+  };
 }
 
 async function findReusableManualSnapshot(
@@ -401,56 +430,66 @@ async function findReusableManualSnapshot(
       LIMIT 1
     `,
     [projectId, projectVersion, lastSequence, JSON.stringify(assetManifest)],
-  )
+  );
 
-  return result.rows[0] ?? null
+  return result.rows[0] ?? null;
 }
 
-function validateRevisionRecord(record: ProjectRevisionRecord, projectId: string) {
+function validateRevisionRecord(
+  record: ProjectRevisionRecord,
+  projectId: string,
+) {
   if (
-    !record
-    || record.schemaVersion !== PROJECT_SNAPSHOT_RECORD_SCHEMA_VERSION
-    || record.project?.id !== projectId
-    || !Array.isArray(record.canvas?.nodes)
-    || !Array.isArray(record.canvas?.edges)
+    !record ||
+    record.schemaVersion !== PROJECT_SNAPSHOT_RECORD_SCHEMA_VERSION ||
+    record.project?.id !== projectId ||
+    !Array.isArray(record.canvas?.nodes) ||
+    !Array.isArray(record.canvas?.edges)
   ) {
     throw new AuthServiceError({
       statusCode: 409,
-      apiCode: 'VALIDATION_FAILED',
-      message: 'Project revision record is not restorable',
-    })
+      apiCode: "VALIDATION_FAILED",
+      message: "Project revision record is not restorable",
+    });
   }
 }
 
-function buildRestoreOperations(current: SnapshotGraphRow, target: ProjectRevisionRecord): ProjectGraphOperation[] {
-  const targetNodeIds = new Set(target.canvas.nodes.map((node) => node.id))
-  const targetEdgeIds = new Set(target.canvas.edges.map((edge) => edge.id))
-  const operations: ProjectGraphOperation[] = []
+function buildRestoreOperations(
+  current: SnapshotGraphRow,
+  target: ProjectRevisionRecord,
+): ProjectGraphOperation[] {
+  const targetNodeIds = new Set(target.canvas.nodes.map((node) => node.id));
+  const targetEdgeIds = new Set(target.canvas.edges.map((edge) => edge.id));
+  const operations: ProjectGraphOperation[] = [];
 
   for (const edge of current.edges_json) {
     if (!targetEdgeIds.has(edge.id)) {
-      operations.push({ type: 'deleteEdge', edgeId: edge.id })
+      operations.push({ type: "deleteEdge", edgeId: edge.id });
     }
   }
 
   for (const node of current.nodes_json) {
     if (!targetNodeIds.has(node.id)) {
-      operations.push({ type: 'deleteNode', nodeId: node.id })
+      operations.push({ type: "deleteNode", nodeId: node.id });
     }
   }
 
   for (const node of target.canvas.nodes) {
-    operations.push({ type: 'upsertNode', node })
+    operations.push({ type: "upsertNode", node });
   }
 
   for (const edge of target.canvas.edges) {
-    operations.push({ type: 'upsertEdge', edge })
+    operations.push({ type: "upsertEdge", edge });
   }
 
-  return operations
+  return operations;
 }
 
-async function replaceCurrentGraph(client: DbClient, projectId: string, record: ProjectRevisionRecord) {
+async function replaceCurrentGraph(
+  client: DbClient,
+  projectId: string,
+  record: ProjectRevisionRecord,
+) {
   await client.query(
     `
       UPDATE project_edges
@@ -460,7 +499,7 @@ async function replaceCurrentGraph(client: DbClient, projectId: string, record: 
       WHERE project_id = $1
     `,
     [projectId],
-  )
+  );
   await client.query(
     `
       UPDATE project_nodes
@@ -470,7 +509,7 @@ async function replaceCurrentGraph(client: DbClient, projectId: string, record: 
       WHERE project_id = $1
     `,
     [projectId],
-  )
+  );
 
   for (const node of record.canvas.nodes) {
     await client.query(
@@ -508,7 +547,7 @@ async function replaceCurrentGraph(client: DbClient, projectId: string, record: 
         JSON.stringify(node.data),
         JSON.stringify(node.presentation ?? {}),
       ],
-    )
+    );
   }
 
   for (const edge of record.canvas.edges) {
@@ -539,7 +578,7 @@ async function replaceCurrentGraph(client: DbClient, projectId: string, record: 
         edge.edgeType ?? null,
         JSON.stringify(edge.data ?? {}),
       ],
-    )
+    );
   }
 }
 
@@ -547,16 +586,17 @@ export function createPostgresProjectSnapshotService(
   pool: DbPool,
   options: { authorizationService?: WorkspaceAuthorizationService } = {},
 ): ProjectSnapshotService {
-  const authorizationService = options.authorizationService ?? createWorkspaceAuthorizationService(pool)
+  const authorizationService =
+    options.authorizationService ?? createWorkspaceAuthorizationService(pool);
 
   return {
     async listRevisions(projectId, rawInput, actor) {
-      assertProjectId(projectId)
-      const input = validateListProjectRevisionsInput(rawInput)
+      assertProjectId(projectId);
+      const input = validateListProjectRevisionsInput(rawInput);
       await authorizationService.requireWorkspaceAccess({
         userId: actor.userId,
         workspaceId: actor.workspaceId,
-      })
+      });
 
       const projectResult = await pool.query<{ id: string }>(
         `
@@ -568,20 +608,20 @@ export function createPostgresProjectSnapshotService(
           LIMIT 1
         `,
         [projectId, actor.workspaceId],
-      )
+      );
       if (!projectResult.rows[0]) {
-        projectNotFound()
+        projectNotFound();
       }
 
-      const values: unknown[] = [projectId]
-      let cursorClause = ''
+      const values: unknown[] = [projectId];
+      let cursorClause = "";
       if (input.cursor) {
-        const cursor = decodeCursor(input.cursor)
-        values.push(cursor.createdAt, cursor.id)
-        cursorClause = `AND (created_at, id) < ($2::timestamptz, $3::uuid)`
+        const cursor = decodeCursor(input.cursor);
+        values.push(cursor.createdAt, cursor.id);
+        cursorClause = `AND (created_at, id) < ($2::timestamptz, $3::uuid)`;
       }
 
-      values.push(input.limit + 1)
+      values.push(input.limit + 1);
       const result = await pool.query<SnapshotRow>(
         `
           SELECT
@@ -601,23 +641,28 @@ export function createPostgresProjectSnapshotService(
           LIMIT $${values.length}
         `,
         values,
-      )
-      const hasNextPage = result.rows.length > input.limit
-      const revisions = result.rows.slice(0, input.limit).map(toCheckpointSummary)
+      );
+      const hasNextPage = result.rows.length > input.limit;
+      const revisions = result.rows
+        .slice(0, input.limit)
+        .map(toCheckpointSummary);
 
       return {
         revisions,
-        nextCursor: hasNextPage && revisions.length > 0 ? encodeCursor(revisions[revisions.length - 1]!) : null,
-      } satisfies ProjectRevisionsResponse
+        nextCursor:
+          hasNextPage && revisions.length > 0
+            ? encodeCursor(revisions[revisions.length - 1]!)
+            : null,
+      } satisfies ProjectRevisionsResponse;
     },
 
     async getRevision(projectId, rawVersion, actor) {
-      assertProjectId(projectId)
-      const version = validateProjectRevisionVersion(rawVersion)
+      assertProjectId(projectId);
+      const version = validateProjectRevisionVersion(rawVersion);
       await authorizationService.requireWorkspaceAccess({
         userId: actor.userId,
         workspaceId: actor.workspaceId,
-      })
+      });
 
       const result = await pool.query<SnapshotDetailRow>(
         `
@@ -643,23 +688,23 @@ export function createPostgresProjectSnapshotService(
           LIMIT 1
         `,
         [projectId, version, actor.workspaceId],
-      )
-      const revision = result.rows[0] ?? revisionNotFound()
+      );
+      const revision = result.rows[0] ?? revisionNotFound();
 
       return {
         checkpoint: toCheckpointSummary(revision),
         record: revision.record_json,
-      } satisfies ProjectRevisionResponse
+      } satisfies ProjectRevisionResponse;
     },
 
     async createCheckpoint(projectId, rawInput, actor) {
-      assertProjectId(projectId)
-      const input = validateCreateProjectCheckpointRequest(rawInput)
+      assertProjectId(projectId);
+      const input = validateCreateProjectCheckpointRequest(rawInput);
       await authorizationService.requireWorkspaceAccess({
         userId: actor.userId,
         workspaceId: actor.workspaceId,
         allowedRoles: PROJECT_SNAPSHOT_WRITE_ROLES,
-      })
+      });
 
       return withTransaction(pool, async (client) => {
         const projectResult = await client.query<LockedProjectRow>(
@@ -682,49 +727,60 @@ export function createPostgresProjectSnapshotService(
             FOR UPDATE
           `,
           [projectId, actor.workspaceId],
-        )
-        const project = projectResult.rows[0] ?? projectNotFound()
+        );
+        const project = projectResult.rows[0] ?? projectNotFound();
 
         if (project.archived_at) {
           throw new AuthServiceError({
             statusCode: 403,
-            apiCode: 'ACCESS_DENIED',
-            message: 'Archived projects cannot create checkpoints',
-          })
+            apiCode: "ACCESS_DENIED",
+            message: "Archived projects cannot create checkpoints",
+          });
         }
 
-        const currentVersion = Number(project.version)
-        const currentSequence = Number(project.last_sequence)
-        if (currentVersion !== input.expectedVersion || currentSequence !== input.expectedSequence) {
+        const currentVersion = Number(project.version);
+        const currentSequence = Number(project.last_sequence);
+        if (
+          currentVersion !== input.expectedVersion ||
+          currentSequence !== input.expectedSequence
+        ) {
           throw new AuthServiceError({
             statusCode: 409,
-            apiCode: 'PROJECT_VERSION_CONFLICT',
-            message: 'Project was updated before checkpoint creation',
+            apiCode: "PROJECT_VERSION_CONFLICT",
+            message: "Project was updated before checkpoint creation",
             details: { currentVersion, currentSequence },
-          })
+          });
         }
 
-        const graph = await readCurrentGraph(client, projectId)
-        const assetReferenceChanges = collectSnapshotAssetReferenceChanges(graph.nodes_json)
-        const assetManifest = collectAssetIdsFromNodeReferenceChanges(assetReferenceChanges)
+        const graph = await readCurrentGraph(client, projectId);
+        const assetReferenceChanges = collectSnapshotAssetReferenceChanges(
+          graph.nodes_json,
+        );
+        const assetManifest = collectAssetIdsFromNodeReferenceChanges(
+          assetReferenceChanges,
+        );
 
-        if (input.checkpointType === 'manual') {
+        if (input.checkpointType === "manual") {
           const existing = await findReusableManualSnapshot(
             client,
             projectId,
             currentVersion,
             currentSequence,
             assetManifest,
-          )
+          );
           if (existing) {
             return {
               checkpoint: toCheckpointSummary(existing),
               project: toProjectSummary(project),
-            } satisfies ProjectCheckpointResponse
+            } satisfies ProjectCheckpointResponse;
           }
         }
 
-        await requireCompletedAssetReferences(client, actor.workspaceId, assetReferenceChanges)
+        await requireCompletedAssetReferences(
+          client,
+          actor.workspaceId,
+          assetReferenceChanges,
+        );
         const snapshot = await insertSnapshot(
           client,
           projectId,
@@ -733,10 +789,12 @@ export function createPostgresProjectSnapshotService(
           input.checkpointType,
           createSnapshotRecord(project, graph),
           assetManifest,
-        )
-        const updatedProject = input.checkpointType === 'manual'
-          ? (await client.query<LockedProjectRow>(
-              `
+        );
+        const updatedProject =
+          input.checkpointType === "manual"
+            ? (
+                await client.query<LockedProjectRow>(
+                  `
                 UPDATE projects
                 SET saved_snapshot_id = $3,
                     updated_at = $4
@@ -755,26 +813,32 @@ export function createPostgresProjectSnapshotService(
                   created_at,
                   updated_at
               `,
-              [projectId, actor.workspaceId, snapshot.id, snapshot.created_at],
-            )).rows[0]
-          : project
+                  [
+                    projectId,
+                    actor.workspaceId,
+                    snapshot.id,
+                    snapshot.created_at,
+                  ],
+                )
+              ).rows[0]
+            : project;
 
         return {
           checkpoint: toCheckpointSummary(snapshot),
           project: toProjectSummary(updatedProject ?? project),
-        } satisfies ProjectCheckpointResponse
-      })
+        } satisfies ProjectCheckpointResponse;
+      });
     },
 
     async restoreRevision(projectId, rawVersion, rawInput, actor) {
-      assertProjectId(projectId)
-      const version = validateProjectRevisionVersion(rawVersion)
-      const input = validateRestoreProjectRevisionRequest(rawInput)
+      assertProjectId(projectId);
+      const version = validateProjectRevisionVersion(rawVersion);
+      const input = validateRestoreProjectRevisionRequest(rawInput);
       await authorizationService.requireWorkspaceAccess({
         userId: actor.userId,
         workspaceId: actor.workspaceId,
         allowedRoles: PROJECT_SNAPSHOT_WRITE_ROLES,
-      })
+      });
 
       return withTransaction(pool, async (client) => {
         const projectResult = await client.query<LockedProjectRow>(
@@ -797,26 +861,29 @@ export function createPostgresProjectSnapshotService(
             FOR UPDATE
           `,
           [projectId, actor.workspaceId],
-        )
-        const project = projectResult.rows[0] ?? projectNotFound()
+        );
+        const project = projectResult.rows[0] ?? projectNotFound();
 
         if (project.archived_at) {
           throw new AuthServiceError({
             statusCode: 403,
-            apiCode: 'ACCESS_DENIED',
-            message: 'Archived projects cannot be restored from revisions',
-          })
+            apiCode: "ACCESS_DENIED",
+            message: "Archived projects cannot be restored from revisions",
+          });
         }
 
-        const currentVersion = Number(project.version)
-        const currentSequence = Number(project.last_sequence)
-        if (currentVersion !== input.expectedVersion || currentSequence !== input.expectedSequence) {
+        const currentVersion = Number(project.version);
+        const currentSequence = Number(project.last_sequence);
+        if (
+          currentVersion !== input.expectedVersion ||
+          currentSequence !== input.expectedSequence
+        ) {
           throw new AuthServiceError({
             statusCode: 409,
-            apiCode: 'PROJECT_VERSION_CONFLICT',
-            message: 'Project was updated before revision restore',
+            apiCode: "PROJECT_VERSION_CONFLICT",
+            message: "Project was updated before revision restore",
             details: { currentVersion, currentSequence },
-          })
+          });
         }
 
         const targetResult = await client.query<SnapshotDetailRow>(
@@ -841,53 +908,72 @@ export function createPostgresProjectSnapshotService(
             LIMIT 1
           `,
           [projectId, version],
-        )
-        const targetSnapshot = targetResult.rows[0] ?? revisionNotFound()
-        validateRevisionRecord(targetSnapshot.record_json, projectId)
-        const targetAssetReferenceChanges = collectSnapshotAssetReferenceChanges(
-          targetSnapshot.record_json.canvas.nodes,
-        )
-        validateSnapshotAssetManifest(targetSnapshot.asset_manifest_json, targetAssetReferenceChanges)
-        await requireCompletedAssetReferences(client, actor.workspaceId, targetAssetReferenceChanges)
+        );
+        const targetSnapshot = targetResult.rows[0] ?? revisionNotFound();
+        validateRevisionRecord(targetSnapshot.record_json, projectId);
+        const targetAssetReferenceChanges =
+          collectSnapshotAssetReferenceChanges(
+            targetSnapshot.record_json.canvas.nodes,
+          );
+        validateSnapshotAssetManifest(
+          targetSnapshot.asset_manifest_json,
+          targetAssetReferenceChanges,
+        );
+        await requireCompletedAssetReferences(
+          client,
+          actor.workspaceId,
+          targetAssetReferenceChanges,
+        );
 
-        const currentGraph = await readCurrentGraph(client, projectId)
-        const currentAssetReferenceChanges = collectSnapshotAssetReferenceChanges(currentGraph.nodes_json)
+        const currentGraph = await readCurrentGraph(client, projectId);
+        const currentAssetReferenceChanges =
+          collectSnapshotAssetReferenceChanges(currentGraph.nodes_json);
         const currentAssetManifest = await requireCompletedAssetReferences(
           client,
           actor.workspaceId,
           currentAssetReferenceChanges,
-        )
+        );
         const preRestoreSnapshot = await insertSnapshot(
           client,
           projectId,
           currentVersion,
           currentSequence,
-          'pre_restore',
+          "pre_restore",
           createSnapshotRecord(project, currentGraph),
           currentAssetManifest,
-        )
-        const operations = buildRestoreOperations(currentGraph, targetSnapshot.record_json)
+        );
+        const operations = buildRestoreOperations(
+          currentGraph,
+          targetSnapshot.record_json,
+        );
 
-        await replaceCurrentGraph(client, projectId, targetSnapshot.record_json)
+        await replaceCurrentGraph(
+          client,
+          projectId,
+          targetSnapshot.record_json,
+        );
         await replaceProjectNodeAssetReferences(
           client,
           actor.workspaceId,
           projectId,
           targetAssetReferenceChanges,
-        )
+        );
 
-        const countsResult = await client.query<{ node_count: number; edge_count: number }>(
+        const countsResult = await client.query<{
+          node_count: number;
+          edge_count: number;
+        }>(
           `
             SELECT
               (SELECT count(*)::integer FROM project_nodes WHERE project_id = $1 AND deleted_at IS NULL) AS node_count,
               (SELECT count(*)::integer FROM project_edges WHERE project_id = $1 AND deleted_at IS NULL) AS edge_count
           `,
           [projectId],
-        )
-        const counts = countsResult.rows[0]!
-        const resultVersion = currentVersion + 1
-        const sequence = currentSequence + 1
-        const requestId = randomUUID()
+        );
+        const counts = countsResult.rows[0]!;
+        const resultVersion = currentVersion + 1;
+        const sequence = currentSequence + 1;
+        const requestId = randomUUID();
         const changeResult = await client.query<{ created_at: Date | string }>(
           `
             INSERT INTO project_changes (
@@ -906,8 +992,8 @@ export function createPostgresProjectSnapshotService(
             `restore_${requestId}`,
             JSON.stringify(operations),
           ],
-        )
-        const updatedAt = changeResult.rows[0]!.created_at
+        );
+        const updatedAt = changeResult.rows[0]!.created_at;
         const updatedProjectResult = await client.query<LockedProjectRow>(
           `
             UPDATE projects
@@ -942,23 +1028,25 @@ export function createPostgresProjectSnapshotService(
             counts.edge_count,
             updatedAt,
           ],
-        )
+        );
 
         return {
           restoredCheckpoint: toCheckpointSummary(targetSnapshot),
           preRestoreCheckpoint: toCheckpointSummary(preRestoreSnapshot),
-          project: toProjectSummary(updatedProjectResult.rows[0] ?? {
-            ...project,
-            version: resultVersion,
-            last_sequence: sequence,
-            node_count: counts.node_count,
-            edge_count: counts.edge_count,
-            updated_at: updatedAt,
-          }),
+          project: toProjectSummary(
+            updatedProjectResult.rows[0] ?? {
+              ...project,
+              version: resultVersion,
+              last_sequence: sequence,
+              node_count: counts.node_count,
+              edge_count: counts.edge_count,
+              updated_at: updatedAt,
+            },
+          ),
           version: resultVersion,
           sequence,
-        } satisfies ProjectRevisionRestoreResponse
-      })
+        } satisfies ProjectRevisionRestoreResponse;
+      });
     },
-  }
+  };
 }

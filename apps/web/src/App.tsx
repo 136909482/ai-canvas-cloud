@@ -1,42 +1,49 @@
+import { lazy, Suspense, useEffect, useState } from "react";
+import { ReactFlowProvider } from "@xyflow/react";
+import { ArrowLeftRight, Plus } from "lucide-react";
+import { AppFeedbackHost } from "@/components/AppFeedbackHost";
+import { Canvas } from "@/components/Canvas";
+import { CanvasQuickActions } from "@/components/CanvasTopBar";
+import { FloatingToolbar } from "@/components/FloatingToolbar";
+import { NotificationCenterButton } from "@/components/NotificationCenterButton";
+import { ProjectBootstrap } from "@/components/ProjectBootstrap";
+import { ProjectConflictBanner } from "@/components/ProjectConflictBanner";
+import { TaskQueueRunner } from "@/components/TaskQueueRunner";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import { Toolbar } from "@/components/Toolbar";
+import { AccountMenu } from "@/features/auth/AccountMenu";
+import { EmailVerificationBanner } from "@/features/auth/EmailVerificationBanner";
+import { AuthGate } from "@/features/auth/AuthGate";
+import { useImageEditorStore } from "@/store/useImageEditorStore";
+import { useMigrationStore } from "@/store/useMigrationStore";
+import { useProjectDialogStore } from "@/store/useProjectDialogStore";
+import { useProjectStore } from "@/store/useProjectStore";
+import { themeClasses } from "@/styles/themeClasses";
 
-import { lazy, Suspense, useEffect, useState } from 'react'
-import { ReactFlowProvider } from '@xyflow/react'
-import { ArrowLeftRight, Plus } from 'lucide-react'
-import { AppFeedbackHost } from '@/components/AppFeedbackHost'
-import { Canvas } from '@/components/Canvas'
-import { CanvasQuickActions } from '@/components/CanvasTopBar'
-import { FloatingToolbar } from '@/components/FloatingToolbar'
-import { NotificationCenterButton } from '@/components/NotificationCenterButton'
-import { ProjectBootstrap } from '@/components/ProjectBootstrap'
-import { ProjectConflictBanner } from '@/components/ProjectConflictBanner'
-import { TaskQueueRunner } from '@/components/TaskQueueRunner'
-import { ThemeProvider } from '@/components/ThemeProvider'
-import { Toolbar } from '@/components/Toolbar'
-import { AccountMenu } from '@/features/auth/AccountMenu'
-import { EmailVerificationBanner } from '@/features/auth/EmailVerificationBanner'
-import { AuthGate } from '@/features/auth/AuthGate'
-import { useImageEditorStore } from '@/store/useImageEditorStore'
-import { useMigrationStore } from '@/store/useMigrationStore'
-import { useProjectDialogStore } from '@/store/useProjectDialogStore'
-import { useProjectStore } from '@/store/useProjectStore'
-import { themeClasses } from '@/styles/themeClasses'
-
-const ImageFullscreenEditor = lazy(() => import('@/components/ImageFullscreenEditor').then((module) => ({
-  default: module.ImageFullscreenEditor,
-})))
-const ProjectManagerDialog = lazy(() => import('@/components/ProjectManagerDialog').then((module) => ({
-  default: module.ProjectManagerDialog,
-})))
-const MigrationCenterDialog = lazy(() => import('@/components/MigrationCenterDialog').then((module) => ({
-  default: module.MigrationCenterDialog,
-})))
+const ImageFullscreenEditor = lazy(() =>
+  import("@/components/ImageFullscreenEditor").then((module) => ({
+    default: module.ImageFullscreenEditor,
+  })),
+);
+const ProjectManagerDialog = lazy(() =>
+  import("@/components/ProjectManagerDialog").then((module) => ({
+    default: module.ProjectManagerDialog,
+  })),
+);
+const MigrationCenterDialog = lazy(() =>
+  import("@/components/MigrationCenterDialog").then((module) => ({
+    default: module.MigrationCenterDialog,
+  })),
+);
 
 function EmptyProjectHint() {
-  const openProjectDialog = useProjectDialogStore((state) => state.open)
+  const openProjectDialog = useProjectDialogStore((state) => state.open);
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center px-4">
-      <div className={`pointer-events-auto w-full max-w-md rounded-lg p-6 text-center ${themeClasses.strongPanel}`}>
+      <div
+        className={`pointer-events-auto w-full max-w-md rounded-lg p-6 text-center ${themeClasses.strongPanel}`}
+      >
         <div className={`text-lg font-semibold ${themeClasses.textPrimary}`}>
           还没有项目
         </div>
@@ -54,47 +61,51 @@ function EmptyProjectHint() {
         </button>
       </div>
     </div>
-  )
+  );
 }
 
 function AppContent() {
-  const hasHydrated = useProjectStore((state) => state.hasHydrated)
-  const isReady = useProjectStore((state) => state.isReady)
-  const activeProjectId = useProjectStore((state) => state.activeProjectId)
-  const imageEditorSession = useImageEditorStore((state) => state.session)
-  const hydrateMigrations = useMigrationStore((state) => state.hydrate)
-  const [showMigrationCenter, setShowMigrationCenter] = useState(false)
+  const hasHydrated = useProjectStore((state) => state.hasHydrated);
+  const isReady = useProjectStore((state) => state.isReady);
+  const activeProjectId = useProjectStore((state) => state.activeProjectId);
+  const imageEditorSession = useImageEditorStore((state) => state.session);
+  const hydrateMigrations = useMigrationStore((state) => state.hydrate);
+  const [showMigrationCenter, setShowMigrationCenter] = useState(false);
 
   useEffect(() => {
-    void hydrateMigrations()
-  }, [hydrateMigrations])
+    void hydrateMigrations();
+  }, [hydrateMigrations]);
   if (!hasHydrated || !isReady) {
     return (
-      <div className={`flex min-h-screen items-center justify-center text-sm ${themeClasses.canvas} ${themeClasses.textMuted}`}>
+      <div
+        className={`flex min-h-screen items-center justify-center text-sm ${themeClasses.canvas} ${themeClasses.textMuted}`}
+      >
         正在加载项目...
       </div>
-    )
+    );
   }
 
   return (
     <ReactFlowProvider>
       <div className={`w-screen h-screen relative ${themeClasses.canvas}`}>
-        <Toolbar rightSlot={(
-          <>
-            <CanvasQuickActions includeWorkflowActions={false} />
-            <button
-              type="button"
-              title="迁移中心"
-              aria-label="打开迁移中心"
-              onClick={() => setShowMigrationCenter(true)}
-              className={`${themeClasses.iconButton} h-6 w-6 rounded-md`}
-            >
-              <ArrowLeftRight className="h-3.5 w-3.5" />
-            </button>
-            <NotificationCenterButton />
-            <AccountMenu />
-          </>
-        )} />
+        <Toolbar
+          rightSlot={
+            <>
+              <CanvasQuickActions includeWorkflowActions={false} />
+              <button
+                type="button"
+                title="迁移中心"
+                aria-label="打开迁移中心"
+                onClick={() => setShowMigrationCenter(true)}
+                className={`${themeClasses.iconButton} h-6 w-6 rounded-md`}
+              >
+                <ArrowLeftRight className="h-3.5 w-3.5" />
+              </button>
+              <NotificationCenterButton />
+              <AccountMenu />
+            </>
+          }
+        />
         <FloatingToolbar />
         <EmailVerificationBanner />
         <ProjectConflictBanner />
@@ -102,32 +113,36 @@ function AppContent() {
         <Canvas />
         {imageEditorSession ? (
           <Suspense fallback={null}>
-            <ImageFullscreenEditor key={`${imageEditorSession.nodeId}\u0000${imageEditorSession.imageUrl}`} />
+            <ImageFullscreenEditor
+              key={`${imageEditorSession.nodeId}\u0000${imageEditorSession.imageUrl}`}
+            />
           </Suspense>
         ) : null}
         {!activeProjectId ? <EmptyProjectHint /> : null}
         {showMigrationCenter ? (
           <Suspense fallback={null}>
-            <MigrationCenterDialog onClose={() => setShowMigrationCenter(false)} />
+            <MigrationCenterDialog
+              onClose={() => setShowMigrationCenter(false)}
+            />
           </Suspense>
         ) : null}
       </div>
     </ReactFlowProvider>
-  )
+  );
 }
 
 function ProjectManagerDialogHost() {
-  const isOpen = useProjectDialogStore((state) => state.isOpen)
+  const isOpen = useProjectDialogStore((state) => state.isOpen);
 
   if (!isOpen) {
-    return null
+    return null;
   }
 
   return (
     <Suspense fallback={null}>
       <ProjectManagerDialog />
     </Suspense>
-  )
+  );
 }
 
 export default function App() {
@@ -141,5 +156,5 @@ export default function App() {
       </AuthGate>
       <AppFeedbackHost />
     </>
-  )
+  );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronRight,
   HardDrive,
@@ -9,57 +9,63 @@ import {
   Settings,
   ShieldCheck,
   UserRound,
-} from 'lucide-react'
-import { useAuthStore } from './useAuthStore'
-import { useSettingsDialogStore } from '@/store/useSettingsDialogStore'
-import { themeClasses } from '@/styles/themeClasses'
+} from "lucide-react";
+import { useAuthStore } from "./useAuthStore";
+import { useSettingsDialogStore } from "@/store/useSettingsDialogStore";
+import { themeClasses } from "@/styles/themeClasses";
 
 interface AccountSettingsPanelProps {
-  onSignedOut: () => void
+  onSignedOut: () => void;
 }
 
 export function AccountMenu() {
-  const session = useAuthStore((state) => state.session)
-  const logout = useAuthStore((state) => state.logout)
-  const openSettings = useSettingsDialogStore((state) => state.open)
-  const [isOpen, setIsOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement | null>(null)
+  const session = useAuthStore((state) => state.session);
+  const logout = useAuthStore((state) => state.logout);
+  const openSettings = useSettingsDialogStore((state) => state.open);
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
-      return
+      return;
     }
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !menuRef.current?.contains(event.target)) {
-        setIsOpen(false)
+      if (
+        event.target instanceof Node &&
+        !menuRef.current?.contains(event.target)
+      ) {
+        setIsOpen(false);
       }
-    }
+    };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsOpen(false)
+      if (event.key === "Escape") {
+        setIsOpen(false);
       }
-    }
+    };
 
-    document.addEventListener('pointerdown', handlePointerDown)
-    window.addEventListener('keydown', handleKeyDown)
+    document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      document.removeEventListener('pointerdown', handlePointerDown)
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen])
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
 
   if (!session) {
-    return null
+    return null;
   }
 
-  const openSettingsCategory = (category: 'account' | 'devices' | 'storage') => {
-    setIsOpen(false)
-    openSettings(category)
-  }
+  const openSettingsCategory = (
+    category: "account" | "devices" | "storage",
+  ) => {
+    setIsOpen(false);
+    openSettings(category);
+  };
 
-  const menuItemClass = 'group flex min-h-8 w-full items-center gap-2 rounded-[6px] px-1.5 text-left text-[11px] text-[var(--text-secondary)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent'
+  const menuItemClass =
+    "group flex min-h-8 w-full items-center gap-2 rounded-[6px] px-1.5 text-left text-[11px] text-[var(--text-secondary)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent";
 
   return (
     <div ref={menuRef} className="relative">
@@ -86,26 +92,37 @@ export function AccountMenu() {
               <UserRound className="h-3.5 w-3.5" />
             </span>
             <span className="min-w-0">
-              <span className={`block truncate text-[11px] font-semibold ${themeClasses.textPrimary}`}>
+              <span
+                className={`block truncate text-[11px] font-semibold ${themeClasses.textPrimary}`}
+              >
                 {session.user.email}
               </span>
-              <span className={`mt-0.5 block truncate text-[9px] ${themeClasses.textMuted}`}>
+              <span
+                className={`mt-0.5 block truncate text-[9px] ${themeClasses.textMuted}`}
+              >
                 个人账号 · UID {session.user.userNumber}
               </span>
             </span>
           </div>
 
           <div className="space-y-0.5 p-1.5">
-            <button type="button" role="menuitem" disabled className={menuItemClass}>
+            <button
+              type="button"
+              role="menuitem"
+              disabled
+              className={menuItemClass}
+            >
               <IdCard className="h-3 w-3 shrink-0" />
               <span className="min-w-0 flex-1">个人资料</span>
-              <span className="text-[9px] text-[var(--text-muted)]">待开放</span>
+              <span className="text-[9px] text-[var(--text-muted)]">
+                待开放
+              </span>
             </button>
 
             <button
               type="button"
               role="menuitem"
-              onClick={() => openSettingsCategory('storage')}
+              onClick={() => openSettingsCategory("storage")}
               className={menuItemClass}
             >
               <HardDrive className="h-3 w-3 shrink-0" />
@@ -116,7 +133,7 @@ export function AccountMenu() {
             <button
               type="button"
               role="menuitem"
-              onClick={() => openSettingsCategory('devices')}
+              onClick={() => openSettingsCategory("devices")}
               className={menuItemClass}
             >
               <MonitorCheck className="h-3 w-3 shrink-0" />
@@ -124,11 +141,10 @@ export function AccountMenu() {
               <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
             </button>
 
-
             <button
               type="button"
               role="menuitem"
-              onClick={() => openSettingsCategory('account')}
+              onClick={() => openSettingsCategory("account")}
               className={menuItemClass}
             >
               <Settings className="h-3 w-3 shrink-0" />
@@ -142,8 +158,8 @@ export function AccountMenu() {
               type="button"
               role="menuitem"
               onClick={() => {
-                setIsOpen(false)
-                void logout()
+                setIsOpen(false);
+                void logout();
               }}
               className={menuItemClass}
             >
@@ -154,15 +170,17 @@ export function AccountMenu() {
         </div>
       ) : null}
     </div>
-  )
+  );
 }
 
-export function AccountSettingsPanel({ onSignedOut }: AccountSettingsPanelProps) {
-  const session = useAuthStore((state) => state.session)
-  const logout = useAuthStore((state) => state.logout)
+export function AccountSettingsPanel({
+  onSignedOut,
+}: AccountSettingsPanelProps) {
+  const session = useAuthStore((state) => state.session);
+  const logout = useAuthStore((state) => state.logout);
 
   if (!session) {
-    return null
+    return null;
   }
 
   return (
@@ -173,10 +191,14 @@ export function AccountSettingsPanel({ onSignedOut }: AccountSettingsPanelProps)
             <UserRound className="h-5 w-5" />
           </span>
           <span className="min-w-0">
-            <span className={`block truncate text-sm font-semibold ${themeClasses.textPrimary}`}>
+            <span
+              className={`block truncate text-sm font-semibold ${themeClasses.textPrimary}`}
+            >
               {session.user.email}
             </span>
-            <span className={`mt-1 block truncate text-xs ${themeClasses.textMuted}`}>
+            <span
+              className={`mt-1 block truncate text-xs ${themeClasses.textMuted}`}
+            >
               个人账号
             </span>
           </span>
@@ -194,8 +216,14 @@ export function AccountSettingsPanel({ onSignedOut }: AccountSettingsPanelProps)
             <Mail className="h-4 w-4" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className={`block text-xs ${themeClasses.textMuted}`}>邮箱地址</span>
-            <span className={`mt-1 block truncate text-sm font-medium ${themeClasses.textPrimary}`}>{session.user.email}</span>
+            <span className={`block text-xs ${themeClasses.textMuted}`}>
+              邮箱地址
+            </span>
+            <span
+              className={`mt-1 block truncate text-sm font-medium ${themeClasses.textPrimary}`}
+            >
+              {session.user.email}
+            </span>
           </span>
         </div>
 
@@ -204,20 +232,27 @@ export function AccountSettingsPanel({ onSignedOut }: AccountSettingsPanelProps)
             <IdCard className="h-4 w-4" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className={`block text-xs ${themeClasses.textMuted}`}>用户编号</span>
-            <span className={`mt-1 block font-mono text-sm font-semibold tracking-[0.08em] ${themeClasses.textPrimary}`}>UID {session.user.userNumber}</span>
+            <span className={`block text-xs ${themeClasses.textMuted}`}>
+              用户编号
+            </span>
+            <span
+              className={`mt-1 block font-mono text-sm font-semibold tracking-[0.08em] ${themeClasses.textPrimary}`}
+            >
+              UID {session.user.userNumber}
+            </span>
           </span>
         </div>
-
       </div>
 
       <footer className="flex items-center justify-between gap-3 border-t border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] px-4 py-3">
-        <span className={`text-xs ${themeClasses.textMuted}`}>设备会话可在“设备管理”中查看</span>
+        <span className={`text-xs ${themeClasses.textMuted}`}>
+          设备会话可在“设备管理”中查看
+        </span>
         <button
           type="button"
           onClick={() => {
-            onSignedOut()
-            void logout()
+            onSignedOut();
+            void logout();
           }}
           className="inline-flex h-8 items-center gap-2 rounded-[8px] px-3 text-xs font-medium text-[var(--text-secondary)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
         >
@@ -226,5 +261,5 @@ export function AccountSettingsPanel({ onSignedOut }: AccountSettingsPanelProps)
         </button>
       </footer>
     </section>
-  )
+  );
 }

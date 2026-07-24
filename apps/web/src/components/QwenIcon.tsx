@@ -1,16 +1,20 @@
 type QwenIconProps = {
-  className?: string
-  title?: string
-  color?: string
-}
+  className?: string;
+  title?: string;
+  color?: string;
+};
 
-export function QwenIcon({ className, title, color = '#8B87FF' }: QwenIconProps) {
+export function QwenIcon({
+  className,
+  title,
+  color = "#8B87FF",
+}: QwenIconProps) {
   return (
     <svg
       viewBox="0 0 24 24"
       className={className}
       aria-hidden={title ? undefined : true}
-      role={title ? 'img' : undefined}
+      role={title ? "img" : undefined}
     >
       {title ? <title>{title}</title> : null}
       <path
@@ -19,5 +23,5 @@ export function QwenIcon({ className, title, color = '#8B87FF' }: QwenIconProps)
         fillRule="nonzero"
       />
     </svg>
-  )
+  );
 }

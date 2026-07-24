@@ -1,18 +1,22 @@
 type ModelBrandInput = {
-  name?: string
-  modelId?: string
-  apiUrl?: string
-}
+  name?: string;
+  displayName?: string;
+  modelId?: string;
+  apiUrl?: string;
+};
 
 export function isClaudeModel(model: ModelBrandInput) {
   const searchableText = [
     model.name,
+    model.displayName,
     model.modelId,
     model.apiUrl,
   ]
     .filter(Boolean)
-    .join(' ')
-    .toLowerCase()
+    .join(" ")
+    .toLowerCase();
 
-  return searchableText.includes('claude') || searchableText.includes('anthropic')
+  return (
+    searchableText.includes("claude") || searchableText.includes("anthropic")
+  );
 }
