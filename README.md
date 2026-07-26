@@ -38,6 +38,8 @@ npm run dev:admin-api
 
 本地需要自动创建普通开发账号时，在未跟踪的 `.env` 中设置 `DEV_SEED_ADMIN=true`、`DEV_SEED_ADMIN_USERNAME`、`DEV_SEED_ADMIN_EMAIL` 和 `DEV_SEED_ADMIN_PASSWORD`；默认用户名为 `admin_user`。该账号属于普通用户体系，与独立 Admin 账号完全隔离。
 
+后台管理 SMTP 时，把 `AUTH_EMAIL_TRANSPORT` 设为 `managed`，并在 API 与 Admin API 的服务器环境中提供同一份 `SMTP_CREDENTIAL_KEYS`（版本到 32 字节 Base64 密钥的 JSON）和 `SMTP_CREDENTIAL_ACTIVE_KEY_VERSION`。主密钥不能在后台填写；首次发布 managed 配置前可保留旧 `SMTP_*` 环境变量作为回退，确认测试邮件和认证邮件成功后再移除旧密码。
+
 ## 日常验证
 
 编辑过程中只运行受影响范围：
@@ -111,4 +113,4 @@ npm run deploy:staging:backup
 npm run deploy:staging:restore:drill
 ```
 
-生产应用启动不自动迁移。`0029_remove_server_generation.sql` 会不可逆删除旧 Provider 密文和服务端生成链路；`0030_user_usernames.sql` 会把普通账号切换到必填用户名契约，两者都要求协调应用发布并提前备份。`0031_generation_telemetry.sql` 是只新增脱敏运营表的 expand 迁移。执行、回滚和前向修复要求见 [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md)。
+生产应用启动不自动迁移。`0029_remove_server_generation.sql` 会不可逆删除旧 Provider 密文和服务端生成链路；`0030_user_usernames.sql` 会把普通账号切换到必填用户名契约，两者都要求协调应用发布并提前备份。`0031_generation_telemetry.sql` 和 `0032_managed_smtp_configuration.sql` 分别是只新增脱敏运营表、版本化加密 SMTP 配置的 expand 迁移。执行、回滚和前向修复要求见 [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md)。

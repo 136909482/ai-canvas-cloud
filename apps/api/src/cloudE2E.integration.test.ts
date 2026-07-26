@@ -186,7 +186,7 @@ test(
       )
         .filter(
           (fileName) =>
-            fileName.endsWith(".sql") && !/^002[5-9]_/.test(fileName),
+            fileName.endsWith(".sql") && !/^(?:002[5-9]|0032)_/.test(fileName),
         )
         .sort();
       for (const fileName of migrations) {

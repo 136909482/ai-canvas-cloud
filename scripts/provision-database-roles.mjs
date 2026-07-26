@@ -156,6 +156,12 @@ try {
     `GRANT SELECT ON public.site_config_publications TO ${app}`,
   );
   await client.query(
+    `REVOKE INSERT, UPDATE, DELETE ON public.smtp_config_publications FROM ${app}`,
+  );
+  await client.query(
+    `GRANT SELECT ON public.smtp_config_publications TO ${app}`,
+  );
+  await client.query(
     `REVOKE DELETE ON public.generation_telemetry FROM ${app}`,
   );
   await client.query(`REVOKE ALL ON SCHEMA admin FROM ${app}`);
@@ -174,6 +180,9 @@ try {
   await client.query(`GRANT USAGE ON SCHEMA public TO ${admin}`);
   await client.query(
     `GRANT SELECT, INSERT, UPDATE ON public.site_config_publications TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT, INSERT, UPDATE ON public.smtp_config_publications TO ${admin}`,
   );
   await client.query(
     `REVOKE ALL ON public."user", public."session", public.workspaces, public.workspace_members, public.assets, public.migration_import_asset_uploads, public.generation_telemetry FROM ${admin}`,

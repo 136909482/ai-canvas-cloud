@@ -21,6 +21,11 @@ import type {
   SiteAssetResponse,
   SiteAssetsResponse,
   SiteAssetUploadResponse,
+  DisableSmtpSettingsInput,
+  SmtpSettingsInput,
+  SmtpSettingsResponse,
+  SmtpTestEmailInput,
+  SmtpTestResponse,
 } from "@ai-canvas-cloud/contracts";
 
 const API_URL =
@@ -205,6 +210,33 @@ export const adminApi = {
   revokeUserSessions(userId: string, input: AdminUserActionRequest) {
     return post<AdminUserSessionRevocationResponse>(
       `/admin/v1/users/${encodeURIComponent(userId)}/revoke-sessions`,
+      input as unknown as Record<string, unknown>,
+    );
+  },
+  smtpSettings() {
+    return request<SmtpSettingsResponse>("/admin/v1/smtp-settings");
+  },
+  testSmtpConnection(input: SmtpSettingsInput) {
+    return post<SmtpTestResponse>(
+      "/admin/v1/smtp-settings/test-connection",
+      input as unknown as Record<string, unknown>,
+    );
+  },
+  testSmtpEmail(input: SmtpTestEmailInput) {
+    return post<SmtpTestResponse>(
+      "/admin/v1/smtp-settings/test-email",
+      input as unknown as Record<string, unknown>,
+    );
+  },
+  publishSmtpSettings(input: SmtpSettingsInput) {
+    return post<SmtpSettingsResponse>(
+      "/admin/v1/smtp-settings",
+      input as unknown as Record<string, unknown>,
+    );
+  },
+  disableSmtpSettings(input: DisableSmtpSettingsInput) {
+    return post<SmtpSettingsResponse>(
+      "/admin/v1/smtp-settings/disable",
       input as unknown as Record<string, unknown>,
     );
   },

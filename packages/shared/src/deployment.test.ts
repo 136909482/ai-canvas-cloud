@@ -50,6 +50,22 @@ test("protected deployment accepts independently scoped staging resources", () =
   assert.doesNotThrow(() => validateProtectedDeploymentEnvironment(baseEnv()));
 });
 
+test("protected deployment accepts managed SMTP without legacy credentials", () => {
+  const env = baseEnv();
+  env.AUTH_EMAIL_TRANSPORT = "managed";
+  env.SMTP_CREDENTIAL_KEYS = JSON.stringify({
+    1: Buffer.alloc(32, 7).toString("base64"),
+  });
+  env.SMTP_CREDENTIAL_ACTIVE_KEY_VERSION = "1";
+  delete env.SMTP_HOST;
+  delete env.SMTP_PORT;
+  delete env.SMTP_SECURE;
+  delete env.SMTP_FROM;
+  delete env.SMTP_USERNAME;
+  delete env.SMTP_PASSWORD;
+  assert.doesNotThrow(() => validateProtectedDeploymentEnvironment(env));
+});
+
 test("protected deployment rejects local URLs, placeholders, missing origins and seed", () => {
   assert.throws(
     () =>

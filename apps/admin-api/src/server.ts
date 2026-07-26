@@ -5,19 +5,23 @@ import type {
   PublishSiteConfigRequest,
 } from "@ai-canvas-cloud/contracts";
 import {
+  createMetricsRegistry,
   hasDuplicateJsonObjectKeys,
   type Logger,
   type MeasuredDependencyStatus,
+  type MetricsRegistry,
 } from "@ai-canvas-cloud/shared";
 import {
   AdminAccessError,
   createUnavailableAdminDashboardService,
   createUnavailableAdminSiteConfigService,
+  createUnavailableAdminSmtpConfigService,
   createUnavailableAdminUserOperationsService,
   type AdminRequestContext,
   type AdminDashboardService,
   type AdminService,
   type AdminSiteConfigService,
+  type AdminSmtpConfigService,
   type AdminUserOperationsService,
 } from "@ai-canvas-cloud/server/modules/admin";
 import type { AdminApiConfig } from "./config.js";
@@ -34,12 +38,29 @@ interface AdminServerOptions {
   adminService: AdminService;
   dashboardService?: AdminDashboardService;
   siteConfigService?: AdminSiteConfigService;
+  smtpConfigService?: AdminSmtpConfigService;
   userOperationsService?: AdminUserOperationsService;
   logger: Logger;
+  metrics?: MetricsRegistry;
   readinessChecks?: {
     postgres?: () => Promise<MeasuredDependencyStatus>;
     objectStorage?: () => Promise<MeasuredDependencyStatus>;
   };
+}
+
+function sendMetrics(
+  response: http.ServerResponse,
+  payload: string,
+  requestId: string,
+) {
+  response.statusCode = 200;
+  response.setHeader(
+    "content-type",
+    "text/plain; version=0.0.4; charset=utf-8",
+  );
+  response.setHeader("cache-control", "no-store");
+  response.setHeader("x-request-id", requestId);
+  response.end(payload);
 }
 
 function sendJson(
@@ -202,8 +223,10 @@ export function createAdminApiServer({
   adminService,
   dashboardService = createUnavailableAdminDashboardService(),
   siteConfigService = createUnavailableAdminSiteConfigService(),
+  smtpConfigService = createUnavailableAdminSmtpConfigService(),
   userOperationsService = createUnavailableAdminUserOperationsService(),
   logger,
+  metrics = createMetricsRegistry(),
   readinessChecks,
 }: AdminServerOptions) {
   return http.createServer(async (request, response) => {
@@ -220,6 +243,10 @@ export function createAdminApiServer({
     if (handleAdminSecurityBoundary(request, response, config, requestId))
       return;
     try {
+      if (url.pathname === "/metrics" && request.method === "GET") {
+        sendMetrics(response, metrics.renderPrometheus(), requestId);
+        return;
+      }
       if (url.pathname === "/health/live" && request.method === "GET") {
         sendJson(
           response,
@@ -476,6 +503,70 @@ export function createAdminApiServer({
                   context,
                 );
         sendJson(response, 200, payload, requestId);
+        return;
+      }
+      if (
+        url.pathname === "/admin/v1/smtp-settings" &&
+        request.method === "GET"
+      ) {
+        sendJson(
+          response,
+          200,
+          await smtpConfigService.getCurrent(context),
+          requestId,
+        );
+        return;
+      }
+      if (
+        url.pathname === "/admin/v1/smtp-settings/test-connection" &&
+        request.method === "POST"
+      ) {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          200,
+          await smtpConfigService.testConnection(body as never, context),
+          requestId,
+        );
+        return;
+      }
+      if (
+        url.pathname === "/admin/v1/smtp-settings/test-email" &&
+        request.method === "POST"
+      ) {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          200,
+          await smtpConfigService.testEmail(body as never, context),
+          requestId,
+        );
+        return;
+      }
+      if (
+        url.pathname === "/admin/v1/smtp-settings" &&
+        request.method === "POST"
+      ) {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          200,
+          await smtpConfigService.publish(body as never, context),
+          requestId,
+        );
+        return;
+      }
+      if (
+        url.pathname === "/admin/v1/smtp-settings/disable" &&
+        request.method === "POST"
+      ) {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          200,
+          await smtpConfigService.disable(body as never, context),
+          requestId,
+        );
         return;
       }
       if (

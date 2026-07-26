@@ -4,5 +4,6 @@ export * from "./postgresAdminService.js";
 export * from "./security.js";
 export * from "./service.js";
 export * from "./siteConfigService.js";
+export * from "./smtpConfigService.js";
 export * from "./types.js";
 export * from "./userOperationsService.js";

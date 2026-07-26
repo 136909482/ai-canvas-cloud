@@ -176,7 +176,17 @@ Admin 运行角色对 public 普通用户数据采用列级授权：
 
 `admin.site_assets` 保存 Logo/Favicon 私有对象元数据。完成确认复核对象 metadata、hash、魔数和真实尺寸。`public.site_config_publications` 是普通 API 唯一可读的最小投影；Admin 发布事务原子更新 current 和投影。
 
-普通 API 角色没有 `admin` schema USAGE，只对公开投影有 SELECT；Admin 角色除上述用户运营列级投影、生成遥测安全聚合列和站点公开投影外，不拥有 public 业务表的宽泛权限。
+### 全站 SMTP 配置
+
+`admin.smtp_config_revisions` 保存不可修改的全站 SMTP 版本：启停状态、主机、受控端口、安全模式、用户名、加密密码信封、key version、发件地址/名称、创建管理员和时间。UPDATE/DELETE 由触发器拒绝。`admin.smtp_config_current` 是 singleton 当前 revision 指针；保存或停用都创建新 revision，不原地修改旧版本。
+
+SMTP 密码使用 AES-256-GCM 信封加密，每个 revision 使用随机 96 位 IV 和 128 位认证标签，AAD 固定绑定 `smtp-config:<revisionId>:password`。密文文档只包含算法、key version、IV、ciphertext 和 auth tag；主密钥版本映射 `SMTP_CREDENTIAL_KEYS` 与活动版本只存在 API/Admin API 服务器环境。轮换时先同时部署新旧 key、切换活动版本，再通过新 revision 重加密；旧 revision 仍需读取期间不能提前删除旧 key。
+
+`public.smtp_config_publications` 保存普通 API 动态发送所需的当前加密投影。Admin 发布事务在验证 SMTP 连接成功后，用 revision 乐观锁同时插入 revision、切换 current、upsert publication 和追加脱敏审计；失败或冲突不改变旧 publication。停用同样创建携带重新加密密码的 disabled revision，明确停用态阻止普通 API 回退旧环境变量。
+
+`admin.smtp_test_attempts` 只保存管理员、`connection|email`、`pending|success|failure`、受限失败类别与时间，用于每管理员 10 分钟 5 次的原子限频；不含收件邮箱、SMTP 主机、用户名或凭据。测试请求不创建配置 revision，也不改变 current/publication。
+
+普通 API 角色没有 `admin` schema USAGE，只对站点和 SMTP 公开投影有 SELECT；SMTP publication 不可写。Admin 角色除上述用户运营列级投影、生成遥测安全聚合列以及站点/SMTP 公开投影外，不拥有 public 业务表的宽泛权限；`PUBLIC` 对 SMTP 三类 Admin 表和 publication 均无权限。
 
 ## 已移除的历史 schema
 
@@ -258,6 +268,14 @@ commit 在一个事务中完成项目策略、资产 UUID 映射、图/引用/ch
 0031 在 release manifest 中是 `releaseTrain=p8-operations`、`phase=expand`、低锁风险、10 秒 statement timeout、`backupRequired=false`。它只新增独立表与索引，旧应用可继续读取新 schema；新 API 和 Admin 聚合必须在迁移与角色 provisioning 完成后启用。
 
 回滚边界：采集开始前可删除 additive 表；采集开始后先关闭普通遥测入口和 Admin 新聚合，保留已有有限元数据直到替代版本部署，不使用遥测反推或重建任何浏览器任务。前向修复为幂等重跑 0031、重新应用列级角色授权，并审计列集合、状态约束、失败枚举和私有字段缺失。
+
+### 0032：版本化加密 SMTP 配置
+
+0032 在 release manifest 中是 `releaseTrain=p8-mail`、`phase=expand`、低锁风险、10 秒 statement timeout、`backupRequired=false`。它只新增 `admin.smtp_config_revisions`、`admin.smtp_config_current`、`admin.smtp_test_attempts` 和 `public.smtp_config_publications`；旧应用仍使用原环境 SMTP，新代码必须在迁移、角色 provisioning 和两端加密密钥完成后启用 `managed`。
+
+发布顺序：先把同一份 `SMTP_CREDENTIAL_KEYS` 与活动 key version 部署到 API/Admin API，再执行 0032 和角色 provisioning，随后发布代码并保留旧 SMTP 环境变量；超级管理员完成连接和测试邮件后保存启用，确认验证/重置邮件动态使用 managed revision，最后移除旧 `SMTP_PASSWORD`。密钥和数据库备份必须分离保存。
+
+回滚边界：首次发布前可删除 additive 表并继续使用环境 SMTP；已有 managed revision 后先把传输模式切回 `smtp` 或部署兼容版本，确认旧环境凭据仍有效，再删除 additive 表。前向修复为幂等重跑 0032、重新应用精确角色授权、校验 publication/current/revision 一致性和密文 envelope，并在 managed 投递通过前保留旧环境回退。禁止从日志、审计或前端值重建密码。
 
 ## 浏览器本地状态
 

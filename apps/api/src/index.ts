@@ -1,6 +1,9 @@
 import {
   createDevelopmentAuthEmailService,
+  createManagedSmtpAuthEmailService,
   createSmtpAuthEmailService,
+  createSmtpCredentialKeyring,
+  legacySmtpRuntimeConfig,
   createPostgresAssetService,
   createPostgresAuthService,
   createPostgresGenerationTelemetryService,
@@ -33,6 +36,21 @@ const logger = createJsonLogger({ level: config.logLevel, service: "api" });
 const metrics = createMetricsRegistry();
 const dbPool = createPostgresPool({ connectionString: config.databaseUrl });
 const rateLimiter = createRedisRateLimiter(config.redisUrl, config.env);
+const legacySmtpConfig =
+  config.smtpHost &&
+  config.smtpPort &&
+  config.smtpFrom &&
+  config.smtpUsername &&
+  config.smtpPassword
+    ? legacySmtpRuntimeConfig({
+        host: config.smtpHost,
+        port: config.smtpPort,
+        secure: config.smtpSecure,
+        from: config.smtpFrom,
+        username: config.smtpUsername,
+        password: config.smtpPassword,
+      })
+    : undefined;
 const authEmailService =
   config.authEmailTransport === "smtp"
     ? createSmtpAuthEmailService({
@@ -43,10 +61,23 @@ const authEmailService =
         username: config.smtpUsername!,
         password: config.smtpPassword!,
       })
-    : createDevelopmentAuthEmailService({
-        env: config.env,
-        logger,
-      });
+    : config.authEmailTransport === "managed"
+      ? createManagedSmtpAuthEmailService(dbPool, {
+          keyring: createSmtpCredentialKeyring({
+            serializedKeys: config.smtpCredentialKeys,
+            activeVersion: config.smtpCredentialActiveKeyVersion,
+            developmentSecret:
+              config.env === "development"
+                ? config.betterAuthSecret
+                : undefined,
+          }),
+          fallbackConfig: legacySmtpConfig,
+          metrics,
+        })
+      : createDevelopmentAuthEmailService({
+          env: config.env,
+          logger,
+        });
 const authService = createPostgresAuthService(dbPool, {
   baseURL: config.betterAuthUrl,
   secret: config.betterAuthSecret,

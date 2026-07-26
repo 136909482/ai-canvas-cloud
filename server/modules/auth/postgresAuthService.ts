@@ -35,7 +35,10 @@ import {
   type AuthService,
   type RevokedAuthSession,
 } from "./service.js";
-import type { AuthEmailService } from "./email.js";
+import {
+  createFailureTolerantAuthEmailService,
+  type AuthEmailService,
+} from "./email.js";
 
 export interface PostgresAuthServiceOptions {
   baseURL?: string;
@@ -648,6 +651,9 @@ function createDefaultBetterAuthApi(
     options.publicWebUrl ??
     process.env.WEB_PUBLIC_URL ??
     DEFAULT_PUBLIC_WEB_URL;
+  const emailService = options.emailService
+    ? createFailureTolerantAuthEmailService(options.emailService)
+    : undefined;
   const auth = betterAuth({
     baseURL: options.baseURL ?? process.env.BETTER_AUTH_URL ?? DEFAULT_BASE_URL,
     secret: options.secret ?? process.env.BETTER_AUTH_SECRET ?? DEFAULT_SECRET,
@@ -660,9 +666,9 @@ function createDefaultBetterAuthApi(
       autoSignIn: true,
       resetPasswordTokenExpiresIn: PASSWORD_RESET_EXPIRES_IN_SECONDS,
       revokeSessionsOnPasswordReset: true,
-      sendResetPassword: options.emailService
+      sendResetPassword: emailService
         ? async ({ user, token }) => {
-            await options.emailService?.sendPasswordResetEmail({
+            await emailService.sendPasswordResetEmail({
               to: user.email,
               resetUrl: createPublicPasswordResetUrl(publicWebUrl, token),
               expiresInSeconds: PASSWORD_RESET_EXPIRES_IN_SECONDS,
@@ -673,9 +679,9 @@ function createDefaultBetterAuthApi(
     emailVerification: {
       sendOnSignUp: true,
       expiresIn: EMAIL_VERIFICATION_EXPIRES_IN_SECONDS,
-      sendVerificationEmail: options.emailService
+      sendVerificationEmail: emailService
         ? async ({ user, token }) => {
-            await options.emailService?.sendVerificationEmail({
+            await emailService.sendVerificationEmail({
               to: user.email,
               verificationUrl: createPublicEmailVerificationUrl(
                 publicWebUrl,

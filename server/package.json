@@ -9,6 +9,7 @@
     "./modules/admin": "./dist/modules/admin/index.js",
     "./modules/auth": "./dist/modules/auth/index.js",
     "./modules/generation-telemetry": "./dist/modules/generation-telemetry/index.js",
+    "./modules/mail": "./dist/modules/mail/index.js",
     "./modules/migrations": "./dist/modules/migrations/index.js",
     "./modules/project-graph": "./dist/modules/project-graph/index.js",
     "./modules/project-snapshots": "./dist/modules/project-snapshots/index.js",
@@ -30,6 +31,8 @@
   "devDependencies": {
     "@better-auth/utils": "^0.4.2",
     "@types/nodemailer": "^8.0.1",
-    "@types/pg": "^8.20.0"
+    "@types/pg": "^8.20.0",
+    "@types/smtp-server": "^3.5.13",
+    "smtp-server": "^3.19.2"
   }
 }

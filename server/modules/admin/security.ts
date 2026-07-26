@@ -9,6 +9,7 @@ const ROLE_PERMISSIONS: Readonly<
     "dashboard.read",
     "security.write",
     "site_config.write",
+    "smtp_config.write",
     "user.read",
     "user.write",
   ]),
@@ -34,6 +35,15 @@ export class AdminAccessError extends Error {
     | "ADMIN_ACCESS_DENIED"
     | "RESOURCE_NOT_FOUND"
     | "VALIDATION_FAILED"
+    | "SMTP_CONFIG_CONFLICT"
+    | "SMTP_HOST_NOT_ALLOWED"
+    | "SMTP_DNS_FAILED"
+    | "SMTP_CONNECTION_FAILED"
+    | "SMTP_TLS_FAILED"
+    | "SMTP_AUTH_FAILED"
+    | "SMTP_SENDER_REJECTED"
+    | "SMTP_RECIPIENT_REJECTED"
+    | "SMTP_RATE_LIMITED"
     | "SERVICE_UNAVAILABLE";
 
   constructor(

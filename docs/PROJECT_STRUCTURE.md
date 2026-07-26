@@ -20,7 +20,8 @@ server/
   db/                  PostgreSQL 连接、迁移和 release manifest
   env/                 服务端环境读取
   modules/
-    auth/              Better Auth、邮件、设备和认证错误映射
+    auth/              Better Auth、动态认证邮件、设备和认证错误映射
+    mail/              SMTP 公网校验、TLS 传输与版本化凭据加解密
     workspaces/        成员授权、存储用量和配额
     projects/          项目元数据与生命周期
     project-graph/     图增量事务、change 和当前资产引用
@@ -88,7 +89,8 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 - `project-snapshots` 独占 checkpoint 与 restore。
 - `assets` 独占上传确认、私有读取、配额与 GC。
 - `migrations` 编排导入导出，但复用图、资产和 checkpoint 领域 helper。
-- `admin` 只能通过受限服务读取普通用户最小投影并写脱敏审计。
+- `admin` 只能通过受限服务读取普通用户最小投影、发布加密 SMTP/站点配置并写脱敏审计。
+- `mail` 是 API 与 Admin API 共用的受控 SMTP 执行层；它不读取 HTTP 请求或数据库，主密钥只由两个服务器入口注入。
 
 普通 API 没有 Provider、官方模型、积分或服务器任务路由；历史 URL 保持 404。
 

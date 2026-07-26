@@ -83,7 +83,7 @@ GET /health/ready
 
 `live` 只表示进程可响应。普通 API `ready` 并行执行 PostgreSQL query、Redis `PING` 和 S3 `HeadBucket`；Admin API `ready` 只执行 PostgreSQL query 与 S3 `HeadBucket`。失败返回 `503`、`status=degraded`，错误分类只允许 `connection_refused|timeout|authentication_failed|permission_denied|bucket_unavailable|unknown`。响应不含连接串、主机凭据、Bucket/object key 或底层错误正文。
 
-`/metrics` 仅用于受控内网抓取，包含 API 请求/延迟、错误、认证失败、限流、项目冲突、配额、迁移阶段、依赖和数据库连接池等当前指标。不存在 Worker metrics、任务 backlog/running/retry/lease、Provider/模型维度或结果转存指标；生成运营聚合只通过独立 Admin dashboard 读取。标签禁止 workspace/user/project/request ID、URL、邮箱、正文和凭据。
+`/metrics` 仅用于受控内网抓取。普通 API 包含请求/延迟、错误、认证失败、限流、项目冲突、配额、迁移阶段、依赖和数据库连接池；Admin API 额外暴露同进程的 SMTP 测试投递计数。邮件指标仅使用 operation/outcome/reason/source 低基数标签，不含主机或邮箱。不存在 Worker metrics、任务 backlog/running/retry/lease、Provider/模型维度或结果转存指标；生成运营聚合只通过独立 Admin dashboard 读取。标签禁止 workspace/user/project/request ID、URL、邮箱、正文和凭据。
 
 ## 公开站点配置
 
@@ -121,6 +121,8 @@ POST   /api/v1/auth/password/reset
 同账号只允许一个有效 session。登录检测到其他有效 session 时删除本次临时 session，返回 `409 ACTIVE_SESSION_EXISTS`；只有 `force=true` 的明确确认才撤销旧 session 并签发新 Cookie。
 
 `deviceId` 是浏览器非认证标识。设备列表只返回当前账号的 label、首次/最近时间和 current；只能删除自己的非当前设备。忘记密码接口不泄漏邮箱是否存在，密码重置成功后撤销旧 session。
+
+注册先创建未验证账号，再尽力发送首封验证邮件；SMTP 不可用时账号和 personal workspace 仍保留，用户可稍后重发。验证重发和忘记密码保持统一成功/非枚举语义，不能通过邮件投递错误判断邮箱是否存在。认证邮件只发送链接，不改为数字验证码；邮件发送不自动重试，避免响应丢失时重复投递。
 
 ## 工作区
 
@@ -246,6 +248,11 @@ GET  /admin/v1/users/:userId
 POST /admin/v1/users/:userId/ban
 POST /admin/v1/users/:userId/unban
 POST /admin/v1/users/:userId/revoke-sessions
+GET  /admin/v1/smtp-settings
+POST /admin/v1/smtp-settings/test-connection
+POST /admin/v1/smtp-settings/test-email
+POST /admin/v1/smtp-settings
+POST /admin/v1/smtp-settings/disable
 GET  /admin/v1/site-config
 POST /admin/v1/site-config
 GET  /admin/v1/site-assets
@@ -268,6 +275,12 @@ username 修改要求 3–30 位小写字母、数字、下划线或点。passwo
 列表 `items` 只包含 `id/userNumber/username/email/emailVerified/status/workspaceCount/storageUsedBytes/activeSessionCount/lastActiveAt/createdAt/updatedAt`。`GET /admin/v1/users/:userId` 返回 `{ user, workspaces }`，workspace 只包含 ID、名称、类型、成员角色、状态、套餐键、存储配额/已用/预留和时间。响应不包含兼容 `name`、密码、session token、IP/User-Agent、项目正文、Prompt、资产内容/object key 或 Provider 配置。
 
 三个用户 POST 都接受且只接受 `{ "reason": string }`，去除首尾空白后长度必须为 3–500，并执行统一 Admin Origin/Fetch Metadata/CSRF 校验。`ban`/`unban` 返回 `{ user, revokedSessionCount }`；封禁幂等设为 disabled 并撤销 session，解封设为 active 但不恢复旧 session。`revoke-sessions` 返回 `{ userId, revokedSessionCount, revokedAt }` 且不改变用户状态。目标不存在返回 `404 RESOURCE_NOT_FOUND`，目标为 deleted 或请求非法返回稳定校验错误；成功操作与脱敏审计同事务提交。
+
+SMTP 设置只允许 `super_admin` 通过 `smtp_config.write` 访问。GET 返回 `state=unconfigured|active|disabled`、`source=none|environment|managed`、非敏感连接/发件字段、`passwordConfigured`、`revisionId` 和更新时间，永不返回旧密码。设置输入只接受 `host/port/securityMode/username/password?/fromEmail/fromName/expectedRevisionId`；端口限于 `25|465|587|2525`，安全模式限于 `implicit_tls|starttls`。首次 managed 配置必须提供密码，已有 managed revision 时留空表示保留。
+
+连接测试和测试邮件使用当前请求表单，不发布配置，合计按管理员限制为 10 分钟 5 次；测试邮件额外接受 `recipient`，测试记录不保存收件地址、主机或凭据。保存会在写事务前重新验证连接，再以 `expectedRevisionId` 乐观锁原子插入不可变 revision、切换 current 并更新普通 API 可读发布投影；验证失败保留旧配置，冲突返回 `409 SMTP_CONFIG_CONFLICT`。disable 创建新的 disabled revision；普通 API 看到明确停用后不回退环境变量。
+
+SMTP 上游错误只映射为 `SMTP_HOST_NOT_ALLOWED|SMTP_DNS_FAILED|SMTP_CONNECTION_FAILED|SMTP_TLS_FAILED|SMTP_AUTH_FAILED|SMTP_SENDER_REJECTED|SMTP_RECIPIENT_REJECTED`；测试限流为 `SMTP_RATE_LIMITED`。响应、日志、审计与指标不包含上游原始响应、密码、token、完整验证链接或收件邮箱。
 
 site assets 只接受 PNG/JPEG/WebP/ICO、最大 4 MiB、单边最大 4096；完成时复核 metadata、完整 hash、魔数和真实尺寸。site config 保存版本化结构、不可变 revision、current 指针、公开投影和同事务审计，不接受 HTML、JavaScript、任意 CSS 或 URL 凭据/fragment。
 
@@ -320,6 +333,15 @@ EXPORT_RETRY_EXHAUSTED
 PACKAGE_LIMIT_EXCEEDED
 SERVICE_UNAVAILABLE
 ADMIN_ACCESS_DENIED
+SMTP_CONFIG_CONFLICT
+SMTP_HOST_NOT_ALLOWED
+SMTP_DNS_FAILED
+SMTP_CONNECTION_FAILED
+SMTP_TLS_FAILED
+SMTP_AUTH_FAILED
+SMTP_SENDER_REJECTED
+SMTP_RECIPIENT_REJECTED
+SMTP_RATE_LIMITED
 ```
 
 不存在任务并发、Provider 配置/可用性、官方模型、积分或模式切换错误码。Vault/任务缓存存储解密、任务中断恢复、设备模型绑定以及浏览器 Provider/CORS/结果下载错误均属于客户端语义，不是 Cloud API 契约。

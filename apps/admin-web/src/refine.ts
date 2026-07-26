@@ -118,6 +118,7 @@ const PERMISSIONS: Record<AdminRole, ReadonlySet<string>> = {
     "dashboard.read",
     "security.write",
     "site_config.write",
+    "smtp_config.write",
     "user.read",
     "user.write",
   ]),

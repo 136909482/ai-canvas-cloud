@@ -411,6 +411,20 @@
       "rollback": "drop the additive telemetry table before enabling collection; after collection starts, disable the endpoint and retain bounded operational rows until the replacement is deployed",
       "forwardRepair": "rerun the idempotent table and index creation, reapply scoped database role grants, and verify that only bounded metadata columns are present",
       "backupRequired": false
+    },
+    {
+      "version": "0032",
+      "name": "managed_smtp_configuration",
+      "releaseTrain": "p8-mail",
+      "phase": "expand",
+      "oldAppReadable": true,
+      "newAppReadable": false,
+      "oldAppWithNewSchema": true,
+      "lockRisk": "low",
+      "statementTimeoutMs": 10000,
+      "rollback": "disable managed SMTP before dropping the additive publication, test-attempt and revision tables; retain the legacy environment SMTP path during rollback",
+      "forwardRepair": "rerun the idempotent migration, reapply scoped database role grants, validate ciphertext envelopes, and keep legacy SMTP active until a managed revision passes connection and delivery tests",
+      "backupRequired": false
     }
   ]
 }

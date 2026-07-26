@@ -3,6 +3,7 @@ import {
   readPortEnv,
   readPositiveIntegerEnv,
   readRequiredEnv,
+  isProtectedDeploymentEnvironment,
   type LogLevel,
 } from "@ai-canvas-cloud/shared";
 
@@ -24,6 +25,15 @@ export interface AdminApiConfig {
   s3Region: string;
   s3AccessKeyId: string;
   s3SecretAccessKey: string;
+  smtpCredentialKeys?: string;
+  smtpCredentialActiveKeyVersion: number;
+  smtpDevelopmentSecret?: string;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpSecure: boolean;
+  smtpFrom?: string;
+  smtpUsername?: string;
+  smtpPassword?: string;
 }
 
 const LOG_LEVELS = new Set<LogLevel>(["debug", "info", "warn", "error"]);
@@ -81,6 +91,10 @@ export function loadAdminApiConfig(
   const ordinaryDatabaseUrl = readRequiredEnv(env, "DATABASE_URL");
   const betterAuthSecret = readRequiredEnv(env, "ADMIN_BETTER_AUTH_SECRET");
   const ordinaryAuthSecret = readRequiredEnv(env, "BETTER_AUTH_SECRET");
+  const smtpCredentialKeys = env.SMTP_CREDENTIAL_KEYS?.trim() || undefined;
+  const smtpCredentialActiveKeyVersion = Number(
+    env.SMTP_CREDENTIAL_ACTIVE_KEY_VERSION ?? 1,
+  );
   const webPublicUrl = readOptionalEnv(
     env,
     "ADMIN_WEB_PUBLIC_URL",
@@ -103,6 +117,17 @@ export function loadAdminApiConfig(
   ) {
     throw new Error(
       "ADMIN_DATABASE_URL must use a database role distinct from DATABASE_URL",
+    );
+  }
+  if (
+    !Number.isInteger(smtpCredentialActiveKeyVersion) ||
+    smtpCredentialActiveKeyVersion < 1
+  ) {
+    throw new Error("SMTP_CREDENTIAL_ACTIVE_KEY_VERSION must be positive");
+  }
+  if (isProtectedDeploymentEnvironment(appEnv) && !smtpCredentialKeys) {
+    throw new Error(
+      "SMTP_CREDENTIAL_KEYS is required in a protected environment",
     );
   }
   const ordinaryOrigins = (env.WEB_ALLOWED_ORIGINS ?? env.WEB_PUBLIC_URL ?? "")
@@ -141,5 +166,15 @@ export function loadAdminApiConfig(
     s3Region: readRequiredEnv(env, "S3_REGION"),
     s3AccessKeyId: readRequiredEnv(env, "S3_ACCESS_KEY_ID"),
     s3SecretAccessKey: readRequiredEnv(env, "S3_SECRET_ACCESS_KEY"),
+    smtpCredentialKeys,
+    smtpCredentialActiveKeyVersion,
+    smtpDevelopmentSecret:
+      appEnv === "development" ? ordinaryAuthSecret : undefined,
+    smtpHost: env.SMTP_HOST?.trim() || undefined,
+    smtpPort: env.SMTP_PORT ? readPortEnv(env, "SMTP_PORT", 465) : undefined,
+    smtpSecure: readBoolean(env, "SMTP_SECURE", false),
+    smtpFrom: env.SMTP_FROM?.trim() || undefined,
+    smtpUsername: env.SMTP_USERNAME?.trim() || undefined,
+    smtpPassword: env.SMTP_PASSWORD?.trim() || undefined,
   };
 }

@@ -8,6 +8,7 @@ import {
   type AdminDashboardService,
   type AdminService,
   type AdminSiteConfigService,
+  type AdminSmtpConfigService,
   type AdminUserOperationsService,
 } from "@ai-canvas-cloud/server/modules/admin";
 import { createAdminApiServer } from "./server.ts";
@@ -93,6 +94,7 @@ async function withServer(
   additional: {
     userOperationsService?: AdminUserOperationsService;
     dashboardService?: AdminDashboardService;
+    smtpConfigService?: AdminSmtpConfigService;
   } = {},
 ) {
   const server = createAdminApiServer({
@@ -422,6 +424,86 @@ test("Admin site configuration routes keep reads behind administrator sessions a
       assert.equal(publishCalls, 1);
     },
     siteConfigService,
+  );
+});
+
+test("Admin SMTP routes expose masked settings and keep every mutation behind CSRF", async () => {
+  const calls: string[] = [];
+  const response = {
+    state: "active" as const,
+    source: "managed" as const,
+    host: "smtp.example.com",
+    port: 465,
+    securityMode: "implicit_tls" as const,
+    username: "mailer@example.com",
+    passwordConfigured: true,
+    fromEmail: "noreply@example.com",
+    fromName: "AI Canvas",
+    revisionId: "123e4567-e89b-42d3-a456-426614174000",
+    updatedAt: new Date().toISOString(),
+  };
+  const smtpConfigService: AdminSmtpConfigService = {
+    async getCurrent() {
+      calls.push("get");
+      return response;
+    },
+    async testConnection() {
+      calls.push("connection");
+      return { ok: true, testedAt: new Date().toISOString() };
+    },
+    async testEmail() {
+      calls.push("email");
+      return { ok: true, testedAt: new Date().toISOString() };
+    },
+    async publish() {
+      calls.push("publish");
+      return response;
+    },
+    async disable() {
+      calls.push("disable");
+      return { ...response, state: "disabled" };
+    },
+  };
+  await withServer(
+    createUnavailableAdminService(),
+    async (port) => {
+      const read = await request(port, {
+        path: "/admin/v1/smtp-settings",
+        origin: config.allowedOrigins[0],
+      });
+      assert.equal(read.status, 200);
+      assert.equal(read.body.passwordConfigured, true);
+      assert.equal("password" in read.body, false);
+
+      const rejected = await request(port, {
+        path: "/admin/v1/smtp-settings/test-connection",
+        method: "POST",
+        origin: config.allowedOrigins[0],
+        body: {},
+      });
+      assert.equal(rejected.status, 403);
+
+      const token = await csrf(port);
+      for (const [path, expected] of [
+        ["/admin/v1/smtp-settings/test-connection", "connection"],
+        ["/admin/v1/smtp-settings/test-email", "email"],
+        ["/admin/v1/smtp-settings", "publish"],
+        ["/admin/v1/smtp-settings/disable", "disable"],
+      ] as const) {
+        const result = await request(port, {
+          path,
+          method: "POST",
+          origin: config.allowedOrigins[0],
+          cookie: token.cookie,
+          csrf: token.token,
+          body: {},
+        });
+        assert.equal(result.status, 200);
+        assert.equal(calls.at(-1), expected);
+      }
+    },
+    undefined,
+    { smtpConfigService },
   );
 });
 

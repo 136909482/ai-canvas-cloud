@@ -4,6 +4,7 @@ export * from "./modules/assets/index.js";
 export * from "./modules/admin/index.js";
 export * from "./modules/auth/index.js";
 export * from "./modules/generation-telemetry/index.js";
+export * from "./modules/mail/index.js";
 export * from "./modules/migrations/index.js";
 export * from "./modules/project-graph/index.js";
 export * from "./modules/project-snapshots/index.js";

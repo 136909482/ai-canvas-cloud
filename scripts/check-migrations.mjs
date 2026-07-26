@@ -2201,6 +2201,133 @@ async function assertSiteConfigurationSchema(client) {
   );
 }
 
+async function assertManagedSmtpSchema(client) {
+  const adminTables = await client.query(
+    `
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'admin'
+      AND table_name = ANY($1::text[])
+  `,
+    [["smtp_config_revisions", "smtp_config_current", "smtp_test_attempts"]],
+  );
+  if (adminTables.rowCount !== 3) {
+    throw new Error("Managed SMTP migration did not create all Admin tables");
+  }
+  const publication = await client.query(`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'smtp_config_publications'
+  `);
+  if (publication.rowCount !== 1) {
+    throw new Error("Managed SMTP migration did not create its publication");
+  }
+  const publicAccess = await client.query(`
+    SELECT
+      has_table_privilege('public', 'admin.smtp_config_revisions', 'SELECT') AS revision_read,
+      has_table_privilege('public', 'admin.smtp_test_attempts', 'SELECT') AS attempt_read,
+      has_table_privilege('public', 'public.smtp_config_publications', 'SELECT') AS publication_read
+  `);
+  if (
+    publicAccess.rows[0]?.revision_read !== false ||
+    publicAccess.rows[0]?.attempt_read !== false ||
+    publicAccess.rows[0]?.publication_read !== false
+  ) {
+    throw new Error(
+      "Managed SMTP configuration is accessible through PUBLIC privileges",
+    );
+  }
+  const attemptColumns = await client.query(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'admin' AND table_name = 'smtp_test_attempts'
+  `);
+  if (
+    attemptColumns.rows.some(({ column_name }) =>
+      ["recipient", "email", "host", "username", "password"].includes(
+        column_name,
+      ),
+    )
+  ) {
+    throw new Error(
+      "SMTP test attempts contain recipient or credential columns",
+    );
+  }
+
+  const administratorId = `smtp-migration-admin-${randomUUID()}`;
+  const revisionId = randomUUID();
+  const plaintext = `smtp-plaintext-${randomUUID()}`;
+  const envelope = {
+    algorithm: "aes-256-gcm",
+    keyVersion: 1,
+    iv: Buffer.alloc(12, 1).toString("base64"),
+    ciphertext: Buffer.from(plaintext).toString("base64"),
+    authTag: Buffer.alloc(16, 2).toString("base64"),
+  };
+  await client.query(
+    `INSERT INTO admin."user" (id, name, email, username, display_username, role)
+     VALUES ($1, 'SMTP Migration Admin', $2, $3, $3, 'super_admin')`,
+    [
+      administratorId,
+      `${administratorId}@example.invalid`,
+      `smtp_${randomUUID().replaceAll("-", "").slice(0, 20)}`,
+    ],
+  );
+  await client.query(
+    `INSERT INTO admin.smtp_config_revisions (
+       id, enabled, host, port, security_mode, username,
+       encrypted_password_json, key_version, from_email, from_name,
+       created_by_admin_id
+     ) VALUES ($1, true, 'smtp.example.com', 465, 'implicit_tls',
+       'mailer@example.com', $2::jsonb, 1, 'noreply@example.com',
+       'AI Canvas', $3)`,
+    [revisionId, JSON.stringify(envelope), administratorId],
+  );
+  await client.query(
+    `INSERT INTO admin.smtp_config_current
+       (singleton_id, revision_id, updated_by_admin_id)
+     VALUES (1, $1, $2)
+     ON CONFLICT (singleton_id) DO UPDATE SET
+       revision_id = EXCLUDED.revision_id,
+       updated_by_admin_id = EXCLUDED.updated_by_admin_id,
+       updated_at = now()`,
+    [revisionId, administratorId],
+  );
+  await client.query(
+    `INSERT INTO public.smtp_config_publications (
+       singleton_id, revision_id, enabled, host, port, security_mode,
+       username, encrypted_password_json, key_version, from_email, from_name
+     ) VALUES (1, $1, true, 'smtp.example.com', 465, 'implicit_tls',
+       'mailer@example.com', $2::jsonb, 1, 'noreply@example.com', 'AI Canvas')
+     ON CONFLICT (singleton_id) DO UPDATE SET
+       revision_id = EXCLUDED.revision_id,
+       encrypted_password_json = EXCLUDED.encrypted_password_json,
+       published_at = now()`,
+    [revisionId, JSON.stringify(envelope)],
+  );
+  const stored = await client.query(
+    `SELECT encrypted_password_json::text AS document
+     FROM public.smtp_config_publications WHERE singleton_id = 1`,
+  );
+  if (stored.rows[0]?.document.includes(plaintext)) {
+    throw new Error("Managed SMTP publication contains a plaintext password");
+  }
+  await expectRejected(
+    client,
+    "UPDATE admin.smtp_config_revisions SET host = $2 WHERE id = $1",
+    [revisionId, plaintext],
+    "Managed SMTP revision accepted an UPDATE",
+  );
+  await expectRejected(
+    client,
+    `INSERT INTO admin.smtp_test_attempts
+       (admin_user_id, test_kind, result, failure_category)
+     VALUES ($1, 'email', 'failure', 'authentication')`,
+    [administratorId],
+    "SMTP test attempt accepted a completed result without a completion time",
+  );
+}
+
 let legacyOfficialSiteConfigRevisionId = null;
 
 async function seedLegacyOfficialSiteConfigFixture(client) {
@@ -2429,7 +2556,8 @@ try {
     if (
       migration.version === "0029" ||
       migration.version === "0030" ||
-      migration.version === "0031"
+      migration.version === "0031" ||
+      migration.version === "0032"
     ) {
       await client.query(migration.sql);
     }
@@ -2453,6 +2581,7 @@ try {
   await assertAdminSecuritySchema(client);
   await assertServerGenerationRemoved(client, schemaName);
   await assertSiteConfigurationSchema(client);
+  await assertManagedSmtpSchema(client);
   await client.query("SET CONSTRAINTS ALL IMMEDIATE");
   await client.query("ROLLBACK");
   console.log(

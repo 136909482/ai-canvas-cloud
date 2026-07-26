@@ -28,7 +28,8 @@ test(
         await readdir(join(process.cwd(), "server", "db", "migrations"))
       )
         .filter(
-          (name) => name.endsWith(".sql") && !/^(?:002[5-9]|0030)_/.test(name),
+          (name) =>
+            name.endsWith(".sql") && !/^(?:002[5-9]|0030|0032)_/.test(name),
         )
         .sort();
       for (const migration of migrations) {

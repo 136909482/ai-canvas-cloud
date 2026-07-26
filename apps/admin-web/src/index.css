@@ -839,6 +839,70 @@ code {
   max-width: 440px;
 }
 
+.smtp-status-tag {
+  min-width: 58px;
+  margin: 0;
+  text-align: center;
+}
+
+.smtp-config-section,
+.smtp-test-section {
+  overflow: hidden;
+}
+
+.smtp-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.6fr);
+  gap: 0 22px;
+}
+
+.smtp-form-grid .ant-input-number {
+  width: 100%;
+}
+
+.smtp-form-grid .ant-segmented {
+  min-height: 36px;
+  padding: 3px;
+}
+
+.smtp-form-grid .ant-segmented-item-label {
+  min-height: 28px;
+  line-height: 28px;
+}
+
+.smtp-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 2px;
+  border-top: 1px solid #edf0f4;
+}
+
+.smtp-form-actions .ant-btn {
+  margin-top: 18px;
+}
+
+.smtp-test-section__icon {
+  background: #eaf7f0;
+  color: #16855b;
+}
+
+.smtp-test-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.smtp-test-form .ant-form-item {
+  margin-bottom: 0;
+}
+
+.smtp-test-form > .ant-btn {
+  min-width: 142px;
+}
+
 .table-toolbar {
   display: flex;
   align-items: center;
@@ -1851,6 +1915,7 @@ code {
   }
 
   .credential-layout,
+  .smtp-form-grid,
   .site-form-grid {
     grid-template-columns: 1fr;
   }
@@ -2002,6 +2067,23 @@ code {
     align-items: flex-start;
     flex-direction: column;
     gap: 14px;
+  }
+
+  .smtp-settings-page .page-header__extra,
+  .smtp-settings-page .page-header__extra > .ant-space {
+    width: 100%;
+  }
+
+  .smtp-settings-page .page-header__extra .ant-btn {
+    flex: 1 1 auto;
+  }
+
+  .smtp-test-form {
+    grid-template-columns: 1fr;
+  }
+
+  .smtp-test-form > .ant-btn {
+    width: 100%;
   }
 
   .table-pagination {

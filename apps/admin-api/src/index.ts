@@ -1,14 +1,18 @@
 import {
   createJsonLogger,
+  createMetricsRegistry,
   measureDependencyCheck,
 } from "@ai-canvas-cloud/shared";
 import {
   createPostgresAdminService,
   createPostgresAdminDashboardService,
   createPostgresAdminSiteConfigService,
+  createPostgresAdminSmtpConfigService,
   createPostgresAdminUserOperationsService,
   createPostgresPool,
   createS3ObjectStorage,
+  createSmtpCredentialKeyring,
+  legacySmtpRuntimeConfig,
   loadDotEnv,
 } from "@ai-canvas-cloud/server";
 import { loadAdminApiConfig } from "./config.js";
@@ -45,6 +49,33 @@ const siteConfigService = createPostgresAdminSiteConfigService(pool, {
   objectStorage,
   auditSecret: config.betterAuthSecret,
 });
+const metrics = createMetricsRegistry();
+const legacySmtpConfig =
+  config.smtpHost &&
+  config.smtpPort &&
+  config.smtpFrom &&
+  config.smtpUsername &&
+  config.smtpPassword
+    ? legacySmtpRuntimeConfig({
+        host: config.smtpHost,
+        port: config.smtpPort,
+        secure: config.smtpSecure,
+        from: config.smtpFrom,
+        username: config.smtpUsername,
+        password: config.smtpPassword,
+      })
+    : undefined;
+const smtpConfigService = createPostgresAdminSmtpConfigService(pool, {
+  adminService,
+  keyring: createSmtpCredentialKeyring({
+    serializedKeys: config.smtpCredentialKeys,
+    activeVersion: config.smtpCredentialActiveKeyVersion,
+    developmentSecret: config.smtpDevelopmentSecret,
+  }),
+  fallbackConfig: legacySmtpConfig,
+  auditSecret: config.betterAuthSecret,
+  metrics,
+});
 const userOperationsService = createPostgresAdminUserOperationsService(pool, {
   adminService,
   auditSecret: config.betterAuthSecret,
@@ -71,8 +102,10 @@ const server = createAdminApiServer({
   adminService,
   dashboardService,
   siteConfigService,
+  smtpConfigService,
   userOperationsService,
   logger,
+  metrics,
   readinessChecks,
 });
 

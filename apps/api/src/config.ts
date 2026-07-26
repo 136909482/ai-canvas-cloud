@@ -30,13 +30,15 @@ export interface ApiConfig {
   devSeedAdminUsername: string;
   devSeedAdminEmail: string;
   devSeedAdminPassword?: string;
-  authEmailTransport: "development" | "smtp";
+  authEmailTransport: "development" | "smtp" | "managed";
   smtpHost?: string;
   smtpPort?: number;
   smtpSecure: boolean;
   smtpFrom?: string;
   smtpUsername?: string;
   smtpPassword?: string;
+  smtpCredentialKeys?: string;
+  smtpCredentialActiveKeyVersion: number;
 }
 
 const logLevels = new Set<LogLevel>(["debug", "info", "warn", "error"]);
@@ -112,8 +114,21 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     "AUTH_EMAIL_TRANSPORT",
     "development",
   ).toLowerCase();
-  if (authEmailTransport !== "development" && authEmailTransport !== "smtp") {
+  if (
+    authEmailTransport !== "development" &&
+    authEmailTransport !== "smtp" &&
+    authEmailTransport !== "managed"
+  ) {
     throw new Error(`Invalid AUTH_EMAIL_TRANSPORT: ${authEmailTransport}`);
+  }
+  const smtpCredentialActiveKeyVersion = Number(
+    env.SMTP_CREDENTIAL_ACTIVE_KEY_VERSION ?? 1,
+  );
+  if (
+    !Number.isInteger(smtpCredentialActiveKeyVersion) ||
+    smtpCredentialActiveKeyVersion < 1
+  ) {
+    throw new Error("SMTP_CREDENTIAL_ACTIVE_KEY_VERSION must be positive");
   }
 
   return {
@@ -174,5 +189,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     smtpFrom: env.SMTP_FROM?.trim() || undefined,
     smtpUsername: env.SMTP_USERNAME?.trim() || undefined,
     smtpPassword: env.SMTP_PASSWORD?.trim() || undefined,
+    smtpCredentialKeys: env.SMTP_CREDENTIAL_KEYS?.trim() || undefined,
+    smtpCredentialActiveKeyVersion,
   };
 }

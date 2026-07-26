@@ -20,9 +20,11 @@ AI Canvas Cloud 是账号制 AI 画布 SaaS，提供账号、个人空间、云�
 Browser -> Web -> API -> PostgreSQL
                        -> Redis (rate limiting/readiness only)
                        -> Private object storage
+                       -> Managed SMTP (verification/reset only)
 
 Admin Browser -> Admin Web -> Admin API -> PostgreSQL admin schema
                                       -> Private site assets
+                                      -> Managed SMTP tests
 ```
 
 常驻进程只有 Web、API、Admin Web 和 Admin API。迁移、备份、恢复和资产维护按需运行。不存在 Worker、BullMQ Consumer、服务端任务 dispatcher、服务器 Provider 调用或 Worker readiness。
@@ -34,7 +36,7 @@ Admin Browser -> Admin Web -> Admin API -> PostgreSQL admin schema
 - `apps/admin-web` 与 `apps/admin-api` 使用独立 Origin、Cookie、认证、RBAC、数据库角色和审计。
 - `packages/contracts` 是 HTTP 运行时 schema 和共享类型来源。
 - `packages/project-graph` 只保存图操作、检查点和 `ProjectRecord` 纯转换。
-- `server/modules` 拥有认证、工作区、项目图、检查点、资产、生成运营遥测、迁移和 Admin 领域事务。
+- `server/modules` 拥有认证、邮件传输、工作区、项目图、检查点、资产、生成运营遥测、迁移和 Admin 领域事务。
 
 Web 不得 import `server/`、数据库驱动、Redis 或对象存储管理 SDK。API 路由只解析 HTTP、可信会话与 schema，再调用领域服务；不得直接写项目图、资产引用、迁移或 Admin 表。
 
@@ -49,6 +51,10 @@ Web 不得 import `server/`、数据库驱动、Redis 或对象存储管理 SDK�
 - 密码、Cookie、token、完整邮件链接、正文和 Provider Key 不得进入日志。
 
 Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户名、邮箱、UID、状态、session 时间、workspace 与存储聚合，不读取兼容 `name`、密码、session token、项目正文、资产 object key 或浏览器 Provider 配置。
+
+认证邮件支持 `development|smtp|managed` 三种传输模式。`managed` 每次发送前读取 `public.smtp_config_publications`，按 revision 缓存解密后的运行配置和 Nodemailer transporter，并在每次发送前重新校验 DNS；后台新 revision 或公网目标变化后下一封邮件立即替换缓存，不要求重启。尚无后台 revision 时可回退旧 SMTP 环境变量，管理员明确停用后不得回退。注册首封验证邮件失败不能回滚账号，验证重发和密码重置保持不披露邮箱是否存在的响应语义；SMTP `sendMail` 不自动重试。
+
+只有 `super_admin` 拥有 `smtp_config.write`。后台测试和发布只接受用户名/密码 SMTP、`SSL/TLS` 或强制 `STARTTLS`，证书校验和 TLS 1.2 不可关闭；每次连接先解析全部 DNS 结果并拒绝本机、私网、链路本地和保留地址。密码只以 AES-256-GCM 信封密文进入数据库，`SMTP_CREDENTIAL_KEYS` 与活动 key version 只能由 API/Admin API 服务器环境提供，不能从后台填写或返回前端。
 
 ## 项目图、检查点与资产
 
@@ -82,9 +88,9 @@ Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户�
 
 普通 API 统一处理精确 Origin、Cookie CSRF、安全响应头、严格 JSON、固定路由组和 Redis Lua 原子限流。Redis 故障时普通读可 fail-open，高风险认证和写请求必须 fail-closed。
 
-普通 API readiness 检查 PostgreSQL、Redis 和对象存储；Admin API 只检查 PostgreSQL 和对象存储。指标只使用低基数标签，不包含用户、workspace、project、动态 URL、正文或凭据。
+普通 API readiness 检查 PostgreSQL、Redis 和对象存储；Admin API 只检查 PostgreSQL 和对象存储。指标只使用低基数标签，不包含用户、workspace、project、动态 URL、主机、邮箱、正文或凭据；邮件指标只按 `verification|password_reset|test`、结果、失败类别和配置来源区分。
 
-生产应用启动不自动迁移。`0029_remove_server_generation.sql` 已删除旧 Provider 密文、服务器任务/队列/用量、官方目录/积分和任务资产引用；`0030_user_usernames.sql` 已把普通账号升级为必填且不可修改的用户名契约；`0031_generation_telemetry.sql` 只增加不可执行的脱敏运营表。执行 contract 前必须备份并停止不兼容写入方，所有迁移后重新应用数据库角色并完成约束审计；回滚与前向修复详细语义只在 [`DATA_MODEL.md`](DATA_MODEL.md) 维护。
+生产应用启动不自动迁移。`0029_remove_server_generation.sql` 已删除旧 Provider 密文、服务器任务/队列/用量、官方目录/积分和任务资产引用；`0030_user_usernames.sql` 已把普通账号升级为必填且不可修改的用户名契约；`0031_generation_telemetry.sql` 增加不可执行的脱敏运营表；`0032_managed_smtp_configuration.sql` 增加版本化加密 SMTP 配置与最小发布投影。执行 contract 前必须备份并停止不兼容写入方，所有迁移后重新应用数据库角色并完成约束审计；回滚与前向修复详细语义只在 [`DATA_MODEL.md`](DATA_MODEL.md) 维护。
 
 ## 开发命令
 

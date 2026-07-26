@@ -24,7 +24,7 @@ const connections = {
   app: process.env.DATABASE_URL,
   admin: process.env.ADMIN_DATABASE_URL,
 };
-const expectedMigrationVersions = Array.from({ length: 31 }, (_, index) =>
+const expectedMigrationVersions = Array.from({ length: 32 }, (_, index) =>
   String(index + 1).padStart(4, "0"),
 );
 
@@ -47,6 +47,8 @@ const expectedPermissions = {
     assetObjectRead: true,
     sitePublicationRead: true,
     sitePublicationWrite: false,
+    smtpPublicationRead: true,
+    smtpPublicationWrite: false,
     generationTelemetryRead: true,
     generationTelemetryAttemptRead: true,
   },
@@ -65,6 +67,8 @@ const expectedPermissions = {
     assetObjectRead: false,
     sitePublicationRead: true,
     sitePublicationWrite: true,
+    smtpPublicationRead: true,
+    smtpPublicationWrite: true,
     generationTelemetryRead: true,
     generationTelemetryAttemptRead: false,
   },
@@ -185,6 +189,12 @@ for (const [connection, connectionString] of Object.entries(connections)) {
     );
     const sitePublicationWrite = await client.query(
       `SELECT has_table_privilege(current_user, 'public.site_config_publications', 'INSERT,UPDATE') AS allowed`,
+    );
+    const smtpPublicationRead = await client.query(
+      `SELECT has_table_privilege(current_user, 'public.smtp_config_publications', 'SELECT') AS allowed`,
+    );
+    const smtpPublicationWrite = await client.query(
+      `SELECT has_table_privilege(current_user, 'public.smtp_config_publications', 'INSERT,UPDATE') AS allowed`,
     );
     const removedRelations = await client.query(
       `
@@ -317,6 +327,8 @@ for (const [connection, connectionString] of Object.entries(connections)) {
       assetObjectRead,
       sitePublicationRead: sitePublicationRead.rows[0]?.allowed,
       sitePublicationWrite: sitePublicationWrite.rows[0]?.allowed,
+      smtpPublicationRead: smtpPublicationRead.rows[0]?.allowed,
+      smtpPublicationWrite: smtpPublicationWrite.rows[0]?.allowed,
       generationTelemetryRead,
       generationTelemetryAttemptRead,
     };

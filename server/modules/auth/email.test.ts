@@ -1,7 +1,35 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Logger } from "@ai-canvas-cloud/shared";
-import { createDevelopmentAuthEmailService } from "../../dist/modules/auth/email.js";
+import {
+  createDevelopmentAuthEmailService,
+  createFailureTolerantAuthEmailService,
+} from "../../dist/modules/auth/email.js";
+
+test("authentication email delivery failures do not escape into auth responses", async () => {
+  const calls: string[] = [];
+  const service = createFailureTolerantAuthEmailService({
+    async sendVerificationEmail() {
+      calls.push("verification");
+      throw new Error("provider unavailable");
+    },
+    async sendPasswordResetEmail() {
+      calls.push("password_reset");
+      throw new Error("provider unavailable");
+    },
+  });
+  await service.sendVerificationEmail({
+    to: "fixture@example.invalid",
+    verificationUrl: "https://web.invalid/verify?token=secret",
+    expiresInSeconds: 900,
+  });
+  await service.sendPasswordResetEmail({
+    to: "fixture@example.invalid",
+    resetUrl: "https://web.invalid/reset?token=secret",
+    expiresInSeconds: 900,
+  });
+  assert.deepEqual(calls, ["verification", "password_reset"]);
+});
 
 test("development email diagnostics never expose verification or reset tokens", async () => {
   const entries: Array<{ message: string; context?: Record<string, unknown> }> =
@@ -35,6 +63,7 @@ test("development email diagnostics never expose verification or reset tokens", 
   const serialized = JSON.stringify(entries);
   assert.equal(serialized.includes(verificationToken), false);
   assert.equal(serialized.includes(resetToken), false);
+  assert.equal(serialized.includes("fixture@example.invalid"), false);
   assert.equal(serialized.includes("/auth/"), false);
   assert.deepEqual(
     entries.map((entry) => entry.context?.delivery),

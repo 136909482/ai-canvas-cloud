@@ -39,6 +39,27 @@ test("API config rejects missing secrets and invalid log level", () => {
     () => loadApiConfig({ ...baseEnv, LOG_LEVEL: "trace" }),
     /LOG_LEVEL/,
   );
+  assert.throws(
+    () =>
+      loadApiConfig({
+        ...baseEnv,
+        SMTP_CREDENTIAL_ACTIVE_KEY_VERSION: "0",
+      }),
+    /SMTP_CREDENTIAL_ACTIVE_KEY_VERSION/,
+  );
+});
+
+test("API config loads managed SMTP key versions", () => {
+  const keys = JSON.stringify({ 2: Buffer.alloc(32, 2).toString("base64") });
+  const config = loadApiConfig({
+    ...baseEnv,
+    AUTH_EMAIL_TRANSPORT: "managed",
+    SMTP_CREDENTIAL_KEYS: keys,
+    SMTP_CREDENTIAL_ACTIVE_KEY_VERSION: "2",
+  });
+  assert.equal(config.authEmailTransport, "managed");
+  assert.equal(config.smtpCredentialKeys, keys);
+  assert.equal(config.smtpCredentialActiveKeyVersion, 2);
 });
 
 test("API config reads development admin seed options outside production", () => {

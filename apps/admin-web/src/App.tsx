@@ -29,6 +29,11 @@ const SiteConfigView = lazy(() =>
     default: module.SiteConfigView,
   })),
 );
+const SmtpSettingsView = lazy(() =>
+  import("./SmtpSettingsView").then((module) => ({
+    default: module.SmtpSettingsView,
+  })),
+);
 const SecurityView = lazy(() =>
   import("./SecurityView").then((module) => ({ default: module.SecurityView })),
 );
@@ -71,6 +76,7 @@ function Console({
       <UsersView onSelectUser={setSelectedUserId} />
     );
   else if (view === "site") page = <SiteConfigView />;
+  else if (view === "smtp") page = <SmtpSettingsView />;
   else page = <AuditView />;
 
   return (

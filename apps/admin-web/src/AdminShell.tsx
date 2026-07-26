@@ -4,6 +4,7 @@ import { Button, Drawer, Layout, Menu, Tooltip } from "antd";
 import {
   Activity,
   LogOut,
+  Mail,
   Menu as MenuIcon,
   ScrollText,
   Settings2,
@@ -19,6 +20,7 @@ const ICONS: Record<AdminView, ReactNode> = {
   dashboard: <Activity size={18} />,
   users: <UsersRound size={18} />,
   site: <Settings2 size={18} />,
+  smtp: <Mail size={18} />,
   audit: <ScrollText size={18} />,
   security: <ShieldCheck size={18} />,
 };

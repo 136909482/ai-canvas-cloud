@@ -237,29 +237,43 @@ export function validateProtectedDeploymentEnvironment(
   }
 
   if (options.requireMail !== false) {
-    if ((env.AUTH_EMAIL_TRANSPORT ?? "").trim().toLowerCase() !== "smtp") {
+    const emailTransport = (env.AUTH_EMAIL_TRANSPORT ?? "")
+      .trim()
+      .toLowerCase();
+    if (emailTransport !== "smtp" && emailTransport !== "managed") {
       throw new Error(
-        "AUTH_EMAIL_TRANSPORT=smtp is required in a protected environment",
+        "AUTH_EMAIL_TRANSPORT=smtp or managed is required in a protected environment",
       );
     }
-    for (const key of [
-      "SMTP_HOST",
-      "SMTP_FROM",
-      "SMTP_USERNAME",
-      "SMTP_PASSWORD",
-      "MAIL_RESOURCE_ID",
-      "MAIL_CREDENTIAL_ID",
-    ]) {
+    const requiredMailKeys =
+      emailTransport === "managed"
+        ? [
+            "SMTP_CREDENTIAL_KEYS",
+            "SMTP_CREDENTIAL_ACTIVE_KEY_VERSION",
+            "MAIL_RESOURCE_ID",
+            "MAIL_CREDENTIAL_ID",
+          ]
+        : [
+            "SMTP_HOST",
+            "SMTP_FROM",
+            "SMTP_USERNAME",
+            "SMTP_PASSWORD",
+            "MAIL_RESOURCE_ID",
+            "MAIL_CREDENTIAL_ID",
+          ];
+    for (const key of requiredMailKeys) {
       rejectPlaceholder(required(env, key), key, {
         allowAngleBrackets: key === "SMTP_FROM",
       });
     }
-    const smtpPort = Number(required(env, "SMTP_PORT"));
-    if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
-      throw new Error("SMTP_PORT must be a valid port");
-    }
-    if (truthy(env.SMTP_SECURE) === false) {
-      throw new Error("SMTP_SECURE must be true in a protected environment");
+    if (emailTransport === "smtp") {
+      const smtpPort = Number(required(env, "SMTP_PORT"));
+      if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
+        throw new Error("SMTP_PORT must be a valid port");
+      }
+      if (truthy(env.SMTP_SECURE) === false) {
+        throw new Error("SMTP_SECURE must be true in a protected environment");
+      }
     }
   }
 }
