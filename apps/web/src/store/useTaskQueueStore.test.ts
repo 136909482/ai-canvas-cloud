@@ -1,4 +1,5 @@
-import { recoverTasksAfterSnapshotLoad } from "./useTaskQueueStore.ts";
+import { recoverTasksAfterSnapshotLoad } from "@/features/generateQueue/taskQueueSnapshot";
+import { useTaskQueueStore } from "./useTaskQueueStore.ts";
 import type { GenerateTask } from "@/types";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -62,7 +63,17 @@ function runTaskQueueRecoveryTests() {
       status: "running",
       remoteTaskId: "remote-1",
       remoteStatus: "SUCCESS",
+      telemetryAttemptId: "019f97c9-f0e2-7411-aa9b-6532e82af3bc",
+      telemetryStartedAt: 350,
       startedAt: 400,
+    }),
+    createTask({
+      id: "video-persist-error",
+      kind: "video",
+      status: "running",
+      phase: "persisting",
+      remoteTaskId: "video-remote-1",
+      startedAt: 450,
     }),
     createTask({
       id: "done",
@@ -113,8 +124,8 @@ function runTaskQueueRecoveryTests() {
     (task) => task.id === "running-remote",
   );
   assert(
-    remoteRunningTask?.status === "running",
-    "remote running tasks should remain running for provider polling",
+    remoteRunningTask?.status === "queued",
+    "remote running tasks should re-enter the scheduler before polling",
   );
   assert(
     remoteRunningTask.remoteTaskId === "remote-1",
@@ -123,6 +134,28 @@ function runTaskQueueRecoveryTests() {
   assert(
     remoteRunningTask.remoteStatus === "IN_PROGRESS",
     "remote running tasks should resume polling from an in-progress state",
+  );
+  assert(
+    remoteRunningTask.phase === "polling",
+    "remote running tasks should preserve the polling phase",
+  );
+  assert(
+    remoteRunningTask.telemetryAttemptId ===
+      "019f97c9-f0e2-7411-aa9b-6532e82af3bc",
+    "remote running tasks should preserve their telemetry attempt id",
+  );
+  assert(
+    remoteRunningTask.telemetryStartedAt === 350,
+    "remote running tasks should preserve their telemetry start time",
+  );
+
+  const videoPersistTask = recoveredTasks.find(
+    (task) => task.id === "video-persist-error",
+  );
+  assert(
+    videoPersistTask?.status === "queued" &&
+      videoPersistTask.phase === "polling",
+    "video upload recovery should re-query its remote result instead of using the image Blob path",
   );
 
   const doneTask = recoveredTasks.find((task) => task.id === "done");
@@ -150,3 +183,133 @@ function runTaskQueueRecoveryTests() {
 }
 
 runTaskQueueRecoveryTests();
+
+function runTaskQueueRetryTelemetryTests() {
+  const store = useTaskQueueStore.getState();
+  store.resetToEmpty();
+  const taskId = store.createTask({
+    sourceNodeId: "gen-retry",
+    model: "model-1",
+    prompt: "prompt",
+    telemetryAttemptId: "019f97c9-f0e2-7411-aa9b-6532e82af3bc",
+    telemetryStartedAt: 100,
+  });
+
+  useTaskQueueStore.getState().markTaskQueued(taskId);
+  const retriedTask = useTaskQueueStore
+    .getState()
+    .tasks.find((task) => task.id === taskId);
+
+  assert(retriedTask, "retried task should still exist");
+  assert(
+    retriedTask.telemetryAttemptId === null,
+    "manual retry should clear the previous telemetry attempt id",
+  );
+  assert(
+    retriedTask.telemetryStartedAt === null,
+    "manual retry should clear the previous telemetry start time",
+  );
+
+  useTaskQueueStore.getState().resetToEmpty();
+}
+
+runTaskQueueRetryTelemetryTests();
+
+function runAtomicClaimTests() {
+  const store = useTaskQueueStore.getState();
+  store.resetToEmpty();
+  const taskId = store.createTask({
+    sourceNodeId: "gen-claim",
+    model: "model-1",
+    prompt: "prompt",
+  });
+
+  const firstClaim = useTaskQueueStore.getState().claimTask(taskId);
+  const duplicateClaim = useTaskQueueStore.getState().claimTask(taskId);
+  assert(
+    firstClaim?.status === "running",
+    "the first claim should start the task",
+  );
+  assert(duplicateClaim === null, "a claimed task must not be claimed twice");
+
+  useTaskQueueStore.getState().resetToEmpty();
+  const remoteTaskId = useTaskQueueStore.getState().createTask({
+    sourceNodeId: "gen-polling",
+    model: "model-1",
+    prompt: "prompt",
+  });
+  useTaskQueueStore.getState().attachRemoteTask(remoteTaskId, "remote-1");
+  useTaskQueueStore.getState().queueRemoteTask(remoteTaskId);
+  const pollingClaim = useTaskQueueStore.getState().claimTask(remoteTaskId);
+  assert(
+    pollingClaim?.phase === "polling",
+    "claiming a remote task must not turn polling into a new POST request",
+  );
+  assert(
+    pollingClaim.remoteTaskId === "remote-1",
+    "claiming a remote task should preserve the upstream task id",
+  );
+
+  useTaskQueueStore.getState().resetToEmpty();
+}
+
+runAtomicClaimTests();
+
+function runProviderBindingTests() {
+  const store = useTaskQueueStore.getState();
+  store.resetToEmpty();
+  const taskId = store.createTask({
+    sourceNodeId: "gen-binding",
+    model: "model-1",
+    prompt: "prompt",
+  });
+  store.bindTaskProvider(taskId, {
+    apiProfileId: "provider-1",
+    apiProfileName: "Provider",
+    provider: "openai",
+    executionMode: "polling",
+    adapterId: "openai-compatible-task-polling",
+    providerBindingFingerprint: "fingerprint-1",
+  });
+
+  const boundTask = useTaskQueueStore
+    .getState()
+    .tasks.find((task) => task.id === taskId);
+  assert(
+    boundTask?.apiProfileId === "provider-1",
+    "provider id should be bound",
+  );
+  assert(
+    boundTask?.providerBindingFingerprint === "fingerprint-1",
+    "provider fingerprint should be persisted before execution",
+  );
+
+  useTaskQueueStore.getState().resetToEmpty();
+}
+
+runProviderBindingTests();
+
+function runIndependentTaskIdentityTests() {
+  const store = useTaskQueueStore.getState();
+  store.resetToEmpty();
+  const taskIds = Array.from({ length: 8 }, () =>
+    useTaskQueueStore.getState().createTask({
+      sourceNodeId: "shared-source",
+      model: "model-1",
+      prompt: "same prompt",
+    }),
+  );
+
+  assert(
+    new Set(taskIds).size === 8,
+    "repeated clicks on one source node should create independent task ids",
+  );
+  assert(
+    useTaskQueueStore.getState().tasks.length === 8,
+    "repeated clicks should preserve all independent tasks",
+  );
+
+  useTaskQueueStore.getState().resetToEmpty();
+}
+
+runIndependentTaskIdentityTests();

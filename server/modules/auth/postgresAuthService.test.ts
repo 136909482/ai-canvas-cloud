@@ -50,6 +50,7 @@ function createWorkspaceRows() {
   return {
     user_id: "user-1",
     user_no: "10001",
+    display_username: "Artist_01",
     email: "artist@example.com",
     email_verified: false,
     user_status: "active",
@@ -63,8 +64,10 @@ function createWorkspaceRows() {
 }
 
 test("register delegates credentials to Better Auth and creates workspace data", async () => {
+  let signUpBody: Record<string, unknown> | null = null;
   const authApi = {
-    async signUpEmail() {
+    async signUpEmail(input: { body: Record<string, unknown> }) {
+      signUpBody = input.body;
       const headers = new Headers();
       headers.append(
         "set-cookie",
@@ -101,11 +104,16 @@ test("register delegates credentials to Better Auth and creates workspace data",
     authApi: authApi as never,
   });
   const result = await authService.register(
-    { email: " Artist@Example.COM ", password: "long-enough-password" },
+    {
+      username: " Artist_01 ",
+      email: " Artist@Example.COM ",
+      password: "long-enough-password",
+    },
     { requestId: "req_1", userAgent: "agent", ipAddress: "127.0.0.1" },
   );
 
   assert.equal(result.response.user.email, "artist@example.com");
+  assert.equal(result.response.user.username, "Artist_01");
   assert.equal(result.response.user.userNumber, 10001);
   assert.equal(result.response.workspace.role, "owner");
   assert.match(
@@ -125,6 +133,14 @@ test("register delegates credentials to Better Auth and creates workspace data",
     calls.some((call) => call.text.includes('DELETE FROM "session"')),
     false,
   );
+  assert.deepEqual(signUpBody, {
+    email: "artist@example.com",
+    password: "long-enough-password",
+    name: "Artist_01",
+    username: "artist_01",
+    displayUsername: "Artist_01",
+    rememberMe: true,
+  });
   assert.equal(
     calls.some((call) => call.text.includes("INSERT INTO sessions")),
     false,
@@ -171,7 +187,7 @@ test("login requires confirmation before replacing another active device", async
     () =>
       authService.login(
         {
-          email: " Artist@Example.COM ",
+          identifier: " Artist@Example.COM ",
           password: "long-enough-password",
           deviceId: "device-b",
         },
@@ -246,7 +262,7 @@ test("confirmed login revokes the old session and records the new device", async
   });
   const result = await authService.login(
     {
-      email: " Artist@Example.COM ",
+      identifier: " Artist@Example.COM ",
       password: "long-enough-password",
       deviceId: "device-b",
       force: true,
@@ -332,7 +348,7 @@ test("disabled user login deletes the temporary session before returning access 
     () =>
       authService.login(
         {
-          email: "disabled@example.com",
+          identifier: "disabled@example.com",
           password: "long-enough-password",
           deviceId: "disabled-device",
         },
@@ -562,13 +578,97 @@ test("register maps Better Auth duplicate email errors to validation conflicts",
   await assert.rejects(
     () =>
       authService.register(
-        { email: "artist@example.com", password: "long-enough-password" },
+        {
+          username: "Artist_01",
+          email: "artist@example.com",
+          password: "long-enough-password",
+        },
         { requestId: "req_1" },
       ),
     (error: unknown) =>
       error instanceof AuthServiceError &&
       error.statusCode === 409 &&
       error.apiCode === "VALIDATION_FAILED",
+  );
+});
+
+test("login routes mixed-case usernames through Better Auth normalization", async () => {
+  let receivedUsername: string | null = null;
+  const authApi = {
+    async signInUsername(input: { body: { username: string } }) {
+      receivedUsername = input.body.username;
+      return {
+        headers: new Headers(),
+        response: {
+          redirect: false,
+          token: "username-token",
+          user: {
+            id: "user-1",
+            email: "artist@example.com",
+            emailVerified: true,
+            name: "Artist_01",
+            username: "artist_01",
+            displayUsername: "Artist_01",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+      };
+    },
+  };
+  const { pool } = createMockPool(({ text }) => {
+    if (text.includes('FROM "session"') && text.includes("token <>")) {
+      return { rows: [] };
+    }
+    if (text.includes("INSERT INTO workspaces")) {
+      return { rows: [{ id: "workspace-1" }] };
+    }
+    if (text.includes("SELECT") && text.includes("JOIN workspace_members")) {
+      return { rows: [createWorkspaceRows()] };
+    }
+    return { rows: [] };
+  });
+  const authService = createPostgresAuthService(pool as never, {
+    authApi: authApi as never,
+  });
+
+  const result = await authService.login(
+    { identifier: " ArTiSt_01 ", password: "long-enough-password" },
+    { requestId: "username-login" },
+  );
+
+  assert.equal(receivedUsername, "artist_01");
+  assert.equal(result.response.user.username, "Artist_01");
+});
+
+test("register maps username conflicts to the stable unavailable error", async () => {
+  const authApi = {
+    async signUpEmail() {
+      throw APIError.from("UNPROCESSABLE_ENTITY", {
+        code: "USERNAME_IS_ALREADY_TAKEN",
+        message: "Username is already taken",
+      });
+    },
+  };
+  const { pool } = createMockPool(() => ({ rows: [] }));
+  const authService = createPostgresAuthService(pool as never, {
+    authApi: authApi as never,
+  });
+
+  await assert.rejects(
+    () =>
+      authService.register(
+        {
+          username: "Artist_01",
+          email: "artist@example.com",
+          password: "long-enough-password",
+        },
+        { requestId: "username-conflict" },
+      ),
+    (error: unknown) =>
+      error instanceof AuthServiceError &&
+      error.statusCode === 409 &&
+      error.apiCode === "USERNAME_UNAVAILABLE",
   );
 });
 

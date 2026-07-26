@@ -25,6 +25,7 @@ import { compileImageMentionPrompt } from "@/features/richPrompt/promptCompiler"
 import {
   getNodeModelIssueLabel,
   getNodeModelSelection,
+  getPreferredSelectableModelEntryId,
 } from "@/features/settings/nodeModelSelection";
 import { RichPromptEditor } from "@/features/richPrompt/RichPromptEditor";
 import type {
@@ -39,6 +40,7 @@ import {
 import { useHistoryStore } from "@/store/useHistoryStore";
 import { useProjectStore } from "@/store/useProjectStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
+import { useTaskQueueStore } from "@/store/useTaskQueueStore";
 import { getWorkspaceAssetThumbnailRelativePath } from "@/utils/workspaceImageAsset";
 import { recordComponentRender } from "@/utils/performanceDiagnostics";
 import { type AppNodeProps } from "@/types";
@@ -167,6 +169,15 @@ export const GenerateNode = memo(function GenerateNode({
   const activeProjectId = useProjectStore((s) => s.activeProjectId);
   const updateNodeInternals = useUpdateNodeInternals();
   const settingsConfig = useSettingsStore((s) => s.config);
+  const activeTaskCount = useTaskQueueStore(
+    (state) =>
+      state.tasks.filter(
+        (task) =>
+          task.sourceNodeId === id &&
+          (task.status === "queued" || task.status === "running"),
+      ).length,
+  );
+  const setDefaultModel = useSettingsStore((s) => s.setDefaultModel);
   const bindLocalModelReference = useSettingsStore(
     (s) => s.bindLocalModelReference,
   );
@@ -219,6 +230,11 @@ export const GenerateNode = memo(function GenerateNode({
       }),
     [data.model, settingsConfig],
   );
+  const hasSelectableImageModels = useMemo(
+    () => Boolean(getPreferredSelectableModelEntryId(settingsConfig, "image")),
+    [settingsConfig],
+  );
+  const modelIssueLabel = getNodeModelIssueLabel(modelSelection);
   const effectiveModel = data.model.trim();
   const selectedModel = modelSelection.selectedModel;
   const isGptImageSettingsModel = isGptImageModel(selectedModel?.modelId ?? "");
@@ -246,6 +262,7 @@ export const GenerateNode = memo(function GenerateNode({
       )
         return;
       updateNodeData(id, { model: modelId, errorMsg: "" });
+      if (modelId) setDefaultModel(modelId);
     });
   };
 
@@ -620,17 +637,20 @@ export const GenerateNode = memo(function GenerateNode({
 
         <div className={themeClasses.nodeFooter}>
           <div className="flex items-center gap-1.5">
-            <NodeModelSelector
-              category="image"
-              config={settingsConfig}
-              selection={modelSelection}
-              onSelectModel={selectModel}
-              stopCanvasGesture={stopCanvasGesture}
-              providerAriaLabel="选择图像服务商"
-              modelAriaLabel={UI_TEXT.chooseModel}
-              className="min-w-[250px] flex-[1.2]"
-              menuClassName="min-w-[240px]"
-            />
+            {hasSelectableImageModels ? (
+              <NodeModelSelector
+                category="image"
+                config={settingsConfig}
+                selection={modelSelection}
+                onSelectModel={selectModel}
+                stopCanvasGesture={stopCanvasGesture}
+                providerAriaLabel="选择图像服务商"
+                modelAriaLabel="选择图像模型和服务商"
+                className="min-w-[250px] flex-[1.2]"
+                menuClassName="min-w-[240px]"
+                layout="grouped"
+              />
+            ) : null}
 
             <div ref={settingsRef} className="relative min-w-0 flex-[1.15]">
               <button
@@ -743,7 +763,7 @@ export const GenerateNode = memo(function GenerateNode({
               onClick={handleEnqueue}
               disabled={!hasPrompt || !modelSelection.canExecute}
               data-testid={`enqueue-generate-${id}`}
-              className={`${themeClasses.nodePrimaryButton} h-9 w-9 shrink-0 shadow-none duration-200`}
+              className={`${themeClasses.nodePrimaryButton} relative h-9 w-9 shrink-0 shadow-none duration-200`}
               aria-label={
                 data.status === "error"
                   ? UI_TEXT.generateFailed
@@ -763,6 +783,11 @@ export const GenerateNode = memo(function GenerateNode({
               ) : (
                 <Play className="h-3.5 w-3.5 fill-current" />
               )}
+              {activeTaskCount > 0 ? (
+                <span className="pointer-events-none absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[var(--node-bg)] bg-[var(--accent-violet)] px-1 text-[8px] font-semibold leading-none text-white shadow">
+                  {activeTaskCount}
+                </span>
+              ) : null}
             </button>
           </div>
 
@@ -801,14 +826,13 @@ export const GenerateNode = memo(function GenerateNode({
             </div>
           )}
 
-          {!modelSelection.canExecute && (
+          {!modelSelection.canExecute && modelIssueLabel ? (
             <p
               className={`${themeClasses.nodeInlineNotice} ${themeClasses.nodeWarningText}`}
             >
-              {getNodeModelIssueLabel(modelSelection) ||
-                "请选择可用的图像服务商和模型。"}
+              {modelIssueLabel}
             </p>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

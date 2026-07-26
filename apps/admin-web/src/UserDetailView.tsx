@@ -1,35 +1,101 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCan } from "@refinedev/core";
-import type { AdminUserResponse } from "@ai-canvas-cloud/contracts";
+import type {
+  AdminManagedWorkspaceSummary,
+  AdminUserResponse,
+} from "@ai-canvas-cloud/contracts";
 import {
-  ArrowLeft,
+  Avatar,
+  Button,
+  Input,
+  Modal,
+  Skeleton,
+  Space,
+  Table,
+  Tooltip,
+  type TableProps,
+} from "antd";
+import {
+  Activity,
   Ban,
+  BriefcaseBusiness,
+  CalendarDays,
   Database,
+  Fingerprint,
   HardDrive,
-  LoaderCircle,
   LogOut,
   RefreshCw,
   ShieldCheck,
+  TriangleAlert,
   Unlock,
   UserRound,
-  X,
 } from "lucide-react";
 import { adminApi, AdminApiError } from "./api";
+import {
+  AccessDenied,
+  Feedback,
+  PageHeader,
+  UserStatusTag,
+  VerificationTag,
+} from "./components";
+import { formatBytes, formatDateTime } from "./uiModel";
 
-function formatBytes(value: number) {
-  const formatter = new Intl.NumberFormat("zh-CN", {
-    maximumFractionDigits: 2,
-  });
-  if (value < 1024) return `${formatter.format(value)} B`;
-  if (value < 1024 ** 2) return `${formatter.format(value / 1024)} KiB`;
-  if (value < 1024 ** 3) return `${formatter.format(value / 1024 ** 2)} MiB`;
-  return `${formatter.format(value / 1024 ** 3)} GiB`;
-}
+type PendingAction = "ban" | "unban" | "revoke-sessions";
 
-function date(value: string | null) {
-  return value
-    ? new Date(value).toLocaleString("zh-CN", { hour12: false })
-    : "—";
+const WORKSPACE_TYPE_LABELS: Record<
+  AdminManagedWorkspaceSummary["type"],
+  string
+> = {
+  personal: "个人空间",
+  team: "团队空间",
+};
+
+const WORKSPACE_ROLE_LABELS: Record<
+  AdminManagedWorkspaceSummary["role"],
+  string
+> = {
+  owner: "所有者",
+  admin: "管理员",
+  editor: "编辑者",
+  viewer: "查看者",
+};
+
+const WORKSPACE_STATUS_LABELS: Record<
+  AdminManagedWorkspaceSummary["status"],
+  string
+> = {
+  active: "正常",
+  disabled: "已停用",
+  deleted: "已删除",
+};
+
+const ACTION_COPY: Record<
+  PendingAction,
+  { title: string; description: string; confirm: string }
+> = {
+  ban: {
+    title: "封禁账号",
+    description: "封禁会立即撤销全部会话，后续登录将被拒绝。",
+    confirm: "确认封禁",
+  },
+  unban: {
+    title: "解封账号",
+    description: "解封不会恢复旧会话，用户需要重新登录。",
+    confirm: "确认解封",
+  },
+  "revoke-sessions": {
+    title: "撤销全部会话",
+    description: "撤销后用户需要在所有设备重新登录。",
+    confirm: "确认撤销",
+  },
+};
+
+function workspaceStoragePercent(workspace: AdminManagedWorkspaceSummary) {
+  if (workspace.storageQuotaBytes <= 0) return 0;
+  const percentage =
+    (workspace.storageUsedBytes / workspace.storageQuotaBytes) * 100;
+  if (percentage <= 0) return 0;
+  return Math.min(100, Math.max(1, percentage));
 }
 
 export function UserDetailView({
@@ -51,9 +117,9 @@ export function UserDetailView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<
-    "ban" | "unban" | "revoke-sessions" | null
-  >(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(
+    null,
+  );
   const [reason, setReason] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
 
@@ -78,8 +144,7 @@ export function UserDetailView({
     void load();
   }, [load]);
 
-  async function submitAction(event: FormEvent) {
-    event.preventDefault();
+  async function submitAction() {
     if (!pendingAction || reason.trim().length < 3) return;
     setActionBusy(true);
     setError(null);
@@ -94,10 +159,10 @@ export function UserDetailView({
             : await adminApi.revokeUserSessions(userId, input);
       setNotice(
         pendingAction === "ban"
-          ? `账号已封禁，撤销 ${result.revokedSessionCount} 个 session`
+          ? `账号已封禁，撤销 ${result.revokedSessionCount} 个会话`
           : pendingAction === "unban"
-            ? "账号已解封，用户需重新登录"
-            : `已撤销 ${result.revokedSessionCount} 个 session`,
+            ? "账号已解封，用户需要重新登录"
+            : `已撤销 ${result.revokedSessionCount} 个会话`,
       );
       setPendingAction(null);
       setReason("");
@@ -113,288 +178,313 @@ export function UserDetailView({
     }
   }
 
-  if (accessLoading)
-    return (
-      <div className="empty-state">
-        <LoaderCircle className="spin" />
-        正在核对权限
-      </div>
-    );
-  if (!access?.can)
-    return <div className="empty-state">当前角色无权读取用户运营摘要。</div>;
+  const workspaceColumns = useMemo<
+    TableProps<AdminManagedWorkspaceSummary>["columns"]
+  >(
+    () => [
+      {
+        title: "工作区",
+        key: "workspace",
+        width: 280,
+        render: (_, workspace) => (
+          <div className="workspace-name">
+            <span className="workspace-name__icon" aria-hidden="true">
+              <BriefcaseBusiness size={16} />
+            </span>
+            <div>
+              <strong>{workspace.name}</strong>
+              <code>{workspace.id}</code>
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: "归属",
+        key: "membership",
+        width: 126,
+        responsive: ["md"],
+        render: (_, workspace) => (
+          <div className="workspace-membership">
+            <strong>{WORKSPACE_TYPE_LABELS[workspace.type]}</strong>
+            <span>{WORKSPACE_ROLE_LABELS[workspace.role]}</span>
+          </div>
+        ),
+      },
+      {
+        title: "状态",
+        dataIndex: "status",
+        width: 92,
+        responsive: ["lg"],
+        render: (status: AdminManagedWorkspaceSummary["status"]) => (
+          <span className={`workspace-status workspace-status--${status}`}>
+            {WORKSPACE_STATUS_LABELS[status]}
+          </span>
+        ),
+      },
+      {
+        title: "套餐",
+        dataIndex: "planKey",
+        width: 100,
+        responsive: ["lg"],
+        render: (planKey: string) => (
+          <span className="workspace-plan">{planKey}</span>
+        ),
+      },
+      {
+        title: "存储使用",
+        key: "storage",
+        width: 210,
+        render: (_, workspace) => (
+          <div className="workspace-storage">
+            <div>
+              <strong>{formatBytes(workspace.storageUsedBytes)}</strong>
+              <span>/ {formatBytes(workspace.storageQuotaBytes)}</span>
+            </div>
+            <div
+              className="workspace-storage__track"
+              role="progressbar"
+              aria-label={`${workspace.name} 存储使用率`}
+              aria-valuemin={0}
+              aria-valuemax={workspace.storageQuotaBytes}
+              aria-valuenow={Math.min(
+                workspace.storageUsedBytes,
+                workspace.storageQuotaBytes,
+              )}
+            >
+              <i style={{ width: `${workspaceStoragePercent(workspace)}%` }} />
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: "更新时间",
+        dataIndex: "updatedAt",
+        width: 170,
+        responsive: ["xl"],
+        render: (value: string) => formatDateTime(value),
+      },
+    ],
+    [],
+  );
+
+  if (!accessLoading && access && !access.can)
+    return <AccessDenied message="当前角色无权读取用户运营摘要" />;
 
   return (
-    <section className="workspace-view user-detail-view">
-      <div className="view-heading detail-heading">
-        <div className="detail-title">
-          <button
-            className="icon-command"
-            type="button"
-            onClick={onBack}
-            title="返回用户列表"
-          >
-            <ArrowLeft />
-          </button>
-          <div>
-            <span>ACCOUNT DETAIL / READ ONLY</span>
-            <h1>用户详情</h1>
-          </div>
+    <section className="admin-page user-detail-page">
+      <PageHeader
+        title="用户详情"
+        description={
+          detail
+            ? `用户编号 ${detail.user.userNumber} · 账号运营档案`
+            : "账号身份、资源用量与工作区摘要"
+        }
+        onBack={onBack}
+        extra={
+          <Tooltip title="刷新用户详情">
+            <Button
+              icon={<RefreshCw size={17} />}
+              loading={loading}
+              onClick={() => void load()}
+              aria-label="刷新用户详情"
+            />
+          </Tooltip>
+        }
+      />
+      <Feedback error={error} success={notice} />
+
+      {!detail ? (
+        <div className="surface-section">
+          <Skeleton active paragraph={{ rows: 8 }} />
         </div>
-        <button
-          className="icon-command"
-          type="button"
-          onClick={() => void load()}
-          disabled={loading}
-          title="刷新用户详情"
-        >
-          <RefreshCw className={loading ? "spin" : ""} />
-        </button>
-      </div>
-      {error ? (
-        <div className="error-notice" role="alert">
-          {error}
-        </div>
-      ) : null}
-      {notice ? (
-        <div className="success-notice">
-          <ShieldCheck />
-          {notice}
-        </div>
-      ) : null}
-      {!detail && loading ? (
-        <div className="empty-state">
-          <LoaderCircle className="spin" />
-          正在加载运营摘要
-        </div>
-      ) : null}
-      {detail ? (
+      ) : (
         <>
-          <div className="detail-profile">
-            <div className="detail-avatar">
-              <UserRound />
+          <section className="user-profile-panel">
+            <div className="user-profile-panel__main">
+              <Avatar size={56} icon={<UserRound size={25} />} />
+              <div className="user-profile-panel__identity">
+                <span>NO. {detail.user.userNumber}</span>
+                <h2>{detail.user.username}</h2>
+                <p>{detail.user.email}</p>
+              </div>
+              <Space wrap size={6} className="user-profile-panel__tags">
+                <UserStatusTag status={detail.user.status} />
+                <VerificationTag verified={detail.user.emailVerified} />
+              </Space>
             </div>
-            <div>
-              <span>NO. {detail.user.userNumber}</span>
-              <h2>{detail.user.name}</h2>
-              <p>{detail.user.email}</p>
-              <code>{detail.user.id}</code>
-            </div>
-            <div className="detail-badges">
-              <span className={`user-status ${detail.user.status}`}>
-                {detail.user.status === "active"
-                  ? "正常"
-                  : detail.user.status === "disabled"
-                    ? "已封禁"
-                    : "已删除"}
+            <dl className="user-profile-panel__facts">
+              <div>
+                <dt>
+                  <CalendarDays size={15} />
+                  注册时间
+                </dt>
+                <dd>
+                  <time>{formatDateTime(detail.user.createdAt)}</time>
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  <Activity size={15} />
+                  最近活动
+                </dt>
+                <dd>
+                  <time>{formatDateTime(detail.user.lastActiveAt)}</time>
+                </dd>
+              </div>
+              <div className="user-profile-panel__fact-id">
+                <dt>
+                  <Fingerprint size={15} />
+                  用户 ID
+                </dt>
+                <dd>
+                  <code>{detail.user.id}</code>
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="user-detail-metrics" aria-label="用户运营指标">
+            <article className="user-detail-metric user-detail-metric--blue">
+              <span className="user-detail-metric__icon">
+                <Database size={18} />
               </span>
-              <span
-                className={
-                  detail.user.emailVerified
-                    ? "verification verified"
-                    : "verification"
-                }
-              >
-                {detail.user.emailVerified ? "邮箱已验证" : "邮箱未验证"}
+              <div>
+                <span>工作区</span>
+                <strong>{detail.user.workspaceCount}</strong>
+                <small>当前关联的有效工作区</small>
+              </div>
+            </article>
+            <article className="user-detail-metric user-detail-metric--teal">
+              <span className="user-detail-metric__icon">
+                <HardDrive size={18} />
               </span>
-            </div>
-          </div>
+              <div>
+                <span>已用存储</span>
+                <strong>{formatBytes(detail.user.storageUsedBytes)}</strong>
+                <small>跨工作区资源聚合</small>
+              </div>
+            </article>
+            <article className="user-detail-metric user-detail-metric--green">
+              <span className="user-detail-metric__icon">
+                <ShieldCheck size={18} />
+              </span>
+              <div>
+                <span>有效会话</span>
+                <strong>{detail.user.activeSessionCount}</strong>
+                <small>当前仍可访问账号</small>
+              </div>
+            </article>
+          </section>
+
+          <section className="table-section user-workspaces">
+            <header className="user-workspaces__header">
+              <div className="user-workspaces__title">
+                <span className="user-workspaces__icon">
+                  <BriefcaseBusiness size={17} />
+                </span>
+                <div>
+                  <h2>工作区与存储</h2>
+                  <p>仅展示成员关系、套餐和存储聚合</p>
+                </div>
+              </div>
+              <span className="user-workspaces__count">
+                {detail.workspaces.length} 个工作区
+              </span>
+            </header>
+            <Table<AdminManagedWorkspaceSummary>
+              className="workspace-table"
+              rowKey="id"
+              columns={workspaceColumns}
+              dataSource={detail.workspaces}
+              pagination={false}
+              tableLayout="fixed"
+              scroll={{ x: 760 }}
+              locale={{ emptyText: "没有可展示的非删除工作区" }}
+            />
+          </section>
 
           {writeAccess?.can && detail.user.status !== "deleted" ? (
-            <div className="user-actions-band">
-              <div>
-                <span>CONTROLLED ACTIONS</span>
-                <strong>所有操作必须填写原因，并写入不可修改审计。</strong>
+            <section className="user-control-panel">
+              <div className="user-control-panel__intro">
+                <span className="user-control-panel__icon">
+                  <TriangleAlert size={18} />
+                </span>
+                <div>
+                  <h2>账号控制</h2>
+                  <p>操作必须填写原因，并写入不可修改的管理审计</p>
+                </div>
               </div>
-              <div>
+              <Space wrap size={8}>
                 {detail.user.status === "disabled" ? (
-                  <button
-                    type="button"
+                  <Button
+                    icon={<Unlock size={16} />}
                     onClick={() => setPendingAction("unban")}
                   >
-                    <Unlock />
                     解封账号
-                  </button>
+                  </Button>
                 ) : (
-                  <button
-                    className="danger"
-                    type="button"
+                  <Button
+                    danger
+                    icon={<Ban size={16} />}
                     onClick={() => setPendingAction("ban")}
                   >
-                    <Ban />
                     封禁账号
-                  </button>
+                  </Button>
                 )}
-                <button
-                  type="button"
+                <Button
+                  danger
+                  icon={<LogOut size={16} />}
                   onClick={() => setPendingAction("revoke-sessions")}
                 >
-                  <LogOut />
-                  撤销 session
-                </button>
-              </div>
-            </div>
+                  撤销全部会话
+                </Button>
+              </Space>
+            </section>
           ) : null}
-
-          <div className="detail-metrics">
-            <article>
-              <Database />
-              <span>工作区</span>
-              <strong>{detail.user.workspaceCount}</strong>
-              <small>仅工作区摘要</small>
-            </article>
-            <article>
-              <HardDrive />
-              <span>已用存储</span>
-              <strong>{formatBytes(detail.user.storageUsedBytes)}</strong>
-              <small>不读取资产内容</small>
-            </article>
-            <article>
-              <ShieldCheck />
-              <span>有效 session</span>
-              <strong>{detail.user.activeSessionCount}</strong>
-              <small>不返回设备与 token</small>
-            </article>
-            <article>
-              <UserRound />
-              <span>最近活动</span>
-              <strong>{date(detail.user.lastActiveAt)}</strong>
-              <small>注册于 {date(detail.user.createdAt)}</small>
-            </article>
-          </div>
-
-          <div className="detail-section-heading">
-            <div>
-              <span>WORKSPACE SUMMARY</span>
-              <h2>工作区与存储</h2>
-            </div>
-            <p>不包含项目列表、节点、Prompt 或资产记录。</p>
-          </div>
-          <div className="workspace-summary-grid">
-            {detail.workspaces.map((workspace) => (
-              <article key={workspace.id}>
-                <div className="workspace-summary-title">
-                  <div>
-                    <span>{workspace.type}</span>
-                    <h3>{workspace.name}</h3>
-                  </div>
-                  <em>{workspace.role}</em>
-                </div>
-                <dl>
-                  <div>
-                    <dt>状态</dt>
-                    <dd>{workspace.status}</dd>
-                  </div>
-                  <div>
-                    <dt>套餐</dt>
-                    <dd>{workspace.planKey}</dd>
-                  </div>
-                  <div>
-                    <dt>已用</dt>
-                    <dd>{formatBytes(workspace.storageUsedBytes)}</dd>
-                  </div>
-                  <div>
-                    <dt>预留</dt>
-                    <dd>{formatBytes(workspace.storageReservedBytes)}</dd>
-                  </div>
-                  <div>
-                    <dt>配额</dt>
-                    <dd>{formatBytes(workspace.storageQuotaBytes)}</dd>
-                  </div>
-                  <div>
-                    <dt>更新</dt>
-                    <dd>{date(workspace.updatedAt)}</dd>
-                  </div>
-                </dl>
-                <code>{workspace.id}</code>
-              </article>
-            ))}
-            {detail.workspaces.length === 0 ? (
-              <div className="empty-state">没有可展示的非删除工作区</div>
-            ) : null}
-          </div>
         </>
-      ) : null}
-      {pendingAction ? (
-        <div
-          className="action-dialog-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target && !actionBusy)
-              setPendingAction(null);
-          }}
-        >
-          <form
-            className="action-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="user-action-title"
-            onSubmit={submitAction}
-          >
-            <div className="action-dialog-heading">
-              <div>
-                <span>REASON REQUIRED</span>
-                <h2 id="user-action-title">
-                  {pendingAction === "ban"
-                    ? "封禁账号"
-                    : pendingAction === "unban"
-                      ? "解封账号"
-                      : "撤销全部 session"}
-                </h2>
-              </div>
-              <button
-                className="icon-command"
-                type="button"
-                onClick={() => setPendingAction(null)}
-                disabled={actionBusy}
-                title="关闭"
-              >
-                <X />
-              </button>
-            </div>
-            <p>
-              {pendingAction === "ban"
-                ? "封禁会立即撤销全部 session，后续登录将被拒绝。"
-                : pendingAction === "unban"
-                  ? "解封不会恢复旧 session，用户需要重新登录。"
-                  : "撤销后用户在所有设备都需要重新登录。"}
-            </p>
-            <label>
-              <span>处理原因</span>
-              <textarea
-                autoFocus
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-                minLength={3}
-                maxLength={500}
-                placeholder="请填写 3–500 字符的运营原因"
-                required
-              />
-            </label>
-            <small>{reason.trim().length} / 500</small>
-            <div className="action-dialog-footer">
-              <button
-                type="button"
-                onClick={() => setPendingAction(null)}
-                disabled={actionBusy}
-              >
-                取消
-              </button>
-              <button
-                className={pendingAction === "ban" ? "danger" : ""}
-                type="submit"
-                disabled={actionBusy || reason.trim().length < 3}
-              >
-                {actionBusy ? (
-                  <LoaderCircle className="spin" />
-                ) : (
-                  <ShieldCheck />
-                )}
-                确认执行
-              </button>
-            </div>
-          </form>
-        </div>
-      ) : null}
+      )}
+
+      <Modal
+        open={pendingAction !== null}
+        title={pendingAction ? ACTION_COPY[pendingAction].title : ""}
+        okText={pendingAction ? ACTION_COPY[pendingAction].confirm : "确认"}
+        cancelText="取消"
+        confirmLoading={actionBusy}
+        okButtonProps={{
+          danger:
+            pendingAction === "ban" || pendingAction === "revoke-sessions",
+          disabled: reason.trim().length < 3,
+        }}
+        onOk={() => void submitAction()}
+        onCancel={() => {
+          if (!actionBusy) {
+            setPendingAction(null);
+            setReason("");
+          }
+        }}
+        afterOpenChange={(open) => {
+          if (!open) setReason("");
+        }}
+      >
+        {pendingAction ? <p>{ACTION_COPY[pendingAction].description}</p> : null}
+        <label className="modal-field-label" htmlFor="user-action-reason">
+          处理原因
+        </label>
+        <Input.TextArea
+          id="user-action-reason"
+          autoFocus
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          minLength={3}
+          maxLength={500}
+          rows={4}
+          showCount
+          placeholder="请填写 3-500 字符的运营原因"
+          status={
+            reason.length > 0 && reason.trim().length < 3 ? "error" : undefined
+          }
+        />
+      </Modal>
     </section>
   );
 }

@@ -54,3 +54,57 @@ test("deleted model bindings remain available for node-level recovery UI", () =>
     "local:11111111-1111-4111-8111-111111111111": "deleted-entry",
   });
 });
+
+test("last used model ids are normalized by category", () => {
+  const config = normalizeConfig({
+    defaultModelEntryId: "image-entry",
+    lastUsedModelEntryIds: {
+      chat: "chat-entry",
+      image: "image-entry",
+      video: "chat-entry",
+    },
+    providerProfiles: [
+      {
+        id: "provider-entry",
+        name: "Provider",
+        protocol: "openai-compatible",
+        baseUrl: "https://example.com/v1",
+        enabled: true,
+        imageRequestMode: "sync",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+    modelEntries: [
+      {
+        id: "chat-entry",
+        providerProfileId: "provider-entry",
+        modelId: "chat-model",
+        displayName: "Chat Model",
+        category: "chat",
+        source: "manual",
+        status: "available",
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: "image-entry",
+        providerProfileId: "provider-entry",
+        modelId: "image-model",
+        displayName: "Image Model",
+        category: "image",
+        source: "manual",
+        status: "available",
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+  });
+
+  assert.deepEqual(config.lastUsedModelEntryIds, {
+    chat: "chat-entry",
+    image: "image-entry",
+  });
+});

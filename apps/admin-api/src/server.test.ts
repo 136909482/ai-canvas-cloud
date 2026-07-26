@@ -488,7 +488,7 @@ test("Admin user list and detail routes expose only the bounded operations proje
   const user = {
     id: "user_01",
     userNumber: 10001,
-    name: "Artist",
+    username: "Artist_01",
     email: "artist@example.com",
     emailVerified: true,
     status: "active" as const,
@@ -557,11 +557,11 @@ test("Admin user list and detail routes expose only the bounded operations proje
         "emailVerified",
         "id",
         "lastActiveAt",
-        "name",
         "status",
         "storageUsedBytes",
         "updatedAt",
         "userNumber",
+        "username",
         "workspaceCount",
       ]);
 
@@ -609,7 +609,7 @@ test("Admin user mutations require CSRF and forward only the target, reason, and
   const activeUser = {
     id: "user_01",
     userNumber: 10001,
-    name: "Artist",
+    username: "Artist_01",
     email: "artist@example.com",
     emailVerified: true,
     status: "active" as const,

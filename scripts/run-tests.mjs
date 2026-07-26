@@ -1,9 +1,43 @@
-import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { join, normalize, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const TEST_ROOTS = ["apps", "packages", "server", "scripts"];
 const TEST_FILE_SUFFIXES = [".test.ts", ".test.mjs"];
+const TEST_BUILD_WORKSPACES = [
+  "@ai-canvas-cloud/shared",
+  "@ai-canvas-cloud/contracts",
+  "@ai-canvas-cloud/project-graph",
+  "@ai-canvas-cloud/server",
+  "@ai-canvas-cloud/api",
+  "@ai-canvas-cloud/admin-api",
+];
+
+function parseArguments(arguments_) {
+  const options = {
+    unitOnly: false,
+    selectors: [],
+  };
+
+  for (const argument of arguments_) {
+    if (argument === "--unit") {
+      options.unitOnly = true;
+      continue;
+    }
+
+    if (argument.startsWith("--")) {
+      throw new Error(`Unknown test option: ${argument}`);
+    }
+
+    options.selectors.push(argument);
+  }
+
+  return options;
+}
+
+function isTestFile(filePath) {
+  return TEST_FILE_SUFFIXES.some((suffix) => filePath.endsWith(suffix));
+}
 
 function collectTestFiles(directory) {
   if (!existsSync(directory)) {
@@ -25,7 +59,7 @@ function collectTestFiles(directory) {
       continue;
     }
 
-    if (TEST_FILE_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))) {
+    if (isTestFile(entry.name)) {
       files.push(fullPath);
     }
   }
@@ -33,23 +67,97 @@ function collectTestFiles(directory) {
   return files;
 }
 
-const testFiles = TEST_ROOTS.flatMap(collectTestFiles).sort();
+function collectSelectedTestFiles(selectors) {
+  if (selectors.length === 0) {
+    return TEST_ROOTS.flatMap(collectTestFiles);
+  }
 
-if (testFiles.length === 0) {
-  console.error("No test files found.");
+  const workspaceRoot = resolve(process.cwd());
+
+  return selectors.flatMap((selector) => {
+    const selectedPath = resolve(selector);
+    const relativePath = relative(workspaceRoot, selectedPath);
+
+    if (
+      relativePath.startsWith("..") ||
+      relativePath === "" ||
+      !existsSync(selectedPath)
+    ) {
+      throw new Error(
+        `Test selector must exist inside the repository: ${selector}`,
+      );
+    }
+
+    if (statSync(selectedPath).isDirectory()) {
+      return collectTestFiles(selectedPath);
+    }
+
+    if (!isTestFile(normalize(selectedPath))) {
+      throw new Error(
+        `Test selector is not a supported test file: ${selector}`,
+      );
+    }
+
+    return [selectedPath];
+  });
+}
+
+let options;
+
+try {
+  options = parseArguments(process.argv.slice(2));
+} catch (error) {
+  console.error(
+    error instanceof Error ? error.message : "Invalid test arguments.",
+  );
   process.exit(1);
 }
 
-const packageBuild = spawnSync("npm.cmd", ["run", "build"], {
-  stdio: "inherit",
-  shell: process.platform === "win32",
-});
+let testFiles;
+
+try {
+  testFiles = [...new Set(collectSelectedTestFiles(options.selectors))]
+    .filter(
+      (filePath) =>
+        !options.unitOnly || !filePath.includes(".integration.test."),
+    )
+    .sort();
+} catch (error) {
+  console.error(
+    error instanceof Error ? error.message : "Invalid test selector.",
+  );
+  process.exit(1);
+}
+
+if (testFiles.length === 0) {
+  console.error("No matching test files found.");
+  process.exit(1);
+}
+
+console.log(
+  `Building ${TEST_BUILD_WORKSPACES.length} workspaces required by the test runtime.`,
+);
+
+const packageBuild = spawnSync(
+  process.platform === "win32" ? "npm.cmd" : "npm",
+  [
+    "run",
+    "build",
+    ...TEST_BUILD_WORKSPACES.flatMap((workspace) => ["-w", workspace]),
+  ],
+  {
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  },
+);
 
 if (packageBuild.status !== 0) {
   process.exit(packageBuild.status ?? 1);
 }
 
-console.log(`Running ${testFiles.length} test files with Node test runner.`);
+console.log(
+  `Running ${testFiles.length} ${options.unitOnly ? "unit " : ""}test files with Node test runner.`,
+);
 
 const result = spawnSync(
   process.execPath,

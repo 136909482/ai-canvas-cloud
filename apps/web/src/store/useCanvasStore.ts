@@ -20,6 +20,7 @@ import type {
   WorkflowTemplate,
 } from "@/types";
 import { instantiateWorkflowTemplate } from "@/features/workflowTemplates/runtime";
+import { getPreferredSelectableModelEntryId } from "@/features/settings/nodeModelSelection";
 import {
   getCanvasNodeRegistration,
   getManualNodeRegistration,
@@ -90,6 +91,7 @@ import {
   buildSelectedElementsDeletedGraphState,
 } from "./canvasGraphDeletion";
 import { buildNodeDataUpdatedState } from "./canvasNodeDataUpdates";
+import { useSettingsStore } from "./useSettingsStore";
 import {
   buildConnectedComponentNodeIds,
   resetNodeIdCounter,
@@ -446,7 +448,29 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         registration.size,
       );
       const newNode = registration.build(id, position, registration.size);
-      return { nodes: [...buildManualNodeSelection(s.nodes, id), newNode] };
+      const defaultModelCategory =
+        type === "generateNode"
+          ? "image"
+          : type === "videoGenerateNode"
+            ? "video"
+            : type === "llmFileNode"
+              ? "chat"
+              : null;
+      const initializedNode = defaultModelCategory
+        ? {
+            ...newNode,
+            data: {
+              ...newNode.data,
+              model: getPreferredSelectableModelEntryId(
+                useSettingsStore.getState().config,
+                defaultModelCategory,
+              ),
+            },
+          }
+        : newNode;
+      return {
+        nodes: [...buildManualNodeSelection(s.nodes, id), initializedNode],
+      };
     });
 
     return id;

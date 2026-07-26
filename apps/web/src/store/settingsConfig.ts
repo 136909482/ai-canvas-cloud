@@ -147,6 +147,39 @@ type ConfigInput = Omit<Partial<ApiConfig>, "storage"> & {
   storage?: Partial<StorageConfig>;
 };
 
+function normalizeLastUsedModelEntryIds(
+  value: unknown,
+  enabledEntries: ModelEntry[],
+  legacyDefaultModelEntryId: string,
+) {
+  const source =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Partial<Record<ModelCategory, unknown>>)
+      : {};
+  const result: Partial<Record<ModelCategory, string>> = {};
+
+  for (const category of ["chat", "image", "video"] as const) {
+    const modelEntryId = source[category];
+    if (
+      typeof modelEntryId === "string" &&
+      enabledEntries.some(
+        (entry) => entry.id === modelEntryId && entry.category === category,
+      )
+    ) {
+      result[category] = modelEntryId;
+    }
+  }
+
+  const legacyDefault = enabledEntries.find(
+    (entry) => entry.id === legacyDefaultModelEntryId,
+  );
+  if (legacyDefault && !result[legacyDefault.category]) {
+    result[legacyDefault.category] = legacyDefault.id;
+  }
+
+  return result;
+}
+
 export function normalizeConfig(config: ConfigInput = {}): ApiConfig {
   const providerProfiles = Array.isArray(config.providerProfiles)
     ? config.providerProfiles.map((profile) =>
@@ -175,6 +208,11 @@ export function normalizeConfig(config: ConfigInput = {}): ApiConfig {
     enabledEntries.some((entry) => entry.id === config.defaultModelEntryId)
       ? config.defaultModelEntryId
       : "";
+  const lastUsedModelEntryIds = normalizeLastUsedModelEntryIds(
+    config.lastUsedModelEntryIds,
+    enabledEntries,
+    defaultModelEntryId,
+  );
   const providerApiKeys = normalizeApiKeys(
     config.providerApiKeys,
     providerProfiles,
@@ -187,6 +225,7 @@ export function normalizeConfig(config: ConfigInput = {}): ApiConfig {
 
   return {
     defaultModelEntryId,
+    lastUsedModelEntryIds,
     modelEntries,
     providerProfiles,
     providerApiKeys,

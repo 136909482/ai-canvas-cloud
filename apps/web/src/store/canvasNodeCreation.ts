@@ -271,7 +271,7 @@ export function buildManualLLMFileNode(
       connectedTextNode: null,
       inputImageSourceOrder: [],
       model: "",
-      outputFormat: "text",
+      outputFormat: "markdown",
       outputNodeId: null,
       outputText: "",
       outputJson: "",

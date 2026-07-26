@@ -12,6 +12,7 @@ import {
   type CurrentWorkspaceResponse,
   type EmailVerificationResponse,
   type EmailVerifyRequest,
+  type GenerationTelemetryRequest,
   type HealthResponse,
   type LoginRequest,
   type LogoutResponse,
@@ -36,6 +37,10 @@ import {
   type AuthRequestContext,
   type AuthService,
 } from "@ai-canvas-cloud/server/modules/auth";
+import {
+  createUnavailableGenerationTelemetryService,
+  type GenerationTelemetryService,
+} from "@ai-canvas-cloud/server/modules/generation-telemetry";
 import {
   createUnavailableProjectGraphService,
   validateProjectGraphChangesAfter,
@@ -86,6 +91,7 @@ interface ServerOptions {
   config: ApiConfig;
   logger?: Logger;
   authService?: AuthService;
+  generationTelemetryService?: GenerationTelemetryService;
   assetService?: AssetService;
   projectGraphService?: ProjectGraphService;
   projectSnapshotService?: ProjectSnapshotService;
@@ -167,6 +173,7 @@ const API_ROUTE_GROUPS = new Set([
   "projects",
   "settings",
   "tasks",
+  "telemetry",
   "workspaces",
 ]);
 const HTTP_METHODS = new Set([
@@ -929,6 +936,57 @@ async function handleWorkspaceRoute(
     }
 
     return false;
+  } catch (error) {
+    if (error instanceof AuthServiceError) {
+      sendApiError(
+        response,
+        error.statusCode,
+        createErrorResponse(requestId, error),
+        requestId,
+      );
+      return true;
+    }
+
+    throw error;
+  }
+}
+
+async function handleGenerationTelemetryRoute(
+  request: http.IncomingMessage,
+  response: http.ServerResponse,
+  requestUrl: URL,
+  requestId: string,
+  authService: AuthService,
+  generationTelemetryService: GenerationTelemetryService,
+) {
+  if (
+    requestUrl.pathname !== `${API_V1_PREFIX}/telemetry/generations` ||
+    request.method !== "POST"
+  ) {
+    return false;
+  }
+
+  const context = getAuthContext(request, requestId);
+
+  try {
+    if (!context.cookieHeader) {
+      throw new AuthServiceError({
+        statusCode: 401,
+        apiCode: "AUTH_REQUIRED",
+        message: "Authentication required",
+      });
+    }
+
+    const session = await authService.getSession(context);
+    const payload = await generationTelemetryService.record(
+      await readJsonBody<GenerationTelemetryRequest>(request, 2 * 1024),
+      {
+        userId: session.user.id,
+        workspaceId: session.workspace.id,
+      },
+    );
+    sendJson(response, 202, payload, requestId);
+    return true;
   } catch (error) {
     if (error instanceof AuthServiceError) {
       sendApiError(
@@ -1708,6 +1766,7 @@ export function createApiServer({
   config,
   logger = createJsonLogger({ level: config.logLevel, service: "api" }),
   authService = createUnavailableAuthService(),
+  generationTelemetryService = createUnavailableGenerationTelemetryService(),
   assetService = createUnavailableAssetService(),
   projectGraphService = createUnavailableProjectGraphService(),
   projectSnapshotService = createUnavailableProjectSnapshotService(),
@@ -1951,6 +2010,19 @@ export function createApiServer({
         requestId,
         requestAuthService,
         workspaceUsageService,
+      )
+    ) {
+      return;
+    }
+
+    if (
+      await handleGenerationTelemetryRoute(
+        request,
+        response,
+        requestUrl,
+        requestId,
+        requestAuthService,
+        generationTelemetryService,
       )
     ) {
       return;

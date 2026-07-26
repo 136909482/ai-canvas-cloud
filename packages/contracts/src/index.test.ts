@@ -19,6 +19,8 @@ import {
   type CompleteAssetUploadResponse,
   type CreateAssetUploadRequest,
   type CreateProjectRequest,
+  type GenerationTelemetryRequest,
+  type GenerationTelemetryResponse,
   type ProjectGraphResponse,
   type ProjectResponse,
   type ProjectsResponse,
@@ -26,6 +28,7 @@ import {
 
 test("contracts expose stable API error codes", () => {
   assert(apiErrorCodes.includes("PROJECT_VERSION_CONFLICT"));
+  assert(apiErrorCodes.includes("USERNAME_UNAVAILABLE"));
   assert.equal(
     apiErrorCodes.includes("PROVIDER_CAPABILITY_UNSUPPORTED" as never),
     false,
@@ -33,11 +36,32 @@ test("contracts expose stable API error codes", () => {
   assert.equal(createServiceUnavailableError("req_1").error.requestId, "req_1");
 });
 
+test("generation telemetry contracts expose only bounded operational metadata", () => {
+  const request: GenerationTelemetryRequest = {
+    attemptId: "11111111-1111-4111-8111-111111111111",
+    category: "video",
+    status: "failed",
+    durationMs: 12_000,
+    failureCategory: "upstream",
+  };
+  const response: GenerationTelemetryResponse = {
+    accepted: true,
+    attemptId: request.attemptId,
+    status: request.status,
+  };
+
+  assert.equal(response.status, "failed");
+  assert.equal("provider" in request, false);
+  assert.equal("model" in request, false);
+  assert.equal("prompt" in request, false);
+});
+
 test("auth success response keeps user and workspace boundaries explicit", () => {
   const response: AuthSuccessResponse = {
     user: {
       id: "user_1",
       userNumber: 10001,
+      username: "Artist_01",
       email: "artist@example.com",
       status: "active",
       emailVerified: true,
@@ -57,6 +81,7 @@ test("auth success response keeps user and workspace boundaries explicit", () =>
 
   assert.equal(response.workspace.role, "owner");
   assert.equal(response.user.email, "artist@example.com");
+  assert.equal(response.user.username, "Artist_01");
   assert.equal(response.user.userNumber, 10001);
 });
 

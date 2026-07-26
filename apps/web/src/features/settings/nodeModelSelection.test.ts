@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   getNodeModelIssueLabel,
   getNodeModelSelection,
+  getPreferredSelectableModelEntryId,
+  getSelectableModelGroups,
   getSelectableModels,
   getSelectableProviderProfiles,
   resolveNodeModelEntryId,
@@ -76,6 +78,81 @@ test("two providers with the same upstream model remain separate selectable rout
   assert.deepEqual(
     getSelectableModels(config, "chat", "provider-b").map((entry) => entry.id),
     ["entry-b"],
+  );
+  assert.deepEqual(
+    getSelectableModelGroups(config, "chat").map((group) => ({
+      modelId: group.modelId,
+      routeIds: group.models.map((entry) => entry.id),
+    })),
+    [{ modelId: "gpt-4o", routeIds: ["entry-a", "entry-b"] }],
+  );
+});
+
+test("preferred model uses the last selectable route and otherwise falls back to the first route", () => {
+  const config = createConfig();
+  assert.equal(getPreferredSelectableModelEntryId(config, "chat"), "entry-a");
+
+  const withLastUsed = normalizeConfig({
+    ...config,
+    defaultModelEntryId: "entry-b",
+  });
+  assert.equal(
+    getPreferredSelectableModelEntryId(withLastUsed, "chat"),
+    "entry-b",
+  );
+
+  assert.equal(getPreferredSelectableModelEntryId(config, "image"), "");
+});
+
+test("preferred models are remembered independently for each category", () => {
+  const config = createConfig();
+  const withImageModel = normalizeConfig({
+    ...config,
+    lastUsedModelEntryIds: {
+      chat: "entry-b",
+      image: "entry-image",
+      video: "entry-video",
+    },
+    modelEntries: [
+      ...config.modelEntries,
+      {
+        id: "entry-image",
+        providerProfileId: "provider-a",
+        modelId: "gpt-image-2",
+        displayName: "GPT Image",
+        category: "image" as const,
+        source: "manual" as const,
+        status: "available" as const,
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: "entry-video",
+        providerProfileId: "provider-b",
+        modelId: "video-model-1",
+        displayName: "Video Model",
+        category: "video" as const,
+        source: "manual" as const,
+        status: "available" as const,
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+  });
+
+  assert.equal(
+    getPreferredSelectableModelEntryId(withImageModel, "chat"),
+    "entry-b",
+  );
+  assert.equal(
+    getPreferredSelectableModelEntryId(withImageModel, "image"),
+    "entry-image",
+  );
+  assert.equal(
+    getPreferredSelectableModelEntryId(withImageModel, "video"),
+    "entry-video",
   );
 });
 

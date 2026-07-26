@@ -3,6 +3,7 @@ import {
   createSmtpAuthEmailService,
   createPostgresAssetService,
   createPostgresAuthService,
+  createPostgresGenerationTelemetryService,
   createPostgresPool,
   createPostgresProjectGraphService,
   createPostgresProjectSnapshotService,
@@ -56,6 +57,10 @@ const authService = createPostgresAuthService(dbPool, {
 });
 const workspaceAuthorizationService =
   createWorkspaceAuthorizationService(dbPool);
+const generationTelemetryService = createPostgresGenerationTelemetryService(
+  dbPool,
+  { authorizationService: workspaceAuthorizationService },
+);
 const objectStorage = createS3ObjectStorage({
   endpoint: config.s3Endpoint,
   publicEndpoint: config.s3PublicEndpoint,
@@ -106,6 +111,7 @@ const server = createApiServer({
   config,
   logger,
   authService,
+  generationTelemetryService,
   assetService,
   projectGraphService,
   projectSnapshotService,
@@ -148,6 +154,7 @@ migrationMaintenanceTimer.unref();
 void seedDevelopmentAdminAccount({
   enabled: config.devSeedAdmin,
   env: config.env,
+  username: config.devSeedAdminUsername,
   email: config.devSeedAdminEmail,
   password: config.devSeedAdminPassword,
   authService,

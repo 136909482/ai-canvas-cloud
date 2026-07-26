@@ -7,6 +7,7 @@ import { useTaskQueueStore } from "@/store/useTaskQueueStore";
 import { useAuthStore } from "@/features/auth/useAuthStore";
 import type { CanvasSnapshot } from "@/types";
 import { hasGraphDeletion } from "@/features/projectManager/projectAutosave";
+import { hasInterruptibleSynchronousImageTask } from "@/features/generateQueue/taskQueueView";
 
 const AUTOSAVE_IDLE_TIMEOUT_MS = 2_000;
 
@@ -82,6 +83,36 @@ export function ProjectBootstrap() {
     setWorkspaceRuntimeStatus,
     userId,
   ]);
+
+  useEffect(() => {
+    if (!activeProjectId) {
+      return;
+    }
+
+    const handleRunningGenerationBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (
+        !hasInterruptibleSynchronousImageTask(
+          useTaskQueueStore.getState().tasks,
+        )
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener(
+      "beforeunload",
+      handleRunningGenerationBeforeUnload,
+    );
+    return () => {
+      window.removeEventListener(
+        "beforeunload",
+        handleRunningGenerationBeforeUnload,
+      );
+    };
+  }, [activeProjectId]);
 
   useEffect(() => {
     if (!settingsHydrated || !hasHydrated || !isReady || workspaceConfigured) {

@@ -1,164 +1,111 @@
 # AI Canvas Cloud 项目结构
 
-本文档定义当前 monorepo 目录职责和依赖方向。目录只在真实需要时存在，不保留空占位。
+本文档只定义 monorepo 目录职责、模块所有权和依赖方向。架构规则见 [`DEVELOPMENT.md`](DEVELOPMENT.md)，阶段状态不得写入本文件。
 
-## 当前目录
+## 目录
 
 ```text
 apps/
-  web/                 Vite + React 画布网站
-  api/                 普通用户 HTTP、限流、安全边界和健康检查
-  admin-web/           独立 Admin React 前端与运营控制台
-  admin-api/           独立 Admin 认证、RBAC、运营、网站设置和审计 HTTP
+  web/                 Vite + React 画布、Cloud 客户端、浏览器 Vault 与本地生成
+  api/                 普通用户 HTTP、安全、限流和健康检查
+  admin-web/           独立 Admin React 控制台
+  admin-api/           独立 Admin 认证、RBAC、运营、设置和审计 HTTP
 
 packages/
-  contracts/           API 请求/响应、错误码和运行时 schema
+  contracts/           HTTP 请求/响应、错误码和运行时 schema
   project-graph/       图操作、检查点与 ProjectRecord 纯转换
-  shared/              前后端安全共享的纯工具、健康和指标基础
+  shared/              前后端均可使用的纯工具、健康和指标基础
 
 server/
   db/                  PostgreSQL 连接、迁移和 release manifest
-  env/                 服务端环境文件读取
+  env/                 服务端环境读取
   modules/
-    auth/              Better Auth、邮件、Cloud 工作区补齐和认证错误映射
+    auth/              Better Auth、邮件、设备和认证错误映射
     workspaces/        成员授权、存储用量和配额
-    projects/          项目元数据、分页、归档/恢复和软删除
-    project-graph/     图读取、增量事务、change 与资产引用同步
-    project-snapshots/ 检查点、历史、restore 和 manifest 修复
-    assets/            上传/读取、S3 适配、配额、对象诊断和 GC
-    migrations/        目录包预检、暂存上传、commit、导出和恢复
-    admin/             Admin 认证、验证码、RBAC、用户运营、聚合概览、网站设置与脱敏审计
+    projects/          项目元数据与生命周期
+    project-graph/     图增量事务、change 和当前资产引用
+    project-snapshots/ checkpoint、历史、restore 和 manifest 修复
+    assets/            上传、读取、S3、配额、诊断和 GC
+    generation-telemetry/ 脱敏生成 attempt 校验、幂等收口与授权
+    migrations/        目录包预检、暂存、commit 和导出
+    admin/             Admin 认证、RBAC、用户运营、设置和审计
 
 infra/
   local/               PostgreSQL、Redis、MinIO
-  deploy/staging/      Compose、Web 反向代理、环境模板、监控与恢复基线
+  deploy/staging/      Compose、Nginx、监控、备份和恢复基线
 
-docs/                  长期架构、数据、API 和路线文档
-scripts/               迁移、测试、部署门禁、备份恢复和受控维护入口
-test-fixtures/          历史 ProjectRecord、目录包和兼容样本
+docs/                  5 份长期参考文档
+scripts/               测试、迁移、进程、部署和受控维护入口
+test-fixtures/          ProjectRecord、目录包和兼容样本
 ```
 
-仓库不存在 `apps/worker`、服务端 tasks/providers/official-credits 模块或服务器 Provider adapter package。浏览器 Vault、加密任务缓存、受控 Provider 适配器、结果入云编排和设备模型绑定只位于 `apps/web`。
+仓库没有 `apps/worker`、服务端 tasks/providers/official-credits 模块或服务器 Provider adapter。`generation-telemetry` 只接收不可执行的有限生命周期元数据；浏览器 Vault、任务缓存、受控 Provider 适配和设备模型绑定只属于 `apps/web`。
 
 ## 依赖方向
 
 ```text
-apps/web
-  -> packages/contracts
-  -> packages/project-graph
-  -> packages/shared
+apps/web -------> packages/contracts
+       \--------> packages/project-graph
+        \-------> packages/shared
 
-apps/api
-  -> server/modules
-  -> packages/contracts
-  -> packages/project-graph
-  -> packages/shared
+apps/api -------> server/modules
+       \--------> packages/contracts/project-graph/shared
 
-apps/admin-web
-  -> packages/contracts
-  -> packages/shared
-
-apps/admin-api
-  -> server/modules/admin
-  -> packages/contracts
-  -> packages/shared
+apps/admin-web --> packages/contracts/shared
+apps/admin-api --> server/modules/admin
+              \-> packages/contracts/shared
 ```
 
 禁止反向依赖：
 
 - `packages/contracts` 不依赖 React、Node 文件 API、数据库客户端或服务端配置。
-- `packages/project-graph` 只包含图操作、schema 和纯转换，不执行 SQL 或网络请求。
-- `server/` 不 import React、Zustand、IndexedDB、WebCrypto 浏览器对象或 Web 组件。
-- `apps/web` 不 import `server/`、数据库驱动、Redis、对象存储管理 SDK 或 Admin 代码。
+- `packages/project-graph` 不执行 SQL、网络请求或对象存储操作。
+- `server` 不 import React、Zustand、IndexedDB、浏览器 WebCrypto 或 Web 组件。
+- `apps/web` 不 import `server`、数据库驱动、Redis、对象存储管理 SDK 或 Admin 代码。
 - `apps/api` 不读取 Admin 身份、登录安全或审计表。
 - `apps/admin-api` 不直接修改项目图、资产、迁移或普通认证表。
-- API 路由不得直接写数据库；跨表事务与授权查询必须由领域服务拥有。
-- 平台 API 不接收 Provider Key、endpoint、真实模型 ID 或任意 target URL。
+- HTTP 路由不直接写数据库；授权和跨表事务由领域模块拥有。
 
-## Web 应用
+## 所有权边界
 
-`apps/web` 复用稳定画布体验，但只通过 Cloud 平台适配层访问持久化：
+### Web
 
-```text
-src/
-  api/                  固定 Cloud HTTP 客户端
-  components/           应用级 UI
-  features/             认证、迁移、浏览器功能等编排
-  nodes/                React Flow 节点 UI
-  platform/cloud/       项目图与私有资产生命周期
-  store/                Zustand 客户端状态
-```
+- `src/api`：固定 Cloud HTTP 客户端，不拼接对象 key 或任意 Provider target。
+- `src/platform/cloud`：项目图基线、version/sequence、diff、资产上传和签名 URL 缓存。
+- `src/features/settings`：Vault、Provider/模型配置、发现和匿名模型绑定。
+- `src/features/generateQueue`：浏览器任务动作、执行、调度、Provider adapter、结果入云和加密快照恢复。`orchestrator.ts` 只负责创建/重试/取消等用户动作，`taskExecution.ts` 负责 Provider 执行与恢复，`taskCanvasState.ts` 负责聚合画布节点状态，`taskQueueSnapshot.ts` 负责纯快照清洗和版本兼容；执行层与动作层共同依赖状态层，不得反向依赖 React 组件。
+- `src/components/TaskQueue*`：任务中心按钮、面板、任务行和无界面 Runner；组件只订阅 store 或调用生成任务公开动作，不实现 Provider 协议、缓存迁移或结果持久化。
+- `src/nodes`：React Flow 节点 UI，只通过 store 和平台层访问状态。
+- `src/store`：会话内客户端状态，不直接访问服务端基础设施凭据。
 
-`platform/cloud` 维护图基线、version/sequence、ID 级 diff 和资产上传/签名 URL 缓存。组件和 store 不感知 object key、数据库表或对象存储凭据。session、账号或 workspace 变化时，平台层统一清理项目、画布、临时资产 URL 和会话内任务状态。
+IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通组件不得直接读写密文、临时结果 Blob 或 `CryptoKey`。session、用户或项目变化时，平台层统一清理不再可信的内存状态与临时资产 URL。
 
-目录包迁移边界由 `api/migrations.ts`、`store/useMigrationStore.ts` 和 `components/MigrationCenterDialog.tsx` 组成。API 模块只调用固定路径；store 只保存服务端摘要和会话内包数据；组件负责显式选择、统计、上传、冲突确认和下载。它们不能推导租户、拼接 object key、持久化签名 URL 或把通知当作迁移事实。
+### API 与领域服务
 
-P8-5 边界位于 `features/settings/localVault.ts`、`providerEndpoint.ts`、`providerConfig.ts`、`providerModelDiscovery.ts`、`ProviderModelImportDialog.tsx`、`LocalVaultSettingsPanel.tsx`、`features/security/secretRedaction.ts` 和 `store/useSettingsStore.ts`。`localVault.ts` 独占 IndexedDB/WebCrypto 密文与不可导出 `CryptoKey`；`providerModelDiscovery.ts` 只负责受控浏览器发现、解析和纯 reconcile；`LocalVaultSettingsPanel.tsx` 只呈现服务商主列表和其所属模型，不提供独立模型中心；导入弹窗仅维护临时草稿/勾选，settings store 在确认时执行单次 Provider、凭据和模型写入。普通组件不能直接读写密文。
+`apps/api` 和 `apps/admin-api` 保持薄入口：解析请求、校验会话/schema/安全策略、调用领域服务、映射稳定错误。`server/modules` 是事务和授权查询的唯一所有者。
 
-Vault 固定使用 `schemaVersion=2`、`cipherVersion=1`、AES-256-GCM 和绑定 Origin/可信用户的 AAD。Provider Key 独立按 `providerProfileId` 保存，模型身份是 `modelEntryId`；workspace 文件与 workspace/localStorage 缓存只经过脱敏转换，不得写入 Provider、endpoint、Key、真实模型 ID 或绑定；项目图、Cloud API、日志和诊断同样不保存这些私有配置。Provider 与模型配置固定保存到当前浏览器的加密设备 Vault；登出只清内存，清除当前网站数据由浏览器删除密文、Key、绑定和本地任务缓存。当前不保留历史明文或旧 Vault 的迁移路径。
+- `project-graph` 独占节点、连线、change、version/sequence 和当前节点资产引用写入。
+- `project-snapshots` 独占 checkpoint 与 restore。
+- `assets` 独占上传确认、私有读取、配额与 GC。
+- `migrations` 编排导入导出，但复用图、资产和 checkpoint 领域 helper。
+- `admin` 只能通过受限服务读取普通用户最小投影并写脱敏审计。
 
-P8-6 执行边界位于 `nodes/NodeModelSelector.tsx`、`features/settings/nodeModelSelection.ts`、`api/chatAdapter.ts`、`api/image/*`、`api/videoAdapter.ts`、`features/generateQueue/*` 和 `features/llm/orchestrator.ts`。选择器仅展示可执行的“服务商 → 模型”候选；纯选择解析统一按 `modelEntryId` 与所属 Provider 判定可执行性。LLM 与生成队列在执行前把匿名引用解析为本地 `modelEntryId`，但不回写节点匿名值；它们只拼装固定协议路径并在内存中使用 Vault 明文。`platform/cloud/cloudModelReferences.ts` 在项目图 diff 前生成并保存 Vault 匿名绑定，脱除 Provider 与任务运行态；`generatedAssets.ts` 负责 Blob 转换与 Cloud 资产写入。
+普通 API 没有 Provider、官方模型、积分或服务器任务路由；历史 URL 保持 404。
 
-P8-7 由 `features/settings/localVault.ts` 独占加密任务记录，`store/useSettingsStore.ts` 统一可信用户/项目隔离、session 内存缓存和 FIFO 写删顺序，`components/ProjectBootstrap.tsx` 订阅当前任务队列，`features/generateQueue/orchestrator.ts` 只恢复带 remote task ID 的受控异步轮询。图节点通过 settings store 的显式 binding action 将未绑定 `local:<uuid>` 关联到本机 `modelEntryId`；组件不直接访问密文或 CryptoKey。
+### 数据库与部署
 
-## 普通 API
+`server/db/migrations` 保存有序 SQL 和 `release-manifest.json`。应用启动不自动迁移，发布显式运行 migrate。数据库运行角色只有普通 API 和 Admin API；旧 Worker 角色只允许出现在清理与兼容测试中。
 
-`apps/api` 保持薄入口：
-
-- 解析方法、路径、Cookie、Origin、request ID 和 JSON schema。
-- 调用认证、限流和领域服务。
-- 把领域错误映射为稳定 API 错误。
-- 不编写跨表事务。
-- 不调用 Provider 或任意公网 target URL。
-
-`apps/api/src/security.ts` 负责 CORS、Cookie CSRF、安全响应头和来源边界；`server.ts` 负责严格 JSON、结构上限、固定路由组、日志和 HTTP 路由组合；`rateLimit.ts` 负责 Redis 原子窗口。Redis 只由普通 API 限流/readiness 使用，不进入项目、资产或迁移领域事务。
-
-业务事务集中在 `server/modules`：
-
-- `projects` 只处理项目元数据和生命周期。
-- `project-graph` 是节点、连线、change、version/sequence 和当前节点资产引用的唯一写入口。
-- `project-snapshots` 是 checkpoint 创建、读取、restore 和历史 manifest 修复的唯一入口。
-- `assets` 集中处理上传会话、completed 校验、私有读取、配额和 GC。
-- `migrations` 编排导入预检、暂存上传、commit 和导出，图/资产/checkpoint 写入仍调用对应领域 helper。
-- `workspaces` 统一处理成员授权和配额锁。
-
-普通 API 没有生成任务、Provider 设置、官方模型或积分路由。相关历史 URL 必须在路由分发前后稳定落到 404 测试，不得新增兼容空响应。
-
-## Admin 应用
-
-`apps/admin-web` 只调用独立 `admin-api`，不复用普通用户 Cookie、普通 Web Zustand store 或浏览器私有 Provider 配置。Refine Core 只组织资源和权限，页面使用仓库自定义组件。普通网站不导航到 Admin；安全依赖独立认证、Origin、CSRF、可选验证码和 RBAC，而不是隐藏 URL。
-
-`apps/admin-api` 负责管理员 HTTP、独立 Cookie/CSRF、验证码、RBAC、请求 schema 和错误映射。管理员认证、账号/密码修改及 Admin 自身 session 撤销由 `postgresAdminService.ts` 统一负责；普通用户查询、封禁/解封和用户 session 撤销由 `userOperationsService.ts` 负责；运营聚合由 `dashboardService.ts` 负责；网站设置和品牌资产由 `siteConfigService.ts` 负责。路由不能直接更新 Admin 身份表、普通用户/session、密码哈希、站点修订或公开投影。
-
-`apps/admin-web/src/DashboardView.tsx` 只展示脱敏聚合，`UsersView.tsx` 负责最小字段列表、筛选和 keyset 翻页，`UserDetailView.tsx` 负责只读详情及带原因确认操作。`packages/contracts/src/adminOperations.ts` 是这些请求/响应的严格运行时契约，不包含密码、session token、项目正文、资产 object key 或 Provider 配置。
-
-P8-2、P8-3 与 P8-8 的 Admin 资源包括认证/安全、网站设置、网站资产、脱敏审计、运营概览和最小用户运营。官方 Provider、官方模型、积分和服务器任务管理页面、contracts、API 与领域模块均不存在；对应 URL 返回 404。
-
-## 数据库与迁移
-
-`server/db` 包含 PostgreSQL 连接、29 个有序迁移和 `release-manifest.json`。生产应用启动不自动迁移，发布流程显式运行 migrate。
-
-`0029_remove_server_generation.sql` 是高风险 contract：删除旧生成任务/队列/用量、用户 Provider 密文、官方目录/积分和任务资产引用，不修改认证、工作区、项目图、检查点、普通资产、迁移或站点设置。`scripts/check-migrations.mjs` 可以在升级 fixture 中创建旧表以验证 contract 删除；这些引用是迁移历史测试，不是运行时模块。
-
-数据库运行角色只有普通 API 和 Admin API。Admin 角色通过列级授权读取最小用户/session/workspace/存储聚合数据，只能更新用户状态时间列并删除用户 session；项目节点正文、密码、session token 和资产 object key 不在授权范围。`scripts/provision-database-roles.mjs` 还会识别并删除旧 Worker 角色及旧环境键；`check-admin-role-isolation.mjs` 断言列级隔离和旧角色/表不存在。这些负向清理字符串可以保留，不得重新成为配置入口。
-
-## 部署与运维
-
-根 `Dockerfile` 只构建 `web`、`api`、`admin-web`、`admin-api`、一次性 `migrate` 和 `operations` 目标。所有应用目标非 root，镜像不复制 `.env`、测试 fixture、开发 seed、源码凭据或运行时密钥。
-
-`infra/deploy/staging/docker-compose.yml` 只包含四项常驻应用以及 PostgreSQL、Redis、MinIO、迁移、备份/恢复和监控辅助服务。不存在 Worker 服务、Worker health、生成队列、Provider 密钥环或队列恢复。`S3_ENDPOINT` 供服务端管理/readiness，`S3_PUBLIC_ENDPOINT` 供浏览器签名 URL，Web 只接收无密钥的 `S3_PUBLIC_ORIGIN`。
-
-`scripts/create-staging-backup.mjs`、`restore-staging-backup.mjs` 和 `audit-restored-state.mjs` 只用于备份与 restore profile，不进入 API/Web bundle。恢复 Redis 为空且只供 API 限流/readiness，不复制源 AOF 或重开生成 outbox。恢复审计只能报告一致性和缺失对象，不能修改项目、资产或 GC 状态。
-
-`scripts/dev-process.mjs` 只启动和展示 Web、API、Admin Web、Admin API。停止/重启逻辑保留旧版受管 Worker 名称，只用于 P8-4 升级清理，并继续执行 PID、Node 可执行文件、工作目录、管理脚本和随机所有权标记核验。
+根 `Dockerfile` 构建 Web、API、Admin Web、Admin API、migrate 和 operations。staging Compose 不包含 Worker、生成队列、Provider 密钥环或队列恢复。
 
 ## 测试放置
 
-- 纯函数测试与被测模块同目录。
-- API/数据库/对象存储集成测试放在对应 app 或 server module。
-- 两账号 Cloud E2E 使用随机 schema、账号、cookie/device 上下文和对象前缀。
-- 浏览器 E2E 放在仓库级测试目录或受控浏览器验证入口。
-- 历史兼容样本统一放 `test-fixtures/`，已提交样本不得静默改写。
-- 迁移测试可以引用旧 Worker/Provider/任务 schema，但最终必须断言 0029 contract 后全部删除。
+- 纯函数测试与被测模块同目录，命名 `*.test.ts`。
+- 真实 PostgreSQL、Redis 或对象存储测试命名 `*.integration.test.ts`。
+- API/领域集成测试放在对应 app 或 server module。
+- 两账号和双设备 E2E 使用独立账号、cookie/device 上下文和对象前缀。
+- 浏览器 E2E 使用仓库级受控浏览器验证入口。
+- 历史兼容样本统一放 `test-fixtures/`，不得静默改写已提交样本。
+- 迁移测试可构造旧 Worker/Provider schema，但必须断言 contract 后对象已删除。
 
-`packages/shared/src/metrics.ts` 提供低基数指标 registry。普通 API 指标不包含任务 backlog、Worker lease、Provider 请求或转存失败；Prometheus 和告警只引用当前服务与当前指标。
+测试选择和验证层级见 [`DEVELOPMENT.md`](DEVELOPMENT.md)。

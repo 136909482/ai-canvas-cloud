@@ -12,11 +12,11 @@ import {
 
 test("schema release manifest covers every migration with monotonic release phases", () => {
   const result = validateSchemaReleaseManifest(loadSchemaReleaseManifest());
-  assert.equal(result.files.length, 29);
-  assert.equal(result.manifest.migrations.at(-1).version, "0029");
-  assert.equal(result.manifest.migrations.at(-1).releaseTrain, "p8");
-  assert.equal(result.manifest.migrations.at(-1).phase, "contract");
-  assert.equal(result.manifest.migrations.at(-1).oldAppWithNewSchema, false);
+  assert.equal(result.files.length, 31);
+  assert.equal(result.manifest.migrations.at(-1).version, "0031");
+  assert.equal(result.manifest.migrations.at(-1).releaseTrain, "p8-operations");
+  assert.equal(result.manifest.migrations.at(-1).phase, "expand");
+  assert.equal(result.manifest.migrations.at(-1).oldAppWithNewSchema, true);
   assert.equal(
     result.manifest.migrations.filter((migration) => migration.backupRequired)
       .length > 0,
@@ -112,6 +112,11 @@ test(
         [schema],
       );
       assert.equal(userNumberColumn.rowCount, 1);
+      const usernameColumns = await client.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'user' AND column_name = ANY($2::text[])`,
+        [schema, ["username", "display_username"]],
+      );
+      assert.equal(usernameColumns.rowCount, 2);
       const adminUsernameColumn = await client.query(
         `SELECT 1 FROM information_schema.columns WHERE table_schema = 'admin' AND table_name = 'user' AND column_name = 'username'`,
       );
@@ -120,6 +125,11 @@ test(
         `SELECT 1 FROM information_schema.tables WHERE table_schema = 'admin' AND table_name = 'login_security_settings'`,
       );
       assert.equal(adminCaptchaSettings.rowCount, 1);
+      const generationTelemetryTable = await client.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'generation_telemetry'`,
+        [schema],
+      );
+      assert.equal(generationTelemetryTable.rowCount, 1);
       const removedTables = await client.query(
         `
       SELECT table_name FROM information_schema.tables
@@ -145,7 +155,9 @@ test(
       );
       assert.equal(taskReferenceColumn.rowCount, 0);
       const insertedUser = await client.query(
-        `INSERT INTO "user" (id, name, email) VALUES ('schema-release-user', 'Schema User', 'schema-release@example.invalid') RETURNING user_no`,
+        `INSERT INTO "user" (id, name, username, display_username, email)
+         VALUES ('schema-release-user', 'Schema_User', 'schema_user', 'Schema_User', 'schema-release@example.invalid')
+         RETURNING user_no`,
       );
       assert.equal(Number(insertedUser.rows[0]?.user_no), 10001);
     } finally {

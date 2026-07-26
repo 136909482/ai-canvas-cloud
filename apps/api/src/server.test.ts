@@ -35,6 +35,10 @@ import {
   type AuthService,
   type IssuedAuthSession,
 } from "@ai-canvas-cloud/server/modules/auth";
+import {
+  validateGenerationTelemetryRequest,
+  type GenerationTelemetryService,
+} from "@ai-canvas-cloud/server/modules/generation-telemetry";
 import type { ProjectGraphService } from "@ai-canvas-cloud/server/modules/project-graph";
 import type {
   MigrationAssetUploadService,
@@ -78,6 +82,7 @@ function createAuthResponse(expiresAt: Date): AuthSuccessResponse {
     user: {
       id: "user_1",
       userNumber: 10001,
+      username: "Artist_01",
       email: "artist@example.com",
       status: "active",
       emailVerified: true,
@@ -1008,7 +1013,10 @@ test("API enforces the web origin allowlist and emits security headers", async (
       method: "POST",
       path: `${API_V1_PREFIX}/auth/login`,
       headers: { origin: "https://evil.example.com" },
-      body: { email: "artist@example.com", password: "long-enough-password" },
+      body: {
+        identifier: "artist@example.com",
+        password: "long-enough-password",
+      },
     });
     assert.equal(denied.statusCode, 403);
     assert.equal(
@@ -1157,7 +1165,10 @@ test("API returns stable rate limit errors before reading request bodies or call
     const response = await requestJson(port, {
       method: "POST",
       path: `${API_V1_PREFIX}/auth/login`,
-      body: { email: "artist@example.com", password: "long-enough-password" },
+      body: {
+        identifier: "artist@example.com",
+        password: "long-enough-password",
+      },
     });
     assert.equal(response.statusCode, 429);
     assert.equal(response.headers["retry-after"], "17");
@@ -1264,7 +1275,11 @@ test("register route issues a HttpOnly session cookie and auth response", async 
     const response = await requestJson(port, {
       method: "POST",
       path: `${API_V1_PREFIX}/auth/register`,
-      body: { email: "artist@example.com", password: "long-enough-password" },
+      body: {
+        username: "Artist_01",
+        email: "artist@example.com",
+        password: "long-enough-password",
+      },
     });
 
     assert.equal(response.statusCode, 201);
@@ -1306,7 +1321,7 @@ test("login route preserves takeover conflicts until the client confirms", async
       method: "POST",
       path: `${API_V1_PREFIX}/auth/login`,
       body: {
-        email: "artist@example.com",
+        identifier: "artist@example.com",
         password: "long-enough-password",
         deviceId: "device-b",
       },
@@ -1321,7 +1336,7 @@ test("login route preserves takeover conflicts until the client confirms", async
       method: "POST",
       path: `${API_V1_PREFIX}/auth/login`,
       body: {
-        email: "artist@example.com",
+        identifier: "artist@example.com",
         password: "long-enough-password",
         deviceId: "device-b",
         force: true,
@@ -1787,6 +1802,72 @@ test("current workspace usage route uses only the trusted session actor", async 
     assert.deepEqual(usage.actors, [
       { userId: "user_1", workspaceId: "workspace_1" },
     ]);
+  } finally {
+    await closeApiServer(server, 1_000);
+  }
+});
+
+test("generation telemetry route requires auth and uses only the session actor", async () => {
+  const calls: Array<{ input: unknown; actor: ProjectActor }> = [];
+  const generationTelemetryService: GenerationTelemetryService = {
+    async record(rawInput, actor) {
+      const input = validateGenerationTelemetryRequest(rawInput);
+      calls.push({ input, actor });
+      return {
+        accepted: true,
+        attemptId: input.attemptId,
+        status: input.status,
+      };
+    },
+  };
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+    generationTelemetryService,
+  });
+  const port = await listen(server);
+  const path = `${API_V1_PREFIX}/telemetry/generations?userId=forged&workspaceId=forged`;
+  const body = {
+    attemptId: "11111111-1111-4111-8111-111111111111",
+    category: "image",
+    status: "started",
+  } as const;
+
+  try {
+    const missingSession = await requestJson(port, {
+      method: "POST",
+      path,
+      body,
+    });
+    assert.equal(missingSession.statusCode, 401);
+
+    const accepted = await requestJson(port, {
+      method: "POST",
+      path,
+      cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`,
+      body,
+    });
+    assert.equal(accepted.statusCode, 202);
+    assert.deepEqual(accepted.body, {
+      accepted: true,
+      attemptId: body.attemptId,
+      status: "started",
+    });
+    assert.deepEqual(calls, [
+      {
+        input: body,
+        actor: { userId: "user_1", workspaceId: "workspace_1" },
+      },
+    ]);
+
+    const rejectedPrivateField = await requestJson(port, {
+      method: "POST",
+      path,
+      cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`,
+      body: { ...body, model: "private-model" },
+    });
+    assert.equal(rejectedPrivateField.statusCode, 400);
+    assert.equal(calls.length, 1);
   } finally {
     await closeApiServer(server, 1_000);
   }

@@ -302,8 +302,8 @@ async function assertWorkspaceStorageQuotaMigration(client) {
   }
 
   await client.query(`
-    INSERT INTO "user" (id, name, email, email_verified)
-    VALUES ('quota-default-user', 'Quota Default', 'quota-default@example.com', true)
+    INSERT INTO "user" (id, name, username, display_username, email, email_verified)
+    VALUES ('quota-default-user', 'Quota_Default', 'quota_default', 'Quota_Default', 'quota-default@example.com', true)
   `);
   const created = await client.query(`
     INSERT INTO workspaces (name, owner_user_id)
@@ -779,12 +779,12 @@ async function assertProjectGraphSchema(client, schemaName) {
   }
 
   await client.query(`
-    INSERT INTO "user" (id, name, email, email_verified)
-    VALUES ('migration-user', 'Migration User', 'migration-user@example.com', true)
+    INSERT INTO "user" (id, name, username, display_username, email, email_verified)
+    VALUES ('migration-user', 'Migration_User', 'migration_user', 'Migration_User', 'migration-user@example.com', true)
   `);
   await client.query(`
-    INSERT INTO "user" (id, name, email, email_verified)
-    VALUES ('migration-user-2', 'Migration User 2', 'migration-user-2@example.com', true)
+    INSERT INTO "user" (id, name, username, display_username, email, email_verified)
+    VALUES ('migration-user-2', 'Migration_User_2', 'migration_user_2', 'Migration_User_2', 'migration-user-2@example.com', true)
   `);
   await client.query(`
     INSERT INTO workspaces (id, name, owner_user_id)
@@ -1369,8 +1369,8 @@ async function assertMigrationImportSchema(client, schemaName) {
     );
   }
   await client.query(`
-    INSERT INTO "user" (id, name, email, email_verified)
-    VALUES ('migration-schema-user', 'Migration Schema', 'migration-schema@example.com', true)
+    INSERT INTO "user" (id, name, username, display_username, email, email_verified)
+    VALUES ('migration-schema-user', 'Migration_Schema', 'migration_schema', 'Migration_Schema', 'migration-schema@example.com', true)
   `);
   await client.query(`
     INSERT INTO workspaces (id, name, owner_user_id)
@@ -1673,6 +1673,264 @@ async function seedUserNumberUpgradeFixture(client) {
   `);
 }
 
+async function seedUsernameUpgradeFixture(client) {
+  await client.query(`
+    INSERT INTO "user" (id, name, email, email_verified)
+    VALUES
+      ('username-admin', 'Legacy Admin', 'admin@example.com', true),
+      ('username-duplicate-a', 'Duplicate A', 'duplicate.handle@first.example.invalid', true),
+      ('username-duplicate-b', 'Duplicate B', 'duplicate.handle@second.example.invalid', false),
+      ('username-leading-number', 'Leading Number', '9artist@example.invalid', true),
+      ('username-reserved', 'Reserved Support', 'support@example.invalid', true)
+  `);
+}
+
+async function assertUsernameSchema(client, schemaName) {
+  const columns = await client.query(
+    `
+    SELECT column_name, is_nullable
+    FROM information_schema.columns
+    WHERE table_schema = $1
+      AND table_name = 'user'
+      AND column_name = ANY($2::text[])
+    ORDER BY column_name
+  `,
+    [schemaName, ["display_username", "username"]],
+  );
+  if (
+    columns.rowCount !== 2 ||
+    columns.rows.some((column) => column.is_nullable !== "NO")
+  ) {
+    throw new Error(
+      "Username migration did not create required identity columns",
+    );
+  }
+
+  const admin = await client.query(`
+    SELECT username, display_username, name
+    FROM "user"
+    WHERE id = 'username-admin'
+  `);
+  if (
+    admin.rows[0]?.username !== "admin_user" ||
+    admin.rows[0]?.display_username !== "admin_user" ||
+    admin.rows[0]?.name !== "admin_user"
+  ) {
+    throw new Error(
+      "Username migration did not backfill admin@example.com as admin_user",
+    );
+  }
+
+  const duplicateUsers = await client.query(`
+    SELECT username, display_username, user_no
+    FROM "user"
+    WHERE id IN ('username-duplicate-a', 'username-duplicate-b')
+    ORDER BY user_no ASC
+  `);
+  if (
+    duplicateUsers.rows.length !== 2 ||
+    duplicateUsers.rows[0]?.username !== "duplicate_handle" ||
+    duplicateUsers.rows[1]?.username !==
+      `duplicate_handle_${duplicateUsers.rows[1]?.user_no}` ||
+    duplicateUsers.rows.some((row) => row.display_username !== row.username)
+  ) {
+    throw new Error(
+      "Username migration did not resolve normalized collisions with the UID",
+    );
+  }
+
+  const sanitized = await client.query(`
+    SELECT id, username
+    FROM "user"
+    WHERE id IN ('username-leading-number', 'username-reserved')
+    ORDER BY id
+  `);
+  const sanitizedById = new Map(
+    sanitized.rows.map((row) => [row.id, row.username]),
+  );
+  if (
+    sanitizedById.get("username-leading-number") !== "user_9artist" ||
+    sanitizedById.get("username-reserved") !== "support_user"
+  ) {
+    throw new Error(
+      "Username migration did not sanitize legacy account names deterministically",
+    );
+  }
+
+  const constraints = await client.query(
+    `
+    SELECT conname
+    FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = $1
+      AND conname = ANY($2::text[])
+  `,
+    [
+      schemaName,
+      ["user_username_format_check", "user_display_username_format_check"],
+    ],
+  );
+  const indexes = await client.query(
+    `SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND indexname = 'user_username_unique'`,
+    [schemaName],
+  );
+  if (constraints.rowCount !== 2 || indexes.rowCount !== 1) {
+    throw new Error(
+      "Username migration is missing format or uniqueness guards",
+    );
+  }
+
+  await client.query(`
+    INSERT INTO "user" (id, name, username, display_username, email)
+    VALUES ('username-case', 'Hello_01', 'hello_01', 'Hello_01', 'hello-01@example.invalid')
+  `);
+  await expectRejected(
+    client,
+    `INSERT INTO "user" (id, name, username, display_username, email)
+     VALUES ('username-case-conflict', 'HELLO_01', 'hello_01', 'HELLO_01', 'hello-02@example.invalid')`,
+    [],
+    "Username migration accepted a case-insensitive duplicate",
+  );
+  await expectRejected(
+    client,
+    `INSERT INTO "user" (id, name, username, display_username, email)
+     VALUES ('username-invalid-first', '1artist', '1artist', '1artist', 'invalid-first@example.invalid')`,
+    [],
+    "Username migration accepted a username that does not start with a letter",
+  );
+  await expectRejected(
+    client,
+    `INSERT INTO "user" (id, name, username, display_username, email)
+     VALUES ('username-reserved-new', 'Root', 'root', 'Root', 'reserved-root@example.invalid')`,
+    [],
+    "Username migration accepted a reserved username",
+  );
+  await expectRejected(
+    client,
+    `INSERT INTO "user" (id, name, username, display_username, email)
+     VALUES ('username-case-mismatch', 'OtherCase', 'othercase', 'Other_Case', 'case-mismatch@example.invalid')`,
+    [],
+    "Username migration accepted a display username with a different normalized value",
+  );
+}
+
+async function assertGenerationTelemetrySchema(client, schemaName) {
+  const columns = await client.query(
+    `
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = $1 AND table_name = 'generation_telemetry'
+    ORDER BY ordinal_position
+  `,
+    [schemaName],
+  );
+  const columnNames = columns.rows.map((row) => row.column_name);
+  for (const required of [
+    "workspace_id",
+    "user_id",
+    "client_attempt_id",
+    "category",
+    "status",
+    "failure_category",
+    "result_count",
+    "duration_ms",
+    "started_at",
+    "completed_at",
+  ]) {
+    if (!columnNames.includes(required)) {
+      throw new Error(`Generation telemetry is missing ${required}`);
+    }
+  }
+  if (
+    columnNames.some((name) =>
+      /provider|model|endpoint|api_key|prompt|content|response|remote_task/i.test(
+        name,
+      ),
+    )
+  ) {
+    throw new Error("Generation telemetry contains a prohibited private field");
+  }
+
+  const constraints = await client.query(
+    `
+    SELECT conname
+    FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = $1
+      AND c.conname = ANY($2::text[])
+  `,
+    [
+      schemaName,
+      [
+        "generation_telemetry_actor_attempt_unique",
+        "generation_telemetry_category_check",
+        "generation_telemetry_status_check",
+        "generation_telemetry_failure_category_check",
+        "generation_telemetry_state_check",
+      ],
+    ],
+  );
+  if (constraints.rowCount !== 5) {
+    throw new Error("Generation telemetry is missing lifecycle constraints");
+  }
+
+  const actor = await client.query(`
+    SELECT w.id::text AS workspace_id, wm.user_id
+    FROM workspaces w
+    JOIN workspace_members wm ON wm.workspace_id = w.id
+    ORDER BY w.created_at ASC
+    LIMIT 1
+  `);
+  const workspaceId = actor.rows[0]?.workspace_id;
+  const userId = actor.rows[0]?.user_id;
+  if (!workspaceId || !userId) {
+    throw new Error(
+      "Generation telemetry schema test could not resolve an actor",
+    );
+  }
+
+  await client.query(
+    `
+    INSERT INTO generation_telemetry (
+      workspace_id, user_id, client_attempt_id, category, status
+    ) VALUES ($1, $2, '11111111-1111-4111-8111-111111111111', 'image', 'started')
+  `,
+    [workspaceId, userId],
+  );
+  await client.query(
+    `
+    UPDATE generation_telemetry
+    SET status = 'succeeded', result_count = 1, duration_ms = 1200,
+        completed_at = now(), updated_at = now()
+    WHERE client_attempt_id = '11111111-1111-4111-8111-111111111111'
+  `,
+  );
+  await expectRejected(
+    client,
+    `
+    INSERT INTO generation_telemetry (
+      workspace_id, user_id, client_attempt_id, category, status,
+      duration_ms, completed_at
+    ) VALUES ($1, $2, '22222222-2222-4222-8222-222222222222', 'text',
+              'failed', 500, now())
+  `,
+    [workspaceId, userId],
+    "Generation telemetry accepted a failed event without a bounded category",
+  );
+  await expectRejected(
+    client,
+    `
+    INSERT INTO generation_telemetry (
+      workspace_id, user_id, client_attempt_id, category, status,
+      failure_category, duration_ms, completed_at
+    ) VALUES ($1, $2, '33333333-3333-4333-8333-333333333333', 'video',
+              'failed', 'private-provider-body', 500, now())
+  `,
+    [workspaceId, userId],
+    "Generation telemetry accepted an unbounded failure category",
+  );
+}
+
 async function seedProviderWebsiteUpgradeFixture(client) {
   await client.query(`
     INSERT INTO provider_credentials (
@@ -1708,8 +1966,8 @@ async function assertUserNumberSchema(client, schemaName) {
   );
   const expectedNextNumber = Number(maximumBeforeInsert.rows[0]?.maximum) + 1;
   const inserted = await client.query(`
-    INSERT INTO "user" (id, name, email)
-    VALUES ('user-number-c', 'User Number C', 'user-number-c@example.invalid')
+    INSERT INTO "user" (id, name, username, display_username, email)
+    VALUES ('user-number-c', 'User_Number_C', 'user_number_c', 'User_Number_C', 'user-number-c@example.invalid')
     RETURNING user_no
   `);
   if (Number(inserted.rows[0]?.user_no) !== expectedNextNumber) {
@@ -2164,8 +2422,15 @@ try {
     if (migration.version === "0029") {
       await seedLegacyOfficialSiteConfigFixture(client);
     }
+    if (migration.version === "0030") {
+      await seedUsernameUpgradeFixture(client);
+    }
     await client.query(migration.sql);
-    if (migration.version === "0029") {
+    if (
+      migration.version === "0029" ||
+      migration.version === "0030" ||
+      migration.version === "0031"
+    ) {
       await client.query(migration.sql);
     }
     await client.query(
@@ -2183,6 +2448,8 @@ try {
   await assertMigrationCommitSchema(client, schemaName);
   await assertMigrationExportSchema(client, schemaName);
   await assertUserNumberSchema(client, schemaName);
+  await assertUsernameSchema(client, schemaName);
+  await assertGenerationTelemetrySchema(client, schemaName);
   await assertAdminSecuritySchema(client);
   await assertServerGenerationRemoved(client, schemaName);
   await assertSiteConfigurationSchema(client);

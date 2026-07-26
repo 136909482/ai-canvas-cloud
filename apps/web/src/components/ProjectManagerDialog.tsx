@@ -14,10 +14,13 @@ import {
   X,
 } from "lucide-react";
 import { getProjectManagerStatusView } from "@/features/projectManager/projectManagerStatus";
+import { hasInterruptibleSynchronousImageTask } from "@/features/generateQueue/taskQueueView";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { useFeedbackStore } from "@/store/useFeedbackStore";
 import { useProjectDialogStore } from "@/store/useProjectDialogStore";
 import { useProjectStore } from "@/store/useProjectStore";
+import { useSettingsStore } from "@/store/useSettingsStore";
+import { useTaskQueueStore } from "@/store/useTaskQueueStore";
 import { themeClasses } from "@/styles/themeClasses";
 import type {
   ProjectBundleImportCandidate,
@@ -241,7 +244,51 @@ export function ProjectManagerDialog() {
     return null;
   }
 
+  const persistActiveTaskQueue = async () => {
+    if (!activeProjectId) return true;
+
+    try {
+      await useSettingsStore
+        .getState()
+        .persistLocalTaskQueue(
+          activeProjectId,
+          useTaskQueueStore.getState().getSnapshot(),
+        );
+      return true;
+    } catch (error) {
+      notify({
+        tone: "error",
+        title: "任务队列保存失败",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  };
+
+  const confirmAndPersistRunningTasks = async () => {
+    if (
+      hasInterruptibleSynchronousImageTask(useTaskQueueStore.getState().tasks)
+    ) {
+      const confirmed = await confirm({
+        title: "同步生成仍在运行",
+        message:
+          "切换项目会中断当前同步请求，但服务商仍可能完成生成并计费。确定继续吗？",
+        confirmLabel: "继续切换",
+      });
+      if (!confirmed) return false;
+    }
+
+    return persistActiveTaskQueue();
+  };
+
   const handleOpenProject = async (projectId: string) => {
+    if (
+      projectId !== activeProjectId &&
+      !(await confirmAndPersistRunningTasks())
+    ) {
+      return;
+    }
+
     const shouldProceed = await confirmProceedWhenDirty(
       hasUnsavedChanges(),
       saveActiveProject,
@@ -262,6 +309,10 @@ export function ProjectManagerDialog() {
 
   const handleCreateProject = async (name: string) => {
     setDialogState(null);
+    if (!(await confirmAndPersistRunningTasks())) {
+      return;
+    }
+
     const shouldProceed = await confirmProceedWhenDirty(
       hasUnsavedChanges(),
       saveActiveProject,
@@ -299,17 +350,26 @@ export function ProjectManagerDialog() {
   };
 
   const handleDeleteProject = async (project: ProjectRecord) => {
+    const interruptsSynchronousGeneration =
+      project.id === activeProjectId &&
+      hasInterruptibleSynchronousImageTask(useTaskQueueStore.getState().tasks);
     const confirmed = await confirm({
       title: "删除项目",
       message:
         project.id === activeProjectId
-          ? "删除当前项目后会切换到其他项目，确定继续吗？"
+          ? interruptsSynchronousGeneration
+            ? "删除当前项目会中断同步生成，但服务商仍可能完成并计费；随后将切换到其他项目。确定继续吗？"
+            : "删除当前项目后会切换到其他项目，确定继续吗？"
           : "确定删除这个项目吗？",
       confirmLabel: "删除",
       tone: "danger",
     });
 
     if (!confirmed) {
+      return;
+    }
+
+    if (project.id === activeProjectId && !(await persistActiveTaskQueue())) {
       return;
     }
 
@@ -412,11 +472,18 @@ export function ProjectManagerDialog() {
       title: "归档项目",
       message:
         project.id === activeProjectId
-          ? "归档当前项目后会切换到其他未归档项目；如果没有其他项目，画布将回到未打开状态。是否继续？"
+          ? hasInterruptibleSynchronousImageTask(
+              useTaskQueueStore.getState().tasks,
+            )
+            ? "归档当前项目会中断同步生成，但服务商仍可能完成并计费；随后将切换到其他项目。是否继续？"
+            : "归档当前项目后会切换到其他未归档项目；如果没有其他项目，画布将回到未打开状态。是否继续？"
           : "归档后项目不会出现在“全部”和“最近编辑”中，可随时从“已归档”恢复。",
       confirmLabel: "归档",
     });
     if (!confirmed) return;
+    if (project.id === activeProjectId && !(await persistActiveTaskQueue())) {
+      return;
+    }
 
     await archiveProject(project.id);
     setSelectedProjectIds((current) =>

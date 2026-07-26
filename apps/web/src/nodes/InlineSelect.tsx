@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useId,
   useRef,
@@ -14,6 +15,15 @@ export type InlineSelectOption = {
   label: string;
   icon?: ReactNode;
   trailing?: ReactNode;
+  title?: string;
+  triggerLabel?: string;
+  triggerIcon?: ReactNode;
+  triggerTrailing?: ReactNode;
+  group?: {
+    key: string;
+    label: string;
+    icon?: ReactNode;
+  };
   disabled?: boolean;
 };
 
@@ -24,6 +34,7 @@ type InlineSelectProps = {
   onChange: (value: string) => void;
   stopCanvasGesture: (event: SyntheticEvent) => void;
   menuClassName?: string;
+  menuPlacement?: "top" | "bottom";
   disabled?: boolean;
 };
 
@@ -34,6 +45,7 @@ export function InlineSelect({
   onChange,
   stopCanvasGesture,
   menuClassName = "",
+  menuPlacement = "bottom",
   disabled = false,
 }: InlineSelectProps) {
   const [open, setOpen] = useState(false);
@@ -43,6 +55,8 @@ export function InlineSelect({
   const menuId = useId();
   const selectedOption =
     options.find((option) => option.value === value) ?? options[0];
+  const selectedLabel =
+    selectedOption?.triggerLabel ?? selectedOption?.label ?? value;
 
   useEffect(() => {
     if (!open) {
@@ -90,7 +104,7 @@ export function InlineSelect({
             ? "border-[var(--accent-violet-strong)] bg-[var(--node-control-bg-hover)] text-[var(--text-primary)] shadow-[0_10px_24px_rgba(0,0,0,0.16)]"
             : "border-[var(--border-subtle)] bg-[var(--node-control-bg)] text-[var(--text-secondary)] hover:border-[var(--accent-violet-muted)] hover:bg-[var(--node-control-bg-hover)]"
         }`}
-        title={selectedOption?.label ?? value}
+        title={selectedOption?.title ?? selectedLabel}
         disabled={disabled}
         aria-label={ariaLabel}
         aria-haspopup="listbox"
@@ -107,12 +121,14 @@ export function InlineSelect({
           setOpen((current) => !current);
         }}
       >
-        <span className="flex min-w-0 items-center gap-1.5">
-          {selectedOption?.icon}
-          <span className="min-w-0 truncate leading-5">
-            {selectedOption?.label ?? value}
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          {selectedOption?.triggerIcon ?? selectedOption?.icon}
+          <span className="min-w-0 flex-1 truncate leading-5">
+            {selectedLabel}
           </span>
-          {selectedOption?.trailing}
+          <span className="ml-auto flex shrink-0 items-center">
+            {selectedOption?.triggerTrailing ?? selectedOption?.trailing}
+          </span>
         </span>
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform ${open ? "rotate-180 text-[var(--text-secondary)]" : ""}`}
@@ -123,7 +139,7 @@ export function InlineSelect({
         <div
           id={menuId}
           ref={menuRef}
-          className={`nowheel nodrag nopan absolute left-0 right-0 top-full z-40 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-xl ${menuClassName}`}
+          className={`nowheel nodrag nopan absolute left-0 right-0 z-40 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-xl ${menuPlacement === "top" ? "bottom-full mb-2" : "top-full"} ${menuClassName}`}
           role="listbox"
           aria-label={ariaLabel}
           onKeyDown={(event) =>
@@ -138,45 +154,65 @@ export function InlineSelect({
             className="scrollbar-hidden nowheel max-h-52 overflow-y-auto overscroll-contain"
             onWheelCapture={stopCanvasGesture}
           >
-            {options.map((option) => {
+            {options.map((option, index) => {
               const active = option.value === value;
+              const previousGroup = options[index - 1]?.group;
+              const showGroup =
+                option.group && option.group.key !== previousGroup?.key;
 
               return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  disabled={option.disabled}
-                  className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs leading-5 transition-colors ${
-                    option.disabled
-                      ? "cursor-not-allowed text-[var(--text-muted)] opacity-70"
-                      : active
-                        ? "bg-[var(--accent-violet-soft)] text-[var(--accent-violet-strong)] shadow-[inset_0_0_0_1px_var(--accent-violet-muted)]"
-                        : "text-[var(--text-secondary)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
-                  }`}
-                  onClick={(event) => {
-                    stopCanvasGesture(event);
-                    if (option.disabled) return;
-                    onChange(option.value);
-                    setOpen(false);
-                  }}
-                >
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    {option.icon}
-                    <span className="min-w-0 truncate" title={option.label}>
-                      {option.label}
+                <Fragment key={option.value}>
+                  {showGroup ? (
+                    <div
+                      role="presentation"
+                      className={`flex items-center gap-2 px-2.5 py-1.5 text-[11px] font-semibold text-[var(--text-primary)] ${index > 0 ? "mt-1 border-t border-[var(--border-subtle)] pt-2" : ""}`}
+                    >
+                      {option.group?.icon}
+                      <span className="min-w-0 truncate">
+                        {option.group?.label}
+                      </span>
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    disabled={option.disabled}
+                    className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs leading-5 transition-colors ${
+                      option.disabled
+                        ? "cursor-not-allowed text-[var(--text-muted)] opacity-70"
+                        : active
+                          ? "bg-[var(--accent-violet-soft)] text-[var(--accent-violet-strong)] shadow-[inset_0_0_0_1px_var(--accent-violet-muted)]"
+                          : "text-[var(--text-secondary)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
+                    }`}
+                    onClick={(event) => {
+                      stopCanvasGesture(event);
+                      if (option.disabled) return;
+                      onChange(option.value);
+                      setOpen(false);
+                    }}
+                  >
+                    <span
+                      className={`flex min-w-0 items-center gap-1.5 ${option.group ? "pl-5" : ""}`}
+                    >
+                      {option.icon}
+                      <span
+                        className="min-w-0 truncate"
+                        title={option.title ?? option.label}
+                      >
+                        {option.label}
+                      </span>
                     </span>
-                  </span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    {option.trailing}
-                    {active ? (
-                      <Check className="h-3.5 w-3.5 shrink-0 text-[var(--accent-violet-strong)]" />
-                    ) : (
-                      <span className="h-3.5 w-3.5 shrink-0" />
-                    )}
-                  </span>
-                </button>
+                    <span className="flex shrink-0 items-center gap-2">
+                      {option.trailing}
+                      {active ? (
+                        <Check className="h-3.5 w-3.5 shrink-0 text-[var(--accent-violet-strong)]" />
+                      ) : (
+                        <span className="h-3.5 w-3.5 shrink-0" />
+                      )}
+                    </span>
+                  </button>
+                </Fragment>
               );
             })}
           </div>

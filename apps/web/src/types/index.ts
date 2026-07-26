@@ -68,6 +68,7 @@ export interface RuntimeModelConfig extends ModelEntry {
 
 export interface ApiConfig {
   defaultModelEntryId: string;
+  lastUsedModelEntryIds?: Partial<Record<ModelCategory, string>>;
   modelEntries: ModelEntry[];
   providerProfiles: ProviderProfileConfig[];
   providerApiKeys: Record<string, string>;
@@ -336,6 +337,13 @@ export interface PanoramaNodeData extends Record<string, unknown> {
 
 export type GenerateTaskStatus = "queued" | "running" | "done" | "error";
 export type GenerateTaskRemoteStatus = "IN_PROGRESS" | "SUCCESS" | "FAILURE";
+export type GenerateTaskPhase = "requesting" | "polling" | "persisting";
+export type GenerateTaskExecutionMode = "sync" | "polling";
+export type GenerateTaskAdapterId =
+  | "openai-compatible-sync"
+  | "openai-compatible-task-polling"
+  | "dashscope-image-sync"
+  | "dashscope-video-polling";
 
 export interface GenerateTask {
   id: string;
@@ -365,9 +373,15 @@ export interface GenerateTask {
   resultImageAsset?: WorkspaceImageAsset | null;
   resultVideoAsset?: WorkspaceImageAsset | null;
   status: GenerateTaskStatus;
+  phase?: GenerateTaskPhase | null;
+  executionMode?: GenerateTaskExecutionMode | null;
+  adapterId?: GenerateTaskAdapterId | null;
+  providerBindingFingerprint?: string | null;
   errorMsg: string;
   remoteTaskId: string | null;
   remoteStatus: GenerateTaskRemoteStatus | null;
+  telemetryAttemptId?: string | null;
+  telemetryStartedAt?: number | null;
   createdAt: number;
   startedAt: number;
   finishedAt: number | null;

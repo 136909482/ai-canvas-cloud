@@ -66,7 +66,12 @@
 - `npm run dev:restart`
 - `npm run dev:status`
 - `npm run test`
+- `npm run test:unit`
 - `npm run lint`
+- `npm run lint:files`
+- `npm run format:files`
+- `npm run typecheck`
+- `npm run check`
 - `npm run db:migrate`
 - `npm run db:roles:provision`
 - `npm run db:roles:check`
@@ -82,14 +87,15 @@
 - `npm run deploy:staging:restore:drill`
 - `npm run format:check`
 
-代码落地后，常规改动至少验证：
+验证按改动风险逐级增加，不要求每次局部编辑都运行发布级门禁：
 
-- 相关单元测试
-- Lint
-- TypeScript 构建
-- 数据库迁移测试
-
-认证、权限、项目图、资产、浏览器 Vault 或本地任务改动还必须运行相应集成测试、两账号隔离和双设备 E2E。数据库 schema 变更必须包含显式迁移、升级测试和回滚/前向修复说明。
+- 编辑中优先运行相关 `test:unit` 和 `lint:files`。
+- 常规代码改动交付前至少运行 `npm run check`；它包含全部非集成测试、本次 Git 改动文件的 Lint/Prettier 和增量 TypeScript 检查。
+- 共享包、跨模块契约和 API 行为改动运行 `npm test`、`npm run lint` 和 `npm run build`。
+- 认证、权限、项目图、资产、浏览器 Vault 或本地任务改动还必须运行相应集成测试、两账号隔离和双设备 E2E。
+- 只有数据库 schema、迁移器或角色变更才要求 `db:migrate:test`、`db:migrate:compat`、`db:roles:check`；schema 变更必须包含显式迁移、升级测试和回滚/前向修复说明。
+- 纯文档、注释或静态文案改动不要求代码测试、构建或数据库迁移，只运行相关格式和链接检查。
+- staging 与发布配置改动运行 staging 门禁和真实恢复演练；不能用本地 fake 代替真实环境验收。
 
 ## 文档维护
 

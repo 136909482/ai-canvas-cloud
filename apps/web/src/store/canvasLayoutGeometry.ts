@@ -29,8 +29,8 @@ export const DEFAULT_TEXT_SPLITTER_NODE_WIDTH = 360;
 export const DEFAULT_TEXT_SPLITTER_NODE_HEIGHT = 240;
 export const DEFAULT_INLINE_TEXT_SPLITTER_NODE_WIDTH = 420;
 export const DEFAULT_INLINE_TEXT_SPLITTER_NODE_HEIGHT = 420;
-export const DEFAULT_TEXT_NODE_WIDTH = 240;
-export const DEFAULT_TEXT_NODE_HEIGHT = 190;
+export const DEFAULT_TEXT_NODE_WIDTH = 280;
+export const DEFAULT_TEXT_NODE_HEIGHT = 220;
 export const DEFAULT_GROUP_NODE_WIDTH = 520;
 export const DEFAULT_GROUP_NODE_HEIGHT = 420;
 export const DEFAULT_PANORAMA_NODE_WIDTH = 480;
@@ -59,7 +59,7 @@ export function getNodeSize(node: Node) {
             : node.type === "imageCropNode"
               ? DEFAULT_IMAGE_CROP_NODE_WIDTH
               : node.type === "textNode"
-                ? 240
+                ? DEFAULT_TEXT_NODE_WIDTH
                 : node.type === "textSplitterNode"
                   ? DEFAULT_TEXT_SPLITTER_NODE_WIDTH
                   : node.type === "inlineTextSplitterNode"
@@ -95,7 +95,7 @@ export function getNodeSize(node: Node) {
             : node.type === "imageCropNode"
               ? DEFAULT_IMAGE_CROP_NODE_HEIGHT
               : node.type === "textNode"
-                ? 160
+                ? DEFAULT_TEXT_NODE_HEIGHT
                 : node.type === "textSplitterNode"
                   ? DEFAULT_TEXT_SPLITTER_NODE_HEIGHT
                   : node.type === "inlineTextSplitterNode"

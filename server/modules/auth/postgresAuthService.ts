@@ -1,5 +1,6 @@
 import { betterAuth, APIError } from "better-auth";
 import { splitSetCookieHeader } from "better-auth/cookies";
+import { username } from "better-auth/plugins";
 import type {
   AuthDevicesResponse,
   AuthSessionResponse,
@@ -26,7 +27,9 @@ import {
   AuthServiceError,
   createPersonalWorkspaceName,
   normalizeEmail,
+  normalizeLoginIdentifier,
   normalizeRegistrationInput,
+  normalizeUsername,
   validatePassword,
   type AuthRequestContext,
   type AuthService,
@@ -49,6 +52,8 @@ interface BetterAuthUser {
   email: string;
   emailVerified: boolean;
   name: string;
+  username?: string | null;
+  displayUsername?: string | null;
   image?: string | null;
   createdAt: Date | string;
   updatedAt: Date | string;
@@ -74,6 +79,8 @@ interface BetterAuthApi {
       email: string;
       password: string;
       name: string;
+      username: string;
+      displayUsername: string;
       rememberMe?: boolean;
     };
     headers?: Headers;
@@ -85,6 +92,13 @@ interface BetterAuthApi {
     returnHeaders?: boolean;
   }) => Promise<
     EndpointResult<{ redirect: boolean; token: string; user: BetterAuthUser }>
+  >;
+  signInUsername: (input: {
+    body: { username: string; password: string; rememberMe?: boolean };
+    headers?: Headers;
+    returnHeaders?: boolean;
+  }) => Promise<
+    EndpointResult<{ redirect?: boolean; token: string; user: BetterAuthUser }>
   >;
   getSession: (input: {
     headers: Headers;
@@ -121,6 +135,7 @@ interface BetterAuthApi {
 interface AuthRows {
   user_id: string;
   user_no: string | number;
+  display_username: string;
   email: string;
   email_verified: boolean;
   user_status: UserStatus;
@@ -248,6 +263,7 @@ function toAuthSessionResponse(row: AuthRows): AuthSessionResponse {
     user: {
       id: row.user_id,
       userNumber,
+      username: row.display_username,
       email: row.email,
       status: toUserStatus(row),
       emailVerified: row.email_verified,
@@ -273,11 +289,6 @@ function toAuthSuccessResponse(
       expiresAt: toIsoString(expiresAt) ?? new Date().toISOString(),
     },
   };
-}
-
-function getUserDisplayName(emailNormalized: string) {
-  const [localPart] = emailNormalized.split("@");
-  return localPart?.trim() || emailNormalized;
 }
 
 function createPublicEmailVerificationUrl(publicWebUrl: string, token: string) {
@@ -349,7 +360,7 @@ function toAuthServiceError(error: unknown): AuthServiceError {
       return new AuthServiceError({
         statusCode: 401,
         apiCode: "AUTH_REQUIRED",
-        message: message || "Invalid email or password",
+        message: "Invalid account or password",
       });
     }
 
@@ -361,6 +372,15 @@ function toAuthServiceError(error: unknown): AuthServiceError {
             ? "EMAIL_NOT_VERIFIED"
             : "ACCESS_DENIED",
         message: message || "Access denied",
+      });
+    }
+
+    if (code === "USERNAME_IS_ALREADY_TAKEN") {
+      return new AuthServiceError({
+        statusCode: 409,
+        apiCode: "USERNAME_UNAVAILABLE",
+        message: "Username is already in use",
+        details: { field: "username", reason: "taken" },
       });
     }
 
@@ -388,6 +408,23 @@ function toAuthServiceError(error: unknown): AuthServiceError {
 
   if (error instanceof AuthServiceError) {
     return error;
+  }
+
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "23505" &&
+    "constraint" in error &&
+    typeof error.constraint === "string" &&
+    error.constraint.includes("username")
+  ) {
+    return new AuthServiceError({
+      statusCode: 409,
+      apiCode: "USERNAME_UNAVAILABLE",
+      message: "Username is already in use",
+      details: { field: "username", reason: "taken" },
+    });
   }
 
   return new AuthServiceError({
@@ -448,6 +485,7 @@ async function getPrimaryWorkspace(
       SELECT
         u.id AS user_id,
         u.user_no,
+        u.display_username,
         u.email,
         u.email_verified,
         COALESCE(u.status, 'active') AS user_status,
@@ -668,6 +706,36 @@ function createDefaultBetterAuthApi(
     verification: {
       fields: BETTER_AUTH_FIELD_MAPPING.verification,
     },
+    plugins: [
+      username({
+        minUsernameLength: 3,
+        maxUsernameLength: 30,
+        usernameValidator: (value) => {
+          try {
+            normalizeUsername(value);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        displayUsernameValidator: (value) => {
+          try {
+            normalizeUsername(value);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        schema: {
+          user: {
+            fields: {
+              username: "username",
+              displayUsername: "display_username",
+            },
+          },
+        },
+      }),
+    ],
     rateLimit: {
       enabled: true,
     },
@@ -692,7 +760,9 @@ export function createPostgresAuthService(
           body: {
             email: normalized.emailNormalized,
             password: normalized.password,
-            name: getUserDisplayName(normalized.emailNormalized),
+            name: normalized.displayUsername,
+            username: normalized.usernameNormalized,
+            displayUsername: normalized.displayUsername,
             rememberMe: true,
           },
           headers: createRequestHeaders(context),
@@ -726,17 +796,30 @@ export function createPostgresAuthService(
 
     async login(input: LoginRequest, context: AuthRequestContext) {
       try {
-        const emailNormalized = input.email.trim().toLowerCase();
+        const identifier = normalizeLoginIdentifier(input.identifier);
         const deviceKey = resolveDeviceKey(input.deviceId, context);
-        const result = await authApi.signInEmail({
-          body: {
-            email: emailNormalized,
-            password: input.password,
-            rememberMe: true,
-          },
+        const request = {
           headers: createRequestHeaders(context),
-          returnHeaders: true,
-        });
+          returnHeaders: true as const,
+        };
+        const result =
+          identifier.type === "email"
+            ? await authApi.signInEmail({
+                ...request,
+                body: {
+                  email: identifier.value,
+                  password: input.password,
+                  rememberMe: true,
+                },
+              })
+            : await authApi.signInUsername({
+                ...request,
+                body: {
+                  username: identifier.value,
+                  password: input.password,
+                  rememberMe: true,
+                },
+              });
 
         const otherActiveSession = await findOtherActiveSession(
           pool,

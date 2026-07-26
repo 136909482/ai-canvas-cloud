@@ -144,6 +144,7 @@ function createDefaultRuntimeState(): SettingsRuntimeState {
 function withoutPrivateSettings(config: ApiConfig): ApiConfig {
   return normalizeConfig({
     defaultModelEntryId: "",
+    lastUsedModelEntryIds: {},
     modelEntries: [],
     providerProfiles: [],
     providerApiKeys: {},
@@ -158,6 +159,7 @@ function mergeLocalVaultDocument(
 ): ApiConfig {
   return normalizeConfig({
     defaultModelEntryId: document.defaultModelEntryId,
+    lastUsedModelEntryIds: document.lastUsedModelEntryIds,
     modelEntries: document.modelEntries,
     providerProfiles: document.providerProfiles,
     providerApiKeys: document.providerApiKeys,
@@ -176,6 +178,7 @@ function createLocalVaultDocument(
     schemaVersion: LOCAL_VAULT_SCHEMA_VERSION,
     userId,
     defaultModelEntryId: normalized.defaultModelEntryId,
+    lastUsedModelEntryIds: normalized.lastUsedModelEntryIds,
     modelEntries: normalized.modelEntries,
     providerProfiles: normalized.providerProfiles,
     providerApiKeys: normalized.providerApiKeys,
@@ -672,12 +675,23 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
   },
 
   setDefaultModel: (modelId) => {
-    set((state) => ({
-      config: normalizeConfig({
-        ...state.config,
-        defaultModelEntryId: modelId,
-      }),
-    }));
+    set((state) => {
+      const model = state.config.modelEntries.find(
+        (entry) => entry.id === modelId,
+      );
+      return {
+        config: normalizeConfig({
+          ...state.config,
+          defaultModelEntryId: modelId,
+          lastUsedModelEntryIds: model
+            ? {
+                ...state.config.lastUsedModelEntryIds,
+                [model.category]: modelId,
+              }
+            : state.config.lastUsedModelEntryIds,
+        }),
+      };
+    });
     void get()
       .persistLocalVault()
       .catch(() => undefined);

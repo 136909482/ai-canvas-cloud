@@ -40,6 +40,32 @@ interface AuthGateProps {
 type AuthMode = "login" | "register" | "forgot" | "reset";
 type AuthModalAnimationPhase = "enter" | "settled" | "out" | "in";
 
+const USERNAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]{2,29}$/;
+const RESERVED_USERNAMES = new Set([
+  "admin",
+  "administrator",
+  "api",
+  "root",
+  "support",
+  "system",
+]);
+
+function getUsernameValidationMessage(value: string) {
+  if (!value) {
+    return "请输入用户名";
+  }
+
+  if (!USERNAME_PATTERN.test(value)) {
+    return "用户名需为 3–30 位，首字符为字母，仅支持字母、数字和下划线";
+  }
+
+  if (RESERVED_USERNAMES.has(value.toLocaleLowerCase("en-US"))) {
+    return "该用户名不可使用，请更换后重试";
+  }
+
+  return null;
+}
+
 function getSubmitLabel(mode: AuthMode, pending: boolean) {
   if (pending) {
     if (mode === "login") {
@@ -74,7 +100,15 @@ function getSubmitLabel(mode: AuthMode, pending: boolean) {
 
 function getSubmitErrorMessage(mode: AuthMode, error: unknown) {
   if (mode === "login") {
-    return "登录失败，请检查邮箱和密码后重试。";
+    return "账号或密码错误";
+  }
+
+  if (
+    mode === "register" &&
+    error instanceof CloudApiError &&
+    error.code === "USERNAME_UNAVAILABLE"
+  ) {
+    return "该用户名已被使用，请更换后重试。";
   }
 
   return error instanceof Error ? error.message : String(error);
@@ -96,6 +130,8 @@ export function AuthGate({ children }: AuthGateProps) {
   const [isAuthOpen, setIsAuthOpen] = useState(() =>
     window.location.pathname.startsWith("/auth/"),
   );
+  const [identifier, setIdentifier] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -315,6 +351,10 @@ export function AuthGate({ children }: AuthGateProps) {
     authModalAnimationPhase === "out" || authModalAnimationPhase === "in";
   const authFlipDirection =
     (pendingAuthMode ?? mode) === "register" ? "forward" : "backward";
+  const usernameValidationMessage =
+    mode === "register" && username.length > 0
+      ? getUsernameValidationMessage(username)
+      : null;
 
   const handleAuthModeAnimationEnd = (
     event: React.AnimationEvent<HTMLElement>,
@@ -345,13 +385,22 @@ export function AuthGate({ children }: AuthGateProps) {
     setSubmitError(null);
     setSubmitMessage(null);
     setLoginConflict(false);
+
+    if (mode === "register") {
+      const validationMessage = getUsernameValidationMessage(username);
+      if (validationMessage) {
+        setSubmitError(validationMessage);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
 
     try {
       if (mode === "login") {
-        await login({ email, password });
+        await login({ identifier, password });
       } else if (mode === "register") {
-        await register({ email, password });
+        await register({ username, email, password });
       } else if (mode === "forgot") {
         await requestAuthPasswordReset({ email });
         setSubmitMessage("如果这个邮箱存在，我们已经发送了密码重置链接。");
@@ -392,7 +441,7 @@ export function AuthGate({ children }: AuthGateProps) {
     setIsSubmitting(true);
 
     try {
-      await login({ email, password, force: true });
+      await login({ identifier, password, force: true });
     } catch (error) {
       setLoginConflict(false);
       setSubmitError(getSubmitErrorMessage("login", error));
@@ -508,7 +557,70 @@ export function AuthGate({ children }: AuthGateProps) {
             ) : null}
 
             <form onSubmit={handleSubmit} className="auth-modal__form">
-              {mode !== "reset" ? (
+              {mode === "register" ? (
+                <label className="block">
+                  <span
+                    className={`mb-1.5 block text-xs font-medium ${themeClasses.textSecondary}`}
+                  >
+                    用户名
+                  </span>
+                  <input
+                    value={username}
+                    onChange={(event) => {
+                      setUsername(event.target.value);
+                      setSubmitError(null);
+                    }}
+                    type="text"
+                    autoComplete="username"
+                    autoFocus
+                    required
+                    minLength={3}
+                    maxLength={30}
+                    pattern="[A-Za-z][A-Za-z0-9_]{2,29}"
+                    aria-invalid={Boolean(usernameValidationMessage)}
+                    aria-describedby="register-username-hint"
+                    className={`h-11 w-full px-3 text-sm ${themeClasses.input}`}
+                    placeholder="hello_01"
+                  />
+                  <span
+                    id="register-username-hint"
+                    className={`mt-1.5 block text-[11px] leading-4 ${
+                      usernameValidationMessage
+                        ? "text-red-500 dark:text-red-300"
+                        : themeClasses.textMuted
+                    }`}
+                  >
+                    {usernameValidationMessage ??
+                      "3–30 位，首字符为字母，仅支持字母、数字和下划线"}
+                  </span>
+                </label>
+              ) : null}
+
+              {mode === "login" ? (
+                <label className="block">
+                  <span
+                    className={`mb-1.5 block text-xs font-medium ${themeClasses.textSecondary}`}
+                  >
+                    用户名或邮箱
+                  </span>
+                  <input
+                    value={identifier}
+                    onChange={(event) => {
+                      setIdentifier(event.target.value);
+                      setSubmitError(null);
+                      setLoginConflict(false);
+                    }}
+                    type="text"
+                    autoComplete="username"
+                    autoFocus
+                    required
+                    className={`h-11 w-full px-3 text-sm ${themeClasses.input}`}
+                    placeholder="用户名或 you@example.com"
+                  />
+                </label>
+              ) : null}
+
+              {mode === "register" || mode === "forgot" ? (
                 <label className="block">
                   <span
                     className={`mb-1.5 block text-xs font-medium ${themeClasses.textSecondary}`}
@@ -524,7 +636,7 @@ export function AuthGate({ children }: AuthGateProps) {
                     }}
                     type="email"
                     autoComplete="email"
-                    autoFocus
+                    autoFocus={mode === "forgot"}
                     required
                     className={`h-11 w-full px-3 text-sm ${themeClasses.input}`}
                     placeholder="you@example.com"

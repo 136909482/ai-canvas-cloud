@@ -191,8 +191,8 @@ export const SETTINGS_CATEGORIES: Array<{
 }> = [
   {
     id: "account",
-    label: "账号设置",
-    description: "账号信息与登录状态",
+    label: "个人资料",
+    description: "用户名、账号信息与安全设置",
     Icon: UserRound,
   },
   {

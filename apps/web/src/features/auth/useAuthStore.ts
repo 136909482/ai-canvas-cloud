@@ -15,11 +15,15 @@ interface AuthStore {
   error: string | null;
   checkSession: (options?: { silent?: boolean }) => Promise<void>;
   login: (input: {
-    email: string;
+    identifier: string;
     password: string;
     force?: boolean;
   }) => Promise<void>;
-  register: (input: { email: string; password: string }) => Promise<void>;
+  register: (input: {
+    username: string;
+    email: string;
+    password: string;
+  }) => Promise<void>;
   logout: () => Promise<void>;
 }
 

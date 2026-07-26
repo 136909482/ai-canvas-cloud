@@ -44,7 +44,7 @@ function getSize(node: Node): { width: number; height: number } {
                                 : node.type === "testImageNode"
                                   ? IMAGE_NODE_WIDTH
                                   : node.type === "textNode"
-                                    ? 240
+                                    ? 280
                                     : 240;
 
   const h =
@@ -79,7 +79,7 @@ function getSize(node: Node): { width: number; height: number } {
                                 : node.type === "testImageNode"
                                   ? IMAGE_NODE_HEIGHT
                                   : node.type === "textNode"
-                                    ? 160
+                                    ? 220
                                     : 180;
 
   return { width: w, height: h };

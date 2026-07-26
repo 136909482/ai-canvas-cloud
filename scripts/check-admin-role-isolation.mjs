@@ -24,7 +24,7 @@ const connections = {
   app: process.env.DATABASE_URL,
   admin: process.env.ADMIN_DATABASE_URL,
 };
-const expectedMigrationVersions = Array.from({ length: 29 }, (_, index) =>
+const expectedMigrationVersions = Array.from({ length: 31 }, (_, index) =>
   String(index + 1).padStart(4, "0"),
 );
 
@@ -47,6 +47,8 @@ const expectedPermissions = {
     assetObjectRead: true,
     sitePublicationRead: true,
     sitePublicationWrite: false,
+    generationTelemetryRead: true,
+    generationTelemetryAttemptRead: true,
   },
   admin: {
     isSuperuser: false,
@@ -63,6 +65,8 @@ const expectedPermissions = {
     assetObjectRead: false,
     sitePublicationRead: true,
     sitePublicationWrite: true,
+    generationTelemetryRead: true,
+    generationTelemetryAttemptRead: false,
   },
 };
 
@@ -87,6 +91,8 @@ for (const [connection, connectionString] of Object.entries(connections)) {
     let sensitiveIdentityRead = true;
     let projectContentRead = true;
     let assetObjectRead = true;
+    let generationTelemetryRead = true;
+    let generationTelemetryAttemptRead = true;
     try {
       await client.query('SELECT 1 FROM admin."user" LIMIT 1');
     } catch {
@@ -111,7 +117,7 @@ for (const [connection, connectionString] of Object.entries(connections)) {
     }
     try {
       await client.query(
-        `SELECT id, user_no, name, email, email_verified, status, created_at, updated_at FROM public."user" LIMIT 1`,
+        `SELECT id, user_no, username, display_username, email, email_verified, status, created_at, updated_at FROM public."user" LIMIT 1`,
       );
       await client.query(
         `SELECT id, user_id, expires_at, created_at, updated_at FROM public."session" LIMIT 1`,
@@ -159,6 +165,20 @@ for (const [connection, connectionString] of Object.entries(connections)) {
       await client.query("SELECT object_key FROM public.assets LIMIT 1");
     } catch {
       assetObjectRead = false;
+    }
+    try {
+      await client.query(
+        `SELECT user_id, category, status, failure_category, result_count, duration_ms, started_at, completed_at FROM public.generation_telemetry LIMIT 1`,
+      );
+    } catch {
+      generationTelemetryRead = false;
+    }
+    try {
+      await client.query(
+        `SELECT client_attempt_id FROM public.generation_telemetry LIMIT 1`,
+      );
+    } catch {
+      generationTelemetryAttemptRead = false;
     }
     const sitePublicationRead = await client.query(
       `SELECT has_table_privilege(current_user, 'public.site_config_publications', 'SELECT') AS allowed`,
@@ -297,6 +317,8 @@ for (const [connection, connectionString] of Object.entries(connections)) {
       assetObjectRead,
       sitePublicationRead: sitePublicationRead.rows[0]?.allowed,
       sitePublicationWrite: sitePublicationWrite.rows[0]?.allowed,
+      generationTelemetryRead,
+      generationTelemetryAttemptRead,
     };
     console.log({ connection, role: identity.rows[0]?.role, ...permissions });
     assert.deepEqual(

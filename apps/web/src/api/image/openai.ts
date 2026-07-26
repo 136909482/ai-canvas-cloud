@@ -1,4 +1,5 @@
 import type { ImageOperationType } from "@/types";
+import { fetchPollingRequestWithRetry } from "../pollingRetry.ts";
 import {
   buildApiError,
   convertReferenceImageToFile,
@@ -823,12 +824,14 @@ async function queryOpenAiAsyncImageGeneration(
   let response: Response;
 
   try {
-    response = await fetch(taskEndpoint, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${params.apiKey}`,
-      },
-    });
+    response = await fetchPollingRequestWithRetry(() =>
+      fetch(taskEndpoint, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${params.apiKey}`,
+        },
+      }),
+    );
   } catch (error) {
     throw new Error(
       getNetworkErrorMessage(error, "OpenAI compatible async image query"),

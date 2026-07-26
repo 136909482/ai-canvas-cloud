@@ -27,6 +27,7 @@ export interface ApiConfig {
   s3AccessKeyId: string;
   s3SecretAccessKey: string;
   devSeedAdmin: boolean;
+  devSeedAdminUsername: string;
   devSeedAdminEmail: string;
   devSeedAdminPassword?: string;
   authEmailTransport: "development" | "smtp";
@@ -155,6 +156,11 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     s3SecretAccessKey: readRequiredEnv(env, "S3_SECRET_ACCESS_KEY"),
     devSeedAdmin:
       appEnv !== "production" && readBooleanEnv(env, "DEV_SEED_ADMIN", false),
+    devSeedAdminUsername: readOptionalEnv(
+      env,
+      "DEV_SEED_ADMIN_USERNAME",
+      "admin_user",
+    ),
     devSeedAdminEmail: readOptionalEnv(
       env,
       "DEV_SEED_ADMIN_EMAIL",

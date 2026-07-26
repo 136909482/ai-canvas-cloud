@@ -1,18 +1,7 @@
-import {
-  generateImage,
-  submitAsyncImageGeneration,
-  waitForAsyncImageGeneration,
-} from "@/api/imageAdapter";
-import {
-  submitAliyunTextToVideoGeneration,
-  waitForAliyunVideoGeneration,
-  type GenerateVideoParams,
-} from "@/api/videoAdapter";
 import { resolveRuntimeModelConfig } from "@/features/settings/providerConfig";
 import { useCanvasStore } from "@/store/useCanvasStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { useTaskQueueStore } from "@/store/useTaskQueueStore";
-import { reportDiagnostic } from "@/store/useDiagnosticsStore";
 import type {
   GenerateTask,
   GptImageQuality,
@@ -20,32 +9,26 @@ import type {
   ImageOperationType,
   VideoGenerateMode,
   VideoGenerateNodeData,
-  WorkspaceImageAsset,
 } from "@/types";
-import { getPreviewNodeSize, loadImageDimensions } from "./previewUtils";
+import { clearStagedGeneratedImageResult } from "./generatedAssets";
 import {
-  getVideoNodeSize,
-  loadVideoMetadata,
-  persistGeneratedImageAsset,
-  persistGeneratedVideoAsset,
-} from "./generatedAssets";
+  createProviderBindingFingerprint,
+  resolveTaskAdapterId,
+} from "./imageProviderAdapters";
+import {
+  getActiveSourceTaskState,
+  resolvePreviewSourceImageNodeId,
+  syncPreviewNodeWithTask,
+  syncSourceNodeAfterTaskSettles,
+  syncSourceNodeWithTask,
+  syncVideoNodeWithTask,
+} from "./taskCanvasState";
+import { canCancelQueuedTask } from "./taskQueueView";
+import { canReuseTaskResultNode } from "./taskResultPolicy";
 
 const UI_TEXT = {
   previewLabelPrefix: "\u9884\u89c8",
-  missingSourceNode:
-    "\u751f\u6210\u4efb\u52a1\u5bf9\u5e94\u7684 AI \u7ed8\u56fe\u8282\u70b9\u4e0d\u5b58\u5728",
-  missingVideoSourceNode:
-    "\u751f\u6210\u4efb\u52a1\u5bf9\u5e94\u7684 AI \u89c6\u9891\u8282\u70b9\u4e0d\u5b58\u5728",
-  missingPreviewNode:
-    "\u751f\u6210\u4efb\u52a1\u5bf9\u5e94\u7684\u9884\u89c8\u8282\u70b9\u4e0d\u5b58\u5728",
-  missingVideoNode:
-    "\u751f\u6210\u4efb\u52a1\u5bf9\u5e94\u7684\u89c6\u9891\u7ed3\u679c\u8282\u70b9\u4e0d\u5b58\u5728",
-  restoreFailurePrefix: "\u9879\u76ee\u6062\u590d\u5931\u8d25\uff1a",
-  assetPersistFailed:
-    "\u751f\u6210\u56fe\u7247\u5df2\u8fd4\u56de\uff0c\u4f46\u5199\u5165\u672c\u5730\u8d44\u4ea7\u5931\u8d25",
 } as const;
-
-const activeRemoteResumeTaskIds = new Set<string>();
 
 type EnqueueGenerateTaskInput = {
   projectId?: string | null;
@@ -80,24 +63,56 @@ function createPreviewLabel(timestamp: number) {
   return `${UI_TEXT.previewLabelPrefix} ${new Date(timestamp).toLocaleTimeString("zh-CN", { hour12: false })}`;
 }
 
-function getTaskProviderSnapshot(modelEntryId: string) {
+function getTaskProviderSnapshot(
+  modelEntryId: string,
+  category: "image" | "video",
+): Pick<
+  GenerateTask,
+  | "apiProfileId"
+  | "apiProfileName"
+  | "provider"
+  | "executionMode"
+  | "adapterId"
+  | "providerBindingFingerprint"
+> {
   const settings = useSettingsStore.getState();
-  const model = settings.config.modelEntries.find(
-    (entry) => entry.id === modelEntryId,
-  );
-  const providerId = model?.providerProfileId ?? null;
-  const profile = settings.config.providerProfiles.find(
-    (candidate) => candidate.id === providerId,
-  );
+  const resolution = resolveRuntimeModelConfig(settings.config, {
+    modelEntryId,
+    category,
+    requireCredentials: true,
+  });
+
+  if (!resolution.ok) {
+    return {
+      apiProfileId: null,
+      apiProfileName: null,
+      provider: null,
+      executionMode: null,
+      adapterId: null,
+      providerBindingFingerprint: null,
+    };
+  }
+
+  const adapterId = resolveTaskAdapterId(resolution.runtimeConfig, category);
 
   return {
-    apiProfileId: providerId,
-    apiProfileName: profile?.name ?? null,
-    provider: profile ? "openai-compatible" : null,
+    apiProfileId: resolution.profile.id,
+    apiProfileName: resolution.profile.name,
+    provider: resolution.runtimeConfig.provider,
+    executionMode: adapterId.includes("polling") ? "polling" : "sync",
+    adapterId,
+    providerBindingFingerprint: createProviderBindingFingerprint(
+      resolution.runtimeConfig,
+      resolution.profile.updatedAt,
+      category,
+    ),
   };
 }
 
-function findReusablePreviewNode(sourceNodeId: string) {
+function findReusablePreviewNode(
+  sourceNodeId: string,
+  reusableTaskId?: string,
+) {
   const canvasStore = useCanvasStore.getState();
   const connectedPreviewNodes = canvasStore.edges
     .filter((edge) => edge.source === sourceNodeId)
@@ -108,7 +123,15 @@ function findReusablePreviewNode(sourceNodeId: string) {
       ),
     )
     .filter((node): node is NonNullable<typeof node> => Boolean(node))
-    .filter((node) => !node.data?.imageUrl)
+    .filter((node) =>
+      canReuseTaskResultNode(
+        {
+          hasResult: Boolean(node.data?.imageUrl),
+          taskId: node.data?.taskId,
+        },
+        reusableTaskId,
+      ),
+    )
     .sort((left, right) => {
       const leftIsManualPreview =
         left.data?.sourceGenerateNodeId === "manual-preview";
@@ -129,7 +152,7 @@ function findReusablePreviewNode(sourceNodeId: string) {
   return connectedPreviewNodes[0] ?? null;
 }
 
-function findReusableVideoNode(sourceNodeId: string) {
+function findReusableVideoNode(sourceNodeId: string, reusableTaskId?: string) {
   const canvasStore = useCanvasStore.getState();
   const connectedVideoNodes = canvasStore.edges
     .filter((edge) => edge.source === sourceNodeId)
@@ -139,49 +162,17 @@ function findReusableVideoNode(sourceNodeId: string) {
       ),
     )
     .filter((node): node is NonNullable<typeof node> => Boolean(node))
-    .filter((node) => !node.data?.videoUrl);
+    .filter((node) =>
+      canReuseTaskResultNode(
+        {
+          hasResult: Boolean(node.data?.videoUrl),
+          taskId: node.data?.taskId,
+        },
+        reusableTaskId,
+      ),
+    );
 
   return connectedVideoNodes[0] ?? null;
-}
-
-function resolvePreviewSourceImageNodeId(sourceImageNodeId: string | null) {
-  if (!sourceImageNodeId) {
-    return null;
-  }
-
-  const sourceNode = useCanvasStore
-    .getState()
-    .nodes.find((node) => node.id === sourceImageNodeId);
-
-  if (!sourceNode) {
-    return null;
-  }
-
-  if (sourceNode.type === "imageNode") {
-    return sourceNode.id;
-  }
-
-  if (sourceNode.type === "generatedPreviewNode") {
-    return typeof sourceNode.data?.sourceImageNodeId === "string"
-      ? sourceNode.data.sourceImageNodeId
-      : null;
-  }
-
-  return null;
-}
-
-function resolveTaskSourceImageUrl(sourceImageNodeId: string | null) {
-  if (!sourceImageNodeId) {
-    return null;
-  }
-
-  const sourceNode = useCanvasStore
-    .getState()
-    .nodes.find((node) => node.id === sourceImageNodeId);
-  return typeof sourceNode?.data?.imageUrl === "string" &&
-    sourceNode.data.imageUrl
-    ? sourceNode.data.imageUrl
-    : null;
 }
 
 function createQueuedPreview(
@@ -193,11 +184,15 @@ function createQueuedPreview(
     originOperation?: "generate" | "image-edit";
     sourceImageNodeId?: string | null;
     apiProfileName?: string | null;
+    reusableTaskId?: string;
   },
 ) {
   const canvasStore = useCanvasStore.getState();
   const previewTimestamp = Date.now();
-  const reusablePreviewNode = findReusablePreviewNode(sourceNodeId);
+  const reusablePreviewNode = findReusablePreviewNode(
+    sourceNodeId,
+    options?.reusableTaskId,
+  );
   const originOperation = options?.originOperation ?? "generate";
   const previewSourceImageNodeId = resolvePreviewSourceImageNodeId(
     options?.sourceImageNodeId ?? null,
@@ -239,9 +234,9 @@ function createQueuedPreview(
   });
 }
 
-function createQueuedVideoNode(sourceNodeId: string) {
+function createQueuedVideoNode(sourceNodeId: string, reusableTaskId?: string) {
   const canvasStore = useCanvasStore.getState();
-  const reusableVideoNode = findReusableVideoNode(sourceNodeId);
+  const reusableVideoNode = findReusableVideoNode(sourceNodeId, reusableTaskId);
 
   if (reusableVideoNode) {
     canvasStore.updateNodeData(reusableVideoNode.id, {
@@ -270,166 +265,6 @@ function createQueuedVideoNode(sourceNodeId: string) {
   });
 }
 
-function getActiveSourceTaskState(sourceNodeId: string) {
-  const tasks = useTaskQueueStore.getState().tasks;
-  const runningTasks = tasks
-    .filter(
-      (task) => task.sourceNodeId === sourceNodeId && task.status === "running",
-    )
-    .sort((left, right) => left.startedAt - right.startedAt);
-
-  if (runningTasks.length > 0) {
-    return {
-      status: "generating" as const,
-      activeTaskId: runningTasks[0].id,
-      errorMsg: "",
-    };
-  }
-
-  const queuedTasks = tasks
-    .filter(
-      (task) => task.sourceNodeId === sourceNodeId && task.status === "queued",
-    )
-    .sort((left, right) => left.createdAt - right.createdAt);
-
-  if (queuedTasks.length > 0) {
-    return {
-      status: "queued" as const,
-      activeTaskId: queuedTasks[0].id,
-      errorMsg: "",
-    };
-  }
-
-  return null;
-}
-
-function syncSourceNodeAfterTaskSettles(
-  task: GenerateTask,
-  settledState: {
-    status: "done" | "error";
-    errorMsg?: string;
-    imageUrl?: string;
-    imageAsset?: WorkspaceImageAsset | null;
-  },
-) {
-  const activeState = getActiveSourceTaskState(task.sourceNodeId);
-  const canvasStore = useCanvasStore.getState();
-  const { updateNodeData } = canvasStore;
-  const sourceNode = canvasStore.nodes.find(
-    (node) => node.id === task.sourceNodeId,
-  );
-
-  if (activeState) {
-    updateNodeData(task.sourceNodeId, activeState);
-    return;
-  }
-
-  updateNodeData(task.sourceNodeId, {
-    status: settledState.status,
-    errorMsg: settledState.errorMsg ?? "",
-    activeTaskId: null,
-    ...(sourceNode?.type === "generateNode" && settledState.imageUrl
-      ? { imageUrl: settledState.imageUrl }
-      : {}),
-    ...(sourceNode?.type === "generateNode" &&
-    settledState.imageAsset !== undefined
-      ? { imageAsset: settledState.imageAsset }
-      : {}),
-  });
-}
-
-function syncSourceNodeWithTask(
-  task: GenerateTask,
-  status: "queued" | "generating" | "done" | "error",
-  errorMsg = "",
-) {
-  const canvasStore = useCanvasStore.getState();
-  const sourceNode = canvasStore.nodes.find(
-    (node) => node.id === task.sourceNodeId,
-  );
-
-  if (
-    !sourceNode ||
-    (sourceNode.type !== "generateNode" &&
-      sourceNode.type !== "imageEditNode" &&
-      sourceNode.type !== "videoGenerateNode")
-  ) {
-    return;
-  }
-
-  const patch: Record<string, unknown> = {
-    prompt: task.prompt,
-    model: task.model,
-    ratio: task.ratio,
-    resolution: task.resolution,
-    status,
-    errorMsg,
-  };
-
-  if (
-    sourceNode.type === "generateNode" ||
-    sourceNode.type === "imageEditNode"
-  ) {
-    patch.negativePrompt = task.negativePrompt;
-    patch.activeTaskId =
-      status === "queued" || status === "generating" ? task.id : null;
-  }
-
-  if (sourceNode.type === "videoGenerateNode") {
-    patch.mode = task.videoMode ?? sourceNode.data?.mode ?? "text";
-    patch.duration = task.videoDuration ?? sourceNode.data?.duration ?? "5s";
-  }
-
-  if (sourceNode.type === "imageEditNode") {
-    patch.sourceImageNodeId = task.sourceImageNodeId;
-    patch.maskDataUrl =
-      task.maskImageUrl ?? sourceNode.data?.maskDataUrl ?? null;
-  }
-
-  canvasStore.updateNodeData(task.sourceNodeId, patch);
-}
-
-function syncPreviewNodeWithTask(
-  task: GenerateTask,
-  status: "queued" | "generating" | "done" | "error",
-  errorMsg = "",
-) {
-  const previewNodeId = task.previewNodeId;
-
-  if (!previewNodeId) {
-    return;
-  }
-
-  const { updateNodeData } = useCanvasStore.getState();
-  updateNodeData(previewNodeId, {
-    prompt: task.prompt,
-    model: task.model,
-    ratio: task.ratio,
-    status,
-    errorMsg,
-    taskId: task.id,
-  });
-}
-
-function syncVideoNodeWithTask(
-  task: GenerateTask,
-  status: "queued" | "generating" | "done" | "error",
-  errorMsg = "",
-) {
-  const videoNodeId = task.previewNodeId;
-
-  if (!videoNodeId) {
-    return;
-  }
-
-  const { updateNodeData } = useCanvasStore.getState();
-  updateNodeData(videoNodeId, {
-    status,
-    errorMsg,
-    name: status === "done" ? "视频生成结果" : "视频生成中",
-  });
-}
-
 export function enqueueGenerateTask(input: EnqueueGenerateTaskInput) {
   const canvasStore = useCanvasStore.getState();
   const sourceNode = canvasStore.nodes.find(
@@ -448,7 +283,7 @@ export function enqueueGenerateTask(input: EnqueueGenerateTaskInput) {
   const ratio = input.ratio || "1:1";
   const model = input.model?.trim() ?? "";
   if (!model) return null;
-  const providerSnapshot = getTaskProviderSnapshot(model);
+  const providerSnapshot = getTaskProviderSnapshot(model, "image");
   const sourceImageNodeId =
     typeof input.sourceImageNodeId === "string"
       ? input.sourceImageNodeId
@@ -523,7 +358,7 @@ export function enqueueVideoGenerateTask(input: EnqueueVideoGenerateTaskInput) {
   }
 
   const videoNodeId = createQueuedVideoNode(input.sourceNodeId);
-  const providerSnapshot = getTaskProviderSnapshot(model);
+  const providerSnapshot = getTaskProviderSnapshot(model, "video");
   const taskId = useTaskQueueStore.getState().createTask({
     projectId: input.projectId ?? null,
     kind: "video",
@@ -545,7 +380,11 @@ export function enqueueVideoGenerateTask(input: EnqueueVideoGenerateTaskInput) {
     status: sourceTaskState?.status ?? "queued",
     errorMsg: sourceTaskState?.errorMsg ?? "",
   });
-  canvasStore.updateNodeData(videoNodeId, { status: "queued", errorMsg: "" });
+  canvasStore.updateNodeData(videoNodeId, {
+    status: "queued",
+    errorMsg: "",
+    taskId,
+  });
 
   return taskId;
 }
@@ -585,7 +424,7 @@ export function enqueueImageEditTask(input: EnqueueGenerateTaskInput) {
   const ratio = input.ratio || "1:1";
   const model = input.model?.trim() ?? "";
   if (!model) return null;
-  const providerSnapshot = getTaskProviderSnapshot(model);
+  const providerSnapshot = getTaskProviderSnapshot(model, "image");
   const maskImageUrl =
     input.maskImageUrl ??
     (typeof sourceNode.data?.maskDataUrl === "string"
@@ -649,8 +488,25 @@ export function retryGenerateTask(taskId: string) {
     return null;
   }
 
-  if (task.remoteTaskId && (task.kind === "video" || task.kind === "image")) {
-    taskStore.resumeRemoteTask(taskId);
+  if (task.kind === "image" && task.phase === "persisting") {
+    taskStore.resumePersistingTask(taskId);
+    syncSourceNodeWithTask(task, "queued");
+    syncPreviewNodeWithTask(task, "queued");
+    return taskId;
+  }
+
+  const providerSnapshot = getTaskProviderSnapshot(task.model, task.kind);
+  const bindingChanged =
+    Boolean(task.providerBindingFingerprint) &&
+    task.providerBindingFingerprint !==
+      providerSnapshot.providerBindingFingerprint;
+
+  if (
+    task.remoteTaskId &&
+    !bindingChanged &&
+    (task.kind === "video" || task.kind === "image")
+  ) {
+    taskStore.queueRemoteTask(taskId);
     const runningTask = useTaskQueueStore
       .getState()
       .tasks.find((item) => item.id === taskId);
@@ -659,20 +515,19 @@ export function retryGenerateTask(taskId: string) {
       return null;
     }
 
-    syncSourceNodeWithTask(runningTask, "generating");
+    syncSourceNodeWithTask(runningTask, "queued");
     if (runningTask.kind === "video") {
-      syncVideoNodeWithTask(runningTask, "generating");
+      syncVideoNodeWithTask(runningTask, "queued");
     } else {
-      syncPreviewNodeWithTask(runningTask, "generating");
+      syncPreviewNodeWithTask(runningTask, "queued");
     }
-    void resumeRemoteGenerateTask(taskId);
 
     return taskId;
   }
 
   const previewNodeId =
     task.kind === "video"
-      ? createQueuedVideoNode(task.sourceNodeId)
+      ? createQueuedVideoNode(task.sourceNodeId, task.id)
       : createQueuedPreview(
           task.sourceNodeId,
           task.prompt,
@@ -683,6 +538,7 @@ export function retryGenerateTask(taskId: string) {
               task.operationType === "image-edit" ? "image-edit" : "generate",
             sourceImageNodeId: task.sourceImageNodeId,
             apiProfileName: task.apiProfileName,
+            reusableTaskId: task.id,
           },
         );
 
@@ -705,6 +561,7 @@ export function retryGenerateTask(taskId: string) {
     googleImageSearch: Boolean(task.googleImageSearch),
     videoMode: task.videoMode ?? null,
     videoDuration: task.videoDuration ?? null,
+    ...providerSnapshot,
   });
 
   const nextTask = useTaskQueueStore
@@ -731,654 +588,74 @@ export function retryGenerateTask(taskId: string) {
   return taskId;
 }
 
-function getTaskRuntime(taskId: string) {
-  const task = useTaskQueueStore
+function syncSourceNodeAfterTaskRemoval(task: GenerateTask) {
+  const activeState = getActiveSourceTaskState(task.sourceNodeId);
+  if (activeState) {
+    useCanvasStore.getState().updateNodeData(task.sourceNodeId, activeState);
+    return;
+  }
+
+  const remainingTask = useTaskQueueStore
     .getState()
-    .tasks.find((item) => item.id === taskId);
-  if (!task) {
-    throw new Error("Task not found");
-  }
-
-  const canvasStore = useCanvasStore.getState();
-  const sourceNode = canvasStore.nodes.find(
-    (node) => node.id === task.sourceNodeId,
-  );
-  if (
-    !sourceNode ||
-    (task.kind === "video"
-      ? sourceNode.type !== "videoGenerateNode"
-      : sourceNode.type !== "generateNode" &&
-        sourceNode.type !== "imageEditNode")
-  ) {
-    throw new Error(
-      task.kind === "video"
-        ? UI_TEXT.missingVideoSourceNode
-        : UI_TEXT.missingSourceNode,
-    );
-  }
-
-  if (!task.previewNodeId) {
-    throw new Error(
-      task.kind === "video"
-        ? UI_TEXT.missingVideoNode
-        : UI_TEXT.missingPreviewNode,
-    );
-  }
-
-  const resultNode = canvasStore.nodes.find(
-    (node) =>
-      node.id === task.previewNodeId &&
-      (task.kind === "video"
-        ? node.type === "videoNode"
-        : node.type === "generatedPreviewNode"),
-  );
-  if (!resultNode) {
-    throw new Error(
-      task.kind === "video"
-        ? UI_TEXT.missingVideoNode
-        : UI_TEXT.missingPreviewNode,
-    );
-  }
-
-  return { task, sourceNode, resultNode };
-}
-
-function getTaskModelConfig(task: GenerateTask) {
-  const settings = useSettingsStore.getState();
-  const resolution = resolveRuntimeModelConfig(settings.config, {
-    modelEntryId: task.model,
-    category: task.kind,
-    requireCredentials: true,
-  });
-
-  if (!resolution.ok) {
-    throw new Error(resolution.diagnostic.message);
-  }
-
-  return resolution.runtimeConfig;
-}
-
-function buildTaskRequestParams(task: GenerateTask) {
-  const modelConfig = getTaskModelConfig(task);
-  const provider = modelConfig.provider ?? "aliyun";
-  const apiUrl = modelConfig.apiUrl;
-
-  if (task.kind === "video") {
-    return {
-      modelConfig,
-      provider,
-      requestParams: {
-        prompt: task.prompt,
-        ratio: task.ratio,
-        resolution: task.resolution,
-        duration: task.videoDuration ?? "5s",
-        apiKey: modelConfig.apiKey,
-        apiUrl,
-        model: modelConfig.modelId,
-      } as GenerateVideoParams,
-    };
-  }
-
-  return {
-    modelConfig,
-    provider,
-    requestParams: {
-      prompt: task.prompt,
-      negativePrompt: task.negativePrompt,
-      ratio: task.ratio,
-      resolution: task.resolution,
-      inputFidelity: task.inputFidelity ?? null,
-      quality: task.quality ?? null,
-      googleSearch: Boolean(task.googleSearch),
-      googleImageSearch: Boolean(task.googleImageSearch),
-      editImageUrl:
-        task.operationType === "image-edit"
-          ? resolveTaskSourceImageUrl(task.sourceImageNodeId)
-          : null,
-      maskImageUrl:
-        task.operationType === "image-edit"
-          ? (task.maskImageUrl ?? null)
-          : null,
-      referenceImageUrl: task.referenceImageUrls[0] ?? null,
-      referenceImageUrls: task.referenceImageUrls,
-      apiKey: modelConfig.apiKey,
-      apiUrl,
-      model: modelConfig.modelId,
-      provider,
-      requestMode: modelConfig.requestMode,
-      operationType: task.operationType,
-    } as const,
-  };
-}
-
-async function finalizeSuccessfulTask(
-  task: GenerateTask,
-  imageUrl: string,
-  runtimeVersion: number,
-) {
-  const { asset, resolvedUrl } = await persistGeneratedImageAsset(
-    task,
-    imageUrl,
-  ).catch((error) => {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`${UI_TEXT.assetPersistFailed}：${reason}`);
-  });
-
-  let imageWidth = 0;
-  let imageHeight = 0;
-
-  try {
-    const dimensions = await loadImageDimensions(resolvedUrl);
-    imageWidth = dimensions.width;
-    imageHeight = dimensions.height;
-  } catch {
-    imageWidth = 0;
-    imageHeight = 0;
-  }
-
-  const previewSize =
-    imageWidth > 0 && imageHeight > 0
-      ? getPreviewNodeSize(imageWidth, imageHeight)
-      : { width: 300, height: 260 };
-
-  if (!isTaskQueueRuntimeCurrent(runtimeVersion)) {
+    .tasks.filter((candidate) => candidate.sourceNodeId === task.sourceNodeId)
+    .sort((left, right) => right.createdAt - left.createdAt)[0];
+  if (remainingTask) {
+    syncSourceNodeAfterTaskSettles(remainingTask, {
+      status: remainingTask.status === "error" ? "error" : "done",
+      errorMsg: remainingTask.errorMsg,
+    });
     return;
   }
 
-  const { updateNodeData } = useCanvasStore.getState();
-  if (task.previewNodeId) {
-    updateNodeData(task.previewNodeId, {
-      imageUrl: resolvedUrl,
-      imageAsset: asset,
-      apiProfileName: task.apiProfileName ?? null,
-      status: "done",
-      errorMsg: "",
-      imageWidth,
-      imageHeight,
-      width: previewSize.width,
-      height: previewSize.height,
-      sourceImageNodeId: resolvePreviewSourceImageNodeId(
-        task.sourceImageNodeId,
-      ),
-      originOperation:
-        task.operationType === "image-edit" ? "image-edit" : "generate",
-      taskId: task.id,
-    });
-  }
-
-  useTaskQueueStore.getState().markTaskDone(task.id, {
-    resultImageAsset: asset,
-  });
-  syncSourceNodeAfterTaskSettles(task, {
-    status: "done",
-    imageUrl: resolvedUrl,
-    imageAsset: asset,
+  useCanvasStore.getState().updateNodeData(task.sourceNodeId, {
+    status: "idle",
+    errorMsg: "",
+    activeTaskId: null,
   });
 }
 
-async function finalizeSuccessfulVideoTask(
-  task: GenerateTask,
-  videoUrl: string,
-  runtimeVersion: number,
-) {
-  const { asset, resolvedUrl } = await persistGeneratedVideoAsset(
-    task,
-    videoUrl,
-  ).catch((error) => {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`生成视频已返回，但写入本地资产失败：${reason}`);
-  });
-
-  let metadata = { duration: 0, width: 0, height: 0 };
-
-  try {
-    metadata = await loadVideoMetadata(resolvedUrl);
-  } catch {
-    metadata = { duration: 0, width: 0, height: 0 };
-  }
-
-  const videoSize = getVideoNodeSize(metadata.width, metadata.height);
-
-  if (!isTaskQueueRuntimeCurrent(runtimeVersion)) {
-    return;
-  }
-
-  const { updateNodeData } = useCanvasStore.getState();
-
-  if (task.previewNodeId) {
-    updateNodeData(task.previewNodeId, {
-      videoUrl: resolvedUrl,
-      videoAsset: asset,
-      name: "视频生成结果",
-      duration: metadata.duration,
-      videoWidth: metadata.width,
-      videoHeight: metadata.height,
-      status: "done",
-      errorMsg: "",
-      width: videoSize.width,
-      height: videoSize.height,
-    });
-  }
-
-  useTaskQueueStore.getState().markTaskDone(task.id, {
-    resultVideoAsset: asset,
-  });
-  syncSourceNodeAfterTaskSettles(task, {
-    status: "done",
-  });
-}
-
-function isTaskQueueRuntimeCurrent(runtimeVersion: number) {
-  return useTaskQueueStore.getState().runtimeVersion === runtimeVersion;
-}
-
-function markTaskRestoreError(task: GenerateTask, errorMessage: string) {
-  const latestTask =
-    useTaskQueueStore.getState().tasks.find((item) => item.id === task.id) ??
-    task;
-  const fullMessage = `${UI_TEXT.restoreFailurePrefix}${errorMessage}`;
-  reportDiagnostic({
-    area: "resource",
-    title: "生成任务恢复失败",
-    error: errorMessage,
-    code: "TASK_RESTORE_FAILED",
-    privateProviderError: true,
-    context: { taskId: task.id },
-  });
-
-  if (latestTask.previewNodeId) {
-    const resultNode = useCanvasStore
-      .getState()
-      .nodes.find(
-        (node) =>
-          node.id === latestTask.previewNodeId &&
-          (latestTask.kind === "video"
-            ? node.type === "videoNode"
-            : node.type === "generatedPreviewNode"),
-      );
-
-    if (resultNode) {
-      useCanvasStore.getState().updateNodeData(latestTask.previewNodeId, {
-        status: "error",
-        errorMsg: fullMessage,
-        ...(latestTask.kind === "image" ? { taskId: latestTask.id } : {}),
-      });
-    }
-  }
-
-  useTaskQueueStore.getState().markTaskError(latestTask.id, fullMessage);
-
-  const sourceNode = useCanvasStore
-    .getState()
-    .nodes.find(
-      (node) =>
-        node.id === latestTask.sourceNodeId &&
-        (latestTask.kind === "video"
-          ? node.type === "videoGenerateNode"
-          : node.type === "generateNode" || node.type === "imageEditNode"),
-    );
-
-  if (sourceNode) {
-    syncSourceNodeAfterTaskSettles(latestTask, {
-      status: "error",
-      errorMsg: fullMessage,
-    });
-  }
-}
-
-async function resumeRemoteGenerateTask(taskId: string) {
-  const taskState = useTaskQueueStore.getState();
-  const runtimeVersion = taskState.runtimeVersion;
-  const runtimeTaskId = `${runtimeVersion}:${taskId}`;
-
-  if (activeRemoteResumeTaskIds.has(runtimeTaskId)) {
-    return;
-  }
-
-  const task = taskState.tasks.find((item) => item.id === taskId);
-
-  if (!task || task.status !== "running" || !task.remoteTaskId) {
-    return;
-  }
-
-  activeRemoteResumeTaskIds.add(runtimeTaskId);
-
-  try {
-    const { task: runningTask } = getTaskRuntime(taskId);
-    const { provider, requestParams } = buildTaskRequestParams(runningTask);
-
-    if (!runningTask.remoteTaskId) {
-      throw new Error(
-        runningTask.kind === "video"
-          ? UI_TEXT.missingVideoNode
-          : UI_TEXT.missingPreviewNode,
-      );
-    }
-
-    syncSourceNodeWithTask(runningTask, "generating");
-    useTaskQueueStore
-      .getState()
-      .setRemoteTaskStatus(runningTask.id, "IN_PROGRESS");
-
-    if (runningTask.kind === "video") {
-      if (provider !== "aliyun") {
-        throw new Error(
-          "\u5f53\u524d\u89c6\u9891\u4efb\u52a1\u4ec5\u652f\u6301\u963f\u91cc\u767e\u70bc\u8fdc\u7a0b\u8f6e\u8be2\u6062\u590d",
-        );
-      }
-
-      syncVideoNodeWithTask(runningTask, "generating");
-      const videoUrl = await waitForAliyunVideoGeneration(
-        requestParams as GenerateVideoParams,
-        runningTask.remoteTaskId,
-        (remoteStatus) => {
-          if (isTaskQueueRuntimeCurrent(runtimeVersion)) {
-            useTaskQueueStore
-              .getState()
-              .setRemoteTaskStatus(runningTask.id, remoteStatus);
-          }
-        },
-      );
-
-      if (!isTaskQueueRuntimeCurrent(runtimeVersion)) {
-        return;
-      }
-
-      await finalizeSuccessfulVideoTask(runningTask, videoUrl, runtimeVersion);
-      return;
-    }
-
-    if (provider !== "openai") {
-      throw new Error(
-        "\u5f53\u524d\u4efb\u52a1\u4e0d\u652f\u6301\u8fdc\u7a0b\u8f6e\u8be2\u6062\u590d",
-      );
-    }
-
-    syncPreviewNodeWithTask(runningTask, "generating");
-    const imageUrl = await waitForAsyncImageGeneration(
-      requestParams,
-      runningTask.remoteTaskId,
-      (remoteStatus) => {
-        if (isTaskQueueRuntimeCurrent(runtimeVersion)) {
-          useTaskQueueStore
-            .getState()
-            .setRemoteTaskStatus(runningTask.id, remoteStatus);
-        }
-      },
-    );
-
-    if (!isTaskQueueRuntimeCurrent(runtimeVersion)) {
-      return;
-    }
-
-    await finalizeSuccessfulTask(runningTask, imageUrl, runtimeVersion);
-  } catch (error) {
-    if (!isTaskQueueRuntimeCurrent(runtimeVersion)) {
-      return;
-    }
-
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    reportDiagnostic({
-      area: "resource",
-      title: "远程任务恢复失败",
-      error,
-      code: "REMOTE_TASK_RESUME_FAILED",
-      privateProviderError: true,
-      context: { taskId },
-    });
-    const latestTask = useTaskQueueStore
-      .getState()
-      .tasks.find((item) => item.id === taskId);
-
-    if (latestTask?.previewNodeId) {
-      const resultNode = useCanvasStore
-        .getState()
-        .nodes.find(
-          (node) =>
-            node.id === latestTask.previewNodeId &&
-            (latestTask.kind === "video"
-              ? node.type === "videoNode"
-              : node.type === "generatedPreviewNode"),
-        );
-
-      if (resultNode) {
-        useCanvasStore.getState().updateNodeData(latestTask.previewNodeId, {
-          status: "error",
-          errorMsg: errorMessage,
-          ...(latestTask.kind === "image" ? { taskId } : {}),
-        });
-      }
-    }
-
-    useTaskQueueStore.getState().markTaskError(taskId, errorMessage);
-    if (latestTask) {
-      syncSourceNodeAfterTaskSettles(latestTask, {
-        status: "error",
-        errorMsg: errorMessage,
-      });
-    }
-  } finally {
-    activeRemoteResumeTaskIds.delete(runtimeTaskId);
-  }
-}
-
-export async function restoreTaskQueueAfterSnapshotLoad() {
+export function cancelQueuedGenerateTask(taskId: string) {
   const taskStore = useTaskQueueStore.getState();
-  const tasks = [...taskStore.tasks];
-  const canvasNodes = useCanvasStore.getState().nodes;
-  const nodeIds = new Set(canvasNodes.map((node) => node.id));
+  const task = taskStore.tasks.find((candidate) => candidate.id === taskId);
+  if (!task || !canCancelQueuedTask(task)) return false;
 
-  for (const task of tasks) {
-    if (!nodeIds.has(task.sourceNodeId)) {
-      taskStore.removeTask(task.id);
-      continue;
-    }
-
-    if (task.previewNodeId && !nodeIds.has(task.previewNodeId)) {
-      taskStore.removeTask(task.id);
-      continue;
-    }
-
-    if (task.status === "done" || task.status === "error") {
-      continue;
-    }
-
-    if (task.status === "queued") {
-      syncSourceNodeWithTask(task, "queued");
-      if (task.kind === "video") {
-        syncVideoNodeWithTask(task, "queued");
-      } else {
-        syncPreviewNodeWithTask(task, "queued");
-      }
-      continue;
-    }
-
-    if (task.remoteTaskId) {
-      try {
-        const { provider } = buildTaskRequestParams(task);
-
-        if (
-          provider === "openai" ||
-          (task.kind === "video" && provider === "aliyun")
-        ) {
-          syncSourceNodeWithTask(task, "generating");
-          if (task.kind === "video") {
-            syncVideoNodeWithTask(task, "generating");
-          } else {
-            syncPreviewNodeWithTask(task, "generating");
-          }
-          void resumeRemoteGenerateTask(task.id);
-          continue;
-        }
-      } catch (error) {
-        markTaskRestoreError(
-          task,
-          error instanceof Error ? error.message : String(error),
-        );
-        continue;
-      }
-    }
-
-    taskStore.markTaskQueued(task.id, {
-      kind: task.kind,
-      sourceNodeId: task.sourceNodeId,
-      previewNodeId: task.previewNodeId,
-      model: task.model,
-      prompt: task.prompt,
-      negativePrompt: task.negativePrompt,
-      ratio: task.ratio,
-      resolution: task.resolution,
-      operationType: task.operationType,
-      sourceImageNodeId: task.sourceImageNodeId,
-      maskImageUrl: task.maskImageUrl ?? null,
-      referenceImageUrls: task.referenceImageUrls,
-      inputFidelity: task.inputFidelity ?? null,
-      quality: task.quality ?? null,
-      googleSearch: Boolean(task.googleSearch),
-      googleImageSearch: Boolean(task.googleImageSearch),
-      videoMode: task.videoMode ?? null,
-      videoDuration: task.videoDuration ?? null,
-    });
-
-    const queuedTask = useTaskQueueStore
+  taskStore.removeTask(task.id);
+  if (task.previewNodeId) {
+    const previewNode = useCanvasStore
       .getState()
-      .tasks.find((item) => item.id === task.id);
-    if (queuedTask) {
-      syncSourceNodeWithTask(queuedTask, "queued");
-      if (queuedTask.kind === "video") {
-        syncVideoNodeWithTask(queuedTask, "queued");
-      } else {
-        syncPreviewNodeWithTask(queuedTask, "queued");
-      }
-    }
+      .nodes.find((node) => node.id === task.previewNodeId);
+    const hasResult = Boolean(
+      previewNode?.data?.imageUrl || previewNode?.data?.videoUrl,
+    );
+    if (!hasResult) useCanvasStore.getState().deleteNode(task.previewNodeId);
   }
+  void clearStagedGeneratedImageResult(task);
+  syncSourceNodeAfterTaskRemoval(task);
+  return true;
 }
 
-export async function runGenerateTask(taskId: string) {
+export async function removeGenerateTask(taskId: string) {
   const taskStore = useTaskQueueStore.getState();
-  const runtimeVersion = taskStore.runtimeVersion;
-  const queuedTask = taskStore.tasks.find((item) => item.id === taskId);
-
-  if (!queuedTask || queuedTask.status !== "queued") {
-    return;
+  const task = taskStore.tasks.find((candidate) => candidate.id === taskId);
+  if (!task || task.status === "queued" || task.status === "running") {
+    return false;
   }
 
-  try {
-    const { task } = getTaskRuntime(taskId);
-    taskStore.markTaskRunning(task.id, task.previewNodeId);
-    const runningTask = useTaskQueueStore
-      .getState()
-      .tasks.find((item) => item.id === taskId);
+  if (task.kind === "image") await clearStagedGeneratedImageResult(task);
+  taskStore.removeTask(task.id);
+  syncSourceNodeAfterTaskRemoval(task);
+  return true;
+}
 
-    if (!runningTask) {
-      return;
-    }
-
-    syncSourceNodeWithTask(runningTask, "generating");
-
-    if (runningTask.kind === "video") {
-      syncVideoNodeWithTask(runningTask, "generating");
-      const { provider, requestParams } = buildTaskRequestParams(runningTask);
-
-      if (provider !== "aliyun") {
-        throw new Error("当前视频生成仅支持阿里百炼 provider");
-      }
-
-      const videoRequestParams = requestParams as GenerateVideoParams;
-      const submission =
-        await submitAliyunTextToVideoGeneration(videoRequestParams);
-      if (!isTaskQueueRuntimeCurrent(runtimeVersion)) {
-        return;
-      }
-
-      taskStore.attachRemoteTask(runningTask.id, submission.taskId);
-      const videoUrl = await waitForAliyunVideoGeneration(
-        videoRequestParams,
-        submission.taskId,
-        (remoteStatus) => {
-          if (isTaskQueueRuntimeCurrent(runtimeVersion)) {
-            useTaskQueueStore
-              .getState()
-              .setRemoteTaskStatus(runningTask.id, remoteStatus);
-          }
-        },
-      );
-
-      if (!isTaskQueueRuntimeCurrent(runtimeVersion)) {
-        return;
-      }
-
-      await finalizeSuccessfulVideoTask(runningTask, videoUrl, runtimeVersion);
-      return;
-    }
-
-    syncPreviewNodeWithTask(runningTask, "generating");
-    const { modelConfig, requestParams } = buildTaskRequestParams(runningTask);
-    const shouldUseAsync =
-      modelConfig.provider === "openai" && modelConfig.requestMode === "async";
-    const imageUrl = shouldUseAsync
-      ? await (async () => {
-          const submission = await submitAsyncImageGeneration(requestParams);
-          if (!isTaskQueueRuntimeCurrent(runtimeVersion)) {
-            return null;
-          }
-
-          taskStore.attachRemoteTask(runningTask.id, submission.taskId);
-
-          return waitForAsyncImageGeneration(
-            requestParams,
-            submission.taskId,
-            (remoteStatus) => {
-              if (isTaskQueueRuntimeCurrent(runtimeVersion)) {
-                useTaskQueueStore
-                  .getState()
-                  .setRemoteTaskStatus(runningTask.id, remoteStatus);
-              }
-            },
-          );
-        })()
-      : await generateImage(requestParams);
-
-    if (!isTaskQueueRuntimeCurrent(runtimeVersion) || !imageUrl) {
-      return;
-    }
-
-    await finalizeSuccessfulTask(runningTask, imageUrl, runtimeVersion);
-  } catch (error) {
-    if (!isTaskQueueRuntimeCurrent(runtimeVersion)) {
-      return;
-    }
-
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const latestTask = useTaskQueueStore
-      .getState()
-      .tasks.find((item) => item.id === taskId);
-    reportDiagnostic({
-      area: "model",
-      title: latestTask?.kind === "video" ? "视频生成失败" : "图片生成失败",
-      error,
-      code:
-        latestTask?.kind === "video"
-          ? "VIDEO_GENERATION_FAILED"
-          : "IMAGE_GENERATION_FAILED",
-      privateProviderError: true,
-      context: { taskId },
-    });
-
-    if (latestTask?.previewNodeId) {
-      useCanvasStore.getState().updateNodeData(latestTask.previewNodeId, {
-        status: "error",
-        errorMsg: errorMessage,
-        ...(latestTask.kind === "image" ? { taskId } : {}),
-      });
-    }
-
-    useTaskQueueStore.getState().markTaskError(taskId, errorMessage);
-    if (latestTask) {
-      syncSourceNodeAfterTaskSettles(latestTask, {
-        status: "error",
-        errorMsg: errorMessage,
-      });
-    }
-  }
+export async function clearFinishedGenerateTasks() {
+  const taskStore = useTaskQueueStore.getState();
+  const finishedTasks = taskStore.tasks.filter(
+    (task) => task.status === "done" || task.status === "error",
+  );
+  await Promise.all(
+    finishedTasks
+      .filter((task) => task.kind === "image")
+      .map((task) => clearStagedGeneratedImageResult(task)),
+  );
+  taskStore.clearFinishedTasks();
 }

@@ -1,4 +1,5 @@
 import type {
+  ModelCategory,
   ModelEntry,
   ProviderProfileConfig,
   TaskQueueSnapshot,
@@ -7,16 +8,21 @@ import { normalizeLocalModelBindings } from "./localModelReferences.ts";
 
 export const LOCAL_VAULT_SCHEMA_VERSION = 2;
 export const LOCAL_VAULT_CIPHER_VERSION = 1;
-export const LOCAL_TASK_CACHE_SCHEMA_VERSION = 2;
+export const LOCAL_TASK_CACHE_SCHEMA_VERSION = 3;
+const LEGACY_LOCAL_TASK_CACHE_SCHEMA_VERSION = 2;
+const PENDING_TASK_RESULT_SCHEMA_VERSION = 1;
 
 const DATABASE_NAME = "ai-canvas-cloud-local-vault";
-const DATABASE_VERSION = 2;
+const DATABASE_VERSION = 3;
 const VAULT_STORE = "vaults";
 const KEY_STORE = "keys";
 const TASK_STORE = "taskQueues";
+const TASK_RESULT_STORE = "taskResults";
 const TASK_OWNER_INDEX = "ownerId";
+const TASK_QUEUE_INDEX = "taskQueueId";
 const AAD_NAMESPACE = "ai-canvas-cloud:local-vault";
 const TASK_AAD_NAMESPACE = "ai-canvas-cloud:local-task-cache";
+const TASK_RESULT_AAD_NAMESPACE = "ai-canvas-cloud:pending-task-result";
 
 export type LocalVaultPersistence = "session" | "device";
 
@@ -24,6 +30,7 @@ export interface LocalVaultDocument {
   schemaVersion: typeof LOCAL_VAULT_SCHEMA_VERSION;
   userId: string;
   defaultModelEntryId: string;
+  lastUsedModelEntryIds?: Partial<Record<ModelCategory, string>>;
   modelEntries: ModelEntry[];
   providerProfiles: ProviderProfileConfig[];
   providerApiKeys: Record<string, string>;
@@ -52,7 +59,21 @@ interface EncryptedLocalTaskQueueRecord {
   id: string;
   ownerId: string;
   cipherVersion: typeof LOCAL_VAULT_CIPHER_VERSION;
-  schemaVersion: typeof LOCAL_TASK_CACHE_SCHEMA_VERSION;
+  schemaVersion:
+    | typeof LOCAL_TASK_CACHE_SCHEMA_VERSION
+    | typeof LEGACY_LOCAL_TASK_CACHE_SCHEMA_VERSION;
+  iv: ArrayBuffer;
+  ciphertext: ArrayBuffer;
+  updatedAt: number;
+}
+
+interface EncryptedPendingTaskResultRecord {
+  id: string;
+  ownerId: string;
+  taskQueueId: string;
+  cipherVersion: typeof LOCAL_VAULT_CIPHER_VERSION;
+  schemaVersion: typeof PENDING_TASK_RESULT_SCHEMA_VERSION;
+  mimeType: string;
   iv: ArrayBuffer;
   ciphertext: ArrayBuffer;
   updatedAt: number;
@@ -82,6 +103,16 @@ function getTaskRecordId(userId: string, projectId: string) {
   return `${getRecordId(userId)}:project:${normalizedProjectId}`;
 }
 
+function getTaskResultRecordId(
+  userId: string,
+  projectId: string,
+  taskId: string,
+) {
+  const normalizedTaskId = taskId.trim();
+  if (!normalizedTaskId) throw new Error("待上传结果缺少任务 ID");
+  return `${getTaskRecordId(userId, projectId)}:task:${normalizedTaskId}`;
+}
+
 function createAdditionalData(origin: string, userId: string) {
   return new TextEncoder().encode(
     [
@@ -98,15 +129,37 @@ function createTaskAdditionalData(
   origin: string,
   userId: string,
   projectId: string,
+  schemaVersion:
+    | typeof LOCAL_TASK_CACHE_SCHEMA_VERSION
+    | typeof LEGACY_LOCAL_TASK_CACHE_SCHEMA_VERSION = LOCAL_TASK_CACHE_SCHEMA_VERSION,
 ) {
   return new TextEncoder().encode(
     [
       TASK_AAD_NAMESPACE,
       `cipher=${LOCAL_VAULT_CIPHER_VERSION}`,
-      `schema=${LOCAL_TASK_CACHE_SCHEMA_VERSION}`,
+      `schema=${schemaVersion}`,
       `origin=${origin}`,
       `user=${userId}`,
       `project=${projectId}`,
+    ].join("\n"),
+  );
+}
+
+function createTaskResultAdditionalData(
+  origin: string,
+  userId: string,
+  projectId: string,
+  taskId: string,
+) {
+  return new TextEncoder().encode(
+    [
+      TASK_RESULT_AAD_NAMESPACE,
+      `cipher=${LOCAL_VAULT_CIPHER_VERSION}`,
+      `schema=${PENDING_TASK_RESULT_SCHEMA_VERSION}`,
+      `origin=${origin}`,
+      `user=${userId}`,
+      `project=${projectId}`,
+      `task=${taskId}`,
     ].join("\n"),
   );
 }
@@ -155,6 +208,12 @@ function isLocalVaultDocument(value: unknown): value is LocalVaultDocument {
     document.schemaVersion === LOCAL_VAULT_SCHEMA_VERSION &&
     typeof document.userId === "string" &&
     typeof document.defaultModelEntryId === "string" &&
+    (document.lastUsedModelEntryIds === undefined ||
+      Boolean(
+        document.lastUsedModelEntryIds &&
+        typeof document.lastUsedModelEntryIds === "object" &&
+        !Array.isArray(document.lastUsedModelEntryIds),
+      )) &&
     Array.isArray(document.modelEntries) &&
     Array.isArray(document.providerProfiles) &&
     Boolean(
@@ -233,19 +292,34 @@ export async function encryptLocalTaskQueueDocument(
   };
 }
 
-function isLocalTaskQueueDocument(
-  value: unknown,
-): value is LocalTaskQueueDocument {
+function isLocalTaskQueueDocument(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const document = value as Partial<LocalTaskQueueDocument>;
+  const document = value as Partial<LocalTaskQueueDocument> & {
+    schemaVersion?: number;
+  };
   return (
-    document.schemaVersion === LOCAL_TASK_CACHE_SCHEMA_VERSION &&
+    (document.schemaVersion === LOCAL_TASK_CACHE_SCHEMA_VERSION ||
+      document.schemaVersion === LEGACY_LOCAL_TASK_CACHE_SCHEMA_VERSION) &&
     typeof document.userId === "string" &&
     typeof document.projectId === "string" &&
     Boolean(document.taskQueue && typeof document.taskQueue === "object") &&
     Array.isArray(document.taskQueue?.tasks) &&
     typeof document.updatedAt === "number"
   );
+}
+
+export function migrateLocalTaskQueueDocument(
+  value: unknown,
+): LocalTaskQueueDocument | null {
+  if (!isLocalTaskQueueDocument(value)) return null;
+
+  const document = value as Omit<LocalTaskQueueDocument, "schemaVersion"> & {
+    schemaVersion: number;
+  };
+  return {
+    ...document,
+    schemaVersion: LOCAL_TASK_CACHE_SCHEMA_VERSION,
+  };
 }
 
 export async function decryptLocalTaskQueueDocument(
@@ -257,7 +331,8 @@ export async function decryptLocalTaskQueueDocument(
 ): Promise<LocalTaskQueueDocument> {
   if (
     record.cipherVersion !== LOCAL_VAULT_CIPHER_VERSION ||
-    record.schemaVersion !== LOCAL_TASK_CACHE_SCHEMA_VERSION
+    (record.schemaVersion !== LOCAL_TASK_CACHE_SCHEMA_VERSION &&
+      record.schemaVersion !== LEGACY_LOCAL_TASK_CACHE_SCHEMA_VERSION)
   ) {
     throw new Error("本地任务缓存版本不受支持");
   }
@@ -266,23 +341,103 @@ export async function decryptLocalTaskQueueDocument(
     {
       name: "AES-GCM",
       iv: record.iv,
-      additionalData: createTaskAdditionalData(origin, userId, projectId),
+      additionalData: createTaskAdditionalData(
+        origin,
+        userId,
+        projectId,
+        record.schemaVersion,
+      ),
       tagLength: 128,
     },
     key,
     record.ciphertext,
   );
-  const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as unknown;
+  const parsed = migrateLocalTaskQueueDocument(
+    JSON.parse(new TextDecoder().decode(plaintext)) as unknown,
+  );
 
-  if (
-    !isLocalTaskQueueDocument(parsed) ||
-    parsed.userId !== userId ||
-    parsed.projectId !== projectId
-  ) {
+  if (!parsed || parsed.userId !== userId || parsed.projectId !== projectId) {
     throw new Error("本地任务缓存内容无效");
   }
 
   return parsed;
+}
+
+export async function encryptPendingTaskResult(
+  input: {
+    userId: string;
+    projectId: string;
+    taskId: string;
+    blob: Blob;
+    updatedAt?: number;
+  },
+  key: CryptoKey,
+  origin = getOrigin(),
+): Promise<EncryptedPendingTaskResultRecord> {
+  const cryptoApi = getCrypto();
+  const iv = cryptoApi.getRandomValues(new Uint8Array(12));
+  const ciphertext = await cryptoApi.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv,
+      additionalData: createTaskResultAdditionalData(
+        origin,
+        input.userId,
+        input.projectId,
+        input.taskId,
+      ),
+      tagLength: 128,
+    },
+    key,
+    await input.blob.arrayBuffer(),
+  );
+
+  return {
+    id: getTaskResultRecordId(input.userId, input.projectId, input.taskId),
+    ownerId: getRecordId(input.userId),
+    taskQueueId: getTaskRecordId(input.userId, input.projectId),
+    cipherVersion: LOCAL_VAULT_CIPHER_VERSION,
+    schemaVersion: PENDING_TASK_RESULT_SCHEMA_VERSION,
+    mimeType: input.blob.type || "application/octet-stream",
+    iv: iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength),
+    ciphertext,
+    updatedAt: input.updatedAt ?? Date.now(),
+  };
+}
+
+export async function decryptPendingTaskResult(
+  record: EncryptedPendingTaskResultRecord,
+  key: CryptoKey,
+  userId: string,
+  projectId: string,
+  taskId: string,
+  origin = getOrigin(),
+) {
+  if (
+    record.cipherVersion !== LOCAL_VAULT_CIPHER_VERSION ||
+    record.schemaVersion !== PENDING_TASK_RESULT_SCHEMA_VERSION ||
+    record.id !== getTaskResultRecordId(userId, projectId, taskId)
+  ) {
+    throw new Error("待上传结果版本或归属无效");
+  }
+
+  const plaintext = await getCrypto().subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: record.iv,
+      additionalData: createTaskResultAdditionalData(
+        origin,
+        userId,
+        projectId,
+        taskId,
+      ),
+      tagLength: 128,
+    },
+    key,
+    record.ciphertext,
+  );
+
+  return new Blob([plaintext], { type: record.mimeType });
 }
 
 function requestToPromise<T>(request: IDBRequest<T>) {
@@ -334,6 +489,17 @@ function openLocalVaultDatabase() {
           keyPath: "id",
         });
         taskStore.createIndex(TASK_OWNER_INDEX, "ownerId", { unique: false });
+      }
+      if (!database.objectStoreNames.contains(TASK_RESULT_STORE)) {
+        const taskResultStore = database.createObjectStore(TASK_RESULT_STORE, {
+          keyPath: "id",
+        });
+        taskResultStore.createIndex(TASK_OWNER_INDEX, "ownerId", {
+          unique: false,
+        });
+        taskResultStore.createIndex(TASK_QUEUE_INDEX, "taskQueueId", {
+          unique: false,
+        });
       }
     });
     request.addEventListener("success", () => resolve(request.result), {
@@ -467,6 +633,86 @@ export async function saveRememberedLocalTaskQueue(
   }
 }
 
+export async function saveRememberedPendingTaskResult(
+  userId: string,
+  projectId: string,
+  taskId: string,
+  blob: Blob,
+) {
+  const keyId = getRecordId(userId);
+  const database = await openLocalVaultDatabase();
+
+  try {
+    const keyTransaction = database.transaction(KEY_STORE, "readonly");
+    const key = (await requestToPromise(
+      keyTransaction.objectStore(KEY_STORE).get(keyId),
+    )) as CryptoKey | undefined;
+    await transactionToPromise(keyTransaction);
+    if (!key) throw new Error("待上传结果缺少设备密钥");
+
+    const record = await encryptPendingTaskResult(
+      { userId, projectId, taskId, blob },
+      key,
+    );
+    const transaction = database.transaction(TASK_RESULT_STORE, "readwrite");
+    transaction.objectStore(TASK_RESULT_STORE).put(record);
+    await transactionToPromise(transaction);
+  } finally {
+    database.close();
+  }
+}
+
+export async function loadRememberedPendingTaskResult(
+  userId: string,
+  projectId: string,
+  taskId: string,
+) {
+  const keyId = getRecordId(userId);
+  const database = await openLocalVaultDatabase();
+
+  try {
+    const transaction = database.transaction(
+      [TASK_RESULT_STORE, KEY_STORE],
+      "readonly",
+    );
+    const [record, key] = await Promise.all([
+      requestToPromise(
+        transaction
+          .objectStore(TASK_RESULT_STORE)
+          .get(getTaskResultRecordId(userId, projectId, taskId)),
+      ) as Promise<EncryptedPendingTaskResultRecord | undefined>,
+      requestToPromise(
+        transaction.objectStore(KEY_STORE).get(keyId),
+      ) as Promise<CryptoKey | undefined>,
+    ]);
+    await transactionToPromise(transaction);
+
+    if (!record) return null;
+    if (!key) throw new Error("待上传结果缺少设备密钥");
+    return decryptPendingTaskResult(record, key, userId, projectId, taskId);
+  } finally {
+    database.close();
+  }
+}
+
+export async function deleteRememberedPendingTaskResult(
+  userId: string,
+  projectId: string,
+  taskId: string,
+) {
+  const database = await openLocalVaultDatabase();
+
+  try {
+    const transaction = database.transaction(TASK_RESULT_STORE, "readwrite");
+    transaction
+      .objectStore(TASK_RESULT_STORE)
+      .delete(getTaskResultRecordId(userId, projectId, taskId));
+    await transactionToPromise(transaction);
+  } finally {
+    database.close();
+  }
+}
+
 export async function deleteRememberedLocalTaskQueue(
   userId: string,
   projectId: string,
@@ -474,19 +720,30 @@ export async function deleteRememberedLocalTaskQueue(
   const database = await openLocalVaultDatabase();
 
   try {
-    const transaction = database.transaction(TASK_STORE, "readwrite");
-    transaction
-      .objectStore(TASK_STORE)
-      .delete(getTaskRecordId(userId, projectId));
+    const transaction = database.transaction(
+      [TASK_STORE, TASK_RESULT_STORE],
+      "readwrite",
+    );
+    const taskQueueId = getTaskRecordId(userId, projectId);
+    transaction.objectStore(TASK_STORE).delete(taskQueueId);
+    await deleteRecordsByIndex(
+      transaction.objectStore(TASK_RESULT_STORE),
+      TASK_QUEUE_INDEX,
+      taskQueueId,
+    );
     await transactionToPromise(transaction);
   } finally {
     database.close();
   }
 }
 
-function deleteTaskQueuesForOwner(store: IDBObjectStore, ownerId: string) {
+function deleteRecordsByIndex(
+  store: IDBObjectStore,
+  indexName: string,
+  value: string,
+) {
   return new Promise<void>((resolve, reject) => {
-    const request = store.index(TASK_OWNER_INDEX).openKeyCursor(ownerId);
+    const request = store.index(indexName).openKeyCursor(value);
     request.addEventListener(
       "error",
       () => reject(request.error ?? new Error("删除本地任务缓存失败")),
@@ -510,12 +767,21 @@ export async function forgetRememberedLocalVault(userId: string) {
 
   try {
     const transaction = database.transaction(
-      [VAULT_STORE, KEY_STORE, TASK_STORE],
+      [VAULT_STORE, KEY_STORE, TASK_STORE, TASK_RESULT_STORE],
       "readwrite",
     );
     transaction.objectStore(VAULT_STORE).delete(id);
     transaction.objectStore(KEY_STORE).delete(id);
-    await deleteTaskQueuesForOwner(transaction.objectStore(TASK_STORE), id);
+    await deleteRecordsByIndex(
+      transaction.objectStore(TASK_STORE),
+      TASK_OWNER_INDEX,
+      id,
+    );
+    await deleteRecordsByIndex(
+      transaction.objectStore(TASK_RESULT_STORE),
+      TASK_OWNER_INDEX,
+      id,
+    );
     await transactionToPromise(transaction);
   } finally {
     database.close();

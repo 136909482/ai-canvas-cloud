@@ -4,6 +4,7 @@ export const apiErrorCodes = [
   "AUTH_REQUIRED",
   "SESSION_EXPIRED",
   "ACTIVE_SESSION_EXISTS",
+  "USERNAME_UNAVAILABLE",
   "EMAIL_NOT_VERIFIED",
   "ACCESS_DENIED",
   "RESOURCE_NOT_FOUND",
@@ -69,6 +70,7 @@ export type WorkspaceStatus = "active" | "disabled" | "deleted";
 export interface UserSummary {
   id: string;
   userNumber: number;
+  username: string;
   email: string;
   status: UserStatus;
   emailVerified: boolean;
@@ -150,13 +152,14 @@ export interface AuthSessionResponse {
 }
 
 export interface RegisterRequest {
+  username: string;
   email: string;
   password: string;
   deviceId?: string;
 }
 
 export interface LoginRequest {
-  email: string;
+  identifier: string;
   password: string;
   deviceId?: string;
   force?: boolean;
@@ -533,3 +536,4 @@ export * from "./migrationPackage.ts";
 export * from "./migrationExport.ts";
 export * from "./siteConfig.ts";
 export * from "./adminOperations.ts";
+export * from "./generationTelemetry.ts";

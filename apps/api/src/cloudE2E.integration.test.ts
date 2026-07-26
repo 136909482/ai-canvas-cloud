@@ -117,13 +117,13 @@ class BrowserContext {
     });
   }
 
-  registerBody(email: string, password: string) {
-    return { email, password, deviceId: this.deviceId };
+  registerBody(username: string, email: string, password: string) {
+    return { username, email, password, deviceId: this.deviceId };
   }
 
-  loginBody(email: string, password: string, force = false) {
+  loginBody(identifier: string, password: string, force = false) {
     return {
-      email,
+      identifier,
       password,
       deviceId: this.deviceId,
       ...(force ? { force: true } : {}),
@@ -298,19 +298,22 @@ test(
       );
       const emailA = `p7-6-a-${runId}@example.invalid`;
       const emailB = `p7-6-b-${runId}@example.invalid`;
+      const usernameSuffix = runId.replaceAll("-", "").slice(0, 18);
+      const usernameA = `cloud_a_${usernameSuffix}`;
+      const usernameB = `cloud_b_${usernameSuffix}`;
       const password = `p7-6-password-${runId}`;
 
       const registeredA = await accountA.request(
         port,
         "POST",
         "/api/v1/auth/register",
-        accountA.registerBody(emailA, password),
+        accountA.registerBody(usernameA, emailA, password),
       );
       const registeredB = await accountB.request(
         port,
         "POST",
         "/api/v1/auth/register",
-        accountB.registerBody(emailB, password),
+        accountB.registerBody(usernameB, emailB, password),
       );
       assert.equal(registeredA.statusCode, 201);
       assert.equal(registeredB.statusCode, 201);
@@ -653,7 +656,7 @@ test(
             port,
             "POST",
             "/api/v1/auth/login",
-            takeover.loginBody(emailA, password),
+            takeover.loginBody(usernameA.toLocaleUpperCase("en-US"), password),
           )
         ).statusCode,
         409,

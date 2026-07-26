@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { restoreTaskQueueAfterSnapshotLoad } from "@/features/generateQueue/orchestrator";
+import { restoreTaskQueueAfterSnapshotLoad } from "@/features/generateQueue/taskExecution";
 import { readLegacyWorkspaceData } from "@/features/projectManager/legacyStorage";
 import {
   migrateProjectRecordSnapshots,

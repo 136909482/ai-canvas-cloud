@@ -45,7 +45,11 @@ test(
         );
       }
       await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-      const failures = await auditDatabaseConsistency(client, 24, 0);
+      const failures = await auditDatabaseConsistency(
+        client,
+        migrations.length,
+        0,
+      );
       const fingerprint = await createRecoveryFingerprint(client);
       await client.query("ROLLBACK");
       assert.deepEqual(failures, []);

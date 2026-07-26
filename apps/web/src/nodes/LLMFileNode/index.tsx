@@ -29,6 +29,7 @@ import { isClaudeModel } from "@/features/settings/modelBrand";
 import {
   getNodeModelIssueLabel,
   getNodeModelSelection,
+  getPreferredSelectableModelEntryId,
 } from "@/features/settings/nodeModelSelection";
 import {
   getMaxInputFiles,
@@ -50,28 +51,17 @@ import { recordComponentRender } from "@/utils/performanceDiagnostics";
 import {
   type AppNodeProps,
   type LLMInputFileData,
-  type LLMOutputFormat,
   type ModelEntry,
   type WorkspaceImageAsset,
 } from "@/types";
 import { useShallow } from "zustand/react/shallow";
 import { themeClasses } from "@/styles/themeClasses";
-import { InlineSelect, type InlineSelectOption } from "../InlineSelect";
 import { NodeModelSelector } from "../NodeModelSelector";
 import { NodeDeleteButton, NodeHeader, NodeResizerPreset } from "../nodeShell";
 import { getNodeShellClassName } from "../nodeShellClassName";
 import { areNodeContentPropsEqual } from "../nodePropComparators";
 
 type LLMFileNodeProps = AppNodeProps<"llmFileNode">;
-
-type LLMPreset = {
-  id: string;
-  label: string;
-  description: string;
-  systemPrompt: string;
-  instructionPrompt: string;
-  defaultOutputFormat: LLMOutputFormat;
-};
 
 type InputImageItem = {
   sourceId: string;
@@ -113,53 +103,11 @@ function buildInputImageAsset(
     : null;
 }
 
-const OUTPUT_FORMAT_OPTIONS: Array<{ value: LLMOutputFormat; label: string }> =
-  [
-    { value: "text", label: "纯文本" },
-    { value: "json", label: "JSON" },
-    { value: "markdown", label: "Markdown" },
-  ];
-
-const PRESETS: LLMPreset[] = [
-  {
-    id: "extract-characters-scenes",
-    label: "角色场景提取",
-    description: "提取角色、地点、场景和关键视觉元素。",
-    systemPrompt:
-      "你是一个擅长视觉内容拆解的中文助手。输出要准确、紧凑、可复用。",
-    instructionPrompt:
-      "请提取文本中的角色、场景、地点、时间、关键动作和视觉细节，便于后续生成图像提示词。",
-    defaultOutputFormat: "json",
-  },
-  {
-    id: "storyboard-breakdown",
-    label: "分镜拆解",
-    description: "把文本拆成可执行分镜。",
-    systemPrompt:
-      "你是一个擅长把中文文本拆解成镜头语言的分镜助手。结果要清晰、可直接继续加工。",
-    instructionPrompt:
-      "请将输入内容拆解成连续分镜，包含镜头编号、画面主体、场景、动作、情绪、镜头景别和构图重点。",
-    defaultOutputFormat: "markdown",
-  },
-  {
-    id: "prompt-enhancement",
-    label: "提示词增强",
-    description: "把原始描述增强成更完整的提示词。",
-    systemPrompt:
-      "你是一个擅长为图像生成模型优化提示词的助手。输出要具体、可视化、避免空话。",
-    instructionPrompt: "请把输入内容增强成更完整、更有画面感的图像生成提示词。",
-    defaultOutputFormat: "text",
-  },
-];
-
 const UI_TEXT = {
   deleteNode: "删除大模型节点",
   title: "大模型",
   linkedTextToken: "#文本节点内容",
   instructionPlaceholder: "输入自定义提示词...",
-  choosePreset: "选择预设",
-  chooseModel: "选择模型",
-  chooseOutputFormat: "选择输出格式",
   uploadFiles: "上传附件",
   uploadMoreFiles: "继续添加",
   attachments: "附件",
@@ -167,13 +115,8 @@ const UI_TEXT = {
   running: "执行中",
   success: "执行完成",
   failed: "执行失败",
-  noModel: "暂无可用 Chat 模型，请先在模型设置中启用。",
   noPrompt: "请输入自定义提示词后再执行。",
 } as const;
-
-function getPresetById(presetId: string | null | undefined) {
-  return PRESETS.find((preset) => preset.id === presetId) ?? null;
-}
 
 function getModelIconMeta(
   model: Pick<ModelEntry, "modelId" | "displayName"> & {
@@ -409,6 +352,7 @@ export const LLMFileNode = memo(function LLMFileNode({
   const commitTransaction = useHistoryStore((s) => s.commitTransaction);
   const runTracked = useHistoryStore((s) => s.runTracked);
   const settingsConfig = useSettingsStore((s) => s.config);
+  const setDefaultModel = useSettingsStore((s) => s.setDefaultModel);
   const bindLocalModelReference = useSettingsStore(
     (s) => s.bindLocalModelReference,
   );
@@ -420,7 +364,11 @@ export const LLMFileNode = memo(function LLMFileNode({
       }),
     [data.model, settingsConfig],
   );
-  const selectedPreset = getPresetById(data.presetId);
+  const hasSelectableChatModels = useMemo(
+    () => Boolean(getPreferredSelectableModelEntryId(settingsConfig, "chat")),
+    [settingsConfig],
+  );
+  const modelIssueLabel = getNodeModelIssueLabel(modelSelection);
   const hasConnectedInputNode = Boolean(data.connectedTextNode);
   const inputImages = useMemo<InputImageItem[]>(
     () =>
@@ -454,13 +402,6 @@ export const LLMFileNode = memo(function LLMFileNode({
     hasInstructionPrompt && modelSelection.canExecute && !isRunning;
   const statusMeta = buildStatusMeta(data.status);
 
-  const presetOptions = useMemo<InlineSelectOption[]>(
-    () => [
-      { value: "__none__", label: "自定义" },
-      ...PRESETS.map((preset) => ({ value: preset.id, label: preset.label })),
-    ],
-    [],
-  );
   const selectModel = (modelId: string) => {
     runTracked(() => {
       if (
@@ -470,16 +411,9 @@ export const LLMFileNode = memo(function LLMFileNode({
       )
         return;
       updateNodeData(id, { model: modelId, errorMsg: "" });
+      if (modelId) setDefaultModel(modelId);
     });
   };
-  const outputFormatOptions = useMemo<InlineSelectOption[]>(
-    () =>
-      OUTPUT_FORMAT_OPTIONS.map((option) => ({
-        value: option.value,
-        label: option.label,
-      })),
-    [],
-  );
 
   useEffect(() => {
     const nextInstruction = data.instructionPrompt || "";
@@ -516,24 +450,6 @@ export const LLMFileNode = memo(function LLMFileNode({
         richPrompt: nextRichPrompt,
       });
     }
-  };
-
-  const handlePresetChange = (value: string) => {
-    const nextPreset = value === "__none__" ? null : getPresetById(value);
-
-    runTracked(() =>
-      updateNodeData(id, {
-        presetId: nextPreset?.id ?? null,
-        outputFormat: nextPreset?.defaultOutputFormat ?? data.outputFormat,
-        instructionPrompt: nextPreset
-          ? nextPreset.instructionPrompt
-          : data.instructionPrompt,
-        richPrompt: nextPreset
-          ? createRichPromptDocumentFromText(nextPreset.instructionPrompt)
-          : (data.richPrompt ?? null),
-        errorMsg: "",
-      }),
-    );
   };
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -589,7 +505,6 @@ export const LLMFileNode = memo(function LLMFileNode({
       syncRichPromptToStore(nextInstruction, latestRichPromptDraftRef.current);
       await runLLMFileNode(id, {
         instructionPrompt: nextInstruction,
-        presetSystemPrompt: selectedPreset?.systemPrompt,
       });
     } catch {
       // 状态已由 orchestrator 回写到节点
@@ -668,16 +583,6 @@ export const LLMFileNode = memo(function LLMFileNode({
           className="hidden"
           onChange={handleFileChange}
         />
-
-        {selectedPreset && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span
-              className={`${themeClasses.nodeBadge} ${themeClasses.nodeBadgeViolet}`}
-            >
-              {selectedPreset.label}
-            </span>
-          </div>
-        )}
 
         {hasInputAssets && (
           <div className={themeClasses.nodeAssetStrip}>
@@ -788,40 +693,22 @@ export const LLMFileNode = memo(function LLMFileNode({
         </div>
 
         <div className={themeClasses.nodeFooter}>
-          <div className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)_minmax(0,0.7fr)_auto_auto] items-center gap-1.5">
-            <InlineSelect
-              value={data.presetId || "__none__"}
-              options={presetOptions}
-              ariaLabel={UI_TEXT.choosePreset}
-              onChange={handlePresetChange}
-              stopCanvasGesture={stopCanvasGesture}
-              menuClassName="min-w-[200px]"
-            />
-
-            <NodeModelSelector
-              category="chat"
-              config={settingsConfig}
-              selection={modelSelection}
-              onSelectModel={selectModel}
-              stopCanvasGesture={stopCanvasGesture}
-              providerAriaLabel="选择聊天服务商"
-              modelAriaLabel={UI_TEXT.chooseModel}
-              menuClassName="min-w-[220px]"
-              renderModelIcon={(model) => <ModelOptionIcon model={model} />}
-            />
-
-            <InlineSelect
-              value={data.outputFormat}
-              options={outputFormatOptions}
-              ariaLabel={UI_TEXT.chooseOutputFormat}
-              onChange={(value) =>
-                runTracked(() =>
-                  updateNodeData(id, { outputFormat: value, errorMsg: "" }),
-                )
-              }
-              stopCanvasGesture={stopCanvasGesture}
-              menuClassName="min-w-[140px]"
-            />
+          <div className="flex items-center gap-1.5">
+            {hasSelectableChatModels ? (
+              <NodeModelSelector
+                category="chat"
+                config={settingsConfig}
+                selection={modelSelection}
+                onSelectModel={selectModel}
+                stopCanvasGesture={stopCanvasGesture}
+                providerAriaLabel="选择聊天服务商"
+                modelAriaLabel="选择聊天模型和服务商"
+                className="min-w-0 flex-1"
+                menuClassName="min-w-[220px]"
+                renderModelIcon={(model) => <ModelOptionIcon model={model} />}
+                layout="grouped"
+              />
+            ) : null}
 
             <button
               type="button"
@@ -843,7 +730,7 @@ export const LLMFileNode = memo(function LLMFileNode({
                 stopCanvasGesture(event);
                 fileInputRef.current?.click();
               }}
-              className={`${themeClasses.nodeActionButton} relative h-8 w-8 shrink-0 duration-200 disabled:cursor-not-allowed disabled:text-[var(--text-muted)]`}
+              className={`${themeClasses.nodeActionButton} relative ml-auto h-8 w-8 shrink-0 duration-200 disabled:cursor-not-allowed disabled:text-[var(--text-muted)]`}
             >
               <Paperclip className="h-3.5 w-3.5" />
               {inputFileCount > 0 && (
@@ -869,13 +756,13 @@ export const LLMFileNode = memo(function LLMFileNode({
             </button>
           </div>
 
-          {!modelSelection.canExecute && (
+          {!modelSelection.canExecute && modelIssueLabel ? (
             <p
               className={`${themeClasses.nodeInlineNotice} ${themeClasses.nodeWarningText}`}
             >
-              {getNodeModelIssueLabel(modelSelection) || UI_TEXT.noModel}
+              {modelIssueLabel}
             </p>
-          )}
+          ) : null}
 
           {data.errorMsg && (
             <p

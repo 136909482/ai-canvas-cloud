@@ -155,6 +155,9 @@ try {
   await client.query(
     `GRANT SELECT ON public.site_config_publications TO ${app}`,
   );
+  await client.query(
+    `REVOKE DELETE ON public.generation_telemetry FROM ${app}`,
+  );
   await client.query(`REVOKE ALL ON SCHEMA admin FROM ${app}`);
   await client.query(`REVOKE ALL ON ALL TABLES IN SCHEMA admin FROM ${app}`);
   await client.query(`REVOKE ALL ON ALL SEQUENCES IN SCHEMA admin FROM ${app}`);
@@ -173,10 +176,10 @@ try {
     `GRANT SELECT, INSERT, UPDATE ON public.site_config_publications TO ${admin}`,
   );
   await client.query(
-    `REVOKE ALL ON public."user", public."session", public.workspaces, public.workspace_members, public.assets, public.migration_import_asset_uploads FROM ${admin}`,
+    `REVOKE ALL ON public."user", public."session", public.workspaces, public.workspace_members, public.assets, public.migration_import_asset_uploads, public.generation_telemetry FROM ${admin}`,
   );
   await client.query(
-    `GRANT SELECT (id, user_no, name, email, email_verified, status, created_at, updated_at) ON public."user" TO ${admin}`,
+    `GRANT SELECT (id, user_no, username, display_username, email, email_verified, status, created_at, updated_at) ON public."user" TO ${admin}`,
   );
   await client.query(
     `GRANT UPDATE (status, updated_at) ON public."user" TO ${admin}`,
@@ -196,6 +199,9 @@ try {
   );
   await client.query(
     `GRANT SELECT (workspace_id, expected_byte_size, status, committed_asset_id) ON public.migration_import_asset_uploads TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT (user_id, category, status, failure_category, result_count, duration_ms, started_at, completed_at) ON public.generation_telemetry TO ${admin}`,
   );
   await client.query(
     `ALTER DEFAULT PRIVILEGES FOR ROLE ${owner} IN SCHEMA admin GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${admin}`,

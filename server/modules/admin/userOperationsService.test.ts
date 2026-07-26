@@ -14,7 +14,7 @@ test("administrator user ban, unban, and session revocation are transactional an
   const summary = () => ({
     id: "user_01",
     user_no: "10001",
-    name: "Artist",
+    display_username: "Artist_01",
     email: "artist@example.com",
     email_verified: true,
     status: state.status,
@@ -148,7 +148,7 @@ test("administrator user queries keep two accounts isolated across filters, curs
   const row = (id: "user_A" | "user_B") => ({
     id,
     user_no: id === "user_A" ? "10001" : "10002",
-    name: id === "user_A" ? "Alpha" : "Beta",
+    display_username: id === "user_A" ? "Alpha_01" : "Beta_01",
     email: id === "user_A" ? "alpha@example.com" : "beta@example.com",
     email_verified: id === "user_A",
     status: id === "user_A" ? ("active" as const) : ("disabled" as const),
@@ -243,6 +243,8 @@ test("administrator user queries keep two accounts isolated across filters, curs
     second.items.map((user) => user.id),
     ["user_B"],
   );
+  assert.equal(second.items[0]?.username, "Beta_01");
+  assert.match(queryCalls[1]!.sql, /lower\(u\.display_username\)/);
   assert.equal(second.nextCursor, null);
   assert.deepEqual(queryCalls[1]!.values.slice(2), [
     "disabled",

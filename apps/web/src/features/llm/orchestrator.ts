@@ -2,6 +2,12 @@ import { executeChatPromptStream } from "@/api/chatAdapter";
 import { MAX_GENERATE_REFERENCE_IMAGES } from "@/constants/generateNode";
 import { compileImageMentionPrompt } from "@/features/richPrompt/promptCompiler";
 import { formatJsonForDisplay } from "@/features/llm/outputViewer";
+import {
+  beginGenerationTelemetry,
+  classifyGenerationFailure,
+  completeGenerationTelemetry,
+  type GenerationTelemetryAttempt,
+} from "@/features/generationTelemetry";
 import { resolveNodeModelEntryId } from "@/features/settings/nodeModelSelection";
 import {
   resolveRuntimeModelConfig,
@@ -275,6 +281,8 @@ async function runLLMExecution(
     outputJson: "",
   });
 
+  let telemetryAttempt: GenerationTelemetryAttempt | null = null;
+
   try {
     let streamedText = "";
     let lastStreamUpdateAt = 0;
@@ -293,6 +301,7 @@ async function runLLMExecution(
       });
     };
 
+    telemetryAttempt = beginGenerationTelemetry("text");
     const result = await executeChatPromptStream(
       {
         model: selectedModel,
@@ -357,8 +366,16 @@ async function runLLMExecution(
       });
     }
 
+    completeGenerationTelemetry(telemetryAttempt, {
+      status: "succeeded",
+      resultCount: 1,
+    });
     return outputNodeId;
   } catch (error) {
+    completeGenerationTelemetry(telemetryAttempt, {
+      status: "failed",
+      failureCategory: classifyGenerationFailure(error),
+    });
     const message = error instanceof Error ? error.message : String(error);
     reportDiagnostic({
       area: "model",

@@ -3,8 +3,10 @@ import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
   CircleHelp,
   Image as ImageIcon,
+  LayoutGrid,
   LoaderCircle,
   MessageSquareText,
   Plus,
@@ -28,7 +30,6 @@ import {
 
 interface ImportItem extends DiscoveredProviderModel {
   category: ModelCategory;
-  selected: boolean;
   alreadyImported: boolean;
 }
 
@@ -45,8 +46,8 @@ export interface ProviderModelImportDialogProps {
   open: boolean;
   draft: DraftProviderProfile | null;
   existingEntries: readonly ModelEntry[];
-  onClose: (hasPendingSelection: boolean) => void;
-  onConfirm: (input: {
+  onClose: () => void;
+  onAddModel: (input: {
     baseUrl: string;
     discoveredModelIds: string[];
     selectedModels: ProviderModelImportSelection[];
@@ -57,21 +58,35 @@ const CATEGORY_META = {
   chat: {
     label: "Chat",
     Icon: MessageSquareText,
-    className: "border-sky-400/20 bg-sky-400/10 text-sky-300",
+    className: "border-violet-400/25 bg-violet-400/10 text-violet-300",
   },
   image: {
-    label: "图像",
+    label: "图片",
     Icon: ImageIcon,
-    className: "border-emerald-400/20 bg-emerald-400/10 text-emerald-300",
+    className: "border-violet-400/25 bg-violet-400/10 text-violet-300",
   },
   video: {
     label: "视频",
     Icon: Video,
-    className: "border-amber-400/20 bg-amber-400/10 text-amber-200",
+    className: "border-violet-400/25 bg-violet-400/10 text-violet-300",
   },
 };
 
 const CATEGORY_ORDER: ModelCategory[] = ["chat", "image", "video"];
+type CategoryFilter = "all" | ModelCategory;
+
+const CATEGORY_FILTERS: Array<{
+  value: CategoryFilter;
+  label: string;
+  Icon: typeof LayoutGrid;
+}> = [
+  { value: "all", label: "全部", Icon: LayoutGrid },
+  ...CATEGORY_ORDER.map((category) => ({
+    value: category,
+    label: CATEGORY_META[category].label,
+    Icon: CATEGORY_META[category].Icon,
+  })),
+];
 
 function getExistingModelIds(
   draft: DraftProviderProfile | null,
@@ -90,7 +105,7 @@ export function ProviderModelImportDialog({
   draft,
   existingEntries,
   onClose,
-  onConfirm,
+  onAddModel,
 }: ProviderModelImportDialogProps) {
   const [items, setItems] = useState<ImportItem[]>([]);
   const [result, setResult] = useState<DiscoveryResult | null>(null);
@@ -99,18 +114,19 @@ export function ProviderModelImportDialog({
     responsePreview?: string;
   } | null>(null);
   const [query, setQuery] = useState("");
-  const [phase, setPhase] = useState<"idle" | "loading" | "ready" | "saving">(
-    "idle",
-  );
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
+  const [collapsedCategories, setCollapsedCategories] = useState<
+    ReadonlySet<ModelCategory>
+  >(() => new Set());
+  const [phase, setPhase] = useState<"idle" | "loading" | "ready">("idle");
+  const [savingModelId, setSavingModelId] = useState<string | null>(null);
   const discoveryController = useRef(new ProviderModelsDiscoveryController());
   const abortController = useRef<AbortController | null>(null);
+  const wasOpen = useRef(false);
 
-  const selectedItems = items.filter(
-    (item) => item.selected && !item.alreadyImported,
-  );
   const dialogRef = useDialogFocus<HTMLDivElement>(
     open,
-    () => onClose(selectedItems.length > 0),
+    onClose,
     "[data-autofocus]",
   );
 
@@ -154,7 +170,6 @@ export function ProviderModelImportDialog({
       response.models.map((model) => ({
         ...model,
         category: model.suggestedCategory,
-        selected: false,
         alreadyImported: existingIds.has(model.modelId),
       })),
     );
@@ -170,10 +185,12 @@ export function ProviderModelImportDialog({
   }, [draft, existingEntries]);
 
   useEffect(() => {
-    if (!open) return;
-    void requestDiscovery();
-    return () => abortController.current?.abort();
+    if (open && !wasOpen.current) void requestDiscovery();
+    if (!open && wasOpen.current) abortController.current?.abort();
+    wasOpen.current = open;
   }, [open, requestDiscovery]);
+
+  useEffect(() => () => abortController.current?.abort(), []);
 
   useEffect(() => {
     if (open) return;
@@ -181,18 +198,40 @@ export function ProviderModelImportDialog({
     setResult(null);
     setError(null);
     setQuery("");
+    setCategoryFilter("all");
+    setCollapsedCategories(new Set());
+    setSavingModelId(null);
     setPhase("idle");
   }, [open]);
 
-  const visibleItems = useMemo(() => {
+  const queryMatchedItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return items.filter((item) =>
-      normalizedQuery
-        ? item.modelId.toLowerCase().includes(normalizedQuery) ||
-          item.ownedBy?.toLowerCase().includes(normalizedQuery)
-        : true,
+    return items.filter(
+      (item) =>
+        !normalizedQuery ||
+        item.modelId.toLowerCase().includes(normalizedQuery),
     );
   }, [items, query]);
+
+  const visibleItems = useMemo(
+    () =>
+      categoryFilter === "all"
+        ? queryMatchedItems
+        : queryMatchedItems.filter((item) => item.category === categoryFilter),
+    [categoryFilter, queryMatchedItems],
+  );
+
+  const categoryCounts = useMemo(
+    () => ({
+      all: queryMatchedItems.length,
+      chat: queryMatchedItems.filter((item) => item.category === "chat").length,
+      image: queryMatchedItems.filter((item) => item.category === "image")
+        .length,
+      video: queryMatchedItems.filter((item) => item.category === "video")
+        .length,
+    }),
+    [queryMatchedItems],
+  );
 
   const groupedVisibleItems = useMemo(
     () =>
@@ -203,34 +242,44 @@ export function ProviderModelImportDialog({
     [visibleItems],
   );
 
-  const toggleItemSelection = (modelId: string) => {
-    setItems((current) =>
-      current.map((item) =>
-        item.modelId === modelId && !item.alreadyImported
-          ? { ...item, selected: !item.selected }
-          : item,
-      ),
-    );
+  const toggleCategory = (category: ModelCategory) => {
+    setCollapsedCategories((current) => {
+      const next = new Set(current);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
   };
 
-  const submit = async () => {
-    if (!result || phase !== "ready") return;
-    setPhase("saving");
+  const addModel = async (item: ImportItem) => {
+    if (!result || phase !== "ready" || item.alreadyImported || savingModelId)
+      return;
+    setSavingModelId(item.modelId);
+    setError(null);
     try {
-      await onConfirm({
+      await onAddModel({
         baseUrl: result.baseUrl,
         discoveredModelIds: result.models.map((model) => model.modelId),
-        selectedModels: selectedItems.map((item) => ({
-          modelId: item.modelId,
-          category: item.category,
-        })),
+        selectedModels: [
+          {
+            modelId: item.modelId,
+            category: item.category,
+          },
+        ],
       });
-      onClose(false);
+      setItems((current) =>
+        current.map((candidate) =>
+          candidate.modelId === item.modelId
+            ? { ...candidate, alreadyImported: true }
+            : candidate,
+        ),
+      );
     } catch {
       setError({
-        message: "无法保存本地 Vault，请检查浏览器存储权限后重试。",
+        message: `无法添加 ${item.modelId}，请检查浏览器存储权限后重试。`,
       });
-      setPhase("ready");
+    } finally {
+      setSavingModelId(null);
     }
   };
 
@@ -241,8 +290,8 @@ export function ProviderModelImportDialog({
       <button
         type="button"
         className="absolute inset-0 cursor-default"
-        aria-label="取消导入"
-        onClick={() => onClose(selectedItems.length > 0)}
+        aria-label="关闭模型列表"
+        onClick={onClose}
       />
       <div
         ref={dialogRef}
@@ -270,16 +319,16 @@ export function ProviderModelImportDialog({
           </div>
           <button
             type="button"
-            title="取消导入"
-            onClick={() => onClose(selectedItems.length > 0)}
+            title="关闭"
+            onClick={onClose}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] text-[var(--text-muted)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
-            aria-label="取消导入"
+            aria-label="关闭"
           >
             <X className="h-4 w-4" />
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+        <div className="project-manager-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-4 [scrollbar-gutter:stable] sm:px-5">
           {phase === "loading" ? (
             <div className="flex min-h-48 flex-col items-center justify-center gap-3 text-xs text-[var(--text-secondary)]">
               <LoaderCircle className="h-5 w-5 animate-spin text-violet-400" />
@@ -337,7 +386,7 @@ export function ProviderModelImportDialog({
                     data-autofocus
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="搜索模型 ID 或 owner"
+                    placeholder="搜索模型 ID"
                     className="h-9 w-full rounded-[7px] border border-[var(--border-subtle)] bg-[var(--control-bg)] pl-8 pr-3 text-xs text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus:border-violet-400/60"
                   />
                 </label>
@@ -352,13 +401,51 @@ export function ProviderModelImportDialog({
                 </button>
               </div>
 
-              <div className="flex items-center justify-between px-1">
-                <span className="text-[11px] font-semibold text-[var(--text-secondary)]">
-                  模型 {visibleItems.length}
+              <div className="flex flex-wrap items-center gap-2 px-1">
+                <span className="inline-flex w-[3.75rem] shrink-0 items-center text-[11px] font-semibold text-[var(--text-secondary)]">
+                  模型
+                  <span className="ml-1 inline-block w-[4ch] tabular-nums">
+                    {visibleItems.length}
+                  </span>
                 </span>
-                <span className="text-[10px] text-[var(--text-muted)]">
-                  已按类型分组
-                </span>
+                <div
+                  role="tablist"
+                  aria-label="按模型类型筛选"
+                  className="flex min-w-0 flex-wrap items-center gap-1"
+                >
+                  {CATEGORY_FILTERS.map((filter) => {
+                    const active = categoryFilter === filter.value;
+                    const FilterIcon = filter.Icon;
+                    return (
+                      <button
+                        key={filter.value}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => setCategoryFilter(filter.value)}
+                        className={cx(
+                          "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] border px-2.5 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60",
+                          active
+                            ? "border-[var(--text-secondary)] bg-[var(--text-primary)] text-[var(--canvas-bg)]"
+                            : "border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-secondary)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]",
+                        )}
+                      >
+                        <FilterIcon className="h-3 w-3" />
+                        <span>{filter.label}</span>
+                        <span
+                          className={cx(
+                            "tabular-nums",
+                            active
+                              ? "text-[var(--canvas-bg)]/65"
+                              : "text-[var(--text-muted)]",
+                          )}
+                        >
+                          {categoryCounts[filter.value]}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {visibleItems.length > 0 ? (
@@ -367,13 +454,25 @@ export function ProviderModelImportDialog({
                     const categoryMeta = CATEGORY_META[group.category];
                     const CategoryIcon = categoryMeta.Icon;
                     const groupTitleId = `provider-model-category-${group.category}`;
+                    const groupListId = `${groupTitleId}-list`;
+                    const expanded = !collapsedCategories.has(group.category);
                     return (
                       <section
                         key={group.category}
                         aria-labelledby={groupTitleId}
                         className="overflow-hidden rounded-[7px] border border-[var(--border-subtle)]"
                       >
-                        <div className="flex h-8 items-center gap-2 border-b border-[var(--border-subtle)] bg-black/15 px-3">
+                        <button
+                          type="button"
+                          aria-expanded={expanded}
+                          aria-controls={groupListId}
+                          onClick={() => toggleCategory(group.category)}
+                          className={cx(
+                            "flex h-8 w-full items-center gap-2 bg-black/15 px-3 text-left transition-colors hover:bg-[var(--control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400/60",
+                            expanded &&
+                              "border-b border-[var(--border-subtle)]",
+                          )}
+                        >
                           <span
                             className={cx(
                               "inline-flex h-5 w-5 items-center justify-center rounded-full border",
@@ -391,94 +490,100 @@ export function ProviderModelImportDialog({
                           <span className="text-[10px] text-[var(--text-muted)]">
                             {group.items.length}
                           </span>
-                        </div>
-                        <div role="list">
-                          {group.items.map((item) => {
-                            const itemCategoryMeta =
-                              CATEGORY_META[item.category];
-                            const ItemCategoryIcon = itemCategoryMeta.Icon;
-                            return (
-                              <div
-                                key={item.modelId}
-                                role="listitem"
-                                className="flex min-w-0 items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--control-bg)] px-3 py-2.5 last:border-b-0"
-                              >
-                                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-orange-400/20 bg-orange-400/10 text-[10px] font-semibold text-orange-200">
-                                  {item.modelId.slice(0, 1).toUpperCase()}
-                                </span>
-                                <span className="min-w-0 flex-1">
-                                  <span className="flex min-w-0 items-center gap-1.5">
-                                    <span className="truncate text-xs font-medium text-[var(--text-primary)]">
-                                      {item.modelId}
-                                    </span>
-                                    {item.alreadyImported ? (
-                                      <span className="shrink-0 rounded-[4px] bg-emerald-400/15 px-1 py-0.5 text-[9px] text-emerald-200">
-                                        已添加
-                                      </span>
-                                    ) : null}
+                          <ChevronDown
+                            className={cx(
+                              "ml-auto h-3.5 w-3.5 shrink-0 text-violet-300 transition-transform duration-200",
+                              !expanded && "-rotate-90",
+                            )}
+                          />
+                        </button>
+                        {expanded ? (
+                          <div id={groupListId} role="list">
+                            {group.items.map((item) => {
+                              const itemCategoryMeta =
+                                CATEGORY_META[item.category];
+                              const ItemCategoryIcon = itemCategoryMeta.Icon;
+                              return (
+                                <div
+                                  key={item.modelId}
+                                  role="listitem"
+                                  className="flex min-w-0 items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--control-bg)] px-3 py-2.5 last:border-b-0"
+                                >
+                                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-violet-400/25 bg-violet-400/10 text-[10px] font-semibold text-violet-300">
+                                    {item.modelId.slice(0, 1).toUpperCase()}
                                   </span>
-                                  {item.ownedBy ? (
-                                    <span className="mt-0.5 block truncate text-[10px] text-[var(--text-muted)]">
-                                      {item.ownedBy}
+                                  <span className="min-w-0 flex-1">
+                                    <span className="flex min-w-0 items-center gap-1.5">
+                                      <span className="truncate text-xs font-medium text-[var(--text-primary)]">
+                                        {item.modelId}
+                                      </span>
+                                      {item.alreadyImported ? (
+                                        <span className="shrink-0 rounded-[4px] bg-emerald-400/15 px-1 py-0.5 text-[9px] text-emerald-200">
+                                          已添加
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                  </span>
+                                  <span
+                                    title={`自动识别为${itemCategoryMeta.label}`}
+                                    className={cx(
+                                      "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
+                                      itemCategoryMeta.className,
+                                    )}
+                                  >
+                                    <ItemCategoryIcon className="h-3 w-3" />
+                                  </span>
+                                  {item.requiresCategoryConfirmation ? (
+                                    <span
+                                      title="未识别名称按 Chat 导入，之后可在模型设置中修改"
+                                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-amber-200"
+                                    >
+                                      <CircleHelp className="h-3.5 w-3.5" />
                                     </span>
                                   ) : null}
-                                </span>
-                                <span
-                                  title={`自动识别为${itemCategoryMeta.label}`}
-                                  className={cx(
-                                    "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
-                                    itemCategoryMeta.className,
-                                  )}
-                                >
-                                  <ItemCategoryIcon className="h-3 w-3" />
-                                </span>
-                                {item.requiresCategoryConfirmation ? (
-                                  <span
-                                    title="未识别名称按 Chat 导入，之后可在模型设置中修改"
-                                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-amber-200"
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      item.alreadyImported ||
+                                      savingModelId !== null
+                                    }
+                                    onClick={() => void addModel(item)}
+                                    aria-label={
+                                      item.alreadyImported
+                                        ? `${item.modelId} 已添加`
+                                        : savingModelId === item.modelId
+                                          ? `正在添加 ${item.modelId}`
+                                          : `添加 ${item.modelId}`
+                                    }
+                                    title={
+                                      item.alreadyImported
+                                        ? "已添加"
+                                        : savingModelId === item.modelId
+                                          ? "正在添加"
+                                          : "添加模型"
+                                    }
+                                    className={cx(
+                                      "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60",
+                                      item.alreadyImported
+                                        ? "cursor-default text-emerald-300"
+                                        : savingModelId === item.modelId
+                                          ? "bg-violet-400/15 text-violet-200 hover:bg-violet-400/25"
+                                          : "text-[var(--text-secondary)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]",
+                                    )}
                                   >
-                                    <CircleHelp className="h-3.5 w-3.5" />
-                                  </span>
-                                ) : null}
-                                <button
-                                  type="button"
-                                  disabled={item.alreadyImported}
-                                  onClick={() =>
-                                    toggleItemSelection(item.modelId)
-                                  }
-                                  aria-label={
-                                    item.alreadyImported
-                                      ? `${item.modelId} 已添加`
-                                      : item.selected
-                                        ? `移出待导入 ${item.modelId}`
-                                        : `添加 ${item.modelId}`
-                                  }
-                                  title={
-                                    item.alreadyImported
-                                      ? "已添加"
-                                      : item.selected
-                                        ? "移出待导入"
-                                        : "添加模型"
-                                  }
-                                  className={cx(
-                                    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60",
-                                    item.alreadyImported
-                                      ? "cursor-default text-emerald-300"
-                                      : item.selected
-                                        ? "bg-violet-400/15 text-violet-200 hover:bg-violet-400/25"
-                                        : "text-[var(--text-secondary)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]",
-                                  )}
-                                >
-                                  {item.alreadyImported || item.selected ? (
-                                    <Check className="h-3.5 w-3.5" />
-                                  ) : (
-                                    <Plus className="h-3.5 w-3.5" />
-                                  )}
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
+                                    {savingModelId === item.modelId ? (
+                                      <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                                    ) : item.alreadyImported ? (
+                                      <Check className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <Plus className="h-3.5 w-3.5" />
+                                    )}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
                       </section>
                     );
                   })}
@@ -491,41 +596,6 @@ export function ProviderModelImportDialog({
             </div>
           ) : null}
         </div>
-
-        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-4 py-3 sm:px-5">
-          <span className="text-[11px] text-[var(--text-muted)]">
-            {phase === "ready"
-              ? selectedItems.length > 0
-                ? `将导入 ${selectedItems.length} 个模型`
-                : "选择 + 后导入模型"
-              : ""}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onClose(selectedItems.length > 0)}
-              className="h-8 rounded-[7px] px-3 text-xs text-[var(--text-secondary)] hover:bg-[var(--control-bg-hover)]"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              disabled={phase !== "ready"}
-              onClick={() => void submit()}
-              className={cx(
-                "inline-flex h-8 items-center gap-1.5 rounded-[7px] bg-[var(--text-primary)] px-3 text-xs font-semibold text-[var(--canvas-bg)] disabled:cursor-not-allowed disabled:opacity-45",
-                phase === "saving" && "opacity-70",
-              )}
-            >
-              {phase === "saving" ? (
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Check className="h-3.5 w-3.5" />
-              )}
-              {selectedItems.length > 0 ? "确认导入" : "同步目录"}
-            </button>
-          </div>
-        </footer>
       </div>
     </div>,
     document.body,

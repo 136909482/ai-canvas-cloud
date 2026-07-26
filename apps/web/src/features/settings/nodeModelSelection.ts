@@ -26,6 +26,11 @@ export interface NodeModelSelection {
   canExecute: boolean;
 }
 
+export interface SelectableModelGroup {
+  modelId: string;
+  models: ModelEntry[];
+}
+
 export const NODE_MODEL_SELECTION_LABELS = {
   noProvider: "选择服务商",
   noModel: "选择模型",
@@ -190,4 +195,46 @@ export function getSelectableProviderProfiles(
   return config.providerProfiles.filter(
     (profile) => getSelectableModels(config, category, profile.id).length > 0,
   );
+}
+
+export function getSelectableModelGroups(
+  config: ApiConfig,
+  category: ModelCategory,
+) {
+  const groups = new Map<string, SelectableModelGroup>();
+
+  for (const profile of getSelectableProviderProfiles(config, category)) {
+    for (const model of getSelectableModels(config, category, profile.id)) {
+      const modelId = model.modelId.trim() || model.id;
+      const group = groups.get(modelId);
+      if (group) {
+        group.models.push(model);
+      } else {
+        groups.set(modelId, { modelId, models: [model] });
+      }
+    }
+  }
+
+  return [...groups.values()];
+}
+
+export function getPreferredSelectableModelEntryId(
+  config: ApiConfig,
+  category: ModelCategory,
+) {
+  const selectableModels = getSelectableModelGroups(config, category).flatMap(
+    (group) => group.models,
+  );
+
+  const preferredModelEntryId =
+    config.lastUsedModelEntryIds?.[category] ?? config.defaultModelEntryId;
+
+  if (
+    preferredModelEntryId &&
+    selectableModels.some((model) => model.id === preferredModelEntryId)
+  ) {
+    return preferredModelEntryId;
+  }
+
+  return selectableModels[0]?.id ?? "";
 }

@@ -24,6 +24,7 @@ test("API config validates required cloud dependencies", () => {
   assert.equal(config.webPublicUrl, "http://localhost:5173");
   assert.deepEqual(config.webAllowedOrigins, ["http://localhost:5173"]);
   assert.equal(config.devSeedAdmin, false);
+  assert.equal(config.devSeedAdminUsername, "admin_user");
   assert.equal(config.devSeedAdminEmail, "admin@example.com");
   assert.equal(config.s3Bucket, "bucket");
   assert.equal(config.s3PublicEndpoint, "http://localhost:9000");
@@ -41,15 +42,15 @@ test("API config rejects missing secrets and invalid log level", () => {
 });
 
 test("API config reads development admin seed options outside production", () => {
-  assert.equal(
-    loadApiConfig({
-      ...baseEnv,
-      DEV_SEED_ADMIN: "true",
-      DEV_SEED_ADMIN_EMAIL: "admin@local.test",
-      DEV_SEED_ADMIN_PASSWORD: "local-only-password",
-    }).devSeedAdmin,
-    true,
-  );
+  const developmentConfig = loadApiConfig({
+    ...baseEnv,
+    DEV_SEED_ADMIN: "true",
+    DEV_SEED_ADMIN_USERNAME: "local_admin",
+    DEV_SEED_ADMIN_EMAIL: "admin@local.test",
+    DEV_SEED_ADMIN_PASSWORD: "local-only-password",
+  });
+  assert.equal(developmentConfig.devSeedAdmin, true);
+  assert.equal(developmentConfig.devSeedAdminUsername, "local_admin");
 
   assert.equal(
     loadApiConfig({
@@ -79,6 +80,7 @@ test("API config reads development admin seed options outside production", () =>
       DEPLOYMENT_RESOURCE_NAMESPACE: "ai-canvas-cloud-production",
       DEPLOYMENT_CREDENTIAL_NAMESPACE: "ai-canvas-cloud-production-credentials",
       DEV_SEED_ADMIN: "false",
+      DEV_SEED_ADMIN_USERNAME: undefined,
       DEV_SEED_ADMIN_EMAIL: undefined,
       DEV_SEED_ADMIN_PASSWORD: undefined,
       ...Object.fromEntries(

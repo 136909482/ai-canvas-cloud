@@ -383,6 +383,34 @@
       "rollback": "restore the encrypted pre-contract backup and deploy the legacy application as one coordinated rollback; the dropped credential and task schema is not recreated in place",
       "forwardRepair": "stop legacy API and Worker processes, rerun the idempotent contract migration, remove any residual legacy database role grants, and redeploy only the browser-generation application",
       "backupRequired": true
+    },
+    {
+      "version": "0030",
+      "name": "user_usernames",
+      "releaseTrain": "p8-username",
+      "phase": "contract",
+      "oldAppReadable": true,
+      "newAppReadable": true,
+      "oldAppWithNewSchema": false,
+      "lockRisk": "medium",
+      "statementTimeoutMs": 30000,
+      "rollback": "restore the pre-migration backup and deploy the email-only application as one coordinated rollback; the legacy writer cannot create rows after username columns become required",
+      "forwardRepair": "rerun the idempotent migration, deterministically fill missing usernames, audit format and uniqueness constraints, and enable username login only after the audit passes",
+      "backupRequired": true
+    },
+    {
+      "version": "0031",
+      "name": "generation_telemetry",
+      "releaseTrain": "p8-operations",
+      "phase": "expand",
+      "oldAppReadable": true,
+      "newAppReadable": false,
+      "oldAppWithNewSchema": true,
+      "lockRisk": "low",
+      "statementTimeoutMs": 10000,
+      "rollback": "drop the additive telemetry table before enabling collection; after collection starts, disable the endpoint and retain bounded operational rows until the replacement is deployed",
+      "forwardRepair": "rerun the idempotent table and index creation, reapply scoped database role grants, and verify that only bounded metadata columns are present",
+      "backupRequired": false
     }
   ]
 }

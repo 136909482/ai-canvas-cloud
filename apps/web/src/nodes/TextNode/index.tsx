@@ -40,8 +40,9 @@ import { areNodeContentPropsEqual } from "../nodePropComparators";
 type TextNodeProps = AppNodeProps<"textNode">;
 
 const DEFAULT_TEXT_NODE_LABEL = "提示词";
-const DEFAULT_TEXT_NODE_WIDTH = 240;
-const DEFAULT_TEXT_NODE_HEIGHT = 190;
+const DEFAULT_TEXT_NODE_WIDTH = 280;
+const DEFAULT_TEXT_NODE_HEIGHT = 220;
+const MIN_TEXT_NODE_HEIGHT = 190;
 
 const UI_TEXT = {
   deleteNode: "删除文本节点",
@@ -522,7 +523,7 @@ export const TextNode = memo(function TextNode({
         <NodeResizerPreset
           selected={selected}
           minWidth={220}
-          minHeight={DEFAULT_TEXT_NODE_HEIGHT}
+          minHeight={MIN_TEXT_NODE_HEIGHT}
           maxWidth={700}
           maxHeight={600}
           hideVisuals

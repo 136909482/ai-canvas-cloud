@@ -1,9 +1,17 @@
 import { downloadMediaAsBlob } from "@/api/image/shared";
 import { writeWorkspaceImageAsset } from "@/features/imageAssets/runtime";
 import { buildProjectAssetPath } from "@/features/projectManager/projectAssetPaths";
+import {
+  deleteRememberedPendingTaskResult,
+  isLocalVaultSupported,
+  loadRememberedPendingTaskResult,
+  saveRememberedPendingTaskResult,
+} from "@/features/settings/localVault";
 import { platformBridge } from "@/platform";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import type { GenerateTask, WorkspaceImageAsset } from "@/types";
+
+const pendingImageResults = new Map<string, Blob>();
 
 function buildAssetFolderDate(timestamp: number) {
   const date = new Date(timestamp);
@@ -61,6 +69,70 @@ async function downloadGeneratedImageAsBlob(imageUrl: string) {
   return downloadMediaAsBlob(imageUrl, "Failed to fetch generated image");
 }
 
+function getPendingResultContext(task: GenerateTask) {
+  const settings = useSettingsStore.getState();
+  const userId = settings.runtime.vaultUserId;
+  const projectId = task.projectId?.trim() ?? "";
+
+  if (
+    !userId ||
+    !projectId ||
+    settings.runtime.vaultPersistence !== "device" ||
+    !isLocalVaultSupported()
+  ) {
+    return null;
+  }
+
+  return { userId, projectId };
+}
+
+export async function stageGeneratedImageResult(
+  task: GenerateTask,
+  imageUrl: string,
+) {
+  const blob = await downloadGeneratedImageAsBlob(imageUrl);
+  pendingImageResults.set(task.id, blob);
+  const context = getPendingResultContext(task);
+
+  if (context) {
+    await saveRememberedPendingTaskResult(
+      context.userId,
+      context.projectId,
+      task.id,
+      blob,
+    );
+  }
+
+  return blob;
+}
+
+export async function loadStagedGeneratedImageResult(task: GenerateTask) {
+  const inMemory = pendingImageResults.get(task.id);
+  if (inMemory) return inMemory;
+
+  const context = getPendingResultContext(task);
+  if (!context) return null;
+  const blob = await loadRememberedPendingTaskResult(
+    context.userId,
+    context.projectId,
+    task.id,
+  );
+  if (blob) pendingImageResults.set(task.id, blob);
+  return blob;
+}
+
+export async function clearStagedGeneratedImageResult(task: GenerateTask) {
+  pendingImageResults.delete(task.id);
+  const context = getPendingResultContext(task);
+  if (!context) return;
+
+  await deleteRememberedPendingTaskResult(
+    context.userId,
+    context.projectId,
+    task.id,
+  ).catch(() => undefined);
+}
+
 async function downloadGeneratedVideoAsBlob(videoUrl: string) {
   if (videoUrl.startsWith("data:video/")) {
     return dataUrlToBlob(videoUrl);
@@ -97,8 +169,16 @@ export async function persistGeneratedImageAsset(
   task: GenerateTask,
   imageUrl: string,
 ): Promise<{ asset: WorkspaceImageAsset | null; resolvedUrl: string }> {
-  const blob = await downloadGeneratedImageAsBlob(imageUrl);
+  const blob = await stageGeneratedImageResult(task, imageUrl);
+  const result = await persistGeneratedImageBlob(task, blob);
+  await clearStagedGeneratedImageResult(task);
+  return result;
+}
 
+export async function persistGeneratedImageBlob(
+  task: GenerateTask,
+  blob: Blob,
+): Promise<{ asset: WorkspaceImageAsset | null; resolvedUrl: string }> {
   if (!useSettingsStore.getState().runtime.workspaceConfigured) {
     return {
       asset: null,

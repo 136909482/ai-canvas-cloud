@@ -10,10 +10,13 @@
   },
   "dependencies": {
     "@ai-canvas-cloud/contracts": "0.1.0",
+    "@ant-design/v5-patch-for-react-19": "^1.0.3",
     "@refinedev/core": "^5.0.12",
+    "antd": "^5.29.3",
     "lucide-react": "^0.487.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "recharts": "^3.10.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",

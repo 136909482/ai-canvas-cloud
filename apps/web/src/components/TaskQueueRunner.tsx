@@ -1,66 +1,26 @@
-import { useEffect, useMemo, useRef } from "react";
-import { runGenerateTask } from "@/features/generateQueue/orchestrator";
+import { useEffect, useMemo } from "react";
+import { runGenerateTask } from "@/features/generateQueue/taskExecution";
+import { selectLaunchableTaskIds } from "@/features/generateQueue/taskScheduler";
 import { useProjectStore } from "@/store/useProjectStore";
 import { useTaskQueueStore } from "@/store/useTaskQueueStore";
-import type { GenerateTask } from "@/types";
-
-const IMAGE_TASK_LANE_KEY = "image-parallel";
-const IMAGE_TASK_LANE_LIMIT = 8;
-const VIDEO_TASK_LANE_KEY = "video-serial";
-const VIDEO_TASK_LANE_LIMIT = 1;
-
-function getTaskLane(task: GenerateTask) {
-  return task.kind === "video"
-    ? { key: VIDEO_TASK_LANE_KEY, limit: VIDEO_TASK_LANE_LIMIT }
-    : { key: IMAGE_TASK_LANE_KEY, limit: IMAGE_TASK_LANE_LIMIT };
-}
 
 export function TaskQueueRunner() {
   const tasks = useTaskQueueStore((state) => state.tasks);
   const runtimeVersion = useTaskQueueStore((state) => state.runtimeVersion);
   const isProjectReady = useProjectStore((state) => state.isReady);
-  const inFlightTaskIdsRef = useRef<Set<string>>(new Set());
-  const runningTasks = useMemo(
-    () => tasks.filter((task) => task.status === "running"),
-    [tasks],
-  );
-  const nextQueuedTasks = useMemo(
-    () =>
-      [...tasks]
-        .filter((task) => task.status === "queued")
-        .sort((left, right) => left.createdAt - right.createdAt),
+  const launchableTaskIds = useMemo(
+    () => selectLaunchableTaskIds(tasks),
     [tasks],
   );
 
   useEffect(() => {
-    inFlightTaskIdsRef.current.clear();
-  }, [runtimeVersion]);
+    if (!isProjectReady || launchableTaskIds.length === 0) return;
 
-  useEffect(() => {
-    if (!isProjectReady || nextQueuedTasks.length === 0) return;
-
-    const laneUsage = new Map<string, number>();
-    for (const task of runningTasks) {
-      const lane = getTaskLane(task);
-      laneUsage.set(lane.key, (laneUsage.get(lane.key) ?? 0) + 1);
+    for (const taskId of launchableTaskIds) {
+      const claimedTask = useTaskQueueStore.getState().claimTask(taskId);
+      if (claimedTask) void runGenerateTask(taskId);
     }
-
-    const launchableTasks = nextQueuedTasks.filter((task) => {
-      if (inFlightTaskIdsRef.current.has(task.id)) return false;
-      const lane = getTaskLane(task);
-      const currentUsage = laneUsage.get(lane.key) ?? 0;
-      if (currentUsage >= lane.limit) return false;
-      laneUsage.set(lane.key, currentUsage + 1);
-      return true;
-    });
-
-    for (const task of launchableTasks) {
-      inFlightTaskIdsRef.current.add(task.id);
-      void runGenerateTask(task.id).finally(() => {
-        inFlightTaskIdsRef.current.delete(task.id);
-      });
-    }
-  }, [isProjectReady, nextQueuedTasks, runningTasks]);
+  }, [isProjectReady, launchableTaskIds, runtimeVersion]);
 
   return null;
 }

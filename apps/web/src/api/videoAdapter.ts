@@ -1,3 +1,5 @@
+import { fetchPollingRequestWithRetry } from "./pollingRetry.ts";
+
 export interface GenerateVideoParams {
   prompt: string;
   ratio: "16:9" | "9:16" | string;
@@ -260,12 +262,14 @@ async function queryAliyunVideoGeneration(
   let response: Response;
 
   try {
-    response = await fetch(buildTaskQueryUrl(params.apiUrl, taskId), {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${params.apiKey}`,
-      },
-    });
+    response = await fetchPollingRequestWithRetry(() =>
+      fetch(buildTaskQueryUrl(params.apiUrl, taskId), {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${params.apiKey}`,
+        },
+      }),
+    );
   } catch (error) {
     if (error instanceof TypeError) {
       throw new Error(

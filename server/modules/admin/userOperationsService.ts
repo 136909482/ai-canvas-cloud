@@ -18,7 +18,7 @@ import type { AdminRequestContext } from "./types.js";
 interface AdminUserListRow {
   id: string;
   user_no: string | number;
-  name: string;
+  display_username: string;
   email: string;
   email_verified: boolean;
   status: "active" | "disabled" | "deleted";
@@ -115,7 +115,7 @@ function toUserSummary(row: AdminUserListRow): AdminManagedUserSummary {
   return {
     id: row.id,
     userNumber: toSafeInteger(row.user_no, "userNumber"),
-    name: row.name,
+    username: row.display_username,
     email: row.email,
     emailVerified: row.email_verified,
     status: row.status,
@@ -244,7 +244,7 @@ export function createPostgresAdminUserOperationsService(
         clauses.push(`(
           u.user_no::text = ${parameter}
           OR position(${parameter} in lower(u.email)) > 0
-          OR position(${parameter} in lower(u.name)) > 0
+          OR position(${parameter} in lower(u.display_username)) > 0
         )`);
       }
       values.push(validated.limit + 1);
@@ -279,7 +279,7 @@ export function createPostgresAdminUserOperationsService(
         SELECT
           u.id,
           u.user_no,
-          u.name,
+          u.display_username,
           u.email,
           u.email_verified,
           u.status,
@@ -343,7 +343,7 @@ export function createPostgresAdminUserOperationsService(
         SELECT
           u.id,
           u.user_no,
-          u.name,
+          u.display_username,
           u.email,
           u.email_verified,
           u.status,

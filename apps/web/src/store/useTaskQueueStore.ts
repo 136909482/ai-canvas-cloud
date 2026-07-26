@@ -1,41 +1,17 @@
 import { create } from "zustand";
+import {
+  createTaskDisplayId,
+  mergeTaskSnapshot,
+  recoverTasksAfterSnapshotLoad,
+  sanitizeTasks,
+  type GenerateTaskSnapshot,
+} from "@/features/generateQueue/taskQueueSnapshot";
 import type {
   GenerateTask,
-  GptImageQuality,
-  ImageInputFidelity,
-  ImageOperationType,
+  GenerateTaskPhase,
   GenerateTaskRemoteStatus,
   TaskQueueSnapshot,
-  VideoGenerateNodeData,
-  VideoGenerateMode,
 } from "@/types";
-
-export interface GenerateTaskSnapshot {
-  projectId?: string | null;
-  kind?: "image" | "video";
-  sourceNodeId: string;
-  previewNodeId?: string | null;
-  model: string;
-  prompt: string;
-  negativePrompt?: string;
-  ratio?: string;
-  resolution?: string;
-  operationType?: ImageOperationType;
-  sourceImageNodeId?: string | null;
-  maskImageUrl?: string | null;
-  apiProfileId?: string | null;
-  apiProfileName?: string | null;
-  provider?: string | null;
-  referenceImageUrls?: string[];
-  inputFidelity?: ImageInputFidelity | null;
-  quality?: GptImageQuality | null;
-  googleSearch?: boolean;
-  googleImageSearch?: boolean;
-  videoMode?: VideoGenerateMode | null;
-  videoDuration?: VideoGenerateNodeData["duration"] | null;
-  resultImageAsset?: GenerateTask["resultImageAsset"];
-  resultVideoAsset?: GenerateTask["resultVideoAsset"];
-}
 
 interface TaskQueueStore {
   tasks: GenerateTask[];
@@ -48,36 +24,51 @@ interface TaskQueueStore {
   ) => void;
   resetToEmpty: () => void;
   clearDeviceCache: () => void;
+  claimTask: (id: string) => GenerateTask | null;
+  bindTaskProvider: (
+    id: string,
+    binding: Pick<
+      GenerateTaskSnapshot,
+      | "apiProfileId"
+      | "apiProfileName"
+      | "provider"
+      | "executionMode"
+      | "adapterId"
+      | "providerBindingFingerprint"
+    >,
+  ) => void;
   markTaskQueued: (id: string, patch?: Partial<GenerateTaskSnapshot>) => void;
   markTaskRunning: (id: string, previewNodeId?: string | null) => void;
+  resumePersistingTask: (id: string) => void;
+  setTaskPhase: (id: string, phase: GenerateTaskPhase) => void;
+  queueRemoteTask: (id: string) => void;
   resumeRemoteTask: (id: string) => void;
   attachRemoteTask: (id: string, remoteTaskId: string) => void;
+  attachTelemetryAttempt: (
+    id: string,
+    attemptId: string,
+    startedAt: number,
+  ) => void;
   setRemoteTaskStatus: (
     id: string,
     remoteStatus: GenerateTaskRemoteStatus,
   ) => void;
   markTaskDone: (id: string, patch?: Partial<GenerateTaskSnapshot>) => void;
   markTaskError: (id: string, errorMsg: string) => void;
+  markTaskPersistError: (id: string, errorMsg: string) => void;
   removeTask: (id: string) => void;
   clearFinishedTasks: () => void;
 }
 
 let taskIdCounter = 1;
-const INTERRUPTED_LOCAL_TASK_MESSAGE =
-  "页面关闭或刷新后，同步任务已中断，请手动重试。";
 
 function createTaskId() {
-  return `task-${taskIdCounter++}`;
-}
-
-function createTaskDisplayId(seed: string) {
-  let hash = 0;
-
-  for (let index = 0; index < seed.length; index += 1) {
-    hash = (Math.imul(31, hash) + seed.charCodeAt(index)) | 0;
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === "function") {
+    return cryptoApi.randomUUID();
   }
 
-  return Math.abs(hash).toString(16).padStart(8, "0").slice(0, 8);
+  return `task-${Date.now()}-${taskIdCounter++}`;
 }
 
 function syncTaskIdCounter(tasks: GenerateTask[]) {
@@ -88,180 +79,6 @@ function syncTaskIdCounter(tasks: GenerateTask[]) {
   }, 0);
 
   taskIdCounter = maxTaskId + 1;
-}
-
-function sanitizeTask(
-  task: GenerateTask,
-  projectId?: string | null,
-): GenerateTask {
-  return {
-    ...task,
-    projectId: projectId ?? task.projectId ?? null,
-    kind: task.kind === "video" ? "video" : "image",
-    displayId:
-      typeof task.displayId === "string" && task.displayId.trim()
-        ? task.displayId
-        : createTaskDisplayId(`${task.id}:${task.createdAt}:${task.prompt}`),
-    previewNodeId: task.previewNodeId ?? null,
-    negativePrompt: task.negativePrompt ?? "",
-    ratio: task.ratio ?? "1:1",
-    resolution: task.resolution ?? "1K",
-    operationType:
-      task.operationType ??
-      (task.referenceImageUrls?.length ? "image-to-image" : "text-to-image"),
-    sourceImageNodeId: task.sourceImageNodeId ?? null,
-    maskImageUrl: task.maskImageUrl ?? null,
-    apiProfileId: task.apiProfileId ?? null,
-    apiProfileName: task.apiProfileName ?? null,
-    provider: task.provider ?? null,
-    referenceImageUrls: Array.isArray(task.referenceImageUrls)
-      ? [...task.referenceImageUrls]
-      : [],
-    inputFidelity: task.inputFidelity ?? null,
-    quality: task.quality ?? null,
-    googleSearch: Boolean(task.googleSearch),
-    googleImageSearch: Boolean(task.googleImageSearch),
-    videoMode: task.videoMode ?? null,
-    videoDuration: task.videoDuration ?? null,
-    resultImageAsset: task.resultImageAsset ?? null,
-    resultVideoAsset: task.resultVideoAsset ?? null,
-    errorMsg: task.errorMsg ?? "",
-    remoteTaskId: task.remoteTaskId ?? null,
-    remoteStatus: task.remoteStatus ?? null,
-    finishedAt: task.finishedAt ?? null,
-  };
-}
-
-function sanitizeTasks(
-  tasks: GenerateTask[],
-  projectId?: string | null,
-): GenerateTask[] {
-  return tasks.map((task) => sanitizeTask(task, projectId));
-}
-
-export function recoverTaskAfterSnapshotLoad(
-  task: GenerateTask,
-  projectId?: string | null,
-): GenerateTask {
-  const sanitizedTask = sanitizeTask(task, projectId);
-
-  if (sanitizedTask.status === "running" && sanitizedTask.remoteTaskId) {
-    return {
-      ...sanitizedTask,
-      errorMsg: "",
-      remoteStatus: "IN_PROGRESS",
-      finishedAt: null,
-    };
-  }
-
-  if (sanitizedTask.status === "running") {
-    return {
-      ...sanitizedTask,
-      status: "error",
-      errorMsg: INTERRUPTED_LOCAL_TASK_MESSAGE,
-      remoteTaskId: null,
-      remoteStatus: null,
-      finishedAt: Date.now(),
-    };
-  }
-
-  if (sanitizedTask.status === "queued") {
-    return {
-      ...sanitizedTask,
-      errorMsg: "",
-      remoteTaskId: null,
-      remoteStatus: null,
-      startedAt: 0,
-      finishedAt: null,
-    };
-  }
-
-  return sanitizedTask;
-}
-
-export function recoverTasksAfterSnapshotLoad(
-  tasks: GenerateTask[],
-  projectId?: string | null,
-): GenerateTask[] {
-  return tasks.map((task) => recoverTaskAfterSnapshotLoad(task, projectId));
-}
-
-function mergeTaskSnapshot(
-  task: GenerateTask,
-  patch?: Partial<GenerateTaskSnapshot>,
-): GenerateTask {
-  return {
-    ...task,
-    projectId:
-      patch && "projectId" in patch
-        ? (patch.projectId ?? null)
-        : (task.projectId ?? null),
-    kind: patch?.kind ?? task.kind,
-    sourceNodeId: patch?.sourceNodeId ?? task.sourceNodeId,
-    previewNodeId:
-      patch && "previewNodeId" in patch
-        ? (patch.previewNodeId ?? null)
-        : task.previewNodeId,
-    model: patch?.model ?? task.model,
-    prompt: patch?.prompt ?? task.prompt,
-    negativePrompt: patch?.negativePrompt ?? task.negativePrompt,
-    ratio: patch?.ratio ?? task.ratio,
-    resolution: patch?.resolution ?? task.resolution,
-    operationType: patch?.operationType ?? task.operationType,
-    sourceImageNodeId:
-      patch && "sourceImageNodeId" in patch
-        ? (patch.sourceImageNodeId ?? null)
-        : task.sourceImageNodeId,
-    maskImageUrl:
-      patch && "maskImageUrl" in patch
-        ? (patch.maskImageUrl ?? null)
-        : (task.maskImageUrl ?? null),
-    apiProfileId:
-      patch && "apiProfileId" in patch
-        ? (patch.apiProfileId ?? null)
-        : (task.apiProfileId ?? null),
-    apiProfileName:
-      patch && "apiProfileName" in patch
-        ? (patch.apiProfileName ?? null)
-        : (task.apiProfileName ?? null),
-    provider:
-      patch && "provider" in patch
-        ? (patch.provider ?? null)
-        : (task.provider ?? null),
-    referenceImageUrls: patch?.referenceImageUrls ?? task.referenceImageUrls,
-    inputFidelity:
-      patch && "inputFidelity" in patch
-        ? (patch.inputFidelity ?? null)
-        : (task.inputFidelity ?? null),
-    quality:
-      patch && "quality" in patch
-        ? (patch.quality ?? null)
-        : (task.quality ?? null),
-    googleSearch:
-      patch && "googleSearch" in patch
-        ? Boolean(patch.googleSearch)
-        : Boolean(task.googleSearch),
-    googleImageSearch:
-      patch && "googleImageSearch" in patch
-        ? Boolean(patch.googleImageSearch)
-        : Boolean(task.googleImageSearch),
-    videoMode:
-      patch && "videoMode" in patch
-        ? (patch.videoMode ?? null)
-        : (task.videoMode ?? null),
-    videoDuration:
-      patch && "videoDuration" in patch
-        ? (patch.videoDuration ?? null)
-        : (task.videoDuration ?? null),
-    resultImageAsset:
-      patch && "resultImageAsset" in patch
-        ? (patch.resultImageAsset ?? null)
-        : (task.resultImageAsset ?? null),
-    resultVideoAsset:
-      patch && "resultVideoAsset" in patch
-        ? (patch.resultVideoAsset ?? null)
-        : (task.resultVideoAsset ?? null),
-  };
 }
 
 export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
@@ -308,9 +125,15 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
           resultImageAsset: input.resultImageAsset ?? null,
           resultVideoAsset: input.resultVideoAsset ?? null,
           status: "queued",
+          phase: input.phase ?? null,
+          executionMode: input.executionMode ?? null,
+          adapterId: input.adapterId ?? null,
+          providerBindingFingerprint: input.providerBindingFingerprint ?? null,
           errorMsg: "",
           remoteTaskId: null,
           remoteStatus: null,
+          telemetryAttemptId: input.telemetryAttemptId ?? null,
+          telemetryStartedAt: input.telemetryStartedAt ?? null,
           createdAt: now,
           startedAt: 0,
           finishedAt: null,
@@ -354,6 +177,43 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
       runtimeVersion: state.runtimeVersion + 1,
     })),
 
+  claimTask: (id) => {
+    let claimedTask: GenerateTask | null = null;
+
+    set((state) => ({
+      tasks: state.tasks.map((task) => {
+        if (task.id !== id || task.status !== "queued") {
+          return task;
+        }
+
+        claimedTask = {
+          ...task,
+          status: "running",
+          phase:
+            task.phase === "persisting" || task.phase === "polling"
+              ? task.phase
+              : "requesting",
+          startedAt: Date.now(),
+          finishedAt: null,
+          errorMsg: "",
+          ...(task.phase === "persisting" || task.phase === "polling"
+            ? {}
+            : { remoteTaskId: null, remoteStatus: null }),
+        };
+        return claimedTask;
+      }),
+    }));
+
+    return claimedTask;
+  },
+
+  bindTaskProvider: (id, binding) =>
+    set((state) => ({
+      tasks: state.tasks.map((task) =>
+        task.id === id ? mergeTaskSnapshot(task, binding) : task,
+      ),
+    })),
+
   markTaskQueued: (id, patch) =>
     set((state) => ({
       tasks: state.tasks.map((task) =>
@@ -361,9 +221,12 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
           ? {
               ...mergeTaskSnapshot(task, patch),
               status: "queued",
+              phase: null,
               errorMsg: "",
               remoteTaskId: null,
               remoteStatus: null,
+              telemetryAttemptId: null,
+              telemetryStartedAt: null,
               createdAt: Date.now(),
               startedAt: 0,
               finishedAt: null,
@@ -379,12 +242,53 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
           ? {
               ...task,
               status: "running",
+              phase: "requesting",
               previewNodeId: previewNodeId ?? task.previewNodeId,
               startedAt: Date.now(),
               finishedAt: null,
               errorMsg: "",
               remoteTaskId: null,
               remoteStatus: null,
+            }
+          : task,
+      ),
+    })),
+
+  resumePersistingTask: (id) =>
+    set((state) => ({
+      tasks: state.tasks.map((task) =>
+        task.id === id
+          ? {
+              ...task,
+              status: "queued",
+              phase: "persisting",
+              errorMsg: "",
+              startedAt: 0,
+              finishedAt: null,
+            }
+          : task,
+      ),
+    })),
+
+  setTaskPhase: (id, phase) =>
+    set((state) => ({
+      tasks: state.tasks.map((task) =>
+        task.id === id ? { ...task, phase } : task,
+      ),
+    })),
+
+  queueRemoteTask: (id) =>
+    set((state) => ({
+      tasks: state.tasks.map((task) =>
+        task.id === id
+          ? {
+              ...task,
+              status: "queued",
+              phase: "polling",
+              remoteStatus: "IN_PROGRESS",
+              errorMsg: "",
+              startedAt: 0,
+              finishedAt: null,
             }
           : task,
       ),
@@ -397,6 +301,7 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
           ? {
               ...task,
               status: "running",
+              phase: "polling",
               startedAt: Date.now(),
               finishedAt: null,
               errorMsg: "",
@@ -413,7 +318,21 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
           ? {
               ...task,
               remoteTaskId,
+              phase: "polling",
               remoteStatus: "IN_PROGRESS",
+            }
+          : task,
+      ),
+    })),
+
+  attachTelemetryAttempt: (id, attemptId, startedAt) =>
+    set((state) => ({
+      tasks: state.tasks.map((task) =>
+        task.id === id
+          ? {
+              ...task,
+              telemetryAttemptId: attemptId,
+              telemetryStartedAt: startedAt,
             }
           : task,
       ),
@@ -438,9 +357,26 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
           ? {
               ...mergeTaskSnapshot(task, patch),
               status: "done",
+              phase: null,
               remoteStatus: task.remoteTaskId ? "SUCCESS" : task.remoteStatus,
               finishedAt: Date.now(),
               errorMsg: "",
+            }
+          : task,
+      ),
+    })),
+
+  markTaskPersistError: (id, errorMsg) =>
+    set((state) => ({
+      tasks: state.tasks.map((task) =>
+        task.id === id
+          ? {
+              ...task,
+              status: "error",
+              phase: "persisting",
+              remoteStatus: task.remoteTaskId ? "SUCCESS" : task.remoteStatus,
+              errorMsg,
+              finishedAt: Date.now(),
             }
           : task,
       ),

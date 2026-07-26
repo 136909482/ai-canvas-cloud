@@ -17,7 +17,18 @@ import type {
 
 export const MIN_PASSWORD_LENGTH = 10;
 export const MAX_PASSWORD_LENGTH = 256;
+export const MIN_USERNAME_LENGTH = 3;
+export const MAX_USERNAME_LENGTH = 30;
 export const BETTER_AUTH_SESSION_COOKIE_NAME = "better-auth.session_token";
+export const USERNAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]{2,29}$/;
+export const RESERVED_USERNAMES = new Set([
+  "admin",
+  "administrator",
+  "api",
+  "root",
+  "support",
+  "system",
+]);
 
 export interface AuthRequestContext {
   requestId: string;
@@ -100,8 +111,15 @@ export class AuthServiceError extends Error {
 }
 
 export interface NormalizedRegistrationInput {
+  usernameNormalized: string;
+  displayUsername: string;
   emailNormalized: string;
   password: string;
+}
+
+export interface NormalizedLoginIdentifier {
+  type: "email" | "username";
+  value: string;
 }
 
 export function normalizeEmail(email: string) {
@@ -128,14 +146,93 @@ export function validatePassword(password: string) {
   }
 }
 
+export function normalizeUsername(username: string) {
+  if (typeof username !== "string") {
+    throw new AuthServiceError({
+      statusCode: 400,
+      apiCode: "VALIDATION_FAILED",
+      message: "Username is required",
+      details: { field: "username", reason: "required" },
+    });
+  }
+
+  const displayUsername = username.trim();
+  const usernameNormalized = displayUsername.toLowerCase();
+
+  if (!USERNAME_PATTERN.test(displayUsername)) {
+    throw new AuthServiceError({
+      statusCode: 400,
+      apiCode: "VALIDATION_FAILED",
+      message:
+        "Username must be 3 to 30 characters and start with a letter; only letters, numbers, and underscores are allowed",
+      details: { field: "username", reason: "format" },
+    });
+  }
+
+  if (RESERVED_USERNAMES.has(usernameNormalized)) {
+    throw new AuthServiceError({
+      statusCode: 400,
+      apiCode: "VALIDATION_FAILED",
+      message: "This username is reserved",
+      details: { field: "username", reason: "reserved" },
+    });
+  }
+
+  return { usernameNormalized, displayUsername };
+}
+
+export function normalizeLoginIdentifier(
+  identifier: string,
+): NormalizedLoginIdentifier {
+  try {
+    if (typeof identifier !== "string") {
+      throw new Error("Invalid identifier");
+    }
+
+    const value = identifier.trim();
+    if (value.includes("@")) {
+      return { type: "email", value: normalizeEmail(value) };
+    }
+
+    if (!USERNAME_PATTERN.test(value)) {
+      throw new Error("Invalid username");
+    }
+
+    return { type: "username", value: value.toLowerCase() };
+  } catch {
+    throw new AuthServiceError({
+      statusCode: 401,
+      apiCode: "AUTH_REQUIRED",
+      message: "Invalid account or password",
+    });
+  }
+}
+
 export function normalizeRegistrationInput(input: {
+  username: string;
   email: string;
   password: string;
 }): NormalizedRegistrationInput {
-  const emailNormalized = normalizeEmail(input.email);
-  validatePassword(input.password);
+  const { usernameNormalized, displayUsername } = normalizeUsername(
+    input.username,
+  );
+  let emailNormalized: string;
+
+  try {
+    emailNormalized = normalizeEmail(input.email);
+    validatePassword(input.password);
+  } catch (error) {
+    throw new AuthServiceError({
+      statusCode: 400,
+      apiCode: "VALIDATION_FAILED",
+      message:
+        error instanceof Error ? error.message : "Invalid registration input",
+    });
+  }
 
   return {
+    usernameNormalized,
+    displayUsername,
     emailNormalized,
     password: input.password,
   };

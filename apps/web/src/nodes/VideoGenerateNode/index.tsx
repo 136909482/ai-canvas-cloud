@@ -25,6 +25,7 @@ import { enqueueVideoGenerateTask } from "@/features/generateQueue/orchestrator"
 import {
   getNodeModelIssueLabel,
   getNodeModelSelection,
+  getPreferredSelectableModelEntryId,
 } from "@/features/settings/nodeModelSelection";
 import { getCanvasNodeById } from "@/store/canvasConnectionSources";
 import { useCanvasStore } from "@/store/useCanvasStore";
@@ -70,7 +71,6 @@ const UI_TEXT = {
   syncedFromText: "已由文本节点同步",
   chooseSettings: "视频生成设置",
   chooseMode: "选择生成方式",
-  chooseModel: "选择视频模型",
   chooseRatio: "选择比例",
   chooseDuration: "选择生成时长",
   chooseResolution: "选择清晰度",
@@ -241,6 +241,7 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({
   const runTracked = useHistoryStore((s) => s.runTracked);
   const activeProjectId = useProjectStore((s) => s.activeProjectId);
   const settingsConfig = useSettingsStore((s) => s.config);
+  const setDefaultModel = useSettingsStore((s) => s.setDefaultModel);
   const bindLocalModelReference = useSettingsStore(
     (s) => s.bindLocalModelReference,
   );
@@ -265,6 +266,11 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({
       }),
     [data.model, settingsConfig],
   );
+  const hasSelectableVideoModels = useMemo(
+    () => Boolean(getPreferredSelectableModelEntryId(settingsConfig, "video")),
+    [settingsConfig],
+  );
+  const modelIssueLabel = getNodeModelIssueLabel(modelSelection);
   const isConnected = Boolean(data.connectedTextNode);
   const hasPrompt = isConnected
     ? Boolean((data.prompt || "").trim())
@@ -378,6 +384,7 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({
     )
       return;
     updateVideoSettings({ model: modelId, errorMsg: "" });
+    if (modelId) setDefaultModel(modelId);
   };
 
   const disconnectImage = (sourceId: string) => {
@@ -399,8 +406,7 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({
     if (!modelSelection.canExecute || !modelEntryId) {
       updateNodeData(id, {
         status: "error",
-        errorMsg:
-          getNodeModelIssueLabel(modelSelection) || UI_TEXT.noVideoModel,
+        errorMsg: modelIssueLabel || UI_TEXT.noVideoModel,
       });
       return;
     }
@@ -592,17 +598,20 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({
 
         <div className={themeClasses.nodeFooter}>
           <div className="flex items-center gap-1.5">
-            <NodeModelSelector
-              category="video"
-              config={settingsConfig}
-              selection={modelSelection}
-              onSelectModel={selectModel}
-              stopCanvasGesture={stopCanvasGesture}
-              providerAriaLabel="选择视频服务商"
-              modelAriaLabel={UI_TEXT.chooseModel}
-              className="min-w-[250px] flex-[1.2]"
-              menuClassName="min-w-[240px]"
-            />
+            {hasSelectableVideoModels ? (
+              <NodeModelSelector
+                category="video"
+                config={settingsConfig}
+                selection={modelSelection}
+                onSelectModel={selectModel}
+                stopCanvasGesture={stopCanvasGesture}
+                providerAriaLabel="选择视频服务商"
+                modelAriaLabel="选择视频模型和服务商"
+                className="min-w-[250px] flex-[1.2]"
+                menuClassName="min-w-[240px]"
+                layout="grouped"
+              />
+            ) : null}
 
             <div ref={settingsRef} className="relative min-w-0 flex-[1.05]">
               <button
@@ -756,11 +765,11 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({
               {data.errorMsg}
             </p>
           )}
-          {!modelSelection.canExecute && !data.errorMsg ? (
+          {!modelSelection.canExecute && !data.errorMsg && modelIssueLabel ? (
             <p
               className={`${themeClasses.nodeInlineNotice} ${themeClasses.nodeWarningText}`}
             >
-              {getNodeModelIssueLabel(modelSelection) || UI_TEXT.noVideoModel}
+              {modelIssueLabel}
             </p>
           ) : null}
         </div>

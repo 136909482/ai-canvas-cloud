@@ -3,6 +3,7 @@ import type { DbPool } from "../../db/postgres.js";
 import {
   AuthServiceError,
   normalizeEmail,
+  normalizeUsername,
   validatePassword,
   type AuthService,
 } from "./service.js";
@@ -10,6 +11,7 @@ import {
 export interface DevelopmentAdminSeedOptions {
   enabled: boolean;
   env: string;
+  username: string;
   email: string;
   password?: string;
   authService: AuthService;
@@ -25,11 +27,13 @@ export async function seedDevelopmentAdminAccount(
   }
 
   let email: string;
+  let username: string;
 
   try {
     email = normalizeEmail(options.email);
+    username = normalizeUsername(options.username).displayUsername;
   } catch (error) {
-    options.logger.warn("auth.dev_admin_seed.invalid_email", {
+    options.logger.warn("auth.dev_admin_seed.invalid_identity", {
       error: error instanceof Error ? error.message : String(error),
     });
     return;
@@ -62,6 +66,7 @@ export async function seedDevelopmentAdminAccount(
   try {
     await options.authService.register(
       {
+        username,
         email,
         password: options.password,
       },

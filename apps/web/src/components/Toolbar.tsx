@@ -125,8 +125,8 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
             tabIndex={-1}
             className={`flex h-[min(84vh,44rem)] w-[min(94vw,76rem)] flex-col overflow-hidden rounded-[16px] md:grid md:grid-cols-[13rem_minmax(0,1fr)] ${themeClasses.strongPanel}`}
           >
-            <aside className="flex shrink-0 flex-col border-b border-[var(--border-subtle)] bg-[var(--control-bg)] md:min-h-0 md:border-b-0 md:border-r">
-              <div className="hidden border-b border-[var(--border-subtle)] px-4 pb-4 pt-4 md:block">
+            <aside className="flex shrink-0 flex-col border-b border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] md:min-h-0 md:border-b-0 md:border-r">
+              <div className="hidden h-[65px] shrink-0 items-center border-b border-[var(--border-subtle)] px-4 md:flex">
                 <h2
                   id="settings-dialog-title"
                   className={`text-[15px] font-semibold ${themeClasses.textPrimary}`}
@@ -175,7 +175,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                 </div>
               </div>
 
-              <div className="hidden shrink-0 border-t border-[var(--border-subtle)] p-2 md:block">
+              <div className="hidden shrink-0 p-2 md:block">
                 <button
                   type="button"
                   data-testid="settings-logout-button"
@@ -199,7 +199,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                 >
                   <header className="flex items-start justify-between gap-4 border-b border-[var(--border-subtle)] px-5 py-4">
                     <h2
-                      className={`text-[17px] font-semibold ${themeClasses.textPrimary}`}
+                      className={`text-[15px] font-semibold ${themeClasses.textPrimary}`}
                     >
                       {
                         SETTINGS_CATEGORIES.find(
@@ -228,7 +228,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                   <header className="flex items-start justify-between gap-4 border-b border-[var(--border-subtle)] px-5 py-4">
                     <div className="min-w-0">
                       <h2
-                        className={`text-[17px] font-semibold ${themeClasses.textPrimary}`}
+                        className={`text-[15px] font-semibold ${themeClasses.textPrimary}`}
                       >
                         {
                           SETTINGS_CATEGORIES.find(
@@ -250,7 +250,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
 
                   <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--border-subtle)] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5">
                     {activeCategory === "account" ? (
-                      <AccountSettingsPanel onSignedOut={closeSettingsPanel} />
+                      <AccountSettingsPanel />
                     ) : null}
                     {activeCategory === "devices" ? (
                       <DeviceSettingsPanel />

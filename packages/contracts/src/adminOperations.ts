@@ -1,3 +1,5 @@
+import type { GenerationFailureCategory } from "./generationTelemetry.ts";
+
 export const ADMIN_USER_LIST_DEFAULT_LIMIT = 50;
 export const ADMIN_USER_LIST_MAX_LIMIT = 100;
 export const ADMIN_USER_ACTION_REASON_MAX_LENGTH = 500;
@@ -16,7 +18,7 @@ export interface AdminUserListQuery {
 export interface AdminManagedUserSummary {
   id: string;
   userNumber: number;
-  name: string;
+  username: string;
   email: string;
   emailVerified: boolean;
   status: AdminManagedUserStatus;
@@ -85,6 +87,8 @@ export interface AdminDashboardResponse {
     total: number;
     past24Hours: number;
     past7Days: number;
+    today: number;
+    yesterdaySamePeriod: number;
   };
   activity: {
     activeUsers24Hours: number;
@@ -102,10 +106,41 @@ export interface AdminDashboardResponse {
     unverifiedUsers: number;
     disabledUsers: number;
   };
+  generation: {
+    timeZone: "Asia/Shanghai";
+    today: AdminGenerationPeriodSummary;
+    yesterdaySamePeriod: AdminGenerationPeriodSummary;
+    daily: AdminGenerationDailySummary[];
+    failures: Array<{
+      category: GenerationFailureCategory;
+      count: number;
+    }>;
+  };
   infrastructure: {
     postgres: AdminDependencyHealth;
     objectStorage: AdminDependencyHealth;
   };
+}
+
+export interface AdminGenerationPeriodSummary {
+  requests: number;
+  succeeded: number;
+  failed: number;
+  canceled: number;
+  results: number;
+  activeCreators: number;
+  successRate: number;
+  p95DurationMs: number | null;
+}
+
+export interface AdminGenerationDailySummary {
+  date: string;
+  text: number;
+  image: number;
+  video: number;
+  succeeded: number;
+  failed: number;
+  canceled: number;
 }
 
 function requireRecord(value: unknown) {

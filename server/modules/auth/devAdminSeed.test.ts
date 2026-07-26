@@ -42,6 +42,8 @@ test("development admin seed creates account and verifies email when explicitly 
       response: {
         user: {
           id: "user_1",
+          userNumber: 10001,
+          username: input.username,
           email: input.email,
           status: "active",
           emailVerified: false,
@@ -65,6 +67,7 @@ test("development admin seed creates account and verifies email when explicitly 
   await seedDevelopmentAdminAccount({
     enabled: true,
     env: "development",
+    username: "Admin_User",
     email: " Admin@Example.COM ",
     password: "local-admin-password",
     authService,
@@ -96,6 +99,7 @@ test("development admin seed skips production and accepts existing local account
   await seedDevelopmentAdminAccount({
     enabled: true,
     env: "production",
+    username: "admin_user",
     email: "admin@example.com",
     password: "local-admin-password",
     authService: existingAuthService,
@@ -114,6 +118,7 @@ test("development admin seed skips production and accepts existing local account
   await seedDevelopmentAdminAccount({
     enabled: true,
     env: "development",
+    username: "admin_user",
     email: "admin@example.com",
     password: "local-admin-password",
     authService: existingAuthService,
