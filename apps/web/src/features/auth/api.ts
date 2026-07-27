@@ -3,14 +3,16 @@ import {
   type AuthSessionsResponse,
   type AuthSessionResponse,
   type AuthSuccessResponse,
-  type EmailVerificationResponse,
-  type EmailVerifyRequest,
   type LoginRequest,
   type LogoutResponse,
+  type PasswordChangeRequest,
+  type PasswordChangeResponse,
   type PasswordForgotRequest,
   type PasswordResetRequest,
   type PasswordResetResponse,
   type RegisterRequest,
+  type RegistrationEmailCodeRequest,
+  type RegistrationEmailCodeResponse,
   type RemoveDeviceResponse,
   type RevokeSessionResponse,
 } from "@ai-canvas-cloud/contracts";
@@ -73,17 +75,14 @@ export function removeAuthDevice(deviceId: string) {
   );
 }
 
-export function resendAuthVerificationEmail() {
-  return requestCloudJson<EmailVerificationResponse>("/auth/email/resend", {
-    method: "POST",
-  });
-}
-
-export function verifyAuthEmail(input: EmailVerifyRequest) {
-  return requestCloudJson<EmailVerificationResponse>("/auth/email/verify", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+export function sendRegistrationEmailCode(input: RegistrationEmailCodeRequest) {
+  return requestCloudJson<RegistrationEmailCodeResponse>(
+    "/auth/registration/email-code",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
 }
 
 export function requestAuthPasswordReset(input: PasswordForgotRequest) {
@@ -95,6 +94,13 @@ export function requestAuthPasswordReset(input: PasswordForgotRequest) {
 
 export function resetAuthPassword(input: PasswordResetRequest) {
   return requestCloudJson<PasswordResetResponse>("/auth/password/reset", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function changeAuthPassword(input: PasswordChangeRequest) {
+  return requestCloudJson<PasswordChangeResponse>("/auth/password/change", {
     method: "POST",
     body: JSON.stringify(input),
   });

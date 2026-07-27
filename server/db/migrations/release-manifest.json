@@ -425,6 +425,34 @@
       "rollback": "disable managed SMTP before dropping the additive publication, test-attempt and revision tables; retain the legacy environment SMTP path during rollback",
       "forwardRepair": "rerun the idempotent migration, reapply scoped database role grants, validate ciphertext envelopes, and keep legacy SMTP active until a managed revision passes connection and delivery tests",
       "backupRequired": false
+    },
+    {
+      "version": "0033",
+      "name": "registration_email_codes",
+      "releaseTrain": "p8-mail-codes",
+      "phase": "expand",
+      "oldAppReadable": true,
+      "newAppReadable": true,
+      "oldAppWithNewSchema": true,
+      "lockRisk": "low",
+      "statementTimeoutMs": 10000,
+      "rollback": "disable the registration email-code requirement before dropping the additive challenge table; retain schema-version 1 and 2 site revisions for rollback compatibility",
+      "forwardRepair": "rerun the idempotent migration, reapply scoped database role grants, and leave the feature disabled until SMTP delivery and registration-code verification pass",
+      "backupRequired": false
+    },
+    {
+      "version": "0034",
+      "name": "password_reset_email_codes",
+      "releaseTrain": "p8-mail-codes",
+      "phase": "expand",
+      "oldAppReadable": true,
+      "newAppReadable": true,
+      "oldAppWithNewSchema": true,
+      "lockRisk": "low",
+      "statementTimeoutMs": 10000,
+      "rollback": "wait for all 10-minute code challenges to expire before removing the additive challenge table, then deploy the prior application; do not remove the table while a code-based reset consumer can still submit it",
+      "forwardRepair": "rerun the idempotent migration, reapply scoped role grants, and verify reset-code delivery, consumption and Admin isolation before accepting password resets",
+      "backupRequired": false
     }
   ]
 }

@@ -19,7 +19,6 @@ import type {
   CanvasPerformanceMode,
   CustomModelKind,
   EdgeStyle,
-  ImageRequestMode,
   ModelEntry,
   ModelTestStatus,
   ProviderProfileConfig,
@@ -46,8 +45,6 @@ export const UI_TEXT = {
   apiUrl: "API 请求地址",
   provider: "接口来源",
   providerProfile: "服务商接口",
-  requestMode: "请求模式",
-  requestModeDefault: "默认同步",
   search: "搜索模型 ID",
   itemUnit: "项",
   test: "测试出图",
@@ -78,10 +75,6 @@ export const UI_TEXT = {
   pendingApiUrl: "待填写 API 请求地址",
   providerAliyun: "阿里百炼 / DashScope",
   providerCompatible: "OpenAI Compatible",
-  requestModeSync: "同步",
-  requestModeAsync: "异步",
-  requestModeHint:
-    "同步调用固定生成接口；异步仅使用受控的 OpenAI Compatible 任务提交与轮询协议。",
   modelLibrary: "模型库",
   modelDetails: "模型详情",
   configCenter: "配置中心",
@@ -363,7 +356,7 @@ export function sanitizeProviderProfile(
     name: profile.name.trim() || UI_TEXT.providerCompatible,
     apiKey: profile.apiKey.trim(),
     baseUrl,
-    imageRequestMode: profile.imageRequestMode as ImageRequestMode,
+    imageRequestMode: "sync",
   };
 }
 

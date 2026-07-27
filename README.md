@@ -113,4 +113,4 @@ npm run deploy:staging:backup
 npm run deploy:staging:restore:drill
 ```
 
-生产应用启动不自动迁移。`0029_remove_server_generation.sql` 会不可逆删除旧 Provider 密文和服务端生成链路；`0030_user_usernames.sql` 会把普通账号切换到必填用户名契约，两者都要求协调应用发布并提前备份。`0031_generation_telemetry.sql` 和 `0032_managed_smtp_configuration.sql` 分别是只新增脱敏运营表、版本化加密 SMTP 配置的 expand 迁移。执行、回滚和前向修复要求见 [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md)。
+生产应用启动不自动迁移。`0029_remove_server_generation.sql` 会不可逆删除旧 Provider 密文和服务端生成链路；`0030_user_usernames.sql` 会把普通账号切换到必填用户名契约，两者都要求协调应用发布并提前备份。`0031_generation_telemetry.sql`、`0032_managed_smtp_configuration.sql`、`0033_registration_email_codes.sql` 和 `0034_password_reset_email_codes.sql` 分别是只新增脱敏运营表、版本化加密 SMTP 配置、只保存 HMAC 哈希的注册邮箱验证码挑战表、以及保存 HMAC 和 AES-GCM 密文的密码重置验证码挑战表的 expand 迁移。执行、回滚和前向修复要求见 [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md)。

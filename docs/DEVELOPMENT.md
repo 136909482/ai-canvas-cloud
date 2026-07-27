@@ -42,7 +42,7 @@ Web 不得 import `server/`、数据库驱动、Redis 或对象存储管理 SDK�
 
 ## 认证与租户
 
-- 普通认证由 Better Auth username 插件管理不可变用户名，并管理邮箱密码、HttpOnly Cookie、session、验证和重置 token。用户名用小写规范值唯一与登录、用保留原始大小写的展示值进入用户响应；兼容 `name` 和 `image` 不作为昵称或头像能力。
+- 普通认证由 Better Auth username 插件管理不可变用户名，并管理邮箱密码、HttpOnly Cookie、session 和密码重置 token；注册与密码重置均通过认证领域服务的邮箱验证码完成，后者只在短期挑战表中保存 AES-256-GCM 加密的内部 token。用户名用小写规范值唯一与登录、用保留原始大小写的展示值进入用户响应；兼容 `name` 和 `image` 不作为昵称或头像能力。
 - 注册必须同时提供用户名、邮箱和密码；登录标识包含 `@` 时走邮箱，否则走不区分大小写的用户名。失败统一为账号或密码错误，不新增可枚举的用户名查询接口。
 - 注册、登录和 session 恢复后幂等确保 personal workspace、owner membership 和 user state。
 - 所有资源访问从可信 session 解析用户，再按 `workspace_id` 和成员关系授权；客户端 `user_id` 不可信。
@@ -52,7 +52,7 @@ Web 不得 import `server/`、数据库驱动、Redis 或对象存储管理 SDK�
 
 Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户名、邮箱、UID、状态、session 时间、workspace 与存储聚合，不读取兼容 `name`、密码、session token、项目正文、资产 object key 或浏览器 Provider 配置。
 
-认证邮件支持 `development|smtp|managed` 三种传输模式。`managed` 每次发送前读取 `public.smtp_config_publications`，按 revision 缓存解密后的运行配置和 Nodemailer transporter，并在每次发送前重新校验 DNS；后台新 revision 或公网目标变化后下一封邮件立即替换缓存，不要求重启。尚无后台 revision 时可回退旧 SMTP 环境变量，管理员明确停用后不得回退。注册首封验证邮件失败不能回滚账号，验证重发和密码重置保持不披露邮箱是否存在的响应语义；SMTP `sendMail` 不自动重试。
+认证邮件支持 `development|smtp|managed` 三种传输模式。`managed` 每次发送前读取 `public.smtp_config_publications`，按 revision 缓存解密后的运行配置和 Nodemailer transporter，并在每次发送前重新校验 DNS；后台新 revision 或公网目标变化后下一封邮件立即替换缓存，不要求重启。尚无后台 revision 时可回退旧 SMTP 环境变量，管理员明确停用后不得回退。注册邮箱验证码仅在站点设置开启后发送，发送与已有账号均保持不披露账号状态的响应语义；注册与密码重置验证码均由 PostgreSQL 挑战记录一次性消费，10 分钟有效、60 秒冷却、连续 5 次错误失效。密码重置表不保存 Better Auth token 明文，只保存 AES-256-GCM 密文；SMTP `sendMail` 不自动重试。
 
 只有 `super_admin` 拥有 `smtp_config.write`。后台测试和发布只接受用户名/密码 SMTP、`SSL/TLS` 或强制 `STARTTLS`，证书校验和 TLS 1.2 不可关闭；每次连接先解析全部 DNS 结果并拒绝本机、私网、链路本地和保留地址。密码只以 AES-256-GCM 信封密文进入数据库，`SMTP_CREDENTIAL_KEYS` 与活动 key version 只能由 API/Admin API 服务器环境提供，不能从后台填写或返回前端。
 
@@ -74,6 +74,7 @@ Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户�
 - Vault 当前使用 `schemaVersion=2`、`cipherVersion=1`、不可导出的 AES-256-GCM `CryptoKey`；Key 凭据与 Provider 配置分槽保存。
 - 登出或换账号清除内存明文，但保留按账号隔离的设备密文；清除网站数据会删除密文、CryptoKey、绑定和任务缓存。
 - 浏览器只实现固定 OpenAI Compatible/DashScope chat、image、video 协议，不接受任意脚本、Header/Body 模板或 target URL。
+- 普通服务商配置固定使用同步图像请求，不向用户暴露异步任务协议；受控异步 adapter 仅保留给未来明确适配并验证过协议能力的服务商。
 - 云端图只保存 `local:<uuid>` 匿名模型引用。新设备必须由用户明确绑定本机同类型模型，不按名称或 ID 猜测。
 - 图片与视频分别使用独立 FIFO 执行通道；本地并发策略固定为图片 8、视频 1。调度器通过原子 claim 领取任务，Provider 请求、异步轮询、结果下载和 Cloud 入库完成后才释放槽位；第 9 个图片任务继续留在当前项目的浏览器队列。
 - 图片 Provider 通过受控 adapter 注册表统一返回同步完成结果或受控 remote task ID，不自动探测协议。Provider POST 不自动重试；异步查询 GET 只对网络错误、429 和 5xx 执行有限退避，Cloud 保存失败只从加密临时 Blob 继续保存，不重新调用 Provider。
@@ -90,7 +91,7 @@ Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户�
 
 普通 API readiness 检查 PostgreSQL、Redis 和对象存储；Admin API 只检查 PostgreSQL 和对象存储。指标只使用低基数标签，不包含用户、workspace、project、动态 URL、主机、邮箱、正文或凭据；邮件指标只按 `verification|password_reset|test`、结果、失败类别和配置来源区分。
 
-生产应用启动不自动迁移。`0029_remove_server_generation.sql` 已删除旧 Provider 密文、服务器任务/队列/用量、官方目录/积分和任务资产引用；`0030_user_usernames.sql` 已把普通账号升级为必填且不可修改的用户名契约；`0031_generation_telemetry.sql` 增加不可执行的脱敏运营表；`0032_managed_smtp_configuration.sql` 增加版本化加密 SMTP 配置与最小发布投影。执行 contract 前必须备份并停止不兼容写入方，所有迁移后重新应用数据库角色并完成约束审计；回滚与前向修复详细语义只在 [`DATA_MODEL.md`](DATA_MODEL.md) 维护。
+生产应用启动不自动迁移。`0029_remove_server_generation.sql` 已删除旧 Provider 密文、服务器任务/队列/用量、官方目录/积分和任务资产引用；`0030_user_usernames.sql` 已把普通账号升级为必填且不可修改的用户名契约；`0031_generation_telemetry.sql` 增加不可执行的脱敏运营表；`0032_managed_smtp_configuration.sql` 增加版本化加密 SMTP 配置与最小发布投影；`0033_registration_email_codes.sql` 增加只保存 HMAC 哈希的注册邮箱验证码挑战表，并扩展站点配置 schema；`0034_password_reset_email_codes.sql` 增加保存 HMAC 和 AES-256-GCM token 密文的密码重置验证码挑战表。执行 contract 前必须备份并停止不兼容写入方，所有迁移后重新应用数据库角色并完成约束审计；回滚与前向修复详细语义只在 [`DATA_MODEL.md`](DATA_MODEL.md) 维护。
 
 ## 开发命令
 

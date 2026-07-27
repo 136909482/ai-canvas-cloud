@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { CanvasImagePreview } from "@/components/CanvasImagePreview";
+import { ModelOptionIcon as LobeHubModelOptionIcon } from "@/components/icons/ModelOptionIcon";
 import { ClaudeIcon } from "@/components/icons/ClaudeIcon";
 import { OpenAIIcon } from "@/components/OpenAIIcon";
 import { QwenIcon } from "@/components/QwenIcon";
@@ -170,7 +171,7 @@ function getModelIconMeta(
   };
 }
 
-function ModelOptionIcon({
+export function ModelOptionIcon({
   model,
 }: {
   model: Pick<ModelEntry, "modelId" | "displayName"> & {
@@ -705,7 +706,9 @@ export const LLMFileNode = memo(function LLMFileNode({
                 modelAriaLabel="选择聊天模型和服务商"
                 className="min-w-0 flex-1"
                 menuClassName="min-w-[220px]"
-                renderModelIcon={(model) => <ModelOptionIcon model={model} />}
+                renderModelIcon={(model) => (
+                  <LobeHubModelOptionIcon model={model} />
+                )}
                 layout="grouped"
               />
             ) : null}

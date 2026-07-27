@@ -490,6 +490,26 @@ export function SiteConfigView() {
             </div>
             <div className="control-row">
               <div>
+                <strong>注册邮箱验证码</strong>
+                <span>开启后，用户注册时必须填写邮件中的 6 位验证码</span>
+              </div>
+              <Switch
+                aria-label="注册需邮箱验证码"
+                checked={config.features.registrationEmailVerificationRequired}
+                disabled={!config.features.registrationEnabled}
+                onChange={(registrationEmailVerificationRequired) =>
+                  setConfig((current) => ({
+                    ...current,
+                    features: {
+                      ...current.features,
+                      registrationEmailVerificationRequired,
+                    },
+                  }))
+                }
+              />
+            </div>
+            <div className="control-row">
+              <div>
                 <strong>反馈入口</strong>
                 <span>控制公开站点反馈入口</span>
               </div>

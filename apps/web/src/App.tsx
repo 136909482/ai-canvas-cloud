@@ -12,7 +12,6 @@ import { TaskQueueRunner } from "@/components/TaskQueueRunner";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toolbar } from "@/components/Toolbar";
 import { AccountMenu } from "@/features/auth/AccountMenu";
-import { EmailVerificationBanner } from "@/features/auth/EmailVerificationBanner";
 import { AuthGate } from "@/features/auth/AuthGate";
 import { useImageEditorStore } from "@/store/useImageEditorStore";
 import { useMigrationStore } from "@/store/useMigrationStore";
@@ -107,7 +106,6 @@ function AppContent() {
           }
         />
         <FloatingToolbar />
-        <EmailVerificationBanner />
         <ProjectConflictBanner />
         <TaskQueueRunner />
         <Canvas />

@@ -1,4 +1,4 @@
-export const SITE_CONFIG_SCHEMA_VERSION = 1 as const;
+export const SITE_CONFIG_SCHEMA_VERSION = 2 as const;
 
 export type SiteThemePreset = "system" | "light" | "dark";
 export type SiteNavigationItem = "home" | "help" | "legal";
@@ -35,6 +35,7 @@ export interface SiteConfigDocument {
   navigation: SiteNavigationItem[];
   features: {
     registrationEnabled: boolean;
+    registrationEmailVerificationRequired: boolean;
     feedbackEnabled: boolean;
   };
   logoAssetId: string | null;
@@ -147,6 +148,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfigDocument = {
   navigation: ["home", "help", "legal"],
   features: {
     registrationEnabled: true,
+    registrationEmailVerificationRequired: false,
     feedbackEnabled: false,
   },
   logoAssetId: null,
@@ -244,7 +246,10 @@ export function validateSiteConfigDocument(value: unknown): SiteConfigDocument {
     ],
     "config",
   );
-  if (root.schemaVersion !== SITE_CONFIG_SCHEMA_VERSION)
+  if (
+    root.schemaVersion !== 1 &&
+    root.schemaVersion !== SITE_CONFIG_SCHEMA_VERSION
+  )
     throw new Error("config schema version is unsupported");
 
   const home = object(root.home, "home");
@@ -268,7 +273,17 @@ export function validateSiteConfigDocument(value: unknown): SiteConfigDocument {
     "links",
   );
   const features = object(root.features, "features");
-  exactKeys(features, ["registrationEnabled", "feedbackEnabled"], "features");
+  exactKeys(
+    features,
+    root.schemaVersion === 1
+      ? ["registrationEnabled", "feedbackEnabled"]
+      : [
+          "registrationEnabled",
+          "registrationEmailVerificationRequired",
+          "feedbackEnabled",
+        ],
+    "features",
+  );
 
   if (
     typeof root.themePreset !== "string" ||
@@ -340,6 +355,13 @@ export function validateSiteConfigDocument(value: unknown): SiteConfigDocument {
         features.registrationEnabled,
         "features.registrationEnabled",
       ),
+      registrationEmailVerificationRequired:
+        root.schemaVersion === 1
+          ? false
+          : boolean(
+              features.registrationEmailVerificationRequired,
+              "features.registrationEmailVerificationRequired",
+            ),
       feedbackEnabled: boolean(
         features.feedbackEnabled,
         "features.feedbackEnabled",

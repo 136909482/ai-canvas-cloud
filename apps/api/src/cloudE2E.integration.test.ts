@@ -141,10 +141,19 @@ function listen(server: http.Server) {
   });
 }
 
-function createSilentEmailService(): AuthEmailService {
+function createCapturedAuthEmailService() {
+  let passwordResetCode = "";
+
+  const service: AuthEmailService = {
+    async sendRegistrationEmailCode() {},
+    async sendPasswordResetEmail(input) {
+      passwordResetCode = input.code;
+    },
+  };
+
   return {
-    async sendVerificationEmail() {},
-    async sendPasswordResetEmail() {},
+    service,
+    getPasswordResetCode: () => passwordResetCode,
   };
 }
 
@@ -186,7 +195,8 @@ test(
       )
         .filter(
           (fileName) =>
-            fileName.endsWith(".sql") && !/^(?:002[5-9]|0032)_/.test(fileName),
+            fileName.endsWith(".sql") &&
+            !/^(?:002[5-9]|003[2-3])_/.test(fileName),
         )
         .sort();
       for (const fileName of migrations) {
@@ -208,13 +218,14 @@ test(
         forcePathStyle: true,
       });
       const authorization = createWorkspaceAuthorizationService(pool);
+      const authEmailService = createCapturedAuthEmailService();
       const authService = createPostgresAuthService(pool, {
         baseURL: "http://127.0.0.1:8787",
         secret: `cloud-e2e-secret-${runId}`,
         publicWebUrl: "http://localhost:5173",
         trustedOrigins: ["http://localhost:5173"],
         environment: "test",
-        emailService: createSilentEmailService(),
+        emailService: authEmailService.service,
       });
       const assetService = createPostgresAssetService(pool, {
         authorizationService: authorization,
@@ -675,6 +686,60 @@ test(
       assert.notEqual(
         (await accountA.request(port, "GET", "/api/v1/auth/session"))
           .statusCode,
+        200,
+      );
+
+      const resetPassword = `p7-6-reset-password-${runId}`;
+      assert.equal(
+        (
+          await accountB.request(port, "POST", "/api/v1/auth/password/forgot", {
+            email: emailB,
+          })
+        ).statusCode,
+        200,
+      );
+      const resetCode = authEmailService.getPasswordResetCode();
+      assert.match(resetCode, /^\d{6}$/);
+      assert.equal(
+        (
+          await accountB.request(port, "POST", "/api/v1/auth/password/reset", {
+            email: emailB,
+            code: resetCode,
+            password: resetPassword,
+          })
+        ).statusCode,
+        200,
+      );
+      assert.notEqual(
+        (await accountB.request(port, "GET", "/api/v1/auth/session"))
+          .statusCode,
+        200,
+      );
+
+      const resetLogin = new BrowserContext(
+        `cloud-e2e-b-reset/${runId}`,
+        `device-b-reset-${runId}`,
+      );
+      assert.equal(
+        (
+          await resetLogin.request(
+            port,
+            "POST",
+            "/api/v1/auth/login",
+            resetLogin.loginBody(emailB, password),
+          )
+        ).statusCode,
+        401,
+      );
+      assert.equal(
+        (
+          await resetLogin.request(
+            port,
+            "POST",
+            "/api/v1/auth/login",
+            resetLogin.loginBody(emailB, resetPassword),
+          )
+        ).statusCode,
         200,
       );
     } finally {

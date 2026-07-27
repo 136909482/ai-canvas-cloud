@@ -7,13 +7,15 @@ import type {
   AuthSessionsResponse,
   AuthSuccessResponse,
   DeviceSummary,
-  EmailVerificationResponse,
-  EmailVerifyRequest,
   LoginRequest,
+  PasswordChangeRequest,
+  PasswordChangeResponse,
   PasswordForgotRequest,
   PasswordResetRequest,
   PasswordResetResponse,
   RegisterRequest,
+  RegistrationEmailCodeRequest,
+  RegistrationEmailCodeResponse,
   RemoveDeviceResponse,
   RevokeSessionResponse,
   SessionSummary,
@@ -39,6 +41,12 @@ import {
   createFailureTolerantAuthEmailService,
   type AuthEmailService,
 } from "./email.js";
+import {
+  createPasswordResetEmailCodeService,
+  PASSWORD_RESET_CODE_EXPIRES_IN_SECONDS,
+  type PasswordResetEmailCodeService,
+} from "./passwordResetEmailCodeService.js";
+import { createRegistrationEmailCodeService } from "./registrationEmailCodeService.js";
 
 export interface PostgresAuthServiceOptions {
   baseURL?: string;
@@ -47,6 +55,8 @@ export interface PostgresAuthServiceOptions {
   environment?: string;
   trustedOrigins?: string[];
   emailService?: AuthEmailService;
+  registrationEmailVerificationRequired?: () => Promise<boolean>;
+  passwordResetEmailCodes?: PasswordResetEmailCodeService;
   authApi?: BetterAuthApi;
 }
 
@@ -117,14 +127,6 @@ interface BetterAuthApi {
     headers: Headers;
     returnHeaders?: boolean;
   }) => Promise<EndpointResult<{ status: boolean }>>;
-  sendVerificationEmail: (input: {
-    body: { email: string; callbackURL?: string };
-    headers?: Headers;
-  }) => Promise<{ status: boolean }>;
-  verifyEmail: (input: {
-    query: { token: string; callbackURL?: string };
-    headers?: Headers;
-  }) => Promise<{ status: boolean } | void>;
   requestPasswordReset: (input: {
     body: { email: string; redirectTo?: string };
     headers?: Headers;
@@ -133,6 +135,15 @@ interface BetterAuthApi {
     body: { newPassword: string; token?: string };
     headers?: Headers;
   }) => Promise<{ status: boolean }>;
+  changePassword: (input: {
+    body: {
+      currentPassword: string;
+      newPassword: string;
+      revokeOtherSessions?: boolean;
+    };
+    headers: Headers;
+    returnHeaders?: boolean;
+  }) => Promise<EndpointResult<{ token: string | null; user: BetterAuthUser }>>;
 }
 
 interface AuthRows {
@@ -164,9 +175,6 @@ interface ActiveSessionRow {
 
 const DEFAULT_BASE_URL = "http://localhost:8787";
 const DEFAULT_SECRET = "ai-canvas-cloud-dev-secret-change-me-in-env";
-const DEFAULT_PUBLIC_WEB_URL = "http://localhost:5173";
-const EMAIL_VERIFICATION_EXPIRES_IN_SECONDS = 60 * 60;
-const PASSWORD_RESET_EXPIRES_IN_SECONDS = 60 * 60;
 const BETTER_AUTH_FIELD_MAPPING = {
   user: {
     emailVerified: "email_verified",
@@ -294,18 +302,6 @@ function toAuthSuccessResponse(
   };
 }
 
-function createPublicEmailVerificationUrl(publicWebUrl: string, token: string) {
-  const url = new URL("/auth/verify-email", publicWebUrl);
-  url.searchParams.set("token", token);
-  return url.toString();
-}
-
-function createPublicPasswordResetUrl(publicWebUrl: string, token: string) {
-  const url = new URL("/auth/reset-password", publicWebUrl);
-  url.searchParams.set("token", token);
-  return url.toString();
-}
-
 function toSessionSummary(
   session: BetterAuthSession,
   currentToken: string | null,
@@ -355,7 +351,7 @@ function toAuthServiceError(error: unknown): AuthServiceError {
       return new AuthServiceError({
         statusCode: 400,
         apiCode: "VALIDATION_FAILED",
-        message: message || "Verification link is invalid or expired",
+        message: message || "Password reset code is invalid or expired",
       });
     }
 
@@ -647,13 +643,18 @@ function createDefaultBetterAuthApi(
   pool: DbPool,
   options: PostgresAuthServiceOptions,
 ): BetterAuthApi {
-  const publicWebUrl =
-    options.publicWebUrl ??
-    process.env.WEB_PUBLIC_URL ??
-    DEFAULT_PUBLIC_WEB_URL;
   const emailService = options.emailService
     ? createFailureTolerantAuthEmailService(options.emailService)
     : undefined;
+  const passwordResetEmailCodes =
+    options.passwordResetEmailCodes ??
+    (emailService
+      ? createPasswordResetEmailCodeService(pool, {
+          secret:
+            options.secret ?? process.env.BETTER_AUTH_SECRET ?? DEFAULT_SECRET,
+          emailService,
+        })
+      : null);
   const auth = betterAuth({
     baseURL: options.baseURL ?? process.env.BETTER_AUTH_URL ?? DEFAULT_BASE_URL,
     secret: options.secret ?? process.env.BETTER_AUTH_SECRET ?? DEFAULT_SECRET,
@@ -664,31 +665,11 @@ function createDefaultBetterAuthApi(
       minPasswordLength: 10,
       maxPasswordLength: 256,
       autoSignIn: true,
-      resetPasswordTokenExpiresIn: PASSWORD_RESET_EXPIRES_IN_SECONDS,
+      resetPasswordTokenExpiresIn: PASSWORD_RESET_CODE_EXPIRES_IN_SECONDS,
       revokeSessionsOnPasswordReset: true,
-      sendResetPassword: emailService
+      sendResetPassword: passwordResetEmailCodes
         ? async ({ user, token }) => {
-            await emailService.sendPasswordResetEmail({
-              to: user.email,
-              resetUrl: createPublicPasswordResetUrl(publicWebUrl, token),
-              expiresInSeconds: PASSWORD_RESET_EXPIRES_IN_SECONDS,
-            });
-          }
-        : undefined,
-    },
-    emailVerification: {
-      sendOnSignUp: true,
-      expiresIn: EMAIL_VERIFICATION_EXPIRES_IN_SECONDS,
-      sendVerificationEmail: emailService
-        ? async ({ user, token }) => {
-            await emailService.sendVerificationEmail({
-              to: user.email,
-              verificationUrl: createPublicEmailVerificationUrl(
-                publicWebUrl,
-                token,
-              ),
-              expiresInSeconds: EMAIL_VERIFICATION_EXPIRES_IN_SECONDS,
-            });
+            await passwordResetEmailCodes.send(user.email, token);
           }
         : undefined,
     },
@@ -756,11 +737,43 @@ export function createPostgresAuthService(
   options: PostgresAuthServiceOptions = {},
 ): AuthService {
   const authApi = options.authApi ?? createDefaultBetterAuthApi(pool, options);
+  const registrationEmailCodes = options.emailService
+    ? createRegistrationEmailCodeService(pool, {
+        secret:
+          options.secret ?? process.env.BETTER_AUTH_SECRET ?? DEFAULT_SECRET,
+        emailService: options.emailService,
+      })
+    : null;
+  const passwordResetEmailCodes =
+    options.passwordResetEmailCodes ??
+    (options.emailService
+      ? createPasswordResetEmailCodeService(pool, {
+          secret:
+            options.secret ?? process.env.BETTER_AUTH_SECRET ?? DEFAULT_SECRET,
+          emailService: options.emailService,
+        })
+      : null);
+  const registrationEmailVerificationRequired =
+    options.registrationEmailVerificationRequired ?? (async () => false);
 
   return {
     async register(input: RegisterRequest, context: AuthRequestContext) {
       try {
         const normalized = normalizeRegistrationInput(input);
+        if (await registrationEmailVerificationRequired()) {
+          if (!registrationEmailCodes) {
+            throw new AuthServiceError({
+              statusCode: 503,
+              apiCode: "SERVICE_UNAVAILABLE",
+              message: "Registration email verification is unavailable",
+              retryable: true,
+            });
+          }
+          await registrationEmailCodes.consume(
+            normalized.emailNormalized,
+            input.emailVerificationCode?.trim() ?? "",
+          );
+        }
         const deviceKey = resolveDeviceKey(input.deviceId, context);
         const result = await authApi.signUpEmail({
           body: {
@@ -774,6 +787,15 @@ export function createPostgresAuthService(
           headers: createRequestHeaders(context),
           returnHeaders: true,
         });
+
+        await pool.query(
+          `
+            UPDATE "user"
+            SET email_verified = true, updated_at = now()
+            WHERE id = $1
+          `,
+          [result.response.user.id],
+        );
 
         await ensurePersonalWorkspace(pool, result.response.user);
         await upsertDeviceHistory(pool, {
@@ -797,6 +819,33 @@ export function createPostgresAuthService(
         };
       } catch (error) {
         throw toAuthServiceError(error);
+      }
+    },
+
+    async sendRegistrationEmailCode(
+      input: RegistrationEmailCodeRequest,
+    ): Promise<RegistrationEmailCodeResponse> {
+      try {
+        const email = normalizeEmail(input.email);
+        if (!(await registrationEmailVerificationRequired())) {
+          return { ok: true, resendAfterSeconds: 0 };
+        }
+        if (!registrationEmailCodes) {
+          throw new AuthServiceError({
+            statusCode: 503,
+            apiCode: "SERVICE_UNAVAILABLE",
+            message: "Registration email verification is unavailable",
+            retryable: true,
+          });
+        }
+        return await registrationEmailCodes.send(email);
+      } catch (error) {
+        if (error instanceof AuthServiceError) throw error;
+        throw new AuthServiceError({
+          statusCode: 400,
+          apiCode: "VALIDATION_FAILED",
+          message: "Invalid email address",
+        });
       }
     },
 
@@ -1006,72 +1055,6 @@ export function createPostgresAuthService(
       }
     },
 
-    async resendVerificationEmail(
-      context: AuthRequestContext,
-    ): Promise<EmailVerificationResponse> {
-      try {
-        const headers = createRequestHeaders(context);
-        const currentSession = await authApi.getSession({
-          headers,
-          query: {
-            disableCookieCache: true,
-          },
-        });
-
-        if (!currentSession) {
-          throw new AuthServiceError({
-            statusCode: 401,
-            apiCode: "SESSION_EXPIRED",
-            message: "Session expired",
-          });
-        }
-
-        if (currentSession.user.emailVerified) {
-          return { ok: true };
-        }
-
-        await authApi.sendVerificationEmail({
-          body: {
-            email: currentSession.user.email,
-            callbackURL: "/",
-          },
-          headers,
-        });
-
-        return { ok: true };
-      } catch (error) {
-        throw toAuthServiceError(error);
-      }
-    },
-
-    async verifyEmail(
-      input: EmailVerifyRequest,
-      context: AuthRequestContext,
-    ): Promise<EmailVerificationResponse> {
-      try {
-        const token = input.token.trim();
-
-        if (!token) {
-          throw new AuthServiceError({
-            statusCode: 400,
-            apiCode: "VALIDATION_FAILED",
-            message: "Verification token is required",
-          });
-        }
-
-        await authApi.verifyEmail({
-          query: {
-            token,
-          },
-          headers: createRequestHeaders(context),
-        });
-
-        return { ok: true };
-      } catch (error) {
-        throw toAuthServiceError(error);
-      }
-    },
-
     async requestPasswordReset(
       input: PasswordForgotRequest,
       context: AuthRequestContext,
@@ -1079,12 +1062,14 @@ export function createPostgresAuthService(
       try {
         const email = normalizeEmail(input.email);
 
-        await authApi.requestPasswordReset({
-          body: {
-            email,
-          },
-          headers: createRequestHeaders(context),
-        });
+        if (!(await passwordResetEmailCodes?.isCoolingDown(email))) {
+          await authApi.requestPasswordReset({
+            body: {
+              email,
+            },
+            headers: createRequestHeaders(context),
+          });
+        }
 
         return { ok: true };
       } catch (error) {
@@ -1108,13 +1093,15 @@ export function createPostgresAuthService(
       context: AuthRequestContext,
     ): Promise<PasswordResetResponse> {
       try {
-        const token = input.token.trim();
+        const email = normalizeEmail(input.email);
+        const code = input.code.trim();
 
-        if (!token) {
+        if (!passwordResetEmailCodes) {
           throw new AuthServiceError({
-            statusCode: 400,
-            apiCode: "VALIDATION_FAILED",
-            message: "Reset token is required",
+            statusCode: 503,
+            apiCode: "SERVICE_UNAVAILABLE",
+            message: "Password reset email verification is unavailable",
+            retryable: true,
           });
         }
 
@@ -1129,6 +1116,8 @@ export function createPostgresAuthService(
           });
         }
 
+        const token = await passwordResetEmailCodes.consume(email, code);
+
         await authApi.resetPassword({
           body: {
             newPassword: input.password,
@@ -1138,6 +1127,45 @@ export function createPostgresAuthService(
         });
 
         return { ok: true };
+      } catch (error) {
+        throw toAuthServiceError(error);
+      }
+    },
+
+    async changePassword(
+      input: PasswordChangeRequest,
+      context: AuthRequestContext,
+    ): Promise<
+      RevokedAuthSession & {
+        response: PasswordChangeResponse;
+      }
+    > {
+      try {
+        validatePassword(input.currentPassword);
+        validatePassword(input.newPassword);
+
+        if (input.currentPassword === input.newPassword) {
+          throw new AuthServiceError({
+            statusCode: 400,
+            apiCode: "VALIDATION_FAILED",
+            message: "New password must be different from the current password",
+          });
+        }
+
+        const result = await authApi.changePassword({
+          body: {
+            currentPassword: input.currentPassword,
+            newPassword: input.newPassword,
+            revokeOtherSessions: true,
+          },
+          headers: createRequestHeaders(context),
+          returnHeaders: true,
+        });
+
+        return {
+          response: { ok: true },
+          setCookieHeaders: getSetCookieHeaders(result.headers),
+        };
       } catch (error) {
         throw toAuthServiceError(error);
       }

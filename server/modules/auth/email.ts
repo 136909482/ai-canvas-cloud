@@ -1,5 +1,4 @@
-import type { Logger } from "@ai-canvas-cloud/shared";
-import type { MetricsRegistry } from "@ai-canvas-cloud/shared";
+import type { Logger, MetricsRegistry } from "@ai-canvas-cloud/shared";
 import nodemailer from "nodemailer";
 import type { DbPool } from "../../db/postgres.js";
 import {
@@ -12,20 +11,22 @@ import {
   type SmtpRuntimeConfig,
 } from "../mail/smtp.js";
 
-export interface VerificationEmailInput {
+export interface RegistrationEmailCodeInput {
   to: string;
-  verificationUrl: string;
+  code: string;
   expiresInSeconds: number;
 }
 
 export interface PasswordResetEmailInput {
   to: string;
-  resetUrl: string;
+  code: string;
   expiresInSeconds: number;
 }
 
 export interface AuthEmailService {
-  sendVerificationEmail: (input: VerificationEmailInput) => Promise<void>;
+  sendRegistrationEmailCode: (
+    input: RegistrationEmailCodeInput,
+  ) => Promise<void>;
   sendPasswordResetEmail: (input: PasswordResetEmailInput) => Promise<void>;
 }
 
@@ -40,8 +41,8 @@ export function createFailureTolerantAuthEmailService(
     }
   }
   return {
-    sendVerificationEmail(input) {
-      return deliver(() => service.sendVerificationEmail(input));
+    sendRegistrationEmailCode(input) {
+      return deliver(() => service.sendRegistrationEmailCode(input));
     },
     sendPasswordResetEmail(input) {
       return deliver(() => service.sendPasswordResetEmail(input));
@@ -118,25 +119,31 @@ export function createManagedSmtpAuthEmailService(
   }
 
   async function send(
-    kind: "verification" | "password_reset",
-    input: { to: string; url: string; expiresInSeconds: number },
+    operation: "registration_code" | "password_reset",
+    input: RegistrationEmailCodeInput | PasswordResetEmailInput,
   ) {
     let source: "managed" | "environment" = "managed";
     try {
       const config = await currentConfig();
       source = config.source;
       const minutes = Math.round(input.expiresInSeconds / 60);
-      const verification = kind === "verification";
+      const isRegistrationCode = operation === "registration_code";
+      const text = isRegistrationCode
+        ? `Your AI Canvas registration code is: ${(input as RegistrationEmailCodeInput).code}\nThis code expires in ${minutes} minutes.`
+        : `Your AI Canvas password reset code is: ${(input as PasswordResetEmailInput).code}\nThis code expires in ${minutes} minutes.`;
+      const html = isRegistrationCode
+        ? `<p>Your AI Canvas registration code is:</p><p><strong style="font-size:24px;letter-spacing:4px">${(input as RegistrationEmailCodeInput).code}</strong></p><p>This code expires in ${minutes} minutes.</p>`
+        : `<p>Your AI Canvas password reset code is:</p><p><strong style="font-size:24px;letter-spacing:4px">${(input as PasswordResetEmailInput).code}</strong></p><p>This code expires in ${minutes} minutes.</p>`;
       await (options.sendMessage ?? cachedSender!.send)(config, {
         to: input.to,
-        subject: verification
-          ? "验证你的 AI Canvas 邮箱"
-          : "重置你的 AI Canvas 密码",
-        text: `${verification ? "验证邮箱" : "重置密码"}：${input.url}\n链接将在 ${minutes} 分钟后失效。`,
-        html: `<p>${verification ? "请验证你的邮箱" : "请重置你的密码"}：</p><p><a href="${input.url}">${verification ? "验证邮箱" : "重置密码"}</a></p><p>链接将在 ${minutes} 分钟后失效。</p>`,
+        subject: isRegistrationCode
+          ? "AI Canvas registration email code"
+          : "Reset your AI Canvas password",
+        text,
+        html,
       });
       options.metrics?.increment("auth_email_delivery_total", 1, {
-        operation: kind,
+        operation,
         outcome: "success",
         reason: "none",
         source,
@@ -149,7 +156,7 @@ export function createManagedSmtpAuthEmailService(
             ? error.category
             : "internal";
       options.metrics?.increment("auth_email_delivery_total", 1, {
-        operation: kind,
+        operation,
         outcome: "failure",
         reason: category,
         source,
@@ -161,19 +168,11 @@ export function createManagedSmtpAuthEmailService(
   }
 
   return {
-    sendVerificationEmail(input) {
-      return send("verification", {
-        to: input.to,
-        url: input.verificationUrl,
-        expiresInSeconds: input.expiresInSeconds,
-      });
+    sendRegistrationEmailCode(input) {
+      return send("registration_code", input);
     },
     sendPasswordResetEmail(input) {
-      return send("password_reset", {
-        to: input.to,
-        url: input.resetUrl,
-        expiresInSeconds: input.expiresInSeconds,
-      });
+      return send("password_reset", input);
     },
   };
 }
@@ -196,12 +195,12 @@ export function createSmtpAuthEmailService(options: {
   });
 
   return {
-    async sendVerificationEmail(input) {
+    async sendRegistrationEmailCode(input) {
       await transporter.sendMail({
         from: options.from,
         to: input.to,
-        subject: "Verify your AI Canvas Cloud email",
-        text: `Verify your email: ${input.verificationUrl}\nThis link expires in ${Math.round(input.expiresInSeconds / 60)} minutes.`,
+        subject: "AI Canvas registration email code",
+        text: `Your AI Canvas registration code is: ${input.code}\nThis code expires in ${Math.round(input.expiresInSeconds / 60)} minutes.`,
       });
     },
     async sendPasswordResetEmail(input) {
@@ -209,7 +208,7 @@ export function createSmtpAuthEmailService(options: {
         from: options.from,
         to: input.to,
         subject: "Reset your AI Canvas Cloud password",
-        text: `Reset your password: ${input.resetUrl}\nThis link expires in ${Math.round(input.expiresInSeconds / 60)} minutes.`,
+        text: `Your AI Canvas password reset code is: ${input.code}\nThis code expires in ${Math.round(input.expiresInSeconds / 60)} minutes.`,
       });
     },
   };
@@ -220,15 +219,15 @@ export function createDevelopmentAuthEmailService(options: {
   logger: Logger;
 }): AuthEmailService {
   return {
-    async sendVerificationEmail(input) {
+    async sendRegistrationEmailCode(input) {
       if (options.env === "production") {
-        options.logger.error("auth.email.verification.not_configured", {
+        options.logger.error("auth.email.registration_code.not_configured", {
           expiresInSeconds: input.expiresInSeconds,
         });
         throw new Error("Production email service is not configured");
       }
 
-      options.logger.info("auth.email.verification.dev_link", {
+      options.logger.info("auth.email.registration_code.dev_suppressed", {
         delivery: "suppressed",
         expiresInSeconds: input.expiresInSeconds,
       });
@@ -241,7 +240,7 @@ export function createDevelopmentAuthEmailService(options: {
         throw new Error("Production email service is not configured");
       }
 
-      options.logger.info("auth.email.password_reset.dev_link", {
+      options.logger.info("auth.email.password_reset.dev_suppressed", {
         delivery: "suppressed",
         expiresInSeconds: input.expiresInSeconds,
       });

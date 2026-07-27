@@ -334,11 +334,20 @@ async function publicResponse(
   storage: SiteAssetObjectStorage,
   row: PublicationRow | null,
 ): Promise<PublicSiteConfigResponse> {
+  const sourceSchemaVersion =
+    row?.config_json && typeof row.config_json === "object"
+      ? (row.config_json as { schemaVersion?: unknown }).schemaVersion
+      : null;
   const config = row
     ? validateSiteConfigDocument(row.config_json)
     : DEFAULT_SITE_CONFIG;
   return {
-    etag: row?.etag ?? etagForConfig(config),
+    // A v1 publication is normalized in memory, so its old persisted ETag
+    // cannot represent the v2 response body safely.
+    etag:
+      sourceSchemaVersion === 1
+        ? etagForConfig(config)
+        : (row?.etag ?? etagForConfig(config)),
     config,
     assets: {
       logo: row
@@ -469,10 +478,11 @@ export function createPostgresAdminSiteConfigService(
         await client.query(
           `
           INSERT INTO site_config_revisions (id, schema_version, config_json, note, created_by_admin_id)
-          VALUES ($1, 1, $2::jsonb, $3, $4)
+          VALUES ($1, $2, $3::jsonb, $4, $5)
         `,
           [
             revisionId,
+            request.config.schemaVersion,
             JSON.stringify(request.config),
             request.note,
             session.admin.id,
@@ -533,7 +543,7 @@ export function createPostgresAdminSiteConfigService(
             userAgent: context.userAgent,
             after: {
               revisionId,
-              schemaVersion: 1,
+              schemaVersion: request.config.schemaVersion,
               themePreset: request.config.themePreset,
             },
           },

@@ -43,6 +43,25 @@ test("v2 settings config keeps provider keys and model identity local", () => {
   ]);
 });
 
+test("legacy asynchronous image profiles normalize to synchronous requests", () => {
+  const config = normalizeConfig({
+    providerProfiles: [
+      {
+        id: "provider-entry",
+        name: "Provider",
+        protocol: "openai-compatible",
+        baseUrl: "https://example.com/v1",
+        enabled: true,
+        imageRequestMode: "async",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+  });
+
+  assert.equal(config.providerProfiles[0]?.imageRequestMode, "sync");
+});
+
 test("deleted model bindings remain available for node-level recovery UI", () => {
   const config = normalizeConfig({
     localModelBindings: {

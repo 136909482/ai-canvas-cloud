@@ -9,8 +9,8 @@ import {
 test("authentication email delivery failures do not escape into auth responses", async () => {
   const calls: string[] = [];
   const service = createFailureTolerantAuthEmailService({
-    async sendVerificationEmail() {
-      calls.push("verification");
+    async sendRegistrationEmailCode() {
+      calls.push("registration_code");
       throw new Error("provider unavailable");
     },
     async sendPasswordResetEmail() {
@@ -18,20 +18,20 @@ test("authentication email delivery failures do not escape into auth responses",
       throw new Error("provider unavailable");
     },
   });
-  await service.sendVerificationEmail({
+  await service.sendRegistrationEmailCode({
     to: "fixture@example.invalid",
-    verificationUrl: "https://web.invalid/verify?token=secret",
+    code: "123456",
     expiresInSeconds: 900,
   });
   await service.sendPasswordResetEmail({
     to: "fixture@example.invalid",
-    resetUrl: "https://web.invalid/reset?token=secret",
+    code: "654321",
     expiresInSeconds: 900,
   });
-  assert.deepEqual(calls, ["verification", "password_reset"]);
+  assert.deepEqual(calls, ["registration_code", "password_reset"]);
 });
 
-test("development email diagnostics never expose verification or reset tokens", async () => {
+test("development email diagnostics never expose email verification codes", async () => {
   const entries: Array<{ message: string; context?: Record<string, unknown> }> =
     [];
   const logger: Logger = {
@@ -46,23 +46,23 @@ test("development email diagnostics never expose verification or reset tokens", 
     env: "development",
     logger,
   });
-  const verificationToken = "verification-fixture-secret";
-  const resetToken = "reset-fixture-secret";
+  const registrationCode = "123456";
+  const resetCode = "654321";
 
-  await service.sendVerificationEmail({
+  await service.sendRegistrationEmailCode({
     to: "fixture@example.invalid",
-    verificationUrl: `https://web.invalid/auth/verify-email?token=${verificationToken}`,
+    code: registrationCode,
     expiresInSeconds: 900,
   });
   await service.sendPasswordResetEmail({
     to: "fixture@example.invalid",
-    resetUrl: `https://web.invalid/auth/reset-password?token=${resetToken}`,
+    code: resetCode,
     expiresInSeconds: 900,
   });
 
   const serialized = JSON.stringify(entries);
-  assert.equal(serialized.includes(verificationToken), false);
-  assert.equal(serialized.includes(resetToken), false);
+  assert.equal(serialized.includes(registrationCode), false);
+  assert.equal(serialized.includes(resetCode), false);
   assert.equal(serialized.includes("fixture@example.invalid"), false);
   assert.equal(serialized.includes("/auth/"), false);
   assert.deepEqual(

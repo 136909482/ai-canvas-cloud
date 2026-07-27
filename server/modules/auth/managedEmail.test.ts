@@ -42,9 +42,9 @@ test("managed auth email resolves revisions dynamically and falls back only befo
     },
   });
 
-  await service.sendVerificationEmail({
+  await service.sendRegistrationEmailCode({
     to: "user@example.com",
-    verificationUrl: "https://cloud.example/auth/verify-email?token=secret",
+    code: "123456",
     expiresInSeconds: 3600,
   });
   assert.equal(sent[0]?.source, "environment");
@@ -67,7 +67,7 @@ test("managed auth email resolves revisions dynamically and falls back only befo
   };
   await service.sendPasswordResetEmail({
     to: "user@example.com",
-    resetUrl: "https://cloud.example/auth/reset-password?token=secret",
+    code: "654321",
     expiresInSeconds: 3600,
   });
   assert.equal(sent[1]?.source, "managed");
@@ -76,14 +76,14 @@ test("managed auth email resolves revisions dynamically and falls back only befo
   row = { ...row, enabled: false };
   await assert.rejects(
     () =>
-      service.sendVerificationEmail({
+      service.sendRegistrationEmailCode({
         to: "user@example.com",
-        verificationUrl: "https://cloud.example/auth/verify-email?token=secret",
+        code: "123456",
         expiresInSeconds: 3600,
       }),
     /unavailable/,
   );
   const rendered = metrics.renderPrometheus();
   assert.match(rendered, /auth_email_delivery_total/);
-  assert.doesNotMatch(rendered, /user@example|token=secret|managed-password/);
+  assert.doesNotMatch(rendered, /user@example|654321|managed-password/);
 });

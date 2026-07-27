@@ -181,8 +181,8 @@ export function resolveRuntimeModelConfig(
       baseUrl: resolveProviderApiUrl(profile),
       apiUrl: resolveProviderApiUrl(profile),
       provider: inferProviderFromApiUrl(profile.baseUrl),
-      imageRequestMode: profile.imageRequestMode,
-      requestMode: profile.imageRequestMode,
+      imageRequestMode: "sync",
+      requestMode: "sync",
     },
   };
 }

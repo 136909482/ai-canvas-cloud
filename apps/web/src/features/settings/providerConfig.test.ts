@@ -42,6 +42,7 @@ test("runtime resolution uses model entry identity and its owning provider", () 
   if (resolved.ok) {
     assert.equal(resolved.runtimeConfig.modelId, "gpt-image");
     assert.equal(resolved.runtimeConfig.apiKey, "key-a");
+    assert.equal(resolved.runtimeConfig.requestMode, "sync");
   }
 });
 

@@ -77,7 +77,7 @@ export function createProviderProfile(
     protocol: "openai-compatible",
     baseUrl: overrides.baseUrl?.trim() ?? "",
     enabled: overrides.enabled ?? true,
-    imageRequestMode: overrides.imageRequestMode === "async" ? "async" : "sync",
+    imageRequestMode: "sync",
     createdAt: normalizeTimestamp(overrides.createdAt, now),
     updatedAt: normalizeTimestamp(overrides.updatedAt, now),
     ...(typeof overrides.lastDiscoveryAt === "number" &&

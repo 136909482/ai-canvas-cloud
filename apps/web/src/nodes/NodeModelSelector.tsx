@@ -21,7 +21,7 @@ import type {
   ModelEntry,
   ProviderProfileConfig,
 } from "@/types";
-import { ModelOptionIcon } from "./GenerateNode/modelOptions";
+import { ModelOptionIcon } from "@/components/icons/ModelOptionIcon";
 import { InlineSelect, type InlineSelectOption } from "./InlineSelect";
 
 const EMPTY_PROVIDER_VALUE = "__provider-empty__";

@@ -19,6 +19,7 @@ import {
   cx,
   type DraftProviderProfile,
 } from "@/components/toolbar/settingsModel";
+import { ModelOptionIcon } from "@/components/icons/ModelOptionIcon";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
 import type { ModelCategory, ModelEntry } from "@/types";
 import { validateProviderProfileDraft } from "./providerConfig";
@@ -509,8 +510,8 @@ export function ProviderModelImportDialog({
                                   role="listitem"
                                   className="flex min-w-0 items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--control-bg)] px-3 py-2.5 last:border-b-0"
                                 >
-                                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-violet-400/25 bg-violet-400/10 text-[10px] font-semibold text-violet-300">
-                                    {item.modelId.slice(0, 1).toUpperCase()}
+                                  <span className="flex h-7 w-7 shrink-0 items-center justify-center">
+                                    <ModelOptionIcon model={item} />
                                   </span>
                                   <span className="min-w-0 flex-1">
                                     <span className="flex min-w-0 items-center gap-1.5">

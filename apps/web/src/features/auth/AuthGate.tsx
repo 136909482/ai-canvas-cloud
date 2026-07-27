@@ -23,9 +23,10 @@ import {
 import {
   requestAuthPasswordReset,
   resetAuthPassword,
-  verifyAuthEmail,
+  sendRegistrationEmailCode,
 } from "./api";
 import { PublicHome } from "./PublicHome";
+import { FALLBACK_SITE_CONFIG, fetchPublicSiteConfig } from "@/api/siteConfig";
 import {
   SESSION_HEARTBEAT_INTERVAL_MS,
   shouldProbeSession,
@@ -92,7 +93,7 @@ function getSubmitLabel(mode: AuthMode, pending: boolean) {
   }
 
   if (mode === "forgot") {
-    return "发送重置链接";
+    return "发送验证码";
   }
 
   return "重置密码";
@@ -120,34 +121,50 @@ export function AuthGate({ children }: AuthGateProps) {
   const checkSession = useAuthStore((state) => state.checkSession);
   const login = useAuthStore((state) => state.login);
   const register = useAuthStore((state) => state.register);
-  const [mode, setMode] = useState<AuthMode>("login");
+  const [mode, setMode] = useState<AuthMode>(() =>
+    window.location.pathname === "/auth/reset-password" ? "reset" : "login",
+  );
   const [authModalAnimationPhase, setAuthModalAnimationPhase] =
     useState<AuthModalAnimationPhase>("enter");
   const [pendingAuthMode, setPendingAuthMode] = useState<Extract<
     AuthMode,
     "login" | "register"
   > | null>(null);
-  const [isAuthOpen, setIsAuthOpen] = useState(() =>
-    window.location.pathname.startsWith("/auth/"),
+  const [isAuthOpen, setIsAuthOpen] = useState(
+    () =>
+      window.location.pathname === "/auth/reset-password" ||
+      window.location.pathname === "/auth/login",
   );
   const [identifier, setIdentifier] = useState("");
   const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => {
+    const resetEmail = window.sessionStorage.getItem(
+      "ai-canvas-password-reset-email",
+    );
+    window.sessionStorage.removeItem("ai-canvas-password-reset-email");
+    return resetEmail ?? "";
+  });
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [resetToken, setResetToken] = useState<string | null>(null);
+  const [emailVerificationCode, setEmailVerificationCode] = useState("");
+  const [
+    registrationEmailVerificationRequired,
+    setRegistrationEmailVerificationRequired,
+  ] = useState(
+    FALLBACK_SITE_CONFIG.config.features.registrationEmailVerificationRequired,
+  );
+  const [registrationCodeCooldown, setRegistrationCodeCooldown] = useState(0);
+  const [isSendingRegistrationCode, setIsSendingRegistrationCode] =
+    useState(false);
+  const [passwordResetCode, setPasswordResetCode] = useState("");
+  const [passwordResetCodeCooldown, setPasswordResetCodeCooldown] = useState(0);
+  const [isSendingPasswordResetCode, setIsSendingPasswordResetCode] =
+    useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [loginConflict, setLoginConflict] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [emailVerificationStatus, setEmailVerificationStatus] = useState<
-    "idle" | "pending" | "success" | "error"
-  >("idle");
-  const [emailVerificationMessage, setEmailVerificationMessage] = useState<
-    string | null
-  >(null);
-  const verificationConsumedRef = useRef(false);
   const sessionProbeInFlightRef = useRef(false);
   const lastSessionProbeAtRef = useRef(0);
 
@@ -185,7 +202,11 @@ export function AuthGate({ children }: AuthGateProps) {
     setMode("login");
     setPendingAuthMode(null);
     setAuthModalAnimationPhase("enter");
-    setResetToken(null);
+    setEmailVerificationCode("");
+    setRegistrationCodeCooldown(0);
+    setPasswordResetCode("");
+    setPasswordResetCodeCooldown(0);
+    window.sessionStorage.removeItem("ai-canvas-password-reset-email");
     setSubmitError(null);
     setSubmitMessage(null);
     setLoginConflict(false);
@@ -194,6 +215,40 @@ export function AuthGate({ children }: AuthGateProps) {
   useEffect(() => {
     void checkSession();
   }, [checkSession]);
+
+  useEffect(() => {
+    if (!isAuthOpen || mode !== "register") return;
+
+    let active = true;
+    void fetchPublicSiteConfig()
+      .then((site) => {
+        if (active) {
+          setRegistrationEmailVerificationRequired(
+            site.config.features.registrationEmailVerificationRequired,
+          );
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [isAuthOpen, mode]);
+
+  useEffect(() => {
+    if (registrationCodeCooldown <= 0) return;
+    const timer = window.setInterval(() => {
+      setRegistrationCodeCooldown((current) => Math.max(0, current - 1));
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [registrationCodeCooldown]);
+
+  useEffect(() => {
+    if (passwordResetCodeCooldown <= 0) return;
+    const timer = window.setInterval(() => {
+      setPasswordResetCodeCooldown((current) => Math.max(0, current - 1));
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [passwordResetCodeCooldown]);
 
   useEffect(() => {
     const handleSessionExpired = () => {
@@ -279,59 +334,6 @@ export function AuthGate({ children }: AuthGateProps) {
     };
   }, [checkSession, mode, session, status]);
 
-  useEffect(() => {
-    if (window.location.pathname !== "/auth/reset-password") {
-      return;
-    }
-
-    const token = new URLSearchParams(window.location.search).get("token");
-
-    if (!token) {
-      setMode("forgot");
-      setSubmitError("重置链接缺少 token，请重新发送重置邮件。");
-      return;
-    }
-
-    setResetToken(token);
-    setMode("reset");
-  }, []);
-
-  useEffect(() => {
-    if (
-      verificationConsumedRef.current ||
-      window.location.pathname !== "/auth/verify-email"
-    ) {
-      return;
-    }
-
-    const token = new URLSearchParams(window.location.search).get("token");
-
-    if (!token) {
-      return;
-    }
-
-    verificationConsumedRef.current = true;
-    setEmailVerificationStatus("pending");
-    setEmailVerificationMessage("正在验证邮箱...");
-
-    verifyAuthEmail({ token })
-      .then(async () => {
-        window.history.replaceState(null, "", "/");
-        setEmailVerificationStatus("success");
-        setEmailVerificationMessage(
-          "邮箱已验证，可以继续使用 AI Canvas Cloud。",
-        );
-        await checkSession();
-      })
-      .catch((error: unknown) => {
-        window.history.replaceState(null, "", "/");
-        setEmailVerificationStatus("error");
-        setEmailVerificationMessage(
-          error instanceof Error ? error.message : String(error),
-        );
-      });
-  }, [checkSession]);
-
   const helperText = useMemo(() => {
     if (mode === "login") {
       return "登录后继续访问你的项目。";
@@ -342,10 +344,10 @@ export function AuthGate({ children }: AuthGateProps) {
     }
 
     if (mode === "forgot") {
-      return "输入邮箱后，我们会发送一封密码重置邮件。";
+      return "输入邮箱后，我们会发送 6 位密码重置验证码。";
     }
 
-    return "设置一个新密码，重置成功后请重新登录。";
+    return "输入邮箱验证码并设置新密码，重置成功后请重新登录。";
   }, [mode]);
   const isAuthModeTransitioning =
     authModalAnimationPhase === "out" || authModalAnimationPhase === "in";
@@ -380,6 +382,54 @@ export function AuthGate({ children }: AuthGateProps) {
     }
   };
 
+  const handleSendRegistrationCode = async () => {
+    const normalizedEmail = email.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setSubmitError("请先输入有效的邮箱地址");
+      return;
+    }
+
+    setSubmitError(null);
+    setSubmitMessage(null);
+    setIsSendingRegistrationCode(true);
+    try {
+      const result = await sendRegistrationEmailCode({
+        email: normalizedEmail,
+      });
+      setRegistrationCodeCooldown(result.resendAfterSeconds);
+      setSubmitMessage(
+        result.resendAfterSeconds > 0
+          ? "如果该邮箱可用于注册，验证码已发送，请查收邮箱。"
+          : "请在提交注册前发送并填写邮箱验证码。",
+      );
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSendingRegistrationCode(false);
+    }
+  };
+
+  const handleSendPasswordResetCode = async () => {
+    const normalizedEmail = email.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setSubmitError("请先输入有效的邮箱地址");
+      return;
+    }
+
+    setSubmitError(null);
+    setSubmitMessage(null);
+    setIsSendingPasswordResetCode(true);
+    try {
+      await requestAuthPasswordReset({ email: normalizedEmail });
+      setPasswordResetCodeCooldown(60);
+      setSubmitMessage("如果这个邮箱存在，验证码已发送，请检查收件箱。");
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSendingPasswordResetCode(false);
+    }
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitError(null);
@@ -392,6 +442,13 @@ export function AuthGate({ children }: AuthGateProps) {
         setSubmitError(validationMessage);
         return;
       }
+      if (
+        registrationEmailVerificationRequired &&
+        !/^\d{6}$/.test(emailVerificationCode.trim())
+      ) {
+        setSubmitError("请输入 6 位邮箱验证码");
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -400,25 +457,43 @@ export function AuthGate({ children }: AuthGateProps) {
       if (mode === "login") {
         await login({ identifier, password });
       } else if (mode === "register") {
-        await register({ username, email, password });
+        await register({
+          username,
+          email,
+          password,
+          emailVerificationCode: registrationEmailVerificationRequired
+            ? emailVerificationCode.trim()
+            : undefined,
+        });
       } else if (mode === "forgot") {
         await requestAuthPasswordReset({ email });
-        setSubmitMessage("如果这个邮箱存在，我们已经发送了密码重置链接。");
+        setPasswordResetCodeCooldown(60);
+        setPasswordResetCode("");
+        setPassword("");
+        setConfirmPassword("");
+        setMode("reset");
+        setSubmitMessage("如果这个邮箱存在，验证码已发送，请检查收件箱。");
       } else {
-        if (!resetToken) {
-          throw new Error("重置链接缺少 token，请重新发送重置邮件。");
+        if (!/^\d{6}$/.test(passwordResetCode.trim())) {
+          throw new Error("请输入 6 位邮箱验证码");
         }
 
         if (password !== confirmPassword) {
           throw new Error("两次输入的新密码不一致");
         }
 
-        await resetAuthPassword({ token: resetToken, password });
+        await resetAuthPassword({
+          email,
+          code: passwordResetCode.trim(),
+          password,
+        });
         window.history.replaceState(null, "", "/");
         setPassword("");
         setConfirmPassword("");
-        setResetToken(null);
+        setPasswordResetCode("");
+        setPasswordResetCodeCooldown(0);
         setMode("login");
+        await checkSession();
         setSubmitMessage("密码已重置，请用新密码登录。");
       }
     } catch (error) {
@@ -620,7 +695,7 @@ export function AuthGate({ children }: AuthGateProps) {
                 </label>
               ) : null}
 
-              {mode === "register" || mode === "forgot" ? (
+              {mode === "register" || mode === "forgot" || mode === "reset" ? (
                 <label className="block">
                   <span
                     className={`mb-1.5 block text-xs font-medium ${themeClasses.textSecondary}`}
@@ -636,12 +711,104 @@ export function AuthGate({ children }: AuthGateProps) {
                     }}
                     type="email"
                     autoComplete="email"
-                    autoFocus={mode === "forgot"}
+                    autoFocus={
+                      mode === "forgot" ||
+                      (mode === "reset" && email.length === 0)
+                    }
                     required
                     className={`h-11 w-full px-3 text-sm ${themeClasses.input}`}
                     placeholder="you@example.com"
                   />
                 </label>
+              ) : null}
+
+              {mode === "register" && registrationEmailVerificationRequired ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <label
+                      htmlFor="register-email-verification-code"
+                      className={`text-xs font-medium ${themeClasses.textSecondary}`}
+                    >
+                      邮箱验证码
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void handleSendRegistrationCode()}
+                      disabled={
+                        isSendingRegistrationCode ||
+                        registrationCodeCooldown > 0
+                      }
+                      className="text-[11px] font-medium text-violet-500 transition hover:text-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isSendingRegistrationCode
+                        ? "发送中..."
+                        : registrationCodeCooldown > 0
+                          ? `${registrationCodeCooldown} 秒后重发`
+                          : "发送验证码"}
+                    </button>
+                  </div>
+                  <input
+                    id="register-email-verification-code"
+                    value={emailVerificationCode}
+                    onChange={(event) => {
+                      setEmailVerificationCode(
+                        event.target.value.replace(/\D/g, "").slice(0, 6),
+                      );
+                      setSubmitError(null);
+                    }}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    required
+                    maxLength={6}
+                    className={`h-11 w-full px-3 font-mono text-sm tracking-[0.25em] ${themeClasses.input}`}
+                    placeholder="000000"
+                  />
+                </div>
+              ) : null}
+
+              {mode === "reset" ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <label
+                      htmlFor="password-reset-email-code"
+                      className={`text-xs font-medium ${themeClasses.textSecondary}`}
+                    >
+                      邮箱验证码
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void handleSendPasswordResetCode()}
+                      disabled={
+                        isSendingPasswordResetCode ||
+                        passwordResetCodeCooldown > 0
+                      }
+                      className="text-[11px] font-medium text-violet-500 transition hover:text-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isSendingPasswordResetCode
+                        ? "发送中..."
+                        : passwordResetCodeCooldown > 0
+                          ? `${passwordResetCodeCooldown} 秒后重发`
+                          : "重新发送验证码"}
+                    </button>
+                  </div>
+                  <input
+                    id="password-reset-email-code"
+                    value={passwordResetCode}
+                    onChange={(event) => {
+                      setPasswordResetCode(
+                        event.target.value.replace(/\D/g, "").slice(0, 6),
+                      );
+                      setSubmitError(null);
+                    }}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    autoFocus={email.length > 0}
+                    required
+                    maxLength={6}
+                    className={`h-11 w-full px-3 font-mono text-sm tracking-[0.25em] ${themeClasses.input}`}
+                    placeholder="000000"
+                  />
+                </div>
               ) : null}
 
               {mode !== "forgot" ? (
@@ -717,22 +884,6 @@ export function AuthGate({ children }: AuthGateProps) {
               {submitMessage ? (
                 <div className="rounded-[8px] border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-xs leading-5 text-emerald-200">
                   {submitMessage}
-                </div>
-              ) : null}
-
-              {emailVerificationStatus !== "idle" &&
-              emailVerificationMessage ? (
-                <div
-                  className={`rounded-[8px] border px-3 py-2 text-xs leading-5 ${
-                    emailVerificationStatus === "error"
-                      ? "border-red-400/20 bg-red-500/10 text-red-200"
-                      : "border-emerald-400/20 bg-emerald-500/10 text-emerald-200"
-                  }`}
-                >
-                  {emailVerificationStatus === "pending" ? (
-                    <Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin align-[-2px]" />
-                  ) : null}
-                  {emailVerificationMessage}
                 </div>
               ) : null}
 
@@ -815,7 +966,8 @@ export function AuthGate({ children }: AuthGateProps) {
                   onClick={() => {
                     window.history.replaceState(null, "", "/");
                     openAuth("login");
-                    setResetToken(null);
+                    setPasswordResetCode("");
+                    setPasswordResetCodeCooldown(0);
                   }}
                 >
                   返回登录

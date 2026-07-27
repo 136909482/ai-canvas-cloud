@@ -1044,8 +1044,8 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
       baseUrl: profile.baseUrl,
       apiUrl: profile.baseUrl,
       provider: inferProviderFromApiUrl(profile.baseUrl),
-      imageRequestMode: profile.imageRequestMode,
-      requestMode: profile.imageRequestMode,
+      imageRequestMode: "sync",
+      requestMode: "sync",
     };
   },
 }));

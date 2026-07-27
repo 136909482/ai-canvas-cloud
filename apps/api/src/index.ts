@@ -78,14 +78,6 @@ const authEmailService =
           env: config.env,
           logger,
         });
-const authService = createPostgresAuthService(dbPool, {
-  baseURL: config.betterAuthUrl,
-  secret: config.betterAuthSecret,
-  publicWebUrl: config.webPublicUrl,
-  trustedOrigins: config.webAllowedOrigins,
-  environment: config.env,
-  emailService: authEmailService,
-});
 const workspaceAuthorizationService =
   createWorkspaceAuthorizationService(dbPool);
 const generationTelemetryService = createPostgresGenerationTelemetryService(
@@ -138,6 +130,17 @@ const siteConfigService = createPostgresPublicSiteConfigService(
   dbPool,
   objectStorage,
 );
+const authService = createPostgresAuthService(dbPool, {
+  baseURL: config.betterAuthUrl,
+  secret: config.betterAuthSecret,
+  publicWebUrl: config.webPublicUrl,
+  trustedOrigins: config.webAllowedOrigins,
+  environment: config.env,
+  emailService: authEmailService,
+  registrationEmailVerificationRequired: async () =>
+    (await siteConfigService.getCurrent()).config.features
+      .registrationEmailVerificationRequired,
+});
 const server = createApiServer({
   config,
   logger,

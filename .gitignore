@@ -12,3 +12,5 @@ infra/deploy/staging/staging.env
 test-results/
 .playwright-cli/
 .codex-run/
+.runtime/
+.dev-*.log

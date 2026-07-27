@@ -177,17 +177,22 @@ function createFakeAuthService(): AuthService {
         ],
       };
     },
-    async resendVerificationEmail() {
-      return { ok: true };
-    },
-    async verifyEmail() {
-      return { ok: true };
+    async sendRegistrationEmailCode() {
+      return { ok: true, resendAfterSeconds: 60 };
     },
     async requestPasswordReset() {
       return { ok: true };
     },
     async resetPassword() {
       return { ok: true };
+    },
+    async changePassword() {
+      return {
+        response: { ok: true },
+        setCookieHeaders: [
+          `${BETTER_AUTH_SESSION_COOKIE_NAME}=changed_session; HttpOnly; Path=/; SameSite=Lax`,
+        ],
+      };
     },
     async revokeSession(sessionId: string) {
       if (sessionId !== "session_other") {
@@ -1348,7 +1353,7 @@ test("login route preserves takeover conflicts until the client confirms", async
   }
 });
 
-test("password reset routes request and consume reset tokens", async () => {
+test("password reset routes request and consume email verification codes", async () => {
   const server = createApiServer({
     config,
     authService: createFakeAuthService(),
@@ -1368,7 +1373,11 @@ test("password reset routes request and consume reset tokens", async () => {
     const reset = await requestJson(port, {
       method: "POST",
       path: `${API_V1_PREFIX}/auth/password/reset`,
-      body: { token: "reset-token", password: "new-long-enough-password" },
+      body: {
+        email: "artist@example.com",
+        code: "123456",
+        password: "new-long-enough-password",
+      },
     });
 
     assert.equal(reset.statusCode, 200);
@@ -1378,43 +1387,65 @@ test("password reset routes request and consume reset tokens", async () => {
   }
 });
 
-test("email verification routes resend and consume verification tokens", async () => {
+test("password change requires an authenticated session and current credentials", async () => {
   const server = createApiServer({
     config,
     authService: createFakeAuthService(),
   });
   const port = await listen(server);
-  const cookie = `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`;
 
   try {
-    const resendMissingCookie = await requestJson(port, {
+    const missingSession = await requestJson(port, {
       method: "POST",
-      path: `${API_V1_PREFIX}/auth/email/resend`,
+      path: `${API_V1_PREFIX}/auth/password/change`,
+      body: {
+        currentPassword: "long-enough-password",
+        newPassword: "new-long-enough-password",
+      },
     });
-
-    assert.equal(resendMissingCookie.statusCode, 401);
+    assert.equal(missingSession.statusCode, 401);
     assert.equal(
-      (resendMissingCookie.body as { error: { code: string } }).error.code,
+      (missingSession.body as { error: { code: string } }).error.code,
       "AUTH_REQUIRED",
     );
 
-    const resent = await requestJson(port, {
+    const changed = await requestJson(port, {
       method: "POST",
-      path: `${API_V1_PREFIX}/auth/email/resend`,
-      cookie,
+      path: `${API_V1_PREFIX}/auth/password/change`,
+      cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`,
+      body: {
+        currentPassword: "long-enough-password",
+        newPassword: "new-long-enough-password",
+      },
+    });
+    assert.equal(changed.statusCode, 200);
+    assert.deepEqual(changed.body, { ok: true });
+    assert.match(
+      Array.isArray(changed.headers["set-cookie"])
+        ? changed.headers["set-cookie"].join("\n")
+        : (changed.headers["set-cookie"] ?? ""),
+      /changed_session/,
+    );
+  } finally {
+    await closeApiServer(server, 1_000);
+  }
+});
+
+test("registration email-code route does not require a session", async () => {
+  const server = createApiServer({
+    config,
+    authService: createFakeAuthService(),
+  });
+  const port = await listen(server);
+  try {
+    const response = await requestJson(port, {
+      method: "POST",
+      path: `${API_V1_PREFIX}/auth/registration/email-code`,
+      body: { email: "artist@example.com" },
     });
 
-    assert.equal(resent.statusCode, 200);
-    assert.deepEqual(resent.body, { ok: true });
-
-    const verified = await requestJson(port, {
-      method: "POST",
-      path: `${API_V1_PREFIX}/auth/email/verify`,
-      body: { token: "verification-token" },
-    });
-
-    assert.equal(verified.statusCode, 200);
-    assert.deepEqual(verified.body, { ok: true });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.body, { ok: true, resendAfterSeconds: 60 });
   } finally {
     await closeApiServer(server, 1_000);
   }

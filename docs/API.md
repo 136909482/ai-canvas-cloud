@@ -106,13 +106,13 @@ GET    /api/v1/auth/sessions
 DELETE /api/v1/auth/sessions/:sessionId
 GET    /api/v1/auth/devices
 DELETE /api/v1/auth/devices/:deviceId
-POST   /api/v1/auth/email/verify
-POST   /api/v1/auth/email/resend
+POST   /api/v1/auth/registration/email-code
 POST   /api/v1/auth/password/forgot
 POST   /api/v1/auth/password/reset
+POST   /api/v1/auth/password/change
 ```
 
-底层委托 Better Auth 管理用户名、邮箱密码、签名 Cookie、session、验证和重置 token。注册请求为 `{ username, email, password, deviceId? }`；`username` 必须匹配 `^[A-Za-z][A-Za-z0-9_]{2,29}$`，保留输入大小写用于展示，以小写规范值实现全局唯一。`admin|administrator|api|root|support|system` 不可注册，格式或保留词返回 `400 VALIDATION_FAILED`，冲突返回稳定 `409 USERNAME_UNAVAILABLE`。不提供用户名可用性查询或修改接口。
+底层委托 Better Auth 管理用户名、邮箱密码、签名 Cookie、session 和内部密码重置 token。注册请求为 `{ username, email, password, emailVerificationCode?, deviceId? }`；`username` 必须匹配 `^[A-Za-z][A-Za-z0-9_]{2,29}$`，保留输入大小写用于展示，以小写规范值实现全局唯一。`admin|administrator|api|root|support|system` 不可注册，格式或保留词返回 `400 VALIDATION_FAILED`，冲突返回稳定 `409 USERNAME_UNAVAILABLE`。不提供用户名可用性查询或修改接口。
 
 登录请求为 `{ identifier, password, deviceId?, force? }`；`identifier` 包含 `@` 时按邮箱登录，否则按不区分大小写的用户名登录。账号不存在、邮箱不存在、用户名不存在或密码错误统一返回 `401 AUTH_REQUIRED` 和“账号或密码错误”语义，不允许据此枚举账号。忘记密码仍只接受邮箱。注册、登录与 session 恢复后幂等确保 personal workspace 和 owner membership。
 
@@ -120,9 +120,9 @@ POST   /api/v1/auth/password/reset
 
 同账号只允许一个有效 session。登录检测到其他有效 session 时删除本次临时 session，返回 `409 ACTIVE_SESSION_EXISTS`；只有 `force=true` 的明确确认才撤销旧 session 并签发新 Cookie。
 
-`deviceId` 是浏览器非认证标识。设备列表只返回当前账号的 label、首次/最近时间和 current；只能删除自己的非当前设备。忘记密码接口不泄漏邮箱是否存在，密码重置成功后撤销旧 session。
+`deviceId` 是浏览器非认证标识。设备列表只返回当前账号的 label、首次/最近时间和 current；只能删除自己的非当前设备。忘记密码接口不泄漏邮箱是否存在，密码重置成功后撤销旧 session。已登录用户可调用受 Cookie 保护的 `POST /api/v1/auth/password/change`，请求为 `{ currentPassword, newPassword }`；服务端通过 Better Auth 校验当前密码、更新密码并撤销其他有效 session，客户端随后退出当前会话并跳转登录。
 
-注册先创建未验证账号，再尽力发送首封验证邮件；SMTP 不可用时账号和 personal workspace 仍保留，用户可稍后重发。验证重发和忘记密码保持统一成功/非枚举语义，不能通过邮件投递错误判断邮箱是否存在。认证邮件只发送链接，不改为数字验证码；邮件发送不自动重试，避免响应丢失时重复投递。
+网站设置开启 `registrationEmailVerificationRequired` 后，浏览器先以 `{ email }` 调用 `POST /api/v1/auth/registration/email-code`，再将邮件中的 6 位 `emailVerificationCode` 传给注册接口。验证码有效 10 分钟，60 秒内不重复投递，连续 5 次错误即消费失效；发送接口保持非枚举响应，不返回账号或挑战状态。注册接口只接受一次性未过期验证码，成功后将邮箱标为已验证。关闭开关时不发送注册验证邮件，注册直接将邮箱标为已验证。密码重置同样先以 `{ email }` 调用 `POST /api/v1/auth/password/forgot`，再以 `{ email, code, password }` 调用 `POST /api/v1/auth/password/reset`；两个接口都不泄漏邮箱是否存在。重置验证码遵循相同的 10 分钟、60 秒和 5 次失败限制，短期表仅保存 HMAC 与 AES-256-GCM token 密文；SMTP `sendMail` 不自动重试。
 
 ## 工作区
 
@@ -280,7 +280,7 @@ SMTP 设置只允许 `super_admin` 通过 `smtp_config.write` 访问。GET 返�
 
 连接测试和测试邮件使用当前请求表单，不发布配置，合计按管理员限制为 10 分钟 5 次；测试邮件额外接受 `recipient`，测试记录不保存收件地址、主机或凭据。保存会在写事务前重新验证连接，再以 `expectedRevisionId` 乐观锁原子插入不可变 revision、切换 current 并更新普通 API 可读发布投影；验证失败保留旧配置，冲突返回 `409 SMTP_CONFIG_CONFLICT`。disable 创建新的 disabled revision；普通 API 看到明确停用后不回退环境变量。
 
-SMTP 上游错误只映射为 `SMTP_HOST_NOT_ALLOWED|SMTP_DNS_FAILED|SMTP_CONNECTION_FAILED|SMTP_TLS_FAILED|SMTP_AUTH_FAILED|SMTP_SENDER_REJECTED|SMTP_RECIPIENT_REJECTED`；测试限流为 `SMTP_RATE_LIMITED`。响应、日志、审计与指标不包含上游原始响应、密码、token、完整验证链接或收件邮箱。
+SMTP 上游错误只映射为 `SMTP_HOST_NOT_ALLOWED|SMTP_DNS_FAILED|SMTP_CONNECTION_FAILED|SMTP_TLS_FAILED|SMTP_AUTH_FAILED|SMTP_SENDER_REJECTED|SMTP_RECIPIENT_REJECTED`；测试限流为 `SMTP_RATE_LIMITED`。响应、日志、审计与指标不包含上游原始响应、密码、token、注册或密码重置验证码、完整密码重置链接或收件邮箱。
 
 site assets 只接受 PNG/JPEG/WebP/ICO、最大 4 MiB、单边最大 4096；完成时复核 metadata、完整 hash、魔数和真实尺寸。site config 保存版本化结构、不可变 revision、current 指针、公开投影和同事务审计，不接受 HTML、JavaScript、任意 CSS 或 URL 凭据/fragment。
 

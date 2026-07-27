@@ -24,7 +24,7 @@ const connections = {
   app: process.env.DATABASE_URL,
   admin: process.env.ADMIN_DATABASE_URL,
 };
-const expectedMigrationVersions = Array.from({ length: 32 }, (_, index) =>
+const expectedMigrationVersions = Array.from({ length: 34 }, (_, index) =>
   String(index + 1).padStart(4, "0"),
 );
 
@@ -49,6 +49,10 @@ const expectedPermissions = {
     sitePublicationWrite: false,
     smtpPublicationRead: true,
     smtpPublicationWrite: false,
+    registrationEmailChallengeRead: true,
+    registrationEmailChallengeWrite: true,
+    passwordResetEmailChallengeRead: true,
+    passwordResetEmailChallengeWrite: true,
     generationTelemetryRead: true,
     generationTelemetryAttemptRead: true,
   },
@@ -69,6 +73,10 @@ const expectedPermissions = {
     sitePublicationWrite: true,
     smtpPublicationRead: true,
     smtpPublicationWrite: true,
+    registrationEmailChallengeRead: false,
+    registrationEmailChallengeWrite: false,
+    passwordResetEmailChallengeRead: false,
+    passwordResetEmailChallengeWrite: false,
     generationTelemetryRead: true,
     generationTelemetryAttemptRead: false,
   },
@@ -195,6 +203,18 @@ for (const [connection, connectionString] of Object.entries(connections)) {
     );
     const smtpPublicationWrite = await client.query(
       `SELECT has_table_privilege(current_user, 'public.smtp_config_publications', 'INSERT,UPDATE') AS allowed`,
+    );
+    const registrationEmailChallengeRead = await client.query(
+      `SELECT has_table_privilege(current_user, 'public.registration_email_challenges', 'SELECT') AS allowed`,
+    );
+    const registrationEmailChallengeWrite = await client.query(
+      `SELECT has_table_privilege(current_user, 'public.registration_email_challenges', 'INSERT,UPDATE,DELETE') AS allowed`,
+    );
+    const passwordResetEmailChallengeRead = await client.query(
+      `SELECT has_table_privilege(current_user, 'public.password_reset_email_challenges', 'SELECT') AS allowed`,
+    );
+    const passwordResetEmailChallengeWrite = await client.query(
+      `SELECT has_table_privilege(current_user, 'public.password_reset_email_challenges', 'INSERT,UPDATE,DELETE') AS allowed`,
     );
     const removedRelations = await client.query(
       `
@@ -329,6 +349,14 @@ for (const [connection, connectionString] of Object.entries(connections)) {
       sitePublicationWrite: sitePublicationWrite.rows[0]?.allowed,
       smtpPublicationRead: smtpPublicationRead.rows[0]?.allowed,
       smtpPublicationWrite: smtpPublicationWrite.rows[0]?.allowed,
+      registrationEmailChallengeRead:
+        registrationEmailChallengeRead.rows[0]?.allowed,
+      registrationEmailChallengeWrite:
+        registrationEmailChallengeWrite.rows[0]?.allowed,
+      passwordResetEmailChallengeRead:
+        passwordResetEmailChallengeRead.rows[0]?.allowed,
+      passwordResetEmailChallengeWrite:
+        passwordResetEmailChallengeWrite.rows[0]?.allowed,
       generationTelemetryRead,
       generationTelemetryAttemptRead,
     };

@@ -43,18 +43,19 @@ test("account settings renders verified identity and security actions", () => {
   assert.match(markup, /artist@example\.com/);
   assert.match(markup, /UID 10001/);
   assert.match(markup, /邮箱已验证/);
-  assert.match(markup, /发送重置邮件/);
+  assert.match(markup, /修改密码/);
   assert.match(markup, /管理设备/);
   assert.doesNotMatch(markup, /发送验证邮件/);
+  assert.doesNotMatch(markup, /验证码/);
   assert.doesNotMatch(markup, /退出登录/);
   assert.doesNotMatch(markup, /上传头像|修改用户名/);
   assert.doesNotMatch(markup, /不应展示的内部个人空间/);
 });
 
-test("account settings offers verification action for unverified email", () => {
+test("account settings does not offer a legacy verification-link action", () => {
   const markup = renderPanel(false);
 
   assert.match(markup, /邮箱待验证/);
-  assert.match(markup, /发送验证邮件/);
+  assert.doesNotMatch(markup, /发送验证邮件/);
   assert.doesNotMatch(markup, />已验证</);
 });

@@ -155,6 +155,7 @@ export interface RegisterRequest {
   username: string;
   email: string;
   password: string;
+  emailVerificationCode?: string;
   deviceId?: string;
 }
 
@@ -178,7 +179,8 @@ export interface PasswordForgotRequest {
 }
 
 export interface PasswordResetRequest {
-  token: string;
+  email: string;
+  code: string;
   password: string;
 }
 
@@ -186,12 +188,22 @@ export interface PasswordResetResponse {
   ok: true;
 }
 
-export interface EmailVerifyRequest {
-  token: string;
+export interface PasswordChangeRequest {
+  currentPassword: string;
+  newPassword: string;
 }
 
-export interface EmailVerificationResponse {
+export interface PasswordChangeResponse {
   ok: true;
+}
+
+export interface RegistrationEmailCodeRequest {
+  email: string;
+}
+
+export interface RegistrationEmailCodeResponse {
+  ok: true;
+  resendAfterSeconds: number;
 }
 
 export interface LogoutResponse {

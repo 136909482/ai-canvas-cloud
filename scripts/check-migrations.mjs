@@ -2201,6 +2201,94 @@ async function assertSiteConfigurationSchema(client) {
   );
 }
 
+async function assertRegistrationEmailCodeSchema(client) {
+  const challenge = await client.query(
+    `
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'registration_email_challenges'
+      AND column_name = ANY ($1::text[])
+    ORDER BY column_name
+  `,
+    [
+      [
+        "email_hash",
+        "code_hash",
+        "expires_at",
+        "last_sent_at",
+        "failed_attempts",
+        "consumed_at",
+      ],
+    ],
+  );
+  assert.deepEqual(
+    challenge.rows.map((row) => row.column_name),
+    [
+      "code_hash",
+      "consumed_at",
+      "email_hash",
+      "expires_at",
+      "failed_attempts",
+      "last_sent_at",
+    ],
+    "registration email code migration is missing required challenge columns",
+  );
+  const publicRead = await client.query(
+    `SELECT has_table_privilege('public', 'registration_email_challenges', 'SELECT') AS allowed`,
+  );
+  assert.equal(
+    publicRead.rows[0]?.allowed,
+    false,
+    "registration email challenges are readable through PUBLIC privileges",
+  );
+}
+
+async function assertPasswordResetEmailCodeSchema(client) {
+  const challenge = await client.query(
+    `
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'password_reset_email_challenges'
+      AND column_name = ANY ($1::text[])
+    ORDER BY column_name
+  `,
+    [
+      [
+        "email_hash",
+        "code_hash",
+        "reset_token_ciphertext",
+        "expires_at",
+        "last_sent_at",
+        "failed_attempts",
+        "consumed_at",
+      ],
+    ],
+  );
+  assert.deepEqual(
+    challenge.rows.map((row) => row.column_name),
+    [
+      "code_hash",
+      "consumed_at",
+      "email_hash",
+      "expires_at",
+      "failed_attempts",
+      "last_sent_at",
+      "reset_token_ciphertext",
+    ],
+    "password reset email code migration is missing required challenge columns",
+  );
+  const publicRead = await client.query(
+    `SELECT has_table_privilege('public', 'password_reset_email_challenges', 'SELECT') AS allowed`,
+  );
+  assert.equal(
+    publicRead.rows[0]?.allowed,
+    false,
+    "password reset email challenges are readable through PUBLIC privileges",
+  );
+}
+
 async function assertManagedSmtpSchema(client) {
   const adminTables = await client.query(
     `
@@ -2557,7 +2645,9 @@ try {
       migration.version === "0029" ||
       migration.version === "0030" ||
       migration.version === "0031" ||
-      migration.version === "0032"
+      migration.version === "0032" ||
+      migration.version === "0033" ||
+      migration.version === "0034"
     ) {
       await client.query(migration.sql);
     }
@@ -2581,6 +2671,8 @@ try {
   await assertAdminSecuritySchema(client);
   await assertServerGenerationRemoved(client, schemaName);
   await assertSiteConfigurationSchema(client);
+  await assertRegistrationEmailCodeSchema(client);
+  await assertPasswordResetEmailCodeSchema(client);
   await assertManagedSmtpSchema(client);
   await client.query("SET CONSTRAINTS ALL IMMEDIATE");
   await client.query("ROLLBACK");

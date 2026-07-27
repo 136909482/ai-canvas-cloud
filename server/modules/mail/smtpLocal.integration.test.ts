@@ -125,20 +125,20 @@ test("one-time local SMTP servers cover TLS, STARTTLS, auth failure and auth mes
         await sendSmtpMessage(config, message, localDependencies);
       },
     });
-    await emailService.sendVerificationEmail({
+    await emailService.sendRegistrationEmailCode({
       to: "recipient@example.test",
-      verificationUrl: "https://cloud.example.test/verify/fixture-token",
+      code: "123456",
       expiresInSeconds: 900,
     });
     await emailService.sendPasswordResetEmail({
       to: "recipient@example.test",
-      resetUrl: "https://cloud.example.test/reset/fixture-token",
+      code: "654321",
       expiresInSeconds: 900,
     });
 
     assert.equal(starttls.messages.length, 2);
-    assert.match(starttls.messages[0]!, /\/verify\/fixture-token/);
-    assert.match(starttls.messages[1]!, /\/reset\/fixture-token/);
+    assert.match(starttls.messages[0]!, /123456/);
+    assert.match(starttls.messages[1]!, /654321/);
   } finally {
     await Promise.all([implicit.close(), starttls.close()]);
   }

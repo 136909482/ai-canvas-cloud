@@ -147,6 +147,48 @@ test("register delegates credentials to Better Auth and creates workspace data",
   );
 });
 
+test("registration requires a valid email code when the site setting is enabled", async () => {
+  let signUpCalled = false;
+  const authApi = {
+    async signUpEmail() {
+      signUpCalled = true;
+      throw new Error("sign-up must not run without a valid code");
+    },
+  };
+  const { pool } = createMockPool(({ text }) => {
+    if (text.includes("SET consumed_at = now()")) return { rows: [] };
+    if (text.includes("SET failed_attempts = failed_attempts + 1")) {
+      return { rows: [] };
+    }
+    return { rows: [] };
+  });
+  const authService = createPostgresAuthService(pool as never, {
+    authApi: authApi as never,
+    emailService: {
+      async sendRegistrationEmailCode() {},
+      async sendPasswordResetEmail() {},
+    },
+    registrationEmailVerificationRequired: async () => true,
+  });
+
+  await assert.rejects(
+    () =>
+      authService.register(
+        {
+          username: "Artist_01",
+          email: "artist@example.com",
+          password: "long-enough-password",
+        },
+        { requestId: "registration-code-required" },
+      ),
+    (error: unknown) =>
+      error instanceof AuthServiceError &&
+      error.statusCode === 400 &&
+      error.apiCode === "EMAIL_NOT_VERIFIED",
+  );
+  assert.equal(signUpCalled, false);
+});
+
 test("login requires confirmation before replacing another active device", async () => {
   const authApi = {
     async signInEmail() {
@@ -672,70 +714,6 @@ test("register maps username conflicts to the stable unavailable error", async (
   );
 });
 
-test("resendVerificationEmail asks Better Auth to resend for the current user", async () => {
-  let verificationEmail: string | null = null;
-  const authApi = {
-    async getSession() {
-      return {
-        session: {
-          id: "session-1",
-          token: "session-token",
-          userId: "user-1",
-          expiresAt: new Date(),
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-        user: {
-          id: "user-1",
-          email: "artist@example.com",
-          emailVerified: false,
-          name: "artist",
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      };
-    },
-    async sendVerificationEmail(input: { body: { email: string } }) {
-      verificationEmail = input.body.email;
-      return { status: true };
-    },
-  };
-  const { pool } = createMockPool(() => ({ rows: [] }));
-  const authService = createPostgresAuthService(pool as never, {
-    authApi: authApi as never,
-  });
-
-  const response = await authService.resendVerificationEmail({
-    requestId: "req_1",
-    cookieHeader: "better-auth.session_token=signed",
-  });
-
-  assert.deepEqual(response, { ok: true });
-  assert.equal(verificationEmail, "artist@example.com");
-});
-
-test("verifyEmail delegates token consumption to Better Auth", async () => {
-  let consumedToken: string | null = null;
-  const authApi = {
-    async verifyEmail(input: { query: { token: string } }) {
-      consumedToken = input.query.token;
-      return { status: true };
-    },
-  };
-  const { pool } = createMockPool(() => ({ rows: [] }));
-  const authService = createPostgresAuthService(pool as never, {
-    authApi: authApi as never,
-  });
-
-  const response = await authService.verifyEmail(
-    { token: " token-1 " },
-    { requestId: "req_1" },
-  );
-
-  assert.deepEqual(response, { ok: true });
-  assert.equal(consumedToken, "token-1");
-});
-
 test("requestPasswordReset delegates normalized email to Better Auth", async () => {
   let requestedEmail: string | null = null;
   const authApi = {
@@ -744,7 +722,7 @@ test("requestPasswordReset delegates normalized email to Better Auth", async () 
       return {
         status: true,
         message:
-          "If this email exists in our system, check your email for the reset link",
+          "If this email exists in our system, check your email for the reset code",
       };
     },
   };
@@ -762,7 +740,7 @@ test("requestPasswordReset delegates normalized email to Better Auth", async () 
   assert.equal(requestedEmail, "artist@example.com");
 });
 
-test("resetPassword validates password and consumes reset token through Better Auth", async () => {
+test("resetPassword validates the password and consumes an email code through Better Auth", async () => {
   let resetPayload: { token?: string; newPassword: string } | null = null;
   const authApi = {
     async resetPassword(input: {
@@ -775,12 +753,27 @@ test("resetPassword validates password and consumes reset token through Better A
   const { pool } = createMockPool(() => ({ rows: [] }));
   const authService = createPostgresAuthService(pool as never, {
     authApi: authApi as never,
+    passwordResetEmailCodes: {
+      async isCoolingDown() {
+        return false;
+      },
+      async send() {},
+      async consume(email, code) {
+        assert.equal(email, "artist@example.com");
+        assert.equal(code, "123456");
+        return "token-1";
+      },
+    },
   });
 
   await assert.rejects(
     () =>
       authService.resetPassword(
-        { token: "token-1", password: "short" },
+        {
+          email: "artist@example.com",
+          code: "123456",
+          password: "short",
+        },
         { requestId: "req_1" },
       ),
     (error: unknown) =>
@@ -790,7 +783,11 @@ test("resetPassword validates password and consumes reset token through Better A
   );
 
   const response = await authService.resetPassword(
-    { token: " token-1 ", password: "new-long-enough-password" },
+    {
+      email: " Artist@Example.COM ",
+      code: "123456",
+      password: "new-long-enough-password",
+    },
     { requestId: "req_1" },
   );
 
@@ -798,5 +795,80 @@ test("resetPassword validates password and consumes reset token through Better A
   assert.deepEqual(resetPayload, {
     token: "token-1",
     newPassword: "new-long-enough-password",
+  });
+});
+
+test("changePassword verifies the current password through Better Auth and revokes other sessions", async () => {
+  let changePayload:
+    | {
+        currentPassword: string;
+        newPassword: string;
+        revokeOtherSessions?: boolean;
+      }
+    | undefined;
+  const authApi = {
+    async changePassword(input: {
+      body: {
+        currentPassword: string;
+        newPassword: string;
+        revokeOtherSessions?: boolean;
+      };
+    }) {
+      changePayload = input.body;
+      const headers = new Headers();
+      headers.append(
+        "set-cookie",
+        "better-auth.session_token=rotated; HttpOnly; Path=/",
+      );
+      return {
+        headers,
+        response: {
+          token: "rotated-token",
+          user: {
+            id: "user-1",
+            email: "artist@example.com",
+            emailVerified: true,
+            name: "Artist_01",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+      };
+    },
+  };
+  const { pool } = createMockPool(() => ({ rows: [] }));
+  const authService = createPostgresAuthService(pool as never, {
+    authApi: authApi as never,
+  });
+
+  await assert.rejects(
+    () =>
+      authService.changePassword(
+        {
+          currentPassword: "same-long-enough-password",
+          newPassword: "same-long-enough-password",
+        },
+        { requestId: "password-change-same" },
+      ),
+    (error: unknown) =>
+      error instanceof AuthServiceError &&
+      error.statusCode === 400 &&
+      error.apiCode === "VALIDATION_FAILED",
+  );
+
+  const result = await authService.changePassword(
+    {
+      currentPassword: "current-long-enough-password",
+      newPassword: "new-long-enough-password",
+    },
+    { requestId: "password-change", cookieHeader: "session=signed" },
+  );
+
+  assert.deepEqual(result.response, { ok: true });
+  assert.match(result.setCookieHeaders.join("\n"), /session_token=rotated/);
+  assert.deepEqual(changePayload, {
+    currentPassword: "current-long-enough-password",
+    newPassword: "new-long-enough-password",
+    revokeOtherSessions: true,
   });
 });

@@ -21,13 +21,15 @@
 - `"user"`：Better Auth 用户 ID、不可变 `user_no`、不可变 `username/display_username`、兼容 `name`、email、验证状态、账号状态和时间戳。
 - `"session"`：用户、token、过期时间、IP/User-Agent 摘要和时间戳。
 - `"account"`：credential provider 账号及 Better Auth 管理的密码哈希。
-- `"verification"`：邮箱验证和密码重置的一次性值。
+- `"verification"`：Better Auth 密码重置的一次性内部值。
+- `registration_email_challenges`：注册前邮箱验证码的 `email_hash`、`code_hash`、过期/发送/消费时间与失败次数；不保存邮箱或验证码明文。
+- `password_reset_email_challenges`：密码重置邮箱验证码的 `email_hash`、`code_hash`、AES-256-GCM 加密的 Better Auth token、过期/发送/消费时间与失败次数；不保存邮箱、验证码或 token 明文。
 
 `user_no` 从 `10001` 开始，只用于本人展示、客服检索和运营管理，不参与认证或授权。`username` 为 3–30 位小写规范值，格式为 `^[a-z][a-z0-9_]{2,29}$`，具有唯一索引且排除保留词；`display_username` 保留注册时大小写，并以约束保证 `lower(display_username)=username`。两者均不可修改；`name` 只作为 Better Auth 兼容镜像，不是昵称或公共字段，`image` 兼容列不进入普通用户界面。普通用户状态为 `active|disabled|deleted`；`disabled` 不能登录、恢复 session 或通过 workspace 授权，`deleted` 可用于运营筛选和只读核对但不能再被状态操作。账号采用单活跃 session；接管新设备和密码重置会撤销旧 session。
 
 `0030_user_usernames.sql` 为协调发布迁移：旧账号按邮箱前缀确定性清洗，`admin@example.com` 回填为 `admin_user`，保留词追加 `_user`，规范值冲突追加 `user_no`，并补齐非空、格式和唯一约束。发布、回滚与前向修复要求见“关键发布迁移”。
 
-日志、审计、错误和前端响应不得记录密码、session/reset/verification token、完整邮件链接或 Provider API Key。业务授权只信任 Better Auth session 解析的用户。
+日志、审计、错误和前端响应不得记录密码、session/reset token、注册或密码重置验证码、完整邮件链接或 Provider API Key。业务授权只信任 Better Auth session 解析的用户。
 
 ### `auth_devices`
 
@@ -172,7 +174,7 @@ Admin 运行角色对 public 普通用户数据采用列级授权：
 
 ### 站点配置与品牌资产
 
-`admin.site_config_revisions` 保存不可变结构配置，`admin.site_config_current` 保存当前 revision 指针。配置只允许版本化纯数据，不接受 HTML、JavaScript 或任意 CSS。
+`admin.site_config_revisions` 保存不可变结构配置，`admin.site_config_current` 保存当前 revision 指针。schema version 1 保持可读，version 2 在 `features` 中增加 `registrationEmailVerificationRequired`；配置只允许版本化纯数据，不接受 HTML、JavaScript 或任意 CSS。
 
 `admin.site_assets` 保存 Logo/Favicon 私有对象元数据。完成确认复核对象 metadata、hash、魔数和真实尺寸。`public.site_config_publications` 是普通 API 唯一可读的最小投影；Admin 发布事务原子更新 current 和投影。
 
@@ -276,6 +278,22 @@ commit 在一个事务中完成项目策略、资产 UUID 映射、图/引用/ch
 发布顺序：先把同一份 `SMTP_CREDENTIAL_KEYS` 与活动 key version 部署到 API/Admin API，再执行 0032 和角色 provisioning，随后发布代码并保留旧 SMTP 环境变量；超级管理员完成连接和测试邮件后保存启用，确认验证/重置邮件动态使用 managed revision，最后移除旧 `SMTP_PASSWORD`。密钥和数据库备份必须分离保存。
 
 回滚边界：首次发布前可删除 additive 表并继续使用环境 SMTP；已有 managed revision 后先把传输模式切回 `smtp` 或部署兼容版本，确认旧环境凭据仍有效，再删除 additive 表。前向修复为幂等重跑 0032、重新应用精确角色授权、校验 publication/current/revision 一致性和密文 envelope，并在 managed 投递通过前保留旧环境回退。禁止从日志、审计或前端值重建密码。
+
+### 0033：注册邮箱验证码
+
+0033 在 release manifest 中是 `releaseTrain=p8-mail-codes`、`phase=expand`、低锁风险、10 秒 statement timeout、`backupRequired=false`。它新增 `registration_email_challenges`，只保存带服务端密钥的邮箱与验证码 HMAC、过期时间、发送冷却、失败次数和消费时间；同时允许站点配置 revision 读取 schema version 1 或 2。普通 API 角色可读写挑战表，Admin 角色无权读取或写入。
+
+发布顺序：先执行 0033 和角色 provisioning，再发布 API/Web/Admin 代码；开关默认关闭。确认 SMTP 投递、六码验证码消费、60 秒冷却和 5 次错误失效均通过后，超级管理员才在网站设置中开启 `registrationEmailVerificationRequired`。
+
+回滚边界：先关闭开关并停止新注册验证码入口，再部署兼容代码；挑战表不含邮箱或验证码明文，可在确认没有新代码消费者后删除。前向修复为幂等重跑 0033、重新应用角色授权、确认 Admin 无法访问挑战表，并保持开关关闭直到验证码注册链路复验通过。
+
+### 0034：密码重置邮箱验证码
+
+0034 在 release manifest 中是 `releaseTrain=p8-mail-codes`、`phase=expand`、低锁风险、10 秒 statement timeout、`backupRequired=false`。它新增 `password_reset_email_challenges`，保存带服务端密钥的邮箱与验证码 HMAC、过期时间、发送冷却、失败次数和消费时间；Better Auth 生成的内部重置 token 使用从服务端密钥派生的 AES-256-GCM 密文保存，绝不落库或记录明文。普通 API 角色可读写挑战表，Admin 角色无权读取或写入。
+
+发布顺序：先执行 0034 和角色 provisioning，再发布 API/Web 代码。忘记密码先请求验证码，浏览器再以 `{ email, code, password }` 提交；验证码有效 10 分钟，60 秒内不生成替代 token，连续 5 次错误即消费失效。验证码正确后才解密内部 token 并交由 Better Auth 更新密码和撤销 session。
+
+回滚边界：必须先部署仍能消费已发验证码的兼容代码，或等待所有 10 分钟挑战过期后，才能移除表。前向修复为幂等重跑 0034、重新应用角色授权、确认 Admin 无法访问挑战表，并复验重置验证码投递、消费和 session 撤销。
 
 ## 浏览器本地状态
 

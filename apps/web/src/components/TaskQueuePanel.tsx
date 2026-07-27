@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import { useReactFlow } from "@xyflow/react";
-import { Trash2, X } from "lucide-react";
+import { ListTodo, Trash2, X } from "lucide-react";
 import { TaskQueueIconButton } from "@/components/TaskQueueIconButton";
 import { TASK_QUEUE_COPY } from "@/components/taskQueueCopy";
 import { TaskQueueTaskRow } from "@/components/TaskQueueTaskRow";
@@ -139,11 +139,6 @@ export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
                   {LOCAL_IMAGE_CONCURRENCY_LIMIT}
                 </span>
               ) : null}
-              {tasks.length === 0 ? (
-                <span className={`truncate text-xs ${themeClasses.textMuted}`}>
-                  {TASK_QUEUE_COPY.panelEmpty}
-                </span>
-              ) : null}
             </div>
           </div>
 
@@ -160,6 +155,7 @@ export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
             <TaskQueueIconButton
               label={TASK_QUEUE_COPY.closePanel}
               onClick={onClose}
+              showTooltip={false}
               tooltipPlacement="bottom"
               icon={<X className="h-3.5 w-3.5" />}
             />
@@ -213,7 +209,17 @@ export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
         >
           {TASK_QUEUE_COPY.filterEmpty}
         </div>
-      ) : null}
+      ) : (
+        <div
+          data-testid="task-queue-empty"
+          className={`flex min-h-28 flex-col items-center justify-center gap-2 px-4 text-center ${themeClasses.textMuted}`}
+        >
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-muted)]">
+            <ListTodo className="h-3.5 w-3.5" />
+          </span>
+          <span className="text-xs">{TASK_QUEUE_COPY.panelEmpty}</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -4,13 +4,15 @@ import type {
   AuthSessionResponse,
   AuthSessionsResponse,
   AuthSuccessResponse,
-  EmailVerificationResponse,
-  EmailVerifyRequest,
   LoginRequest,
+  PasswordChangeRequest,
+  PasswordChangeResponse,
   PasswordForgotRequest,
   PasswordResetRequest,
   PasswordResetResponse,
   RegisterRequest,
+  RegistrationEmailCodeRequest,
+  RegistrationEmailCodeResponse,
   RemoveDeviceResponse,
   RevokeSessionResponse,
 } from "@ai-canvas-cloud/contracts";
@@ -58,13 +60,10 @@ export interface AuthService {
   getSession: (context: AuthRequestContext) => Promise<AuthSessionResponse>;
   listSessions: (context: AuthRequestContext) => Promise<AuthSessionsResponse>;
   listDevices: (context: AuthRequestContext) => Promise<AuthDevicesResponse>;
-  resendVerificationEmail: (
+  sendRegistrationEmailCode: (
+    input: RegistrationEmailCodeRequest,
     context: AuthRequestContext,
-  ) => Promise<EmailVerificationResponse>;
-  verifyEmail: (
-    input: EmailVerifyRequest,
-    context: AuthRequestContext,
-  ) => Promise<EmailVerificationResponse>;
+  ) => Promise<RegistrationEmailCodeResponse>;
   requestPasswordReset: (
     input: PasswordForgotRequest,
     context: AuthRequestContext,
@@ -73,6 +72,14 @@ export interface AuthService {
     input: PasswordResetRequest,
     context: AuthRequestContext,
   ) => Promise<PasswordResetResponse>;
+  changePassword: (
+    input: PasswordChangeRequest,
+    context: AuthRequestContext,
+  ) => Promise<
+    RevokedAuthSession & {
+      response: PasswordChangeResponse;
+    }
+  >;
   revokeSession: (
     sessionId: string,
     context: AuthRequestContext,
@@ -270,16 +277,16 @@ export function createUnavailableAuthService(): AuthService {
     async listDevices() {
       throw error();
     },
-    async resendVerificationEmail() {
-      throw error();
-    },
-    async verifyEmail() {
+    async sendRegistrationEmailCode() {
       throw error();
     },
     async requestPasswordReset() {
       throw error();
     },
     async resetPassword() {
+      throw error();
+    },
+    async changePassword() {
       throw error();
     },
     async revokeSession() {

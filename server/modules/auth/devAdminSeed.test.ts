@@ -24,11 +24,12 @@ function createMockAuthService(register: AuthService["register"]): AuthService {
     login: unavailable,
     getSession: unavailable,
     listSessions: unavailable,
-    resendVerificationEmail: unavailable,
-    verifyEmail: unavailable,
+    sendRegistrationEmailCode: unavailable,
     requestPasswordReset: unavailable,
     resetPassword: unavailable,
+    changePassword: unavailable,
     revokeSession: unavailable,
+    removeDevice: unavailable,
     logout: unavailable,
   };
 }

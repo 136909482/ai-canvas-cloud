@@ -10,12 +10,12 @@ import {
   type CreateAssetUploadRequest,
   type CreateProjectCheckpointRequest,
   type CurrentWorkspaceResponse,
-  type EmailVerificationResponse,
-  type EmailVerifyRequest,
   type GenerationTelemetryRequest,
   type HealthResponse,
   type LoginRequest,
   type LogoutResponse,
+  type PasswordChangeRequest,
+  type PasswordChangeResponse,
   type PasswordForgotRequest,
   type PasswordResetRequest,
   type PasswordResetResponse,
@@ -23,6 +23,8 @@ import {
   type ProjectListStatus,
   type RenameProjectRequest,
   type RegisterRequest,
+  type RegistrationEmailCodeRequest,
+  type RegistrationEmailCodeResponse,
   type RemoveDeviceResponse,
   type RestoreProjectRevisionRequest,
   type RevokeSessionResponse,
@@ -777,30 +779,13 @@ async function handleAuthRoute(
 
     if (
       request.method === "POST" &&
-      isAuthPath(requestUrl.pathname, "email/resend")
+      isAuthPath(requestUrl.pathname, "registration/email-code")
     ) {
-      if (!context.cookieHeader) {
-        throw new AuthServiceError({
-          statusCode: 401,
-          apiCode: "AUTH_REQUIRED",
-          message: "Authentication required",
-        });
-      }
-
-      const payload: EmailVerificationResponse =
-        await authService.resendVerificationEmail(context);
-      sendJson(response, 200, payload, requestId);
-      return true;
-    }
-
-    if (
-      request.method === "POST" &&
-      isAuthPath(requestUrl.pathname, "email/verify")
-    ) {
-      const payload: EmailVerificationResponse = await authService.verifyEmail(
-        await readJsonBody<EmailVerifyRequest>(request),
-        context,
-      );
+      const payload: RegistrationEmailCodeResponse =
+        await authService.sendRegistrationEmailCode(
+          await readJsonBody<RegistrationEmailCodeRequest>(request),
+          context,
+        );
       sendJson(response, 200, payload, requestId);
       return true;
     }
@@ -826,6 +811,28 @@ async function handleAuthRoute(
         await readJsonBody<PasswordResetRequest>(request),
         context,
       );
+      sendJson(response, 200, payload, requestId);
+      return true;
+    }
+
+    if (
+      request.method === "POST" &&
+      isAuthPath(requestUrl.pathname, "password/change")
+    ) {
+      if (!context.cookieHeader) {
+        throw new AuthServiceError({
+          statusCode: 401,
+          apiCode: "AUTH_REQUIRED",
+          message: "Authentication required",
+        });
+      }
+
+      const result = await authService.changePassword(
+        await readJsonBody<PasswordChangeRequest>(request),
+        context,
+      );
+      setCookieHeaders(response, result.setCookieHeaders);
+      const payload: PasswordChangeResponse = result.response;
       sendJson(response, 200, payload, requestId);
       return true;
     }
@@ -1332,8 +1339,7 @@ function getRateLimitBucket(
   }
   if (
     pathname.startsWith(`${API_V1_PREFIX}/auth/password/`) ||
-    pathname === `${API_V1_PREFIX}/auth/email/verify` ||
-    pathname === `${API_V1_PREFIX}/auth/email/resend`
+    pathname === `${API_V1_PREFIX}/auth/registration/email-code`
   ) {
     return "password_email";
   }

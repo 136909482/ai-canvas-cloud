@@ -27,6 +27,7 @@ import type {
   ProviderProfileConfig,
 } from "@/types";
 import { CanvasSettingsSwitch } from "@/components/toolbar/settingsComponents";
+import { ModelOptionIcon } from "@/components/icons/ModelOptionIcon";
 import {
   FIELD_INPUT_CLASS,
   FIELD_SELECT_CLASS,
@@ -94,6 +95,7 @@ export function LocalVaultSettingsPanel() {
     useState<DraftProviderProfile | null>(null);
   const [modelDraft, setModelDraft] = useState<DraftModelCard | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [isApiKeyEditing, setIsApiKeyEditing] = useState(false);
   const [providerSearch, setProviderSearch] = useState("");
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [isModelEditorOpen, setIsModelEditorOpen] = useState(false);
@@ -129,6 +131,19 @@ export function LocalVaultSettingsPanel() {
       profile.name.toLowerCase().includes(query),
     );
   }, [config.providerProfiles, providerSearch]);
+  const isSavedProviderDraft = Boolean(
+    providerDraft &&
+    config.providerProfiles.some((profile) => profile.id === providerDraft.id),
+  );
+  const savedProviderApiKey = providerDraft
+    ? (config.providerApiKeys[providerDraft.id] ?? "")
+    : "";
+  const apiKeyDisplayValue =
+    isApiKeyEditing || !savedProviderApiKey
+      ? (providerDraft?.apiKey ?? "")
+      : showApiKey
+        ? savedProviderApiKey
+        : "********";
 
   useEffect(() => {
     if (isProviderDirty) return;
@@ -143,7 +158,10 @@ export function LocalVaultSettingsPanel() {
     setProviderDraft(
       profile ? { ...toDraftProviderProfile(profile), apiKey: "" } : null,
     );
+    setShowApiKey(false);
+    setIsApiKeyEditing(false);
   }, [
+    config.providerApiKeys,
     config.providerProfiles,
     isProviderDirty,
     providerDraft?.id,
@@ -183,6 +201,7 @@ export function LocalVaultSettingsPanel() {
     setSelectedProviderId(draft.id);
     setProviderDraft(draft);
     setShowApiKey(false);
+    setIsApiKeyEditing(false);
     setIsProviderDirty(false);
     setProviderSaveStatus({ state: "idle" });
   };
@@ -210,6 +229,7 @@ export function LocalVaultSettingsPanel() {
     setSelectedProviderId(id);
     setProviderDraft({ ...toDraftProviderProfile(profile), apiKey: "" });
     setShowApiKey(false);
+    setIsApiKeyEditing(false);
     setSelectedModelId(null);
     setModelDraft(null);
     modelDraftRef.current = null;
@@ -278,17 +298,19 @@ export function LocalVaultSettingsPanel() {
         (candidate) => candidate.id === draft.id,
       );
       const needsRediscovery =
-        Boolean(draft.apiKey) ||
+        (draft.apiKey
+          ? draft.apiKey !== (config.providerApiKeys[draft.id] ?? "")
+          : false) ||
         (existingProfile?.baseUrl !== undefined &&
           existingProfile.baseUrl !== draft.baseUrl);
 
-      const profile = {
+      const profile: ProviderProfileConfig = {
         id: draft.id,
         name: draft.name,
         protocol: draft.protocol,
         baseUrl: draft.baseUrl,
         enabled: draft.enabled,
-        imageRequestMode: draft.imageRequestMode,
+        imageRequestMode: "sync",
         createdAt: draft.createdAt,
         updatedAt: draft.updatedAt,
         ...(draft.lastDiscoveryAt && !needsRediscovery
@@ -300,6 +322,7 @@ export function LocalVaultSettingsPanel() {
       if (providerDraftRevision.current !== revision) return;
       setSelectedProviderId(profile.id);
       setProviderDraft({ ...draft, apiKey: "" });
+      setIsApiKeyEditing(false);
       setIsProviderDirty(false);
       setProviderSaveStatus({
         state: "saved",
@@ -366,7 +389,7 @@ export function LocalVaultSettingsPanel() {
       protocol: draft.protocol,
       baseUrl: input.baseUrl,
       enabled: draft.enabled,
-      imageRequestMode: draft.imageRequestMode,
+      imageRequestMode: "sync",
       createdAt: draft.createdAt,
       updatedAt: draft.updatedAt,
       lastDiscoveryAt: discoveredAt,
@@ -380,6 +403,7 @@ export function LocalVaultSettingsPanel() {
     });
     setSelectedProviderId(profile.id);
     setProviderDraft({ ...toDraftProviderProfile(profile), apiKey: "" });
+    setIsApiKeyEditing(false);
     setIsProviderDirty(false);
     setProviderSaveStatus({ state: "saved", message: "已自动保存" });
     notify({
@@ -549,8 +573,7 @@ export function LocalVaultSettingsPanel() {
   };
 
   const removeProvider = async () => {
-    if (!providerDraft || providerDraft.id.startsWith("draft-provider-"))
-      return;
+    if (!providerDraft || !isSavedProviderDraft) return;
     if (
       !(await confirm({
         title: "删除服务商",
@@ -630,17 +653,20 @@ export function LocalVaultSettingsPanel() {
           </aside>
           <section className="project-manager-scrollbar min-h-0 overflow-y-auto px-5 py-4 [scrollbar-gutter:stable]">
             {providerDraft ? (
-              <div className="mx-auto max-w-3xl space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <span className="text-xs font-medium text-[var(--text-primary)]">
-                      服务商配置
+              <div className="mx-auto max-w-3xl space-y-3">
+                <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] pb-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      title={providerDraft.name.trim() || "未命名服务商"}
+                      className="truncate text-xs font-medium text-[var(--text-primary)]"
+                    >
+                      {providerDraft.name.trim() || "未命名服务商"}
                     </span>
                     {providerSaveStatus.state !== "idle" ? (
                       <span
                         aria-live="polite"
                         className={cx(
-                          "ml-2 text-[10px]",
+                          "shrink-0 text-[10px]",
                           providerSaveStatus.state === "error"
                             ? "text-red-400"
                             : themeClasses.textMuted,
@@ -650,7 +676,18 @@ export function LocalVaultSettingsPanel() {
                       </span>
                     ) : null}
                   </div>
-                  <div className="flex shrink-0 items-center gap-3">
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {isSavedProviderDraft ? (
+                      <button
+                        type="button"
+                        onClick={() => void removeProvider()}
+                        aria-label="删除服务商"
+                        title="删除服务商"
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-[var(--text-muted)] transition-colors hover:bg-red-500/10 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
                     <CanvasSettingsSwitch
                       checked={providerDraft.enabled}
                       label={
@@ -663,21 +700,10 @@ export function LocalVaultSettingsPanel() {
                         }))
                       }
                     />
-                    {!providerDraft.id.startsWith("draft-provider-") ? (
-                      <button
-                        type="button"
-                        onClick={() => void removeProvider()}
-                        aria-label="删除服务商"
-                        title="删除服务商"
-                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-[var(--text-muted)] transition-colors hover:bg-red-500/10 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    ) : null}
                   </div>
                 </div>
-                <label className="block space-y-1.5 text-xs text-[var(--text-secondary)]">
-                  <span>显示名称</span>
+                <label className="block space-y-1 text-xs text-[var(--text-secondary)]">
+                  <span className="block leading-4">显示名称</span>
                   <input
                     className={FIELD_INPUT_CLASS}
                     value={providerDraft.name}
@@ -689,8 +715,8 @@ export function LocalVaultSettingsPanel() {
                     }
                   />
                 </label>
-                <label className="block space-y-1.5 text-xs text-[var(--text-secondary)]">
-                  <span className="flex items-center gap-1.5">
+                <label className="block space-y-1 text-xs text-[var(--text-secondary)]">
+                  <span className="flex items-center gap-1.5 leading-4">
                     <Link2 className="h-3.5 w-3.5" />
                     Base URL
                   </span>
@@ -707,8 +733,8 @@ export function LocalVaultSettingsPanel() {
                     autoComplete="off"
                   />
                 </label>
-                <label className="block space-y-1.5 text-xs text-[var(--text-secondary)]">
-                  <span className="flex items-center gap-1.5">
+                <label className="block space-y-1 text-xs text-[var(--text-secondary)]">
+                  <span className="flex items-center gap-1.5 leading-4">
                     <KeyRound className="h-3.5 w-3.5" />
                     API Key
                   </span>
@@ -716,7 +742,16 @@ export function LocalVaultSettingsPanel() {
                     <input
                       type={showApiKey ? "text" : "password"}
                       className={cx(FIELD_INPUT_CLASS, "pr-10")}
-                      value={providerDraft.apiKey}
+                      value={apiKeyDisplayValue}
+                      onFocus={() => {
+                        if (isApiKeyEditing || !savedProviderApiKey) return;
+                        setProviderDraft((current) =>
+                          current
+                            ? { ...current, apiKey: savedProviderApiKey }
+                            : current,
+                        );
+                        setIsApiKeyEditing(true);
+                      }}
                       onChange={(event) =>
                         updateProviderDraft((draft) => ({
                           ...draft,
@@ -724,11 +759,7 @@ export function LocalVaultSettingsPanel() {
                         }))
                       }
                       autoComplete="off"
-                      placeholder={
-                        config.providerApiKeys[providerDraft.id]
-                          ? "已保存，输入新 Key 可更换"
-                          : ""
-                      }
+                      placeholder="输入 API Key"
                     />
                     <button
                       type="button"
@@ -743,23 +774,6 @@ export function LocalVaultSettingsPanel() {
                       )}
                     </button>
                   </span>
-                </label>
-                <label className="block space-y-1.5 text-xs text-[var(--text-secondary)]">
-                  <span>图像请求模式</span>
-                  <select
-                    className={FIELD_SELECT_CLASS}
-                    value={providerDraft.imageRequestMode}
-                    onChange={(event) =>
-                      updateProviderDraft((draft) => ({
-                        ...draft,
-                        imageRequestMode: event.target.value as
-                          "sync" | "async",
-                      }))
-                    }
-                  >
-                    <option value="sync">同步</option>
-                    <option value="async">异步轮询</option>
-                  </select>
                 </label>
                 <section className="space-y-3 border-t border-[var(--border-subtle)] pt-4">
                   <div className="flex items-center justify-between gap-3">
@@ -793,9 +807,6 @@ export function LocalVaultSettingsPanel() {
                   {providerModelEntries.length > 0 ? (
                     <div className="overflow-hidden rounded-[7px] border border-[var(--border-subtle)] bg-[var(--control-bg)]">
                       {providerModelEntries.map((entry) => {
-                        const categoryLabel =
-                          MODEL_TABS.find((tab) => tab.id === entry.category)
-                            ?.label ?? entry.category;
                         const active =
                           isModelEditorOpen && selectedModelId === entry.id;
                         return (
@@ -809,8 +820,8 @@ export function LocalVaultSettingsPanel() {
                               !entry.enabled && "opacity-55",
                             )}
                           >
-                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] border border-emerald-400/20 bg-emerald-400/10 text-[11px] font-semibold text-emerald-300">
-                              {categoryLabel.slice(0, 1)}
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center">
+                              <ModelOptionIcon model={entry} />
                             </span>
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-xs font-medium text-[var(--text-primary)]">

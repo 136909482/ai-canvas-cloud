@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   AuthSessionResponse,
   AuthSuccessResponse,
+  RegisterRequest,
 } from "@ai-canvas-cloud/contracts";
 import { useProjectStore } from "@/store/useProjectStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
@@ -19,11 +20,7 @@ interface AuthStore {
     password: string;
     force?: boolean;
   }) => Promise<void>;
-  register: (input: {
-    username: string;
-    email: string;
-    password: string;
-  }) => Promise<void>;
+  register: (input: RegisterRequest) => Promise<void>;
   logout: () => Promise<void>;
 }
 
