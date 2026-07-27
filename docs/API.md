@@ -120,7 +120,7 @@ POST   /api/v1/auth/password/change
 
 同账号只允许一个有效 session。登录检测到其他有效 session 时删除本次临时 session，返回 `409 ACTIVE_SESSION_EXISTS`；只有 `force=true` 的明确确认才撤销旧 session 并签发新 Cookie。
 
-`deviceId` 是浏览器非认证标识。设备列表只返回当前账号的 label、首次/最近时间和 current；只能删除自己的非当前设备。忘记密码接口不泄漏邮箱是否存在，密码重置成功后撤销旧 session。已登录用户可调用受 Cookie 保护的 `POST /api/v1/auth/password/change`，请求为 `{ currentPassword, newPassword }`；服务端通过 Better Auth 校验当前密码、更新密码并撤销其他有效 session，客户端随后退出当前会话并跳转登录。
+`deviceId` 是浏览器级、非认证的随机标识。每个浏览器在同一 Origin 独立保存它，因此同一台电脑使用 Chrome、Edge 或 Firefox 会产生独立的设备管理记录；平台不采集硬件指纹，不跨浏览器共享或合并 ID，也不将其作为认证凭据。`/auth/devices` 和 `DeviceSummary` 契约保持兼容，列表只返回当前账号的 label、首次/最近时间和 current；只能删除自己的非当前设备历史记录。忘记密码接口不泄漏邮箱是否存在，密码重置成功后撤销旧 session。已登录用户可调用受 Cookie 保护的 `POST /api/v1/auth/password/change`，请求为 `{ currentPassword, newPassword }`；服务端通过 Better Auth 校验当前密码、更新密码并撤销其他有效 session，客户端随后退出当前会话并跳转登录。
 
 网站设置开启 `registrationEmailVerificationRequired` 后，浏览器先以 `{ email }` 调用 `POST /api/v1/auth/registration/email-code`，再将邮件中的 6 位 `emailVerificationCode` 传给注册接口。验证码有效 10 分钟，60 秒内不重复投递，连续 5 次错误即消费失效；发送接口保持非枚举响应，不返回账号或挑战状态。注册接口只接受一次性未过期验证码，成功后将邮箱标为已验证。关闭开关时不发送注册验证邮件，注册直接将邮箱标为已验证。密码重置同样先以 `{ email }` 调用 `POST /api/v1/auth/password/forgot`，再以 `{ email, code, password }` 调用 `POST /api/v1/auth/password/reset`；两个接口都不泄漏邮箱是否存在。重置验证码遵循相同的 10 分钟、60 秒和 5 次失败限制，短期表仅保存 HMAC 与 AES-256-GCM token 密文；SMTP `sendMail` 不自动重试。
 

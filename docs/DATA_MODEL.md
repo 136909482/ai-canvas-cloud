@@ -33,7 +33,7 @@
 
 ### `auth_devices`
 
-保存 `id`、`user_id`、客户端非认证 `device_key`、User-Agent、首次/最近时间和可空 `last_session_id`。`(user_id, device_key)` 唯一；删除 session 时只把 `last_session_id` 置空，不删除历史设备。当前设备记录不能从设备管理页删除。
+保存 `id`、`user_id`、客户端非认证 `device_key`、User-Agent、首次/最近时间和可空 `last_session_id`。`device_key` 实际是浏览器级随机标识：每个浏览器在本 Origin 独立保存，不采集硬件指纹、不跨浏览器共享或合并。`(user_id, device_key)` 唯一；删除 session 时只把 `last_session_id` 置空，不删除历史设备记录。当前设备记录不能从设备管理页删除。
 
 ### `workspaces`
 

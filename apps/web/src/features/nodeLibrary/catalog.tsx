@@ -37,6 +37,7 @@ export interface CanvasNodeCatalogActions {
 
 export interface CanvasNodeTool {
   id: string;
+  type: ManualCanvasNodeType;
   icon: ReactNode;
   label: string;
   description: string;
@@ -106,6 +107,7 @@ export function createCanvasNodeCatalog(
       .filter((registration) => registration.library.category === categoryId)
       .map((registration) => ({
         id: registration.library.id,
+        type: registration.type as ManualCanvasNodeType,
         icon: createIcon(registration.library.icon),
         label: registration.library.label,
         description: registration.library.description,

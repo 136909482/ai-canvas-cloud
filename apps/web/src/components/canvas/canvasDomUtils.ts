@@ -1,5 +1,14 @@
 import type { DragEvent } from "react";
 
+export const CANVAS_NODE_DRAG_MIME_TYPE = "application/x-ai-canvas-node-type";
+
+export function hasCanvasNodeDragTransfer(dataTransfer: DataTransfer | null) {
+  return Boolean(
+    dataTransfer &&
+    Array.from(dataTransfer.types).includes(CANVAS_NODE_DRAG_MIME_TYPE),
+  );
+}
+
 export function isEditableTarget(target: EventTarget | null) {
   if (!(target instanceof Element)) {
     return false;
@@ -57,6 +66,21 @@ export function hasImageFileTransfer(dataTransfer: DataTransfer | null) {
     ) ||
     Array.from(dataTransfer.files).some((file) =>
       file.type.startsWith("image/"),
+    )
+  );
+}
+
+export function isCanvasNodeDropTarget(
+  target: DragEvent<HTMLDivElement>["target"] | EventTarget | null,
+) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  return (
+    Boolean(target.closest(".react-flow")) &&
+    !target.closest(
+      ".react-flow__panel, .react-flow__minimap, .react-flow__controls",
     )
   );
 }

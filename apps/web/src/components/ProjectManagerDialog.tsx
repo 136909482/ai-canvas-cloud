@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Archive,
   ArrowUpDown,
@@ -190,6 +190,9 @@ export function ProjectManagerDialog() {
   const close = useProjectDialogStore((state) => state.close);
   const projects = useProjectStore((state) => state.projects);
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
+  const syncActiveWorkingSnapshot = useProjectStore(
+    (state) => state.syncActiveWorkingSnapshot,
+  );
   const createProject = useProjectStore((state) => state.createProject);
   const duplicateProject = useProjectStore((state) => state.duplicateProject);
   const loadProject = useProjectStore((state) => state.loadProject);
@@ -229,6 +232,12 @@ export function ProjectManagerDialog() {
     close,
     "[data-dialog-initial-focus]",
   );
+
+  useEffect(() => {
+    if (isOpen) {
+      syncActiveWorkingSnapshot();
+    }
+  }, [isOpen, syncActiveWorkingSnapshot]);
 
   const filteredProjects = useMemo(
     () =>
@@ -541,28 +550,22 @@ export function ProjectManagerDialog() {
   );
 
   return (
-    <div className="absolute inset-0 z-[55] flex items-center justify-center overflow-hidden bg-black/30 px-4 py-6 backdrop-blur-sm">
+    <div className="absolute inset-0 z-[55] flex items-center justify-center overflow-hidden bg-black/30 px-3 py-3 backdrop-blur-sm sm:px-4 sm:py-6">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="project-manager-title"
         tabIndex={-1}
-        className={`relative flex h-[min(78vh,40rem)] w-[min(94vw,76rem)] overflow-hidden rounded-[12px] ${themeClasses.strongPanel}`}
+        className={`relative flex h-[min(88dvh,40rem)] w-[min(96vw,76rem)] overflow-hidden rounded-[12px] sm:h-[min(82dvh,40rem)] sm:w-[min(94vw,76rem)] ${themeClasses.strongPanel}`}
       >
-        <button
-          type="button"
-          onClick={close}
-          className={`${themeClasses.iconButton} absolute right-4 top-7 z-10 h-10 w-10 rounded-2xl`}
-          aria-label="关闭项目管理"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <h2 id="project-manager-title" className="sr-only">
+          项目管理
+        </h2>
 
-        <aside className="relative hidden w-52 shrink-0 border-r border-[var(--border-subtle)] lg:flex lg:flex-col">
+        <aside className="relative hidden w-52 shrink-0 border-r border-[var(--border-subtle)] xl:flex xl:flex-col">
           <div className="px-7 pt-8">
             <h2
-              id="project-manager-title"
               className={`text-[1.65rem] font-semibold tracking-[-0.06em] ${themeClasses.textPrimary}`}
             >
               项目管理
@@ -598,143 +601,166 @@ export function ProjectManagerDialog() {
           </div>
         </aside>
 
-        <section className="relative flex min-w-0 flex-1 flex-col p-5 sm:p-6 lg:p-7">
+        <section className="relative flex min-w-0 flex-1 flex-col p-4 sm:p-5 lg:p-6 xl:p-7">
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-              <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
-                <div className="relative w-full sm:w-[15.5rem] xl:w-[13.5rem] xl:shrink-0">
-                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
-                  <input
-                    data-dialog-initial-focus
-                    type="text"
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="搜索项目..."
-                    className={`h-10 w-full rounded-2xl pl-10 pr-4 text-sm ${themeClasses.input}`}
-                  />
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="mb-3 xl:hidden">
+                  <div
+                    className={`text-xl font-semibold ${themeClasses.textPrimary}`}
+                  >
+                    项目管理
+                  </div>
+                  <p
+                    className={`mt-1 hidden text-xs leading-5 sm:block ${themeClasses.textMuted}`}
+                  >
+                    查看并管理你的历史创作记录
+                  </p>
                 </div>
 
-                <label className="inline-flex h-10 items-center gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--control-bg)] px-3.5 text-sm text-[var(--text-secondary)]">
-                  <ArrowUpDown className="h-4 w-4 text-[var(--text-muted)]" />
-                  <select
-                    value={sortMode}
-                    onChange={(event) =>
-                      setSortMode(event.target.value as ProjectSortMode)
-                    }
-                    className="bg-transparent pr-1 text-sm font-medium text-[var(--text-primary)] outline-none"
-                  >
-                    <option
-                      value="updated"
-                      className="bg-[var(--panel-bg-strong)]"
-                    >
-                      最近更新
-                    </option>
-                    <option
-                      value="name-asc"
-                      className="bg-[var(--panel-bg-strong)]"
-                    >
-                      名称 A-Z
-                    </option>
-                    <option
-                      value="name-desc"
-                      className="bg-[var(--panel-bg-strong)]"
-                    >
-                      名称 Z-A
-                    </option>
-                  </select>
-                </label>
+                <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+                  <div className="relative min-w-0 w-full sm:w-[15.5rem] xl:w-[13.5rem] xl:shrink-0">
+                    <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+                    <input
+                      data-dialog-initial-focus
+                      type="text"
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder="搜索项目..."
+                      className={`h-10 w-full rounded-2xl pl-10 pr-4 text-sm ${themeClasses.input}`}
+                    />
+                  </div>
 
-                <div className="inline-flex h-10 items-center rounded-2xl border border-[var(--border-subtle)] bg-[var(--control-bg)] p-1">
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("grid")}
-                    aria-label="网格视图"
-                    aria-pressed={viewMode === "grid"}
-                    className={
-                      viewMode === "grid"
-                        ? "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-violet-500 text-white"
-                        : "inline-flex h-8 w-8 items-center justify-center rounded-xl text-[var(--text-muted)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
-                    }
-                  >
-                    <LayoutGrid className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("list")}
-                    aria-label="列表视图"
-                    aria-pressed={viewMode === "list"}
-                    className={
-                      viewMode === "list"
-                        ? "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-violet-500 text-white"
-                        : "inline-flex h-8 w-8 items-center justify-center rounded-xl text-[var(--text-muted)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
-                    }
-                  >
-                    <List className="h-4 w-4" />
-                  </button>
-                </div>
+                  <label className="inline-flex h-10 shrink-0 items-center gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--control-bg)] px-3.5 text-sm text-[var(--text-secondary)]">
+                    <ArrowUpDown className="h-4 w-4 text-[var(--text-muted)]" />
+                    <select
+                      value={sortMode}
+                      onChange={(event) =>
+                        setSortMode(event.target.value as ProjectSortMode)
+                      }
+                      className="bg-transparent pr-1 text-sm font-medium text-[var(--text-primary)] outline-none"
+                    >
+                      <option
+                        value="updated"
+                        className="bg-[var(--panel-bg-strong)]"
+                      >
+                        最近更新
+                      </option>
+                      <option
+                        value="name-asc"
+                        className="bg-[var(--panel-bg-strong)]"
+                      >
+                        名称 A-Z
+                      </option>
+                      <option
+                        value="name-desc"
+                        className="bg-[var(--panel-bg-strong)]"
+                      >
+                        名称 Z-A
+                      </option>
+                    </select>
+                  </label>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBatchMode((current) => !current);
-                    setSelectedProjectIds([]);
-                  }}
-                  data-testid="project-batch-toggle"
-                  className={
-                    batchMode
-                      ? "inline-flex h-10 items-center gap-2 rounded-2xl border border-violet-400/30 bg-violet-500 px-4 text-sm font-semibold text-white"
-                      : `${themeClasses.secondaryButton} h-10 gap-2 px-4 text-sm font-medium`
-                  }
-                >
-                  <CheckSquare className="h-4 w-4" />
-                  批量管理
-                </button>
+                  <div className="inline-flex h-10 shrink-0 items-center rounded-2xl border border-[var(--border-subtle)] bg-[var(--control-bg)] p-1">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("grid")}
+                      aria-label="网格视图"
+                      aria-pressed={viewMode === "grid"}
+                      className={
+                        viewMode === "grid"
+                          ? "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-violet-500 text-white"
+                          : "inline-flex h-8 w-8 items-center justify-center rounded-xl text-[var(--text-muted)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
+                      }
+                    >
+                      <LayoutGrid className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("list")}
+                      aria-label="列表视图"
+                      aria-pressed={viewMode === "list"}
+                      className={
+                        viewMode === "list"
+                          ? "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-violet-500 text-white"
+                          : "inline-flex h-8 w-8 items-center justify-center rounded-xl text-[var(--text-muted)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
+                      }
+                    >
+                      <List className="h-4 w-4" />
+                    </button>
+                  </div>
 
-                {batchMode && selectedProjectIds.length > 0 ? (
                   <button
                     type="button"
                     onClick={() => {
-                      void handleBatchDelete();
+                      setBatchMode((current) => !current);
+                      setSelectedProjectIds([]);
                     }}
-                    data-testid="project-batch-delete"
-                    className="inline-flex h-10 items-center gap-2 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 text-sm font-medium text-red-500 transition hover:bg-red-500/14"
+                    data-testid="project-batch-toggle"
+                    className={
+                      batchMode
+                        ? "inline-flex h-10 items-center gap-2 rounded-2xl border border-violet-400/30 bg-violet-500 px-4 text-sm font-semibold text-white"
+                        : `${themeClasses.secondaryButton} h-10 shrink-0 gap-2 px-4 text-sm font-medium`
+                    }
                   >
-                    <Trash2 className="h-4 w-4" />
-                    删除已选
+                    <CheckSquare className="h-4 w-4" />
+                    批量管理
                   </button>
-                ) : null}
 
-                {!batchMode ? (
-                  <>
+                  {batchMode && selectedProjectIds.length > 0 ? (
                     <button
                       type="button"
                       onClick={() => {
-                        void handlePrepareProjectImport();
+                        void handleBatchDelete();
                       }}
-                      data-testid="import-project-button"
-                      className={`${themeClasses.secondaryButton} h-10 gap-2 px-4 text-sm font-medium`}
+                      data-testid="project-batch-delete"
+                      className="inline-flex h-10 shrink-0 items-center gap-2 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 text-sm font-medium text-red-500 transition hover:bg-red-500/14"
                     >
-                      <Import className="h-4 w-4" />
-                      导入项目
+                      <Trash2 className="h-4 w-4" />
+                      删除已选
                     </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDialogState({ mode: "create", project: null })
-                      }
-                      data-testid="create-project-button"
-                      className="inline-flex h-10 items-center gap-2 rounded-2xl border border-violet-400/25 bg-violet-500 px-4 text-sm font-semibold text-white transition hover:bg-violet-400"
-                    >
-                      <Plus className="h-4 w-4" />
-                      新建项目
-                    </button>
-                  </>
-                ) : null}
+                  ) : null}
+
+                  {!batchMode ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handlePrepareProjectImport();
+                        }}
+                        data-testid="import-project-button"
+                        className={`${themeClasses.secondaryButton} h-10 shrink-0 gap-2 px-4 text-sm font-medium`}
+                      >
+                        <Import className="h-4 w-4" />
+                        导入项目
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDialogState({ mode: "create", project: null })
+                        }
+                        data-testid="create-project-button"
+                        className="inline-flex h-10 shrink-0 items-center gap-2 rounded-2xl border border-violet-400/25 bg-violet-500 px-4 text-sm font-semibold text-white transition hover:bg-violet-400"
+                      >
+                        <Plus className="h-4 w-4" />
+                        新建项目
+                      </button>
+                    </>
+                  ) : null}
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={close}
+                className={`${themeClasses.iconButton} h-10 w-10 shrink-0 rounded-2xl`}
+                aria-label="关闭项目管理"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
 
             <div className="flex items-center justify-between gap-3">
-              <div className="lg:hidden">
+              <div className="xl:hidden">
                 <div className="flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <button
                     type="button"

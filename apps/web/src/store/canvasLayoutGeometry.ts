@@ -600,8 +600,13 @@ export function findManualSpawnPosition(
   nodes: Node[],
   preferredPosition: { x: number; y: number } | undefined,
   size: { width: number; height: number },
+  placement: "auto" | "exact" = "auto",
 ) {
   const basePosition = preferredPosition ?? { x: 160, y: 120 };
+  if (placement === "exact" && preferredPosition) {
+    return { ...preferredPosition };
+  }
+
   const stepX = Math.max(Math.round(size.width * 0.72), 180);
   const stepY = Math.max(Math.round(size.height * 0.72), 140);
   const occupiedRectangles = nodes

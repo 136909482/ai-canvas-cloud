@@ -56,9 +56,12 @@ import { CanvasTopBar } from "./CanvasTopBar";
 import { SelectionActionsToolbar } from "./SelectionActionsToolbar";
 import { CanvasFlowLayer } from "./canvas/CanvasFlowLayer";
 import {
+  CANVAS_NODE_DRAG_MIME_TYPE,
   getFirstImageFile,
+  hasCanvasNodeDragTransfer,
   hasImageFileTransfer,
   isCanvasEmptyDropTarget,
+  isCanvasNodeDropTarget,
 } from "./canvas/canvasDomUtils";
 import { useCanvasKeyboardShortcuts } from "./canvas/useCanvasKeyboardShortcuts";
 
@@ -188,6 +191,7 @@ export function Canvas() {
     addPanoramaNode,
     addTextNode,
     addImageNode,
+    addNodeByType,
     updateNodeData,
     setNodePositions,
   } = useCanvasStore(
@@ -208,6 +212,7 @@ export function Canvas() {
       addPanoramaNode: state.addPanoramaNode,
       addTextNode: state.addTextNode,
       addImageNode: state.addImageNode,
+      addNodeByType: state.addNodeByType,
       updateNodeData: state.updateNodeData,
       setNodePositions: state.setNodePositions,
     })),
@@ -714,6 +719,59 @@ export function Canvas() {
     [canvasContextMenu, runTracked, screenToFlowPosition],
   );
 
+  const handleCanvasNodeDragOverCapture = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (
+        !hasCanvasNodeDragTransfer(event.dataTransfer) ||
+        !isCanvasNodeDropTarget(event.target)
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "copy";
+    },
+    [],
+  );
+
+  const handleCanvasNodeDropCapture = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (
+        !hasCanvasNodeDragTransfer(event.dataTransfer) ||
+        !isCanvasNodeDropTarget(event.target)
+      ) {
+        return;
+      }
+
+      const draggedNodeType = event.dataTransfer.getData(
+        CANVAS_NODE_DRAG_MIME_TYPE,
+      );
+      const draggedTool = canvasContextMenuCategories
+        .flatMap((category) => category.tools)
+        .find((tool) => tool.type === draggedNodeType);
+      if (!draggedTool) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      const exactPosition = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      runTracked(() => {
+        addNodeByType(draggedTool.type, exactPosition, "exact");
+      });
+    },
+    [
+      addNodeByType,
+      canvasContextMenuCategories,
+      runTracked,
+      screenToFlowPosition,
+    ],
+  );
+
   const handleCanvasDragOver = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
       if (
@@ -913,7 +971,11 @@ export function Canvas() {
   );
 
   return (
-    <div className={`relative h-full w-full ${performanceClassName}`}>
+    <div
+      className={`relative h-full w-full ${performanceClassName}`}
+      onDragOverCapture={handleCanvasNodeDragOverCapture}
+      onDropCapture={handleCanvasNodeDropCapture}
+    >
       <CanvasFlowLayer
         nodes={nodes}
         edges={renderedEdges}

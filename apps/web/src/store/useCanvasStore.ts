@@ -124,6 +124,7 @@ interface CanvasStore {
   addNodeByType: (
     type: ManualCanvasNodeType,
     preferredPosition?: { x: number; y: number },
+    placement?: "auto" | "exact",
   ) => string;
   addImageNode: (preferredPosition?: { x: number; y: number }) => string;
   addVideoNode: (preferredPosition?: { x: number; y: number }) => string;
@@ -434,7 +435,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       return buildSyncedGraphState(s.nodes, nextEdges);
     }),
 
-  addNodeByType: (type, preferredPosition) => {
+  addNodeByType: (type, preferredPosition, placement = "auto") => {
     const id = takeNextNodeId(type);
     if (!id) {
       return "";
@@ -446,6 +447,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         s.nodes,
         preferredPosition,
         registration.size,
+        placement,
       );
       const newNode = registration.build(id, position, registration.size);
       const defaultModelCategory =

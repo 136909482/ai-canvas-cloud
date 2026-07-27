@@ -119,7 +119,7 @@ export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
       aria-label={TASK_QUEUE_COPY.panelTitle}
       tabIndex={-1}
       data-testid="task-queue-panel"
-      className={`fixed left-4 right-4 top-14 z-30 w-auto overflow-hidden rounded-xl [--font-mono:'JetBrains_Mono','Cascadia_Mono','Consolas',monospace] sm:left-auto sm:w-[34rem] ${themeClasses.strongPanel}`}
+      className={`fixed left-4 right-4 top-14 z-30 w-auto overflow-hidden rounded-xl [--font-mono:'JetBrains_Mono','Cascadia_Mono','Consolas',monospace] sm:left-auto sm:w-[26rem] ${themeClasses.strongPanel}`}
     >
       <div className="border-b border-[var(--border-subtle)] px-3 py-2.5">
         <div className="flex items-center justify-between gap-3">
@@ -187,7 +187,7 @@ export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
       ) : null}
 
       {filteredTasks.length > 0 ? (
-        <div className="task-queue-scrollbar max-h-[20rem] overflow-x-hidden overflow-y-auto px-2 py-2">
+        <div className="task-queue-scrollbar max-h-[16rem] overflow-x-hidden overflow-y-auto px-2 py-2">
           <div className="space-y-1.5">
             {filteredTasks.map((task) => (
               <TaskQueueTaskRow
@@ -212,7 +212,7 @@ export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
       ) : (
         <div
           data-testid="task-queue-empty"
-          className={`flex min-h-28 flex-col items-center justify-center gap-2 px-4 text-center ${themeClasses.textMuted}`}
+          className={`flex min-h-16 flex-col items-center justify-center gap-1 px-4 text-center ${themeClasses.textMuted}`}
         >
           <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-muted)]">
             <ListTodo className="h-3.5 w-3.5" />

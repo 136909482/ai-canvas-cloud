@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Node, NodeChange } from "@xyflow/react";
-import { applyVisualNodeChanges } from "./canvasLayoutGeometry.ts";
+import {
+  applyVisualNodeChanges,
+  findManualSpawnPosition,
+} from "./canvasLayoutGeometry.ts";
 
 function createNode(
   id: string,
@@ -94,4 +97,28 @@ test("applies queued group drag frames incrementally instead of duplicating the 
   );
 
   applyVisualNodeChanges(moved, [moveGroup(groupId, 60, 40, false)]);
+});
+
+test("keeps exact manual placement even when the drop overlaps another node", () => {
+  const occupiedPosition = { x: 120, y: 80 };
+  const size = { width: 240, height: 160 };
+  const nodes = [
+    createNode(
+      "existing",
+      "imageNode",
+      occupiedPosition.x,
+      occupiedPosition.y,
+      size.width,
+      size.height,
+    ),
+  ];
+
+  assert.notDeepEqual(
+    findManualSpawnPosition(nodes, occupiedPosition, size, "auto"),
+    occupiedPosition,
+  );
+  assert.deepEqual(
+    findManualSpawnPosition(nodes, occupiedPosition, size, "exact"),
+    occupiedPosition,
+  );
 });

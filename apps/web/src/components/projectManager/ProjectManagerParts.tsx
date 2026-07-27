@@ -10,9 +10,15 @@ import {
   PenSquare,
   Trash2,
 } from "lucide-react";
+import { CanvasImagePreview } from "@/components/CanvasImagePreview";
 import type { ProjectManagerStatusView } from "@/features/projectManager/projectManagerStatus";
+import { platformBridge } from "@/platform";
 import { themeClasses } from "@/styles/themeClasses";
-import { isImageSourceNodeType, type ProjectRecord } from "@/types";
+import {
+  isImageSourceNodeType,
+  type ProjectRecord,
+  type WorkspaceImageAsset,
+} from "@/types";
 import type { ProjectViewMode } from "./projectManagerModel";
 import { handleMenuKeyboard } from "@/utils/menuKeyboard";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
@@ -84,6 +90,79 @@ function formatTimestamp(value: number) {
   });
 }
 
+type ProjectPreviewImageAsset = Partial<
+  Pick<
+    WorkspaceImageAsset,
+    | "relativePath"
+    | "fileName"
+    | "thumbnailRelativePath"
+    | "originalWidth"
+    | "originalHeight"
+    | "projectId"
+  >
+>;
+
+type ProjectNodePreview = {
+  id: string;
+  left: string;
+  top: string;
+  width: string;
+  height: string;
+  tone: string;
+  imageUrl: string | null;
+  imageAsset: ProjectPreviewImageAsset | null;
+  hasImage: boolean;
+};
+
+function getProjectPreviewImageAsset(
+  value: unknown,
+): ProjectPreviewImageAsset | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const asset = value as Record<string, unknown>;
+  const imageAsset: ProjectPreviewImageAsset = {};
+
+  if (typeof asset.relativePath === "string") {
+    imageAsset.relativePath = asset.relativePath;
+  }
+  if (typeof asset.fileName === "string") {
+    imageAsset.fileName = asset.fileName;
+  }
+  if (typeof asset.thumbnailRelativePath === "string") {
+    imageAsset.thumbnailRelativePath = asset.thumbnailRelativePath;
+  }
+  if (typeof asset.originalWidth === "number") {
+    imageAsset.originalWidth = asset.originalWidth;
+  }
+  if (typeof asset.originalHeight === "number") {
+    imageAsset.originalHeight = asset.originalHeight;
+  }
+  if (typeof asset.projectId === "string" || asset.projectId === null) {
+    imageAsset.projectId = asset.projectId;
+  }
+
+  return Object.keys(imageAsset).length > 0 ? imageAsset : null;
+}
+
+function getProjectNodeImagePreview(
+  node: ProjectRecord["workingSnapshot"]["canvas"]["nodes"][number],
+) {
+  const imageUrl =
+    typeof node.data.imageUrl === "string" && node.data.imageUrl.length > 0
+      ? node.data.imageUrl
+      : null;
+
+  const imageAsset = getProjectPreviewImageAsset(node.data.imageAsset);
+
+  return {
+    imageUrl,
+    imageAsset,
+    hasImage: Boolean(imageUrl || imageAsset?.relativePath),
+  };
+}
+
 function getProjectNodePreview(project: ProjectRecord) {
   const nodes = project.workingSnapshot.canvas.nodes;
 
@@ -114,13 +193,26 @@ function getProjectNodePreview(project: ProjectRecord) {
   const width = Math.max(bounds.maxX - bounds.minX, 1);
   const height = Math.max(bounds.maxY - bounds.minY, 1);
 
-  return nodes.slice(0, 8).map((node, index) => {
+  const imageNodes = nodes
+    .filter((node) => getProjectNodeImagePreview(node).hasImage)
+    .slice(0, 3);
+  const selectedNodeIds = new Set(imageNodes.map((node) => node.id));
+  const previewSourceNodes = [
+    ...imageNodes,
+    ...nodes
+      .filter((node) => !selectedNodeIds.has(node.id))
+      .slice(0, 8 - imageNodes.length),
+  ];
+
+  return previewSourceNodes.map((node, index): ProjectNodePreview => {
     const nodeWidth = typeof node.width === "number" ? node.width : 120;
     const nodeHeight = typeof node.height === "number" ? node.height : 90;
     const left = ((node.position.x - bounds.minX) / width) * 100;
     const top = ((node.position.y - bounds.minY) / height) * 100;
     const previewWidth = (nodeWidth / width) * 100;
     const previewHeight = (nodeHeight / height) * 100;
+
+    const imagePreview = getProjectNodeImagePreview(node);
 
     return {
       id: `${node.id}-${index}`,
@@ -136,8 +228,99 @@ function getProjectNodePreview(project: ProjectRecord) {
             : isImageSourceNodeType(node.type)
               ? "bg-violet-400/16"
               : "bg-[var(--control-bg)]",
+      ...imagePreview,
     };
   });
+}
+
+function ProjectImageMiniature({
+  imageUrl,
+  imageAsset,
+}: Pick<ProjectNodePreview, "imageUrl" | "imageAsset">) {
+  const [resolvedImageUrl, setResolvedImageUrl] = useState(imageUrl ?? "");
+  const previewPath =
+    imageAsset?.thumbnailRelativePath ?? imageAsset?.relativePath ?? null;
+
+  useEffect(() => {
+    if (imageUrl) {
+      setResolvedImageUrl(imageUrl);
+      return;
+    }
+
+    if (!previewPath) {
+      setResolvedImageUrl("");
+      return;
+    }
+
+    let cancelled = false;
+    void platformBridge
+      .resolveWorkspaceAssetUrl(previewPath)
+      .then((nextImageUrl) => {
+        if (!cancelled) {
+          setResolvedImageUrl(nextImageUrl);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setResolvedImageUrl("");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [imageUrl, previewPath]);
+
+  if (!resolvedImageUrl) {
+    return null;
+  }
+
+  return (
+    <>
+      <CanvasImagePreview
+        src={resolvedImageUrl}
+        alt=""
+        imageAsset={imageAsset}
+        forceLowQualityPreview
+        className="h-full w-full object-cover opacity-60"
+      />
+      <span aria-hidden="true" className="absolute inset-0 bg-black/20" />
+    </>
+  );
+}
+
+function ProjectNodeMiniature({
+  previewNodes,
+}: {
+  previewNodes: ProjectNodePreview[];
+}) {
+  return (
+    <>
+      {previewNodes.map((previewNode) => (
+        <div
+          key={previewNode.id}
+          className={`absolute overflow-hidden rounded-md shadow-[0_10px_22px_rgba(0,0,0,0.18)] ${
+            previewNode.hasImage
+              ? "border border-white/10 bg-[var(--control-bg)]"
+              : previewNode.tone
+          }`}
+          style={{
+            left: previewNode.left,
+            top: previewNode.top,
+            width: previewNode.width,
+            height: previewNode.height,
+          }}
+        >
+          {previewNode.hasImage ? (
+            <ProjectImageMiniature
+              imageUrl={previewNode.imageUrl}
+              imageAsset={previewNode.imageAsset}
+            />
+          ) : null}
+        </div>
+      ))}
+    </>
+  );
 }
 
 export function ProjectNameDialog({
@@ -485,18 +668,7 @@ export function ProjectPreviewCard({
         >
           <div className="relative h-16 w-22 shrink-0 overflow-hidden rounded-[14px] border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)]">
             <div className="absolute inset-[8px] rounded-[10px] bg-[var(--control-bg)]" />
-            {previewNodes.map((previewNode) => (
-              <div
-                key={previewNode.id}
-                className={`absolute rounded-md shadow-[0_8px_18px_rgba(0,0,0,0.18)] ${previewNode.tone}`}
-                style={{
-                  left: previewNode.left,
-                  top: previewNode.top,
-                  width: previewNode.width,
-                  height: previewNode.height,
-                }}
-              />
-            ))}
+            <ProjectNodeMiniature previewNodes={previewNodes} />
             {previewNodes.length === 0 ? (
               <div className="absolute left-1/2 top-1/2 h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-xl bg-[var(--control-bg-hover)]" />
             ) : null}
@@ -597,18 +769,7 @@ export function ProjectPreviewCard({
         <div className="relative aspect-square overflow-hidden rounded-[20px] border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] shadow-[var(--shadow-panel)] transition duration-200 group-hover:border-violet-400/30">
           <div className="absolute inset-[10px] rounded-[14px] bg-[var(--control-bg)]" />
           <div className="absolute inset-x-[18%] top-[16%] h-[48%] rounded-[18px] bg-violet-400/5 blur-2xl" />
-          {previewNodes.map((previewNode) => (
-            <div
-              key={previewNode.id}
-              className={`absolute rounded-md shadow-[0_10px_22px_rgba(0,0,0,0.18)] ${previewNode.tone}`}
-              style={{
-                left: previewNode.left,
-                top: previewNode.top,
-                width: previewNode.width,
-                height: previewNode.height,
-              }}
-            />
-          ))}
+          <ProjectNodeMiniature previewNodes={previewNodes} />
 
           {previewNodes.length === 0 ? (
             <div className="absolute left-1/2 top-[35%] h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-[var(--control-bg-hover)]" />

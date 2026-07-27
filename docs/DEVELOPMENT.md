@@ -47,6 +47,7 @@ Web 不得 import `server/`、数据库驱动、Redis 或对象存储管理 SDK�
 - 注册、登录和 session 恢复后幂等确保 personal workspace、owner membership 和 user state。
 - 所有资源访问从可信 session 解析用户，再按 `workspace_id` 和成员关系授权；客户端 `user_id` 不可信。
 - 同账号只允许一个有效 session；封禁用户不能登录、恢复 session 或通过 workspace 授权。
+- `deviceId` 是每个浏览器独立保存的随机非认证标识，用于设备管理记录；不采集硬件指纹、不跨浏览器共享或合并 ID，也不作为凭据。它不改变浏览器 Vault 按 Origin、可信用户和项目隔离的边界。
 - 跨 workspace 与不存在资源使用相同的非披露错误语义。
 - 密码、Cookie、token、完整邮件链接、正文和 Provider Key 不得进入日志。
 

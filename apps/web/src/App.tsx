@@ -1,6 +1,6 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
-import { ArrowLeftRight, Plus } from "lucide-react";
+import { FolderKanban, Plus } from "lucide-react";
 import { AppFeedbackHost } from "@/components/AppFeedbackHost";
 import { Canvas } from "@/components/Canvas";
 import { CanvasQuickActions } from "@/components/CanvasTopBar";
@@ -10,11 +10,11 @@ import { ProjectBootstrap } from "@/components/ProjectBootstrap";
 import { ProjectConflictBanner } from "@/components/ProjectConflictBanner";
 import { TaskQueueRunner } from "@/components/TaskQueueRunner";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { TooltipIconButton } from "@/components/TooltipIconButton";
 import { Toolbar } from "@/components/Toolbar";
 import { AccountMenu } from "@/features/auth/AccountMenu";
 import { AuthGate } from "@/features/auth/AuthGate";
 import { useImageEditorStore } from "@/store/useImageEditorStore";
-import { useMigrationStore } from "@/store/useMigrationStore";
 import { useProjectDialogStore } from "@/store/useProjectDialogStore";
 import { useProjectStore } from "@/store/useProjectStore";
 import { themeClasses } from "@/styles/themeClasses";
@@ -29,12 +29,6 @@ const ProjectManagerDialog = lazy(() =>
     default: module.ProjectManagerDialog,
   })),
 );
-const MigrationCenterDialog = lazy(() =>
-  import("@/components/MigrationCenterDialog").then((module) => ({
-    default: module.MigrationCenterDialog,
-  })),
-);
-
 function EmptyProjectHint() {
   const openProjectDialog = useProjectDialogStore((state) => state.open);
 
@@ -68,12 +62,8 @@ function AppContent() {
   const isReady = useProjectStore((state) => state.isReady);
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
   const imageEditorSession = useImageEditorStore((state) => state.session);
-  const hydrateMigrations = useMigrationStore((state) => state.hydrate);
-  const [showMigrationCenter, setShowMigrationCenter] = useState(false);
+  const openProjectDialog = useProjectDialogStore((state) => state.open);
 
-  useEffect(() => {
-    void hydrateMigrations();
-  }, [hydrateMigrations]);
   if (!hasHydrated || !isReady) {
     return (
       <div
@@ -91,16 +81,15 @@ function AppContent() {
           rightSlot={
             <>
               <CanvasQuickActions includeWorkflowActions={false} />
-              <button
-                type="button"
-                title="迁移中心"
-                aria-label="打开迁移中心"
-                onClick={() => setShowMigrationCenter(true)}
-                className={`${themeClasses.iconButton} h-6 w-6 rounded-md`}
-              >
-                <ArrowLeftRight className="h-3.5 w-3.5" />
-              </button>
               <NotificationCenterButton />
+              <TooltipIconButton
+                label="项目管理"
+                onClick={openProjectDialog}
+                testId="project-manager-button"
+                tooltipPlacement="bottom"
+                className={`${themeClasses.iconButton} h-6 w-6 rounded-md`}
+                icon={<FolderKanban className="h-3.5 w-3.5" />}
+              />
               <AccountMenu />
             </>
           }
@@ -117,13 +106,6 @@ function AppContent() {
           </Suspense>
         ) : null}
         {!activeProjectId ? <EmptyProjectHint /> : null}
-        {showMigrationCenter ? (
-          <Suspense fallback={null}>
-            <MigrationCenterDialog
-              onClose={() => setShowMigrationCenter(false)}
-            />
-          </Suspense>
-        ) : null}
       </div>
     </ReactFlowProvider>
   );

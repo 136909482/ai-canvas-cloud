@@ -15,7 +15,6 @@ import {
   Boxes,
   BookTemplate,
   Check,
-  FolderKanban,
   Images,
   Pencil,
   Plus,
@@ -23,14 +22,17 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { createCanvasNodeCatalog } from "@/features/nodeLibrary/catalog";
+import {
+  createCanvasNodeCatalog,
+  type CanvasNodeTool,
+} from "@/features/nodeLibrary/catalog";
 import { getNodeSize, useCanvasStore } from "@/store/useCanvasStore";
 import { useHistoryStore } from "@/store/useHistoryStore";
-import { useProjectDialogStore } from "@/store/useProjectDialogStore";
 import { useWorkflowTemplateStore } from "@/store/useWorkflowTemplateStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { useFeedbackStore } from "@/store/useFeedbackStore";
 import { CanvasImagePreview } from "@/components/CanvasImagePreview";
+import { CANVAS_NODE_DRAG_MIME_TYPE } from "@/components/canvas/canvasDomUtils";
 import { isImageSourceNodeType, type WorkspaceImageAsset } from "@/types";
 import { themeClasses } from "@/styles/themeClasses";
 import { useShallow } from "zustand/react/shallow";
@@ -48,16 +50,54 @@ interface ToolButton {
   label: string;
 }
 
-interface NodeLibraryTool extends ToolButton {
-  description: string;
-  keywords: string[];
-  createNode?: (preferredPosition?: { x: number; y: number }) => string;
-}
+type NodeLibraryTool = ToolButton & CanvasNodeTool;
 
 interface NodeLibraryCategory {
   id: string;
   label: string;
   tools: NodeLibraryTool[];
+}
+
+type NodeLibraryCategoryTone = {
+  dot: string;
+  icon: string;
+  card: string;
+};
+
+const NODE_LIBRARY_CATEGORY_TONES: Record<string, NodeLibraryCategoryTone> = {
+  common: {
+    dot: "bg-violet-400",
+    icon: "border-violet-400/20 bg-violet-400/10 text-violet-600 dark:text-violet-200",
+    card: "enabled:hover:border-violet-400/35 enabled:hover:bg-violet-400/[0.055]",
+  },
+  "text-tools": {
+    dot: "bg-cyan-400",
+    icon: "border-cyan-400/20 bg-cyan-400/10 text-cyan-700 dark:text-cyan-200",
+    card: "enabled:hover:border-cyan-400/35 enabled:hover:bg-cyan-400/[0.055]",
+  },
+  "image-tools": {
+    dot: "bg-rose-400",
+    icon: "border-rose-400/20 bg-rose-400/10 text-rose-600 dark:text-rose-200",
+    card: "enabled:hover:border-rose-400/35 enabled:hover:bg-rose-400/[0.055]",
+  },
+  "ai-tools": {
+    dot: "bg-amber-400",
+    icon: "border-amber-400/20 bg-amber-400/10 text-amber-700 dark:text-amber-200",
+    card: "enabled:hover:border-amber-400/35 enabled:hover:bg-amber-400/[0.055]",
+  },
+};
+
+const DEFAULT_NODE_LIBRARY_CATEGORY_TONE: NodeLibraryCategoryTone = {
+  dot: "bg-[var(--text-muted)]",
+  icon: "border-[var(--border-subtle)] bg-[var(--control-bg-hover)] text-[var(--text-secondary)]",
+  card: "enabled:hover:border-[var(--text-muted)]",
+};
+
+function getNodeLibraryCategoryTone(categoryId: string) {
+  return (
+    NODE_LIBRARY_CATEGORY_TONES[categoryId] ??
+    DEFAULT_NODE_LIBRARY_CATEGORY_TONE
+  );
 }
 
 interface CanvasImageAssetItem {
@@ -215,6 +255,7 @@ export function FloatingToolbar() {
   const panelTriggerRef = useRef<HTMLButtonElement | null>(null);
   const librarySearchRef = useRef<HTMLInputElement | null>(null);
   const assetPanelRef = useRef<HTMLDivElement | null>(null);
+  const draggedToolbarNodeIdRef = useRef<string | null>(null);
   const [activeTooltipId, setActiveTooltipId] = useState<string | null>(null);
   const [isNodeLibraryOpen, setIsNodeLibraryOpen] = useState(false);
   const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(false);
@@ -252,7 +293,6 @@ export function FloatingToolbar() {
   const hasSelectedNodes = useCanvasStore((state) =>
     state.nodes.some((node) => node.selected),
   );
-  const openProjectDialog = useProjectDialogStore((state) => state.open);
   const workspaceConfigured = useSettingsStore(
     (state) => state.runtime.workspaceConfigured,
   );
@@ -483,11 +523,6 @@ export function FloatingToolbar() {
       icon: <BookTemplate className="h-3.5 w-3.5" />,
       label: UI_TEXT.templateLibrary,
     },
-    {
-      id: "project-manager",
-      icon: <FolderKanban className="h-3.5 w-3.5" />,
-      label: UI_TEXT.projectManager,
-    },
   ];
 
   const closeFloatingPanels = (restoreFocus = false) => {
@@ -619,6 +654,23 @@ export function FloatingToolbar() {
     setLibrarySearch("");
   };
 
+  const handleToolbarNodeDragStart = (
+    event: DragEvent<HTMLButtonElement>,
+    tool: NodeLibraryTool,
+  ) => {
+    if (!tool.createNode) {
+      event.preventDefault();
+      return;
+    }
+
+    draggedToolbarNodeIdRef.current = tool.id;
+    setActiveTooltipId(null);
+    closeFloatingPanels();
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData(CANVAS_NODE_DRAG_MIME_TYPE, tool.type);
+    event.dataTransfer.setData("text/plain", tool.id);
+  };
+
   const locateCanvasAsset = (asset: CanvasImageAssetItem) => {
     const sourceNode = useCanvasStore
       .getState()
@@ -743,16 +795,27 @@ export function FloatingToolbar() {
             >
               <button
                 type="button"
-                onMouseDown={() => setActiveTooltipId(null)}
+                draggable={Boolean(tool.createNode)}
+                onMouseDown={() => {
+                  draggedToolbarNodeIdRef.current = null;
+                  setActiveTooltipId(null);
+                }}
                 onFocus={() => setActiveTooltipId(tool.id)}
                 onBlur={(event) => handleBlur(tool.id, event)}
+                onDragStart={(event) => handleToolbarNodeDragStart(event, tool)}
                 onClick={(event) => {
+                  if (draggedToolbarNodeIdRef.current === tool.id) {
+                    draggedToolbarNodeIdRef.current = null;
+                    return;
+                  }
+
                   closeFloatingPanels();
                   if (tool.createNode) {
                     createNodeFromToolbar(event, tool.createNode);
                   }
                 }}
                 aria-label={tool.label}
+                aria-description="可拖到画布指定位置添加"
                 data-testid={`toolbar-node-${tool.id}`}
                 className={TOOLBAR_BUTTON_CLASS}
               >
@@ -836,9 +899,6 @@ export function FloatingToolbar() {
                     runLayoutAction("vertical");
                     return;
                   }
-
-                  closeFloatingPanels();
-                  openProjectDialog();
                 }}
                 aria-label={tool.label}
                 aria-expanded={
@@ -895,84 +955,86 @@ export function FloatingToolbar() {
           id="node-library-panel"
           role="dialog"
           aria-label={UI_TEXT.nodeLibrary}
-          className={`absolute left-full top-1/2 ml-3 flex max-h-[min(640px,calc(100vh-32px))] w-[326px] -translate-y-1/2 flex-col overflow-hidden rounded-2xl ${themeClasses.strongPanel}`}
+          className={`absolute left-full top-1/2 ml-3 flex max-h-[min(560px,calc(100dvh-32px))] w-[min(19rem,calc(100vw-4.75rem))] -translate-y-1/2 flex-col overflow-hidden rounded-lg ${themeClasses.strongPanel}`}
         >
-          <div className="border-b border-[var(--border-subtle)] bg-[var(--control-bg)] px-3.5 py-3">
+          <div className="border-b border-[var(--border-subtle)] bg-[var(--control-bg)] px-3 py-2.5">
             <div className="flex items-center gap-2 text-[var(--text-primary)]">
-              <span className="flex h-7 w-7 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--control-bg-hover)] text-[var(--text-secondary)]">
+              <span className="flex h-6 w-6 items-center justify-center rounded-md border border-violet-400/20 bg-violet-400/10 text-violet-600 dark:text-violet-200">
                 <Boxes className="h-3.5 w-3.5" />
               </span>
               <div>
-                <div className="text-sm font-semibold leading-tight">
+                <div className="text-[12px] font-semibold leading-tight">
                   {UI_TEXT.nodeLibrary}
-                </div>
-                <div className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-                  {UI_TEXT.nodeLibraryHint}
                 </div>
               </div>
             </div>
 
-            <label className="mt-3 flex h-9 items-center gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--control-bg)] px-2.5 text-[var(--text-muted)] focus-within:border-[var(--accent-violet-strong)] focus-within:text-[var(--text-secondary)]">
-              <Search className="h-3.5 w-3.5" />
+            <label className="mt-2.5 flex h-8 items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] px-2.5 text-[var(--text-muted)] transition focus-within:border-[var(--accent-violet-strong)] focus-within:text-[var(--text-secondary)] focus-within:ring-2 focus-within:ring-[var(--accent-violet-soft)]">
+              <Search className="h-3 w-3 shrink-0" />
               <input
                 ref={librarySearchRef}
                 aria-label={UI_TEXT.searchPlaceholder}
                 value={librarySearch}
                 onChange={(event) => setLibrarySearch(event.target.value)}
                 placeholder={UI_TEXT.searchPlaceholder}
-                className="h-full min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+                className="h-full min-w-0 flex-1 bg-transparent text-[11px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
               />
             </label>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-2.5 scrollbar-hidden">
             {hasLibraryResults ? (
-              <div className="space-y-3">
-                {filteredNodeLibraryCategories.map((category) => (
-                  <section key={category.id}>
-                    <div
-                      className={`px-1.5 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${themeClasses.textMuted}`}
-                    >
-                      {category.label}
-                    </div>
-                    <div className="grid gap-1.5">
-                      {category.tools.map((tool) => {
-                        const isDisabled = !tool.createNode;
+              <div className="space-y-3.5">
+                {filteredNodeLibraryCategories.map((category) => {
+                  const categoryTone = getNodeLibraryCategoryTone(category.id);
 
-                        return (
-                          <button
-                            key={`${category.id}-${tool.id}`}
-                            type="button"
-                            disabled={isDisabled}
-                            onClick={(event) =>
-                              createNodeFromLibrary(event, tool)
-                            }
-                            className="group flex min-h-[58px] w-full items-center gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--control-bg)] px-3 py-2 text-left transition enabled:hover:bg-[var(--control-bg-hover)] disabled:cursor-not-allowed disabled:opacity-45"
-                          >
-                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--control-bg-hover)] text-[var(--text-secondary)] transition group-enabled:group-hover:text-[var(--text-primary)]">
-                              {tool.icon}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="flex items-center gap-2">
-                                <span className="truncate text-[12px] font-semibold text-[var(--text-primary)]">
-                                  {tool.label}
+                  return (
+                    <section key={category.id}>
+                      <div className="mb-1.5 flex items-center gap-1.5 px-0.5">
+                        <span
+                          className={`h-1 w-1 shrink-0 rounded-full ${categoryTone.dot}`}
+                        />
+                        <span
+                          className={`text-[9px] font-medium ${themeClasses.textMuted}`}
+                        >
+                          {category.label}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {category.tools.map((tool) => {
+                          const isDisabled = !tool.createNode;
+
+                          return (
+                            <button
+                              key={`${category.id}-${tool.id}`}
+                              type="button"
+                              disabled={isDisabled}
+                              onClick={(event) =>
+                                createNodeFromLibrary(event, tool)
+                              }
+                              title={tool.description}
+                              className={`group flex h-11 w-full items-center gap-2 overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--control-bg)] px-2 text-left transition duration-150 enabled:hover:bg-[var(--control-bg-hover)] disabled:cursor-not-allowed disabled:opacity-45 ${categoryTone.card}`}
+                            >
+                              <span
+                                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${categoryTone.icon}`}
+                              >
+                                {tool.icon}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-[var(--text-primary)]">
+                                {tool.label}
+                              </span>
+                              {isDisabled && (
+                                <span className="shrink-0 text-[9px] text-[var(--text-muted)]">
+                                  {UI_TEXT.comingSoon}
                                 </span>
-                                {isDisabled && (
-                                  <span className="rounded-md border border-[var(--border-subtle)] bg-[var(--control-bg-hover)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-muted)]">
-                                    {UI_TEXT.comingSoon}
-                                  </span>
-                                )}
-                              </span>
-                              <span className="mt-0.5 block line-clamp-2 text-[11px] leading-snug text-[var(--text-muted)]">
-                                {tool.description}
-                              </span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </section>
-                ))}
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  );
+                })}
               </div>
             ) : (
               <div className="flex h-36 flex-col items-center justify-center rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--control-bg)] text-center">
