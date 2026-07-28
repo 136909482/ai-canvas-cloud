@@ -2,6 +2,7 @@ import type {
   GenerateTask,
   GenerateTaskAdapterId,
   GenerateTaskExecutionMode,
+  GenerateTaskImageSource,
   GenerateTaskPhase,
   GptImageQuality,
   ImageInputFidelity,
@@ -26,6 +27,9 @@ export interface GenerateTaskSnapshot {
   apiProfileId?: string | null;
   apiProfileName?: string | null;
   provider?: string | null;
+  referenceImages?: GenerateTaskImageSource[];
+  editImageSource?: GenerateTaskImageSource | null;
+  maskImageSource?: GenerateTaskImageSource | null;
   referenceImageUrls?: string[];
   inputFidelity?: ImageInputFidelity | null;
   quality?: GptImageQuality | null;
@@ -46,6 +50,51 @@ export interface GenerateTaskSnapshot {
 const INTERRUPTED_LOCAL_TASK_MESSAGE =
   "\u9875\u9762\u5173\u95ed\u6216\u5237\u65b0\u540e\uff0c\u540c\u6b65\u4efb\u52a1\u5df2\u4e2d\u65ad\uff0c\u8bf7\u624b\u52a8\u91cd\u8bd5\u3002";
 
+function sanitizeImageSource(value: unknown): GenerateTaskImageSource | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const source = value as Partial<GenerateTaskImageSource>;
+  const imageUrl = typeof source.imageUrl === "string" ? source.imageUrl : "";
+  const assetRelativePath =
+    typeof source.assetRelativePath === "string" && source.assetRelativePath
+      ? source.assetRelativePath
+      : null;
+  if (!imageUrl && !assetRelativePath) {
+    return null;
+  }
+
+  return {
+    sourceNodeId:
+      typeof source.sourceNodeId === "string" ? source.sourceNodeId : null,
+    imageUrl,
+    assetRelativePath,
+  };
+}
+
+function sanitizeReferenceImages(task: GenerateTask) {
+  const structured = Array.isArray(task.referenceImages)
+    ? task.referenceImages
+        .map(sanitizeImageSource)
+        .filter((source): source is GenerateTaskImageSource => Boolean(source))
+    : [];
+
+  if (structured.length > 0) {
+    return structured;
+  }
+
+  return Array.isArray(task.referenceImageUrls)
+    ? task.referenceImageUrls
+        .filter((url): url is string => typeof url === "string" && Boolean(url))
+        .map((imageUrl) => ({
+          sourceNodeId: null,
+          imageUrl,
+          assetRelativePath: null,
+        }))
+    : [];
+}
+
 export function createTaskDisplayId(seed: string) {
   let hash = 0;
 
@@ -60,6 +109,7 @@ function sanitizeTask(
   task: GenerateTask,
   projectId?: string | null,
 ): GenerateTask {
+  const referenceImages = sanitizeReferenceImages(task);
   return {
     ...task,
     projectId: projectId ?? task.projectId ?? null,
@@ -74,15 +124,16 @@ function sanitizeTask(
     resolution: task.resolution ?? "1K",
     operationType:
       task.operationType ??
-      (task.referenceImageUrls?.length ? "image-to-image" : "text-to-image"),
+      (referenceImages.length ? "image-to-image" : "text-to-image"),
     sourceImageNodeId: task.sourceImageNodeId ?? null,
     maskImageUrl: task.maskImageUrl ?? null,
     apiProfileId: task.apiProfileId ?? null,
     apiProfileName: task.apiProfileName ?? null,
     provider: task.provider ?? null,
-    referenceImageUrls: Array.isArray(task.referenceImageUrls)
-      ? [...task.referenceImageUrls]
-      : [],
+    referenceImages,
+    editImageSource: sanitizeImageSource(task.editImageSource),
+    maskImageSource: sanitizeImageSource(task.maskImageSource),
+    referenceImageUrls: referenceImages.map((source) => source.imageUrl),
     inputFidelity: task.inputFidelity ?? null,
     quality: task.quality ?? null,
     googleSearch: Boolean(task.googleSearch),
@@ -109,6 +160,30 @@ export function sanitizeTasks(
   projectId?: string | null,
 ): GenerateTask[] {
   return tasks.map((task) => sanitizeTask(task, projectId));
+}
+
+function stripAssetBackedRuntimeUrl(
+  source: GenerateTaskImageSource | null | undefined,
+) {
+  return source?.assetRelativePath ? { ...source, imageUrl: "" } : source;
+}
+
+export function prepareTasksForSnapshot(tasks: GenerateTask[]) {
+  return sanitizeTasks(tasks).map((task) => {
+    const referenceImages = task.referenceImages.map(
+      (source) => stripAssetBackedRuntimeUrl(source) ?? source,
+    );
+
+    return {
+      ...task,
+      referenceImages,
+      editImageSource: stripAssetBackedRuntimeUrl(task.editImageSource),
+      maskImageSource: stripAssetBackedRuntimeUrl(task.maskImageSource),
+      referenceImageUrls: referenceImages
+        .filter((source) => !source.assetRelativePath)
+        .map((source) => source.imageUrl),
+    };
+  });
 }
 
 export function recoverTaskAfterSnapshotLoad(
@@ -221,7 +296,27 @@ export function mergeTaskSnapshot(
       patch && "provider" in patch
         ? (patch.provider ?? null)
         : (task.provider ?? null),
-    referenceImageUrls: patch?.referenceImageUrls ?? task.referenceImageUrls,
+    referenceImages:
+      patch?.referenceImages ??
+      (patch?.referenceImageUrls
+        ? patch.referenceImageUrls.map((imageUrl) => ({
+            sourceNodeId: null,
+            imageUrl,
+            assetRelativePath: null,
+          }))
+        : task.referenceImages),
+    editImageSource:
+      patch && "editImageSource" in patch
+        ? (patch.editImageSource ?? null)
+        : (task.editImageSource ?? null),
+    maskImageSource:
+      patch && "maskImageSource" in patch
+        ? (patch.maskImageSource ?? null)
+        : (task.maskImageSource ?? null),
+    referenceImageUrls:
+      patch?.referenceImages?.map((source) => source.imageUrl) ??
+      patch?.referenceImageUrls ??
+      task.referenceImageUrls,
     inputFidelity:
       patch && "inputFidelity" in patch
         ? (patch.inputFidelity ?? null)

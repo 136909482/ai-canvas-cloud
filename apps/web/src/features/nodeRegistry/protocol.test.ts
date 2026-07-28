@@ -41,7 +41,14 @@ test("node registration protocol covers all shared node types and compatibility 
 });
 
 test("protocol owns manual factories, connection rules, output layouts, and library metadata", () => {
-  assert.ok(canvasNodeRegistrations.generateNode.manual);
+  const generateRegistration = canvasNodeRegistrations.generateNode.manual;
+  assert.ok(generateRegistration);
+  const generateNode = generateRegistration.build(
+    "generate-defaults",
+    { x: 0, y: 0 },
+    generateRegistration.size,
+  );
+  assert.equal(generateNode.data.ratio, "Auto");
   assert.deepEqual(canvasNodeRegistrations.textNode.manual?.size, {
     width: 280,
     height: 220,

@@ -50,3 +50,37 @@ export function getPreviewNodeSize(imageWidth: number, imageHeight: number) {
     ),
   };
 }
+
+export function getPreviewNodeSizeAtWidth(
+  imageWidth: number,
+  imageHeight: number,
+  nodeWidth: number,
+) {
+  const MIN_WIDTH = 260;
+  const MIN_HEIGHT = 200;
+  const MAX_WIDTH = 900;
+  const MAX_HEIGHT = 900;
+  const VERTICAL_PADDING = 12;
+  const HORIZONTAL_PADDING = 12;
+  const width = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(nodeWidth)));
+
+  if (
+    !Number.isFinite(imageWidth) ||
+    !Number.isFinite(imageHeight) ||
+    imageWidth <= 0 ||
+    imageHeight <= 0
+  ) {
+    return { width, height: MIN_HEIGHT };
+  }
+
+  const contentHeight =
+    ((width - HORIZONTAL_PADDING) * imageHeight) / imageWidth;
+
+  return {
+    width,
+    height: Math.min(
+      MAX_HEIGHT,
+      Math.max(MIN_HEIGHT, Math.round(contentHeight + VERTICAL_PADDING)),
+    ),
+  };
+}

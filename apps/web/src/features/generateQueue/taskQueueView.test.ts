@@ -28,6 +28,7 @@ function task(id: string, status: GenerateTask["status"]): GenerateTask {
     apiProfileId: null,
     apiProfileName: null,
     provider: "openai",
+    referenceImages: [],
     referenceImageUrls: [],
     inputFidelity: null,
     quality: null,

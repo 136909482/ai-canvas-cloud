@@ -1,26 +1,10 @@
-import { MAX_GENERATE_REFERENCE_IMAGES } from "../../constants/generateNode.ts";
+import {
+  MAX_GENERATE_REFERENCE_IMAGES,
+  SUPPORTED_GENERATE_RATIOS,
+  type SupportedGenerateRatio,
+} from "../../constants/generateNode.ts";
 import type { ImageOperationType } from "@/types";
 import type { GenerateImageParams } from "./types.ts";
-
-const SUPPORTED_IMAGE_RATIOS = [
-  "1:1",
-  "16:9",
-  "9:16",
-  "4:3",
-  "3:4",
-  "3:2",
-  "2:3",
-  "5:4",
-  "4:5",
-  "4:1",
-  "1:4",
-  "8:1",
-  "1:8",
-  "21:9",
-  "9:21",
-] as const;
-
-type SupportedImageRatio = (typeof SUPPORTED_IMAGE_RATIOS)[number];
 const PROMPT_RATIO_PATTERN =
   /(?:^|[^\d])(\d{1,4})\s*[:x]\s*(\d{1,4})(?:[^\d]|$)/i;
 
@@ -479,25 +463,7 @@ export function loadImageDimensions(
   });
 }
 
-function getGreatestCommonDivisor(left: number, right: number): number {
-  let a = Math.abs(left);
-  let b = Math.abs(right);
-
-  while (b > 0) {
-    const next = a % b;
-    a = b;
-    b = next;
-  }
-
-  return a || 1;
-}
-
-function normalizeRatioPair(width: number, height: number) {
-  const divisor = getGreatestCommonDivisor(width, height);
-  return `${width / divisor}:${height / divisor}`;
-}
-
-function parseRatioFromPrompt(prompt: string): string | null {
+function parseRatioFromPrompt(prompt: string) {
   const matched = prompt.match(PROMPT_RATIO_PATTERN);
 
   if (!matched) {
@@ -516,20 +482,20 @@ function parseRatioFromPrompt(prompt: string): string | null {
     return null;
   }
 
-  return normalizeRatioPair(width, height);
+  return { width, height };
 }
 
 function resolveClosestSupportedRatio(
   width: number,
   height: number,
-): SupportedImageRatio {
+): SupportedGenerateRatio {
   if (width <= 0 || height <= 0) {
     return "1:1";
   }
 
   const targetRatio = width / height;
 
-  return SUPPORTED_IMAGE_RATIOS.reduce((closest, candidate) => {
+  return SUPPORTED_GENERATE_RATIOS.reduce((closest, candidate) => {
     const [candidateWidth, candidateHeight] = candidate.split(":").map(Number);
     const candidateRatio = candidateWidth / candidateHeight;
     const closestWidth = Number(closest.split(":")[0]);
@@ -540,11 +506,14 @@ function resolveClosestSupportedRatio(
       Math.abs(closestRatio - targetRatio)
       ? candidate
       : closest;
-  }, "1:1" as SupportedImageRatio);
+  }, "1:1" as SupportedGenerateRatio);
 }
 
 export async function resolveEffectiveRatio(params: GenerateImageParams) {
-  if (params.ratio && params.ratio !== "Auto") {
+  if (
+    params.ratio &&
+    SUPPORTED_GENERATE_RATIOS.includes(params.ratio as SupportedGenerateRatio)
+  ) {
     return params.ratio;
   }
 
@@ -569,7 +538,7 @@ export async function resolveEffectiveRatio(params: GenerateImageParams) {
 
   const promptRatio = parseRatioFromPrompt(params.prompt);
   if (promptRatio) {
-    return promptRatio;
+    return resolveClosestSupportedRatio(promptRatio.width, promptRatio.height);
   }
 
   return "1:1";

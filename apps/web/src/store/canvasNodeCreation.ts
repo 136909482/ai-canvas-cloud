@@ -1,5 +1,6 @@
 import type { Node } from "@xyflow/react";
 import { DEFAULT_IMAGE_MODEL_ID } from "@/config/modelCatalog";
+import { DEFAULT_GENERATE_RATIO } from "@/constants/generateNode";
 import type {
   CompareNodeData,
   GenerateStatus,
@@ -217,7 +218,7 @@ export function buildManualGenerateNode(
       imageAsset: null,
       status: "idle",
       errorMsg: "",
-      ratio: "1:1",
+      ratio: DEFAULT_GENERATE_RATIO,
       model: DEFAULT_IMAGE_MODEL_ID,
       resolution: "1K",
       quality: "auto",

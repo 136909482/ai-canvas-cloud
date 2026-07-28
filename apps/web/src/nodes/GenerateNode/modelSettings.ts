@@ -1,22 +1,10 @@
 import type { GptImageQuality } from "@/types";
+import {
+  DEFAULT_GENERATE_RATIO,
+  SUPPORTED_GENERATE_RATIOS,
+} from "@/constants/generateNode";
 
-export const RATIOS = [
-  "Auto",
-  "1:1",
-  "16:9",
-  "9:16",
-  "4:3",
-  "3:4",
-  "3:2",
-  "2:3",
-  "5:4",
-  "4:5",
-  "21:9",
-  "1:4",
-  "4:1",
-  "1:8",
-  "8:1",
-];
+export const RATIOS = [DEFAULT_GENERATE_RATIO, ...SUPPORTED_GENERATE_RATIOS];
 export const RESOLUTIONS = ["1K", "2K", "4K"];
 export const GPT_IMAGE_QUALITIES = ["auto", "low", "medium", "high"] as const;
 export const GPT_IMAGE_QUALITY_LABELS: Record<GptImageQuality, string> = {

@@ -12,6 +12,7 @@ import {
   type GenerationTelemetryAttempt,
 } from "@/features/generationTelemetry";
 import { resolveRuntimeModelConfig } from "@/features/settings/providerConfig";
+import { platformBridge } from "@/platform";
 import { useCanvasStore } from "@/store/useCanvasStore";
 import { reportDiagnostic } from "@/store/useDiagnosticsStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
@@ -31,6 +32,7 @@ import {
   getImageProviderAdapter,
   resolveTaskAdapterId,
 } from "./imageProviderAdapters";
+import { runWithTaskImageInputRefresh } from "./taskImageInputs";
 import { getPreviewNodeSize, loadImageDimensions } from "./previewUtils";
 import {
   resolvePreviewSourceImageNodeId,
@@ -678,7 +680,9 @@ export async function restoreTaskQueueAfterSnapshotLoad() {
       operationType: task.operationType,
       sourceImageNodeId: task.sourceImageNodeId,
       maskImageUrl: task.maskImageUrl ?? null,
-      referenceImageUrls: task.referenceImageUrls,
+      referenceImages: task.referenceImages,
+      editImageSource: task.editImageSource ?? null,
+      maskImageSource: task.maskImageSource ?? null,
       inputFidelity: task.inputFidelity ?? null,
       quality: task.quality ?? null,
       googleSearch: Boolean(task.googleSearch),
@@ -804,8 +808,30 @@ export async function runGenerateTask(taskId: string) {
       telemetryAttempt.attemptId,
       telemetryAttempt.startedAt,
     );
-    const startResult = await adapter.start(
-      requestParams as GenerateImageParams,
+    let activeImageRequestParams = requestParams as GenerateImageParams;
+    const startResult = await runWithTaskImageInputRefresh(
+      runningTask,
+      {
+        resolveAssetUrl: (relativePath) =>
+          platformBridge.resolveWorkspaceAssetUrl(relativePath),
+        clearAssetUrlCache: () => platformBridge.clearWorkspaceAssetUrlCache(),
+      },
+      (resolvedInputs) => {
+        activeImageRequestParams = {
+          ...activeImageRequestParams,
+          referenceImageUrl: resolvedInputs.referenceImageUrls[0] ?? null,
+          referenceImageUrls: resolvedInputs.referenceImageUrls,
+          editImageUrl:
+            resolvedInputs.editImageUrl ??
+            activeImageRequestParams.editImageUrl ??
+            null,
+          maskImageUrl:
+            resolvedInputs.maskImageUrl ??
+            activeImageRequestParams.maskImageUrl ??
+            null,
+        };
+        return adapter.start(activeImageRequestParams);
+      },
     );
     if (!isTaskQueueRuntimeCurrent(runtimeVersion)) {
       return;
@@ -823,7 +849,7 @@ export async function runGenerateTask(taskId: string) {
               throw new Error("当前图片适配器缺少远程任务轮询能力");
             }
             return adapter.waitForRemote(
-              requestParams as GenerateImageParams,
+              activeImageRequestParams,
               startResult.remoteTaskId,
               (remoteStatus) => {
                 if (isTaskQueueRuntimeCurrent(runtimeVersion)) {

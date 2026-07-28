@@ -45,6 +45,7 @@ function createTask(id: string, asset: WorkspaceImageAsset): GenerateTask {
     apiProfileId: null,
     apiProfileName: null,
     provider: null,
+    referenceImages: [],
     referenceImageUrls: [],
     resultImageAsset: asset,
     resultVideoAsset: null,

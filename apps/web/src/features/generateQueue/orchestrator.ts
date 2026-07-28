@@ -1,9 +1,15 @@
 import { resolveRuntimeModelConfig } from "@/features/settings/providerConfig";
-import { useCanvasStore } from "@/store/useCanvasStore";
+import {
+  makeSelectGenerateMaskSourceNode,
+  makeSelectGenerateReferenceSourceNodes,
+  useCanvasStore,
+} from "@/store/useCanvasStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { useTaskQueueStore } from "@/store/useTaskQueueStore";
+import { getWorkspaceAssetRelativePath } from "@/utils/workspaceImageAsset";
 import type {
   GenerateTask,
+  GenerateTaskImageSource,
   GptImageQuality,
   ImageInputFidelity,
   ImageOperationType,
@@ -41,6 +47,10 @@ type EnqueueGenerateTaskInput = {
   operationType?: ImageOperationType;
   sourceImageNodeId?: string | null;
   maskImageUrl?: string | null;
+  referenceImages?: GenerateTaskImageSource[];
+  editImageSource?: GenerateTaskImageSource | null;
+  maskImageSource?: GenerateTaskImageSource | null;
+  /** Legacy caller compatibility. */
   referenceImageUrls?: string[];
   inputFidelity?: ImageInputFidelity | null;
   quality?: GptImageQuality | null;
@@ -61,6 +71,87 @@ type EnqueueVideoGenerateTaskInput = {
 
 function createPreviewLabel(timestamp: number) {
   return `${UI_TEXT.previewLabelPrefix} ${new Date(timestamp).toLocaleTimeString("zh-CN", { hour12: false })}`;
+}
+
+function getImageSourceFromNode(
+  node: ReturnType<typeof useCanvasStore.getState>["nodes"][number] | undefined,
+) {
+  const imageUrl =
+    typeof node?.data?.imageUrl === "string" ? node.data.imageUrl : "";
+  if (!node || !imageUrl) {
+    return null;
+  }
+
+  return {
+    sourceNodeId: node.id,
+    imageUrl,
+    assetRelativePath:
+      getWorkspaceAssetRelativePath(node.data.imageAsset) ?? null,
+  } satisfies GenerateTaskImageSource;
+}
+
+function enrichTaskImageSourcesFromCanvas(task: GenerateTask) {
+  const taskReferenceImages = Array.isArray(task.referenceImages)
+    ? task.referenceImages
+    : (task.referenceImageUrls ?? []).map((imageUrl) => ({
+        sourceNodeId: null,
+        imageUrl,
+        assetRelativePath: null,
+      }));
+
+  if (task.kind !== "image") {
+    return {
+      referenceImages: taskReferenceImages,
+      editImageSource: task.editImageSource ?? null,
+      maskImageSource: task.maskImageSource ?? null,
+    };
+  }
+
+  const canvasState = useCanvasStore.getState();
+  const referenceNodes = makeSelectGenerateReferenceSourceNodes(
+    task.sourceNodeId,
+  )(canvasState);
+  const referenceImages = taskReferenceImages.map((source, index) => {
+    if (source.assetRelativePath) {
+      return source;
+    }
+
+    const sourceNode = source.sourceNodeId
+      ? canvasState.nodes.find((node) => node.id === source.sourceNodeId)
+      : referenceNodes[index];
+    const currentSource = getImageSourceFromNode(sourceNode);
+    return currentSource
+      ? { ...source, ...currentSource, imageUrl: source.imageUrl }
+      : source;
+  });
+  const editNode = task.sourceImageNodeId
+    ? canvasState.nodes.find((node) => node.id === task.sourceImageNodeId)
+    : undefined;
+  const currentEditSource = getImageSourceFromNode(editNode);
+  const maskNode = makeSelectGenerateMaskSourceNode(task.sourceNodeId)(
+    canvasState,
+  );
+  const currentMaskSource = getImageSourceFromNode(maskNode ?? undefined);
+
+  return {
+    referenceImages,
+    editImageSource:
+      task.editImageSource?.assetRelativePath || !currentEditSource
+        ? (task.editImageSource ?? null)
+        : {
+            ...(task.editImageSource ?? currentEditSource),
+            sourceNodeId: currentEditSource.sourceNodeId,
+            assetRelativePath: currentEditSource.assetRelativePath,
+          },
+    maskImageSource:
+      task.maskImageSource?.assetRelativePath || !currentMaskSource
+        ? (task.maskImageSource ?? null)
+        : {
+            ...(task.maskImageSource ?? currentMaskSource),
+            sourceNodeId: currentMaskSource.sourceNodeId,
+            assetRelativePath: currentMaskSource.assetRelativePath,
+          },
+  };
 }
 
 function getTaskProviderSnapshot(
@@ -289,10 +380,17 @@ export function enqueueGenerateTask(input: EnqueueGenerateTaskInput) {
       ? input.sourceImageNodeId
       : null;
   const maskImageUrl = input.maskImageUrl ?? null;
+  const referenceImages =
+    input.referenceImages ??
+    (input.referenceImageUrls ?? []).map((imageUrl) => ({
+      sourceNodeId: null,
+      imageUrl,
+      assetRelativePath: null,
+    }));
   const operationType =
     input.operationType === "image-edit" && sourceImageNodeId && maskImageUrl
       ? "image-edit"
-      : (input.referenceImageUrls?.length ?? 0) > 0
+      : referenceImages.length > 0
         ? "image-to-image"
         : "text-to-image";
   const previewNodeId = createQueuedPreview(
@@ -321,8 +419,12 @@ export function enqueueGenerateTask(input: EnqueueGenerateTaskInput) {
     sourceImageNodeId:
       operationType === "image-edit" ? sourceImageNodeId : null,
     maskImageUrl: operationType === "image-edit" ? maskImageUrl : null,
+    editImageSource:
+      operationType === "image-edit" ? (input.editImageSource ?? null) : null,
+    maskImageSource:
+      operationType === "image-edit" ? (input.maskImageSource ?? null) : null,
     ...providerSnapshot,
-    referenceImageUrls: input.referenceImageUrls ?? [],
+    referenceImages,
     inputFidelity: null,
     quality: input.quality ?? null,
     googleSearch: Boolean(input.googleSearch),
@@ -370,7 +472,7 @@ export function enqueueVideoGenerateTask(input: EnqueueVideoGenerateTaskInput) {
     resolution: input.resolution,
     operationType: "text-to-image",
     ...providerSnapshot,
-    referenceImageUrls: [],
+    referenceImages: [],
     videoMode: input.mode,
     videoDuration: input.duration,
   });
@@ -434,7 +536,13 @@ export function enqueueImageEditTask(input: EnqueueGenerateTaskInput) {
     return null;
   }
 
-  const referenceImageUrls = input.referenceImageUrls ?? [];
+  const referenceImages =
+    input.referenceImages ??
+    (input.referenceImageUrls ?? []).map((imageUrl) => ({
+      sourceNodeId: null,
+      imageUrl,
+      assetRelativePath: null,
+    }));
   const previewNodeId = createQueuedPreview(
     input.sourceNodeId,
     prompt,
@@ -458,8 +566,20 @@ export function enqueueImageEditTask(input: EnqueueGenerateTaskInput) {
     operationType: "image-edit",
     sourceImageNodeId,
     maskImageUrl,
+    editImageSource: input.editImageSource ?? {
+      sourceNodeId: sourceImageNodeId,
+      imageUrl: sourceImageUrl,
+      assetRelativePath:
+        getWorkspaceAssetRelativePath(sourceImageNode?.data?.imageAsset) ??
+        null,
+    },
+    maskImageSource: input.maskImageSource ?? {
+      sourceNodeId: null,
+      imageUrl: maskImageUrl,
+      assetRelativePath: null,
+    },
     ...providerSnapshot,
-    referenceImageUrls,
+    referenceImages,
     inputFidelity: null,
     quality: input.quality ?? null,
     googleSearch: Boolean(input.googleSearch),
@@ -496,6 +616,7 @@ export function retryGenerateTask(taskId: string) {
   }
 
   const providerSnapshot = getTaskProviderSnapshot(task.model, task.kind);
+  const refreshedImageSources = enrichTaskImageSourcesFromCanvas(task);
   const bindingChanged =
     Boolean(task.providerBindingFingerprint) &&
     task.providerBindingFingerprint !==
@@ -554,7 +675,7 @@ export function retryGenerateTask(taskId: string) {
     operationType: task.operationType,
     sourceImageNodeId: task.sourceImageNodeId,
     maskImageUrl: task.maskImageUrl ?? null,
-    referenceImageUrls: task.referenceImageUrls,
+    ...refreshedImageSources,
     inputFidelity: task.inputFidelity ?? null,
     quality: task.quality ?? null,
     googleSearch: Boolean(task.googleSearch),

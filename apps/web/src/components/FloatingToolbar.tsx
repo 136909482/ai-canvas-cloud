@@ -4,7 +4,6 @@ import {
   useRef,
   useState,
   type DragEvent,
-  type FocusEvent,
   type MouseEvent,
   type ReactNode,
 } from "react";
@@ -256,7 +255,6 @@ export function FloatingToolbar() {
   const librarySearchRef = useRef<HTMLInputElement | null>(null);
   const assetPanelRef = useRef<HTMLDivElement | null>(null);
   const draggedToolbarNodeIdRef = useRef<string | null>(null);
-  const [activeTooltipId, setActiveTooltipId] = useState<string | null>(null);
   const [isNodeLibraryOpen, setIsNodeLibraryOpen] = useState(false);
   const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(false);
   const [isTemplateLibraryOpen, setIsTemplateLibraryOpen] = useState(false);
@@ -376,14 +374,6 @@ export function FloatingToolbar() {
         zoom,
       },
     );
-  };
-
-  const handleBlur = (toolId: string, event: FocusEvent<HTMLButtonElement>) => {
-    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
-      return;
-    }
-
-    setActiveTooltipId((current) => (current === toolId ? null : current));
   };
 
   const nodeLibraryCategories = useMemo<NodeLibraryCategory[]>(
@@ -529,7 +519,6 @@ export function FloatingToolbar() {
     setIsNodeLibraryOpen(false);
     setIsAssetLibraryOpen(false);
     setIsTemplateLibraryOpen(false);
-    setActiveTooltipId(null);
     if (restoreFocus)
       window.requestAnimationFrame(() => panelTriggerRef.current?.focus());
   };
@@ -664,7 +653,6 @@ export function FloatingToolbar() {
     }
 
     draggedToolbarNodeIdRef.current = tool.id;
-    setActiveTooltipId(null);
     closeFloatingPanels();
     event.dataTransfer.effectAllowed = "copy";
     event.dataTransfer.setData(CANVAS_NODE_DRAG_MIME_TYPE, tool.type);
@@ -776,60 +764,38 @@ export function FloatingToolbar() {
         aria-label="画布节点工具"
         className={TOOLBAR_PANEL_CLASS}
       >
-        {commonTools.map((tool) => {
-          const isTooltipVisible =
-            activeTooltipId === tool.id &&
-            !isNodeLibraryOpen &&
-            !isAssetLibraryOpen;
-
-          return (
-            <div
-              key={tool.id}
-              className="relative"
-              onMouseEnter={() => setActiveTooltipId(tool.id)}
-              onMouseLeave={() =>
-                setActiveTooltipId((current) =>
-                  current === tool.id ? null : current,
-                )
-              }
-            >
-              <button
-                type="button"
-                draggable={Boolean(tool.createNode)}
-                onMouseDown={() => {
+        {commonTools.map((tool) => (
+          <div key={tool.id} className="relative">
+            <button
+              type="button"
+              draggable={Boolean(tool.createNode)}
+              onMouseDown={() => {
+                draggedToolbarNodeIdRef.current = null;
+              }}
+              onDragStart={(event) => handleToolbarNodeDragStart(event, tool)}
+              onClick={(event) => {
+                if (draggedToolbarNodeIdRef.current === tool.id) {
                   draggedToolbarNodeIdRef.current = null;
-                  setActiveTooltipId(null);
-                }}
-                onFocus={() => setActiveTooltipId(tool.id)}
-                onBlur={(event) => handleBlur(tool.id, event)}
-                onDragStart={(event) => handleToolbarNodeDragStart(event, tool)}
-                onClick={(event) => {
-                  if (draggedToolbarNodeIdRef.current === tool.id) {
-                    draggedToolbarNodeIdRef.current = null;
-                    return;
-                  }
+                  return;
+                }
 
-                  closeFloatingPanels();
-                  if (tool.createNode) {
-                    createNodeFromToolbar(event, tool.createNode);
-                  }
-                }}
-                aria-label={tool.label}
-                aria-description="可拖到画布指定位置添加"
-                data-testid={`toolbar-node-${tool.id}`}
-                className={TOOLBAR_BUTTON_CLASS}
-              >
-                {tool.icon}
-              </button>
-
-              <div
-                className={`pointer-events-none absolute left-full top-1/2 z-10 ml-2 -translate-y-1/2 transition duration-150 ${isTooltipVisible ? "opacity-100" : "opacity-0"}`}
-              >
-                <div className={themeClasses.tooltip}>{tool.label}</div>
-              </div>
-            </div>
-          );
-        })}
+                closeFloatingPanels();
+                if (tool.createNode) {
+                  createNodeFromToolbar(event, tool.createNode);
+                }
+              }}
+              aria-label={tool.label}
+              aria-describedby="app-tooltip"
+              data-tooltip={tool.label}
+              data-tooltip-placement="right"
+              aria-description="可拖到画布指定位置添加"
+              data-testid={`toolbar-node-${tool.id}`}
+              className={TOOLBAR_BUTTON_CLASS}
+            >
+              {tool.icon}
+            </button>
+          </div>
+        ))}
 
         <div className={TOOLBAR_DIVIDER_CLASS} />
 
@@ -842,26 +808,11 @@ export function FloatingToolbar() {
                 : tool.id === "workflow-templates"
                   ? isTemplateLibraryOpen
                   : false;
-          const isTooltipVisible = activeTooltipId === tool.id && !isActive;
-
           return (
-            <div
-              key={tool.id}
-              className="relative"
-              onMouseEnter={() => setActiveTooltipId(tool.id)}
-              onMouseLeave={() =>
-                setActiveTooltipId((current) =>
-                  current === tool.id ? null : current,
-                )
-              }
-            >
+            <div key={tool.id} className="relative">
               <button
                 type="button"
-                onMouseDown={() => setActiveTooltipId(null)}
-                onFocus={() => setActiveTooltipId(tool.id)}
-                onBlur={(event) => handleBlur(tool.id, event)}
                 onClick={(event) => {
-                  setActiveTooltipId(null);
                   if (tool.id === "more") {
                     panelTriggerRef.current = event.currentTarget;
                     setIsAssetLibraryOpen(false);
@@ -901,6 +852,9 @@ export function FloatingToolbar() {
                   }
                 }}
                 aria-label={tool.label}
+                aria-describedby="app-tooltip"
+                data-tooltip={tool.label}
+                data-tooltip-placement="right"
                 aria-expanded={
                   ["more", "asset-library", "workflow-templates"].includes(
                     tool.id,
@@ -939,12 +893,6 @@ export function FloatingToolbar() {
               >
                 {tool.icon}
               </button>
-
-              <div
-                className={`pointer-events-none absolute left-full top-1/2 z-10 ml-2 -translate-y-1/2 transition duration-150 ${isTooltipVisible ? "opacity-100" : "opacity-0"}`}
-              >
-                <div className={themeClasses.tooltip}>{tool.label}</div>
-              </div>
             </div>
           );
         })}

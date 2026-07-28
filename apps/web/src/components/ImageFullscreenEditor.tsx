@@ -11,6 +11,7 @@ import {
   Check,
   Circle,
   Download,
+  LoaderCircle,
   Minus,
   MousePointer2,
   Plus,
@@ -62,6 +63,12 @@ import {
   type ToolMode,
   type UndoSnapshot,
 } from "@/components/imageEditor/runtime";
+import { loadImageEditorSource } from "@/components/imageEditor/imageSource";
+import {
+  readImageEditorPreferences,
+  writeImageEditorPreferences,
+  type ImageEditorPreferences,
+} from "@/components/imageEditor/preferences";
 const TOOLBAR_ICON_BUTTON_CLASS = `${themeClasses.iconButton} h-7 w-7 disabled:cursor-not-allowed disabled:border-transparent disabled:bg-transparent disabled:text-[var(--text-muted)]`;
 const TOOLBAR_ICON_BUTTON_ACTIVE_CLASS =
   "h-7 w-7 border-violet-400/30 bg-violet-400/10 text-violet-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] hover:border-violet-400/30 hover:bg-violet-400/10 hover:text-violet-500";
@@ -72,13 +79,14 @@ export function ImageFullscreenEditor() {
   const session = useImageEditorStore((state) => state.session);
   const close = useImageEditorStore((state) => state.close);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
-  const createGeneratedPreviewNode = useCanvasStore(
-    (state) => state.createGeneratedPreviewNode,
+  const createImageEditorOutputNode = useCanvasStore(
+    (state) => state.createImageEditorOutputNode,
   );
   const runTracked = useHistoryStore((state) => state.runTracked);
   const workspaceConfigured = useSettingsStore(
     (state) => state.runtime.workspaceConfigured,
   );
+  const vaultUserId = useSettingsStore((state) => state.runtime.vaultUserId);
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
   const notify = useFeedbackStore((state) => state.notify);
   const imageCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -120,32 +128,48 @@ export function ImageFullscreenEditor() {
     annotation: 0,
     mask: 0,
   });
+  const [initialPreferences] = useState(() =>
+    readImageEditorPreferences(vaultUserId),
+  );
+  const preferencesRef = useRef<ImageEditorPreferences>(initialPreferences);
   const [drawMode, setDrawMode] = useState<DrawMode>("annotation");
-  const [toolMode, setToolMode] = useState<ToolMode>("select");
-  const [brushSize, setBrushSize] = useState(24);
-  const [textSize, setTextSize] = useState(32);
+  const [toolMode, setToolMode] = useState<ToolMode>(
+    initialPreferences.annotation.toolMode,
+  );
+  const [brushSize, setBrushSize] = useState(
+    initialPreferences.annotation.brushSize,
+  );
+  const [textSize, setTextSize] = useState(initialPreferences.textSize);
   const [textDraft, setTextDraft] = useState<TextDraft | null>(null);
   const [textAnnotations, setTextAnnotations] = useState<TextAnnotation[]>([]);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [brushColor, setBrushColor] = useState<string>(
-    EDITOR_COLOR_SWATCHES[0],
+    initialPreferences.annotation.color,
   );
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
   const [colorPaletteOpen, setColorPaletteOpen] = useState(false);
-  const [isSavingOutput, setIsSavingOutput] = useState(false);
+  const [savingOutput, setSavingOutput] = useState<{
+    action: "apply" | "save-as";
+    mode: DrawMode;
+  } | null>(null);
+  const isSavingOutput = savingOutput !== null;
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [loadError, setLoadError] = useState<{
     imageUrl: string;
     message: string;
   } | null>(null);
   const [loadedImage, setLoadedImage] = useState<{
-    imageUrl: string;
+    sessionKey: string;
     image: HTMLImageElement;
     width: number;
     height: number;
   } | null>(null);
+  const sessionKey = session
+    ? `${session.nodeType}\u0000${session.nodeId}\u0000${session.imageUrl}\u0000${session.imageAsset?.relativePath ?? ""}`
+    : "";
   const activeImage =
-    session && loadedImage?.imageUrl === session.imageUrl ? loadedImage : null;
+    session && loadedImage?.sessionKey === sessionKey ? loadedImage : null;
   const imageSize = activeImage
     ? { width: activeImage.width, height: activeImage.height }
     : { width: 0, height: 0 };
@@ -186,12 +210,65 @@ export function ImageFullscreenEditor() {
     }
   }, []);
 
+  const persistPreferences = (preferences: ImageEditorPreferences) => {
+    preferencesRef.current = preferences;
+    writeImageEditorPreferences(vaultUserId, preferences);
+  };
+
   const selectDrawMode = (nextDrawMode: DrawMode) => {
+    const preferences = preferencesRef.current;
     drawModeRef.current = nextDrawMode;
     setDrawMode(nextDrawMode);
-    setToolMode(nextDrawMode === "annotation" ? "select" : "brush");
+    setToolMode(
+      nextDrawMode === "annotation" ? preferences.annotation.toolMode : "brush",
+    );
+    setBrushSize(preferences[nextDrawMode].brushSize);
+    setBrushColor(preferences[nextDrawMode].color);
     setTextDraft(null);
     setSelectedTextId(null);
+  };
+
+  const selectToolMode = (nextToolMode: ToolMode) => {
+    setToolMode(nextToolMode);
+    persistPreferences({
+      ...preferencesRef.current,
+      annotation: {
+        ...preferencesRef.current.annotation,
+        toolMode: nextToolMode,
+      },
+    });
+  };
+
+  const updateBrushColor = (color: string) => {
+    setBrushColor(color);
+    const mode = drawModeRef.current;
+    persistPreferences({
+      ...preferencesRef.current,
+      [mode]: {
+        ...preferencesRef.current[mode],
+        color,
+      },
+    });
+  };
+
+  const updateBrushSize = (size: number) => {
+    setBrushSize(size);
+    const mode = drawModeRef.current;
+    persistPreferences({
+      ...preferencesRef.current,
+      [mode]: {
+        ...preferencesRef.current[mode],
+        brushSize: size,
+      },
+    });
+  };
+
+  const updateTextSize = (size: number) => {
+    setTextSize(size);
+    persistPreferences({
+      ...preferencesRef.current,
+      textSize: size,
+    });
   };
 
   useEffect(() => {
@@ -286,9 +363,17 @@ export function ImageFullscreenEditor() {
     }
 
     let cancelled = false;
+    setLoadError(null);
 
-    loadImage(session.imageUrl)
-      .then((image) => {
+    loadImageEditorSource({
+      imageUrl: session.imageUrl,
+      relativePath: session.imageAsset?.relativePath,
+      resolveAssetUrl: (relativePath) =>
+        platformBridge.resolveWorkspaceAssetUrl(relativePath),
+      clearAssetUrlCache: () => platformBridge.clearWorkspaceAssetUrlCache(),
+      load: loadImage,
+    })
+      .then(({ value: image }) => {
         if (cancelled) {
           return;
         }
@@ -300,7 +385,12 @@ export function ImageFullscreenEditor() {
         setTextAnnotations([]);
         setSelectedTextId(null);
         setTextDraft(null);
-        setLoadedImage({ imageUrl: session.imageUrl, image, width, height });
+        setLoadedImage({
+          sessionKey,
+          image,
+          width,
+          height,
+        });
         setLoadError(null);
       })
       .catch((error) => {
@@ -317,7 +407,7 @@ export function ImageFullscreenEditor() {
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [loadAttempt, session, sessionKey]);
 
   useLayoutEffect(() => {
     if (!activeImage || imageSize.width <= 0 || imageSize.height <= 0) {
@@ -1089,7 +1179,7 @@ export function ImageFullscreenEditor() {
     }
 
     const size = getImageNodeSize(imageSize.width, imageSize.height);
-    setIsSavingOutput(true);
+    setSavingOutput({ action: "apply", mode: "annotation" });
 
     try {
       const persistedImage = await persistEditorOutputImage(
@@ -1107,10 +1197,10 @@ export function ImageFullscreenEditor() {
           ...size,
         });
       });
-      setIsSavingOutput(false);
+      setSavingOutput(null);
       close();
     } catch (error) {
-      setIsSavingOutput(false);
+      setSavingOutput(null);
       notify({
         tone: "error",
         title: "图片保存失败",
@@ -1131,7 +1221,7 @@ export function ImageFullscreenEditor() {
       return;
     }
 
-    setIsSavingOutput(true);
+    setSavingOutput({ action: "save-as", mode: saveMode });
 
     try {
       const fileName = getDownloadFileName(
@@ -1140,8 +1230,8 @@ export function ImageFullscreenEditor() {
       );
       const persistedImage = await persistEditorOutputImage(imageUrl, fileName);
 
-      runTracked(() => {
-        createGeneratedPreviewNode(session.nodeId, {
+      const createdNodeId = runTracked(() =>
+        createImageEditorOutputNode(session.nodeId, {
           label: isMaskOutput
             ? getDownloadFileName(session.title, "-mask")
             : `${session.title} 编辑`,
@@ -1161,12 +1251,15 @@ export function ImageFullscreenEditor() {
               : (session.sourceImageNodeId ?? null),
           originOperation: isMaskOutput ? "generate" : "image-edit",
           taskId: null,
-        });
-      });
-      setIsSavingOutput(false);
+        }),
+      );
+      if (!createdNodeId) {
+        throw new Error("无法创建新的图片节点，请确认源节点仍然存在");
+      }
+      setSavingOutput(null);
       close();
     } catch (error) {
-      setIsSavingOutput(false);
+      setSavingOutput(null);
       notify({
         tone: "error",
         title: "图片保存失败",
@@ -1248,6 +1341,14 @@ export function ImageFullscreenEditor() {
         ? "cursor-default"
         : "cursor-none";
   const canUndo = undoCounts[drawMode] > 0;
+  const savingOutputMessage =
+    savingOutput?.action === "apply"
+      ? "正在保存图片并更新当前节点..."
+      : savingOutput?.mode === "mask"
+        ? "正在保存蒙版并创建新节点..."
+        : savingOutput
+          ? "正在保存图片并创建新节点..."
+          : "";
 
   const getTextAnnotationStyle = (annotation: TextAnnotation) => {
     const { height, width } = getTextAnnotationMetrics(annotation);
@@ -1303,7 +1404,7 @@ export function ImageFullscreenEditor() {
               label="选择"
               onClick={() => {
                 commitTextDraft();
-                setToolMode("select");
+                selectToolMode("select");
               }}
               className={
                 toolMode === "select"
@@ -1316,7 +1417,7 @@ export function ImageFullscreenEditor() {
               label="画笔"
               onClick={() => {
                 commitTextDraft();
-                setToolMode("brush");
+                selectToolMode("brush");
               }}
               className={
                 toolMode === "brush"
@@ -1329,7 +1430,7 @@ export function ImageFullscreenEditor() {
               label="直线"
               onClick={() => {
                 commitTextDraft();
-                setToolMode("line");
+                selectToolMode("line");
               }}
               className={
                 toolMode === "line"
@@ -1342,7 +1443,7 @@ export function ImageFullscreenEditor() {
               label="矩形"
               onClick={() => {
                 commitTextDraft();
-                setToolMode("rect");
+                selectToolMode("rect");
               }}
               className={
                 toolMode === "rect"
@@ -1355,7 +1456,7 @@ export function ImageFullscreenEditor() {
               label="圆形"
               onClick={() => {
                 commitTextDraft();
-                setToolMode("ellipse");
+                selectToolMode("ellipse");
               }}
               className={
                 toolMode === "ellipse"
@@ -1366,7 +1467,7 @@ export function ImageFullscreenEditor() {
             />
             <TooltipIconButton
               label="文字"
-              onClick={() => setToolMode("text")}
+              onClick={() => selectToolMode("text")}
               className={
                 toolMode === "text"
                   ? TOOLBAR_ICON_BUTTON_ACTIVE_CLASS
@@ -1444,7 +1545,7 @@ export function ImageFullscreenEditor() {
                   key={color}
                   type="button"
                   onClick={() => {
-                    setBrushColor(color);
+                    updateBrushColor(color);
                     if (selectedTextId) {
                       setTextAnnotations((annotations) =>
                         annotations.map((annotation) =>
@@ -1475,7 +1576,7 @@ export function ImageFullscreenEditor() {
             onChange={(event) => {
               const nextSize = Number(event.currentTarget.value);
               if (toolMode === "text") {
-                setTextSize(nextSize);
+                updateTextSize(nextSize);
               } else if (toolMode === "select" && selectedTextId) {
                 setTextAnnotations((annotations) =>
                   annotations.map((annotation) =>
@@ -1485,7 +1586,7 @@ export function ImageFullscreenEditor() {
                   ),
                 );
               } else {
-                setBrushSize(nextSize);
+                updateBrushSize(nextSize);
               }
             }}
             className="w-28"
@@ -1527,28 +1628,56 @@ export function ImageFullscreenEditor() {
       </div>
 
       <div
-        className={`absolute bottom-4 left-1/2 z-20 flex max-w-[calc(100vw-32px)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 p-1.5 ${themeClasses.strongPanel}`}
+        className={`absolute bottom-4 left-1/2 z-20 flex max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col items-center gap-1.5 p-1.5 ${themeClasses.strongPanel}`}
       >
-        {drawMode === "annotation" ? (
+        {savingOutput ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex min-h-7 w-full items-center justify-center gap-2 px-2 text-xs font-medium text-[var(--text-secondary)]"
+          >
+            <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin text-violet-400" />
+            <span>{savingOutputMessage}</span>
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {drawMode === "annotation" ? (
+            <button
+              type="button"
+              onClick={applyToCurrentNode}
+              disabled={isSavingOutput}
+              aria-busy={savingOutput?.action === "apply"}
+              className={EDITOR_ACTION_BUTTON_CLASS}
+            >
+              {savingOutput?.action === "apply" ? (
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Check className="h-3.5 w-3.5" />
+              )}
+              {savingOutput?.action === "apply"
+                ? "正在应用..."
+                : "应用到当前节点"}
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={applyToCurrentNode}
+            onClick={saveAsNewNode}
             disabled={isSavingOutput}
+            aria-busy={savingOutput?.action === "save-as"}
             className={EDITOR_ACTION_BUTTON_CLASS}
           >
-            <Check className="h-3.5 w-3.5" />
-            应用到当前节点
+            {savingOutput?.action === "save-as" ? (
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save className="h-3.5 w-3.5" />
+            )}
+            {savingOutput?.action === "save-as"
+              ? "正在处理..."
+              : drawMode === "mask"
+                ? "另存为蒙版节点"
+                : "另存为新节点"}
           </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={saveAsNewNode}
-          disabled={isSavingOutput}
-          className={EDITOR_ACTION_BUTTON_CLASS}
-        >
-          <Save className="h-3.5 w-3.5" />
-          {drawMode === "mask" ? "另存为蒙版节点" : "另存为新节点"}
-        </button>
+        </div>
       </div>
 
       <div
@@ -1569,8 +1698,32 @@ export function ImageFullscreenEditor() {
           }}
         >
           {errorMsg ? (
-            <div className="absolute left-1/2 top-16 z-20 -translate-x-1/2 rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-500 shadow-[var(--shadow-panel)] backdrop-blur-xl">
-              {errorMsg}
+            <div
+              role="alert"
+              className="absolute left-1/2 top-16 z-20 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-500 shadow-[var(--shadow-panel)] backdrop-blur-xl"
+            >
+              <span>{errorMsg}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  platformBridge.clearWorkspaceAssetUrlCache();
+                  setLoadAttempt((attempt) => attempt + 1);
+                }}
+                className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-red-400/25 px-2 text-xs font-semibold transition hover:bg-red-500/10"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                重试
+              </button>
+            </div>
+          ) : null}
+          {!activeImage && !errorMsg ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-3 text-sm text-[var(--text-secondary)]"
+            >
+              <LoaderCircle className="h-5 w-5 animate-spin text-violet-400" />
+              <span>正在加载图片...</span>
             </div>
           ) : null}
           {imageSize.width > 0 && imageSize.height > 0 ? (

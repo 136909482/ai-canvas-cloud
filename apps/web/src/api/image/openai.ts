@@ -1,4 +1,8 @@
 import type { ImageOperationType } from "@/types";
+import {
+  SUPPORTED_GENERATE_RATIOS,
+  type SupportedGenerateRatio,
+} from "@/constants/generateNode";
 import { fetchPollingRequestWithRetry } from "../pollingRetry.ts";
 import {
   buildApiError,
@@ -47,26 +51,28 @@ const NUMBERED_REFERENCE_PROMPT_PATTERN =
   /(?:first image|second image|third image|fourth image|fifth image|image\s*[1-9]|reference image\s*[1-9])/i;
 const ENABLE_OPENAI_NUMBERED_REFERENCE_HINTS = false;
 
-const GPT_IMAGE_2_SUPPORTED_SIZES = [
-  "auto",
-  "1:1",
-  "3:2",
-  "2:3",
-  "4:3",
-  "3:4",
-  "5:4",
-  "4:5",
-  "16:9",
-  "9:16",
-  "2:1",
-  "1:2",
-  "3:1",
-  "1:3",
-  "21:9",
-  "9:21",
-] as const;
+type GptImageResolution = "1k" | "2k" | "4k";
 
-type GptImage2Size = (typeof GPT_IMAGE_2_SUPPORTED_SIZES)[number];
+const GPT_IMAGE_2_PIXEL_SIZES: Record<
+  SupportedGenerateRatio,
+  Record<GptImageResolution, string>
+> = {
+  "1:1": { "1k": "1024x1024", "2k": "2048x2048", "4k": "2880x2880" },
+  "3:2": { "1k": "1536x1024", "2k": "2048x1360", "4k": "3520x2336" },
+  "2:3": { "1k": "1024x1536", "2k": "1360x2048", "4k": "2336x3520" },
+  "4:3": { "1k": "1024x768", "2k": "2048x1536", "4k": "3312x2480" },
+  "3:4": { "1k": "768x1024", "2k": "1536x2048", "4k": "2480x3312" },
+  "5:4": { "1k": "1280x1024", "2k": "2560x2048", "4k": "3216x2576" },
+  "4:5": { "1k": "1024x1280", "2k": "2048x2560", "4k": "2576x3216" },
+  "16:9": { "1k": "1536x864", "2k": "2048x1152", "4k": "3840x2160" },
+  "9:16": { "1k": "864x1536", "2k": "1152x2048", "4k": "2160x3840" },
+  "2:1": { "1k": "1774x887", "2k": "2688x1344", "4k": "3840x1920" },
+  "1:2": { "1k": "887x1774", "2k": "1344x2688", "4k": "1920x3840" },
+  "3:1": { "1k": "1536x512", "2k": "3072x1024", "4k": "3840x1280" },
+  "1:3": { "1k": "512x1536", "2k": "1024x3072", "4k": "1280x3840" },
+  "21:9": { "1k": "2016x864", "2k": "2688x1152", "4k": "3840x1648" },
+  "9:21": { "1k": "864x2016", "2k": "1152x2688", "4k": "1648x3840" },
+};
 
 const OPENAI_ENDPOINT_PATHS = [
   "/v1/images/generations",
@@ -79,9 +85,6 @@ const OPENAI_ENDPOINT_PATHS = [
 const OPENAI_ASYNC_POLL_INTERVAL_MS = 3500;
 const OPENAI_ASYNC_POLL_TIMEOUT_MS = 30 * 60 * 1000;
 const GPT_IMAGE_2_INITIAL_POLL_DELAY_MS = 10 * 1000;
-const GPT_IMAGE_2_MIN_PIXELS = 655_360;
-const GPT_IMAGE_2_MAX_SIDE = 3_824;
-const GPT_IMAGE_2_SIZE_MULTIPLE = 16;
 const GPT_IMAGE_MODEL_ID = "gpt-image-2";
 const UNSUPPORTED_OPENAI_IMAGE_MODEL_MESSAGE = `OpenAI compatible image generation only supports ${GPT_IMAGE_MODEL_ID} or Gemini image model ids.`;
 
@@ -169,7 +172,7 @@ function getOpenAiCompatibleImageRequestFamily(
   return null;
 }
 
-function normalizeGptImage2Resolution(resolution?: string) {
+function normalizeGptImage2Resolution(resolution?: string): GptImageResolution {
   const normalized = resolution?.trim().toLowerCase();
 
   switch (normalized) {
@@ -211,55 +214,6 @@ function normalizeGeminiImageResolution(resolution?: string) {
   }
 }
 
-function getGptImage2BaseLongEdge(resolution?: string) {
-  switch (normalizeGptImage2Resolution(resolution)) {
-    case "4k":
-      return GPT_IMAGE_2_MAX_SIDE;
-    case "2k":
-      return 2048;
-    case "1k":
-    default:
-      return 1024;
-  }
-}
-
-function roundToImageSizeMultiple(value: number) {
-  return Math.max(
-    GPT_IMAGE_2_SIZE_MULTIPLE,
-    Math.round(value / GPT_IMAGE_2_SIZE_MULTIPLE) * GPT_IMAGE_2_SIZE_MULTIPLE,
-  );
-}
-
-function ceilToImageSizeMultiple(value: number) {
-  return Math.max(
-    GPT_IMAGE_2_SIZE_MULTIPLE,
-    Math.ceil(value / GPT_IMAGE_2_SIZE_MULTIPLE) * GPT_IMAGE_2_SIZE_MULTIPLE,
-  );
-}
-
-function parseRatioValue(ratio?: string) {
-  const normalized = ratio?.trim().toLowerCase();
-  const matched = normalized?.match(/^(\d{1,4})\s*:\s*(\d{1,4})$/);
-
-  if (!matched) {
-    return null;
-  }
-
-  const width = Number(matched[1]);
-  const height = Number(matched[2]);
-
-  if (
-    !Number.isFinite(width) ||
-    !Number.isFinite(height) ||
-    width <= 0 ||
-    height <= 0
-  ) {
-    return null;
-  }
-
-  return width / height;
-}
-
 function getGreatestCommonDivisor(left: number, right: number): number {
   let a = Math.abs(left);
   let b = Math.abs(right);
@@ -278,66 +232,30 @@ function normalizeSizePair(width: number, height: number) {
   return `${width / divisor}:${height / divisor}`;
 }
 
-function ratioToGptImage2PixelSize(ratio: string, resolution?: string) {
-  const ratioValue = parseRatioValue(ratio);
-
-  if (!ratioValue) {
-    return null;
-  }
-
-  const longEdge = getGptImage2BaseLongEdge(resolution);
-  let width = ratioValue >= 1 ? longEdge : longEdge * ratioValue;
-  let height = ratioValue >= 1 ? longEdge / ratioValue : longEdge;
-
-  width = roundToImageSizeMultiple(width);
-  height = roundToImageSizeMultiple(height);
-
-  const currentPixels = width * height;
-  if (currentPixels < GPT_IMAGE_2_MIN_PIXELS) {
-    if (ratioValue >= 1) {
-      width = ceilToImageSizeMultiple(
-        Math.sqrt(GPT_IMAGE_2_MIN_PIXELS * ratioValue),
-      );
-      height = ceilToImageSizeMultiple(width / ratioValue);
-    } else {
-      height = ceilToImageSizeMultiple(
-        Math.sqrt(GPT_IMAGE_2_MIN_PIXELS / ratioValue),
-      );
-      width = ceilToImageSizeMultiple(height * ratioValue);
-    }
-  }
-
-  width = Math.min(width, GPT_IMAGE_2_MAX_SIDE);
-  height = Math.min(height, GPT_IMAGE_2_MAX_SIDE);
-
-  return `${width}x${height}`;
-}
-
 function getGptImage2Size(ratio?: string, resolution?: string) {
-  const normalized = ratio?.trim().toLowerCase();
+  const normalizedRatio = ratio?.trim();
+  const supportedRatio = SUPPORTED_GENERATE_RATIOS.includes(
+    normalizedRatio as SupportedGenerateRatio,
+  )
+    ? (normalizedRatio as SupportedGenerateRatio)
+    : "1:1";
 
-  if (!normalized || normalized === "auto") {
-    return "1024x1024";
-  }
-
-  if (/^\d+x\d+$/i.test(normalized)) {
-    return normalized;
-  }
-
-  return GPT_IMAGE_2_SUPPORTED_SIZES.includes(normalized as GptImage2Size)
-    ? normalized
-    : (ratioToGptImage2PixelSize(normalized, resolution) ?? "1024x1024");
+  return GPT_IMAGE_2_PIXEL_SIZES[supportedRatio][
+    normalizeGptImage2Resolution(resolution)
+  ];
 }
 
 function resolveGptImage2RequestSize(
   params: GenerateImageParams,
   effectiveRatio: string,
 ) {
-  if (!params.ratio || params.ratio === "Auto") {
-    return getGptImage2Size(effectiveRatio, params.resolution);
-  }
+  const requestedRatio = SUPPORTED_GENERATE_RATIOS.includes(
+    params.ratio as SupportedGenerateRatio,
+  )
+    ? params.ratio
+    : effectiveRatio;
 
-  return getGptImage2Size(params.ratio, params.resolution);
+  return getGptImage2Size(requestedRatio, params.resolution);
 }
 
 function hasGeminiAutoRatioReference(params: GenerateImageParams) {
@@ -526,9 +444,8 @@ async function buildGptImageGenerationPayload(
 
   if (requestFamily === "openai") {
     Object.assign(payload, {
-      resolution: normalizeGptImage2Resolution(params.resolution),
       quality: normalizeGptImage2Quality(params.quality),
-      moderation: "low",
+      moderation: "auto",
       output_format: "png",
     });
   }
@@ -562,7 +479,8 @@ async function buildGptImageEditFormData(
     ),
   );
   const formData = new FormData();
-  const imageFieldName = imageFiles.length > 1 ? "image[]" : "image";
+  const imageFieldName =
+    requestFamily === "openai" || imageFiles.length > 1 ? "image[]" : "image";
 
   appendStringFormField(formData, "model", params.model);
   appendStringFormField(
@@ -580,15 +498,10 @@ async function buildGptImageEditFormData(
   if (requestFamily === "openai") {
     appendStringFormField(
       formData,
-      "resolution",
-      normalizeGptImage2Resolution(params.resolution),
-    );
-    appendStringFormField(
-      formData,
       "quality",
       normalizeGptImage2Quality(params.quality),
     );
-    appendStringFormField(formData, "moderation", "low");
+    appendStringFormField(formData, "moderation", "auto");
     appendStringFormField(formData, "output_format", "png");
   }
 

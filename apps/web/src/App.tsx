@@ -1,7 +1,8 @@
 import { lazy, Suspense } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
-import { FolderKanban, Plus } from "lucide-react";
+import { FolderKanban, LoaderCircle, Plus } from "lucide-react";
 import { AppFeedbackHost } from "@/components/AppFeedbackHost";
+import { AppTooltipHost } from "@/components/AppTooltipHost";
 import { Canvas } from "@/components/Canvas";
 import { CanvasQuickActions } from "@/components/CanvasTopBar";
 import { FloatingToolbar } from "@/components/FloatingToolbar";
@@ -29,6 +30,20 @@ const ProjectManagerDialog = lazy(() =>
     default: module.ProjectManagerDialog,
   })),
 );
+
+function ImageEditorLoadingFallback() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed inset-0 z-[10000] flex items-center justify-center gap-3 bg-[var(--canvas-bg)] text-sm text-[var(--text-secondary)]"
+    >
+      <LoaderCircle className="h-5 w-5 animate-spin text-violet-400" />
+      <span>正在打开图片编辑器...</span>
+    </div>
+  );
+}
+
 function EmptyProjectHint() {
   const openProjectDialog = useProjectDialogStore((state) => state.open);
 
@@ -99,7 +114,7 @@ function AppContent() {
         <TaskQueueRunner />
         <Canvas />
         {imageEditorSession ? (
-          <Suspense fallback={null}>
+          <Suspense fallback={<ImageEditorLoadingFallback />}>
             <ImageFullscreenEditor
               key={`${imageEditorSession.nodeId}\u0000${imageEditorSession.imageUrl}`}
             />
@@ -135,6 +150,7 @@ export default function App() {
         <ProjectManagerDialogHost />
       </AuthGate>
       <AppFeedbackHost />
+      <AppTooltipHost />
     </>
   );
 }

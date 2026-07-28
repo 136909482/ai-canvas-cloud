@@ -4,22 +4,29 @@ export type ReferenceImageItem = {
   sourceId: string;
   imageUrl: string;
   thumbnailRelativePath?: string;
+  assetRelativePath?: string;
 };
 
 const REFERENCE_IMAGE_KEY_SEPARATOR = "\u0000";
 
 export function encodeReferenceImageKey(item: ReferenceImageItem) {
-  return [item.sourceId, item.imageUrl, item.thumbnailRelativePath ?? ""].join(
-    REFERENCE_IMAGE_KEY_SEPARATOR,
-  );
+  return [
+    item.sourceId,
+    item.imageUrl,
+    item.thumbnailRelativePath ?? "",
+    item.assetRelativePath ?? "",
+  ].join(REFERENCE_IMAGE_KEY_SEPARATOR);
 }
 
 export function decodeReferenceImageKey(
   key: string,
 ): ReferenceImageItem | null {
-  const [sourceId = "", imageUrl = "", thumbnailRelativePath = ""] = key.split(
-    REFERENCE_IMAGE_KEY_SEPARATOR,
-  );
+  const [
+    sourceId = "",
+    imageUrl = "",
+    thumbnailRelativePath = "",
+    assetRelativePath = "",
+  ] = key.split(REFERENCE_IMAGE_KEY_SEPARATOR);
   if (!sourceId || !imageUrl) {
     return null;
   }
@@ -28,6 +35,7 @@ export function decodeReferenceImageKey(
     sourceId,
     imageUrl,
     thumbnailRelativePath: thumbnailRelativePath || undefined,
+    assetRelativePath: assetRelativePath || undefined,
   };
 }
 

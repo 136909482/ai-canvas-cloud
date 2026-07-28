@@ -18,7 +18,10 @@ import {
   X,
 } from "lucide-react";
 import { CanvasImagePreview } from "@/components/CanvasImagePreview";
-import { MAX_GENERATE_REFERENCE_IMAGES } from "@/constants/generateNode";
+import {
+  MAX_GENERATE_REFERENCE_IMAGES,
+  normalizeGenerateRatio,
+} from "@/constants/generateNode";
 import { isGptImageModel } from "@/api/imageAdapter";
 import { enqueueGenerateTask } from "@/features/generateQueue/orchestrator";
 import { compileImageMentionPrompt } from "@/features/richPrompt/promptCompiler";
@@ -41,7 +44,10 @@ import { useHistoryStore } from "@/store/useHistoryStore";
 import { useProjectStore } from "@/store/useProjectStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { useTaskQueueStore } from "@/store/useTaskQueueStore";
-import { getWorkspaceAssetThumbnailRelativePath } from "@/utils/workspaceImageAsset";
+import {
+  getWorkspaceAssetRelativePath,
+  getWorkspaceAssetThumbnailRelativePath,
+} from "@/utils/workspaceImageAsset";
 import { recordComponentRender } from "@/utils/performanceDiagnostics";
 import { type AppNodeProps } from "@/types";
 import { useShallow } from "zustand/react/shallow";
@@ -127,6 +133,9 @@ export const GenerateNode = memo(function GenerateNode({
           thumbnailRelativePath: getWorkspaceAssetThumbnailRelativePath(
             node.data.imageAsset,
           ),
+          assetRelativePath: getWorkspaceAssetRelativePath(
+            node.data.imageAsset,
+          ),
         }),
       );
   }, [id]);
@@ -139,6 +148,9 @@ export const GenerateNode = memo(function GenerateNode({
             sourceId: node.id,
             imageUrl: node.data.imageUrl as string,
             thumbnailRelativePath: getWorkspaceAssetThumbnailRelativePath(
+              node.data.imageAsset,
+            ),
+            assetRelativePath: getWorkspaceAssetRelativePath(
               node.data.imageAsset,
             ),
           })
@@ -210,7 +222,6 @@ export const GenerateNode = memo(function GenerateNode({
 
   const isConnected = Boolean(data.connectedTextNode);
   const maskInputEnabled = data.maskInputEnabled === true;
-  const referenceImageUrls = referenceImages.map((item) => item.imageUrl);
   const referenceImageCount = referenceImages.length;
   const maskImageUrl =
     maskInputEnabled && maskSourceImage ? maskSourceImage.imageUrl : "";
@@ -238,7 +249,7 @@ export const GenerateNode = memo(function GenerateNode({
   const effectiveModel = data.model.trim();
   const selectedModel = modelSelection.selectedModel;
   const isGptImageSettingsModel = isGptImageModel(selectedModel?.modelId ?? "");
-  const ratio = data.ratio || "1:1";
+  const ratio = normalizeGenerateRatio(data.ratio);
   const resolution = RESOLUTIONS.includes(data.resolution)
     ? data.resolution
     : "1K";
@@ -360,6 +371,18 @@ export const GenerateNode = memo(function GenerateNode({
       fallbackPrompt: currentPrompt,
       references: richPromptReferences,
     });
+    const taskReferenceImages = referenceImages.map((referenceImage) => ({
+      sourceNodeId: referenceImage.sourceId,
+      imageUrl: referenceImage.imageUrl,
+      assetRelativePath: referenceImage.assetRelativePath ?? null,
+    }));
+    const taskMaskImage = maskSourceImage
+      ? {
+          sourceNodeId: maskSourceImage.sourceId,
+          imageUrl: maskSourceImage.imageUrl,
+          assetRelativePath: maskSourceImage.assetRelativePath ?? null,
+        }
+      : null;
 
     syncRichPromptToStore(currentPrompt, effectiveRichPromptDraft);
     updateNodeData(id, { model: effectiveModel });
@@ -369,7 +392,7 @@ export const GenerateNode = memo(function GenerateNode({
       prompt: compiledPrompt,
       negativePrompt: data.negativePrompt,
       model: modelEntryId,
-      ratio: data.ratio || "1:1",
+      ratio,
       resolution,
       quality: isGptImageSettingsModel ? quality : null,
       operationType: hasMaskImage ? "image-edit" : undefined,
@@ -377,9 +400,11 @@ export const GenerateNode = memo(function GenerateNode({
         ? (referenceImages[0]?.sourceId ?? null)
         : null,
       maskImageUrl: hasMaskImage ? maskImageUrl : null,
-      referenceImageUrls: hasMaskImage
-        ? referenceImageUrls.slice(1)
-        : referenceImageUrls,
+      editImageSource: hasMaskImage ? (taskReferenceImages[0] ?? null) : null,
+      maskImageSource: hasMaskImage ? taskMaskImage : null,
+      referenceImages: hasMaskImage
+        ? taskReferenceImages.slice(1)
+        : taskReferenceImages,
       googleSearch: false,
       googleImageSearch: false,
     });

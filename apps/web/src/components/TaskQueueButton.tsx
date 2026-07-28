@@ -10,7 +10,11 @@ import { useTaskQueueStore } from "@/store/useTaskQueueStore";
 export function TaskQueueButton() {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
-  const panelRef = useDialogFocus<HTMLDivElement>(open, () => setOpen(false));
+  const panelRef = useDialogFocus<HTMLDivElement>(
+    open,
+    () => setOpen(false),
+    '[role="tab"][aria-selected="true"]',
+  );
   const activeTaskCount = useTaskQueueStore(
     (state) =>
       state.tasks.filter(

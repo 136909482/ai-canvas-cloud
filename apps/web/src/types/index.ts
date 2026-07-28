@@ -345,6 +345,12 @@ export type GenerateTaskAdapterId =
   | "dashscope-image-sync"
   | "dashscope-video-polling";
 
+export interface GenerateTaskImageSource {
+  sourceNodeId: string | null;
+  imageUrl: string;
+  assetRelativePath: string | null;
+}
+
 export interface GenerateTask {
   id: string;
   displayId: string;
@@ -363,6 +369,10 @@ export interface GenerateTask {
   apiProfileId?: string | null;
   apiProfileName?: string | null;
   provider?: string | null;
+  referenceImages: GenerateTaskImageSource[];
+  editImageSource?: GenerateTaskImageSource | null;
+  maskImageSource?: GenerateTaskImageSource | null;
+  /** Legacy snapshot compatibility. Runtime execution uses referenceImages. */
   referenceImageUrls: string[];
   inputFidelity?: ImageInputFidelity | null;
   quality?: GptImageQuality | null;

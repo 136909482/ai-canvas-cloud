@@ -1,5 +1,6 @@
 import type { Node } from "@xyflow/react";
 import { DEFAULT_IMAGE_MODEL_ID } from "@/config/modelCatalog";
+import { normalizeGenerateRatio } from "@/constants/generateNode";
 import type {
   CompareNodeData,
   GenerateNodeData,
@@ -207,7 +208,7 @@ export function cloneNodeForDuplicate(
         imageAsset: null,
         status: "idle",
         errorMsg: "",
-        ratio: typeof node.data?.ratio === "string" ? node.data.ratio : "1:1",
+        ratio: normalizeGenerateRatio(node.data?.ratio),
         model:
           typeof node.data?.model === "string"
             ? node.data.model
@@ -247,7 +248,7 @@ export function cloneNodeForDuplicate(
           typeof node.data?.model === "string"
             ? node.data.model
             : DEFAULT_IMAGE_MODEL_ID,
-        ratio: typeof node.data?.ratio === "string" ? node.data.ratio : "1:1",
+        ratio: normalizeGenerateRatio(node.data?.ratio ?? "1:1"),
         resolution:
           typeof node.data?.resolution === "string"
             ? node.data.resolution

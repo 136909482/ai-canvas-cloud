@@ -46,6 +46,7 @@ import {
   sanitizeCanvasSnapshotForPersistence,
 } from "./canvasSnapshotSanitizers";
 import { buildImageCropOutputState } from "./canvasImageCropRuntime";
+import { buildImageEditorOutputState } from "./canvasImageEditorOutput";
 import { buildTextSplitterOutputState } from "./canvasTextSplitterRuntime";
 import { getCanvasNodeById, isTextSourceNode } from "./canvasConnectionSources";
 import {
@@ -189,6 +190,10 @@ interface CanvasStore {
   ) => void;
   createGeneratedPreviewNode: (
     sourceGenerateNodeId: string,
+    preview: GeneratedPreviewNodeDraft,
+  ) => string;
+  createImageEditorOutputNode: (
+    sourceNodeId: string,
     preview: GeneratedPreviewNodeDraft,
   ) => string;
   createGeneratedVideoNode: (
@@ -978,6 +983,26 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           },
         ],
       };
+    });
+    return previewId;
+  },
+
+  createImageEditorOutputNode: (sourceNodeId, preview) => {
+    let previewId = "";
+    set((s) => {
+      const outputState = buildImageEditorOutputState({
+        nodes: s.nodes,
+        edges: s.edges,
+        sourceNodeId,
+        preview,
+        nextPreviewId: () => takeNextNodeId("generatedPreviewNode"),
+      });
+      if (!outputState) {
+        return s;
+      }
+
+      previewId = outputState.createdNodeId;
+      return buildSyncedGraphState(outputState.nodes, outputState.edges);
     });
     return previewId;
   },

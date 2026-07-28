@@ -27,6 +27,7 @@ function task(
     apiProfileId: null,
     apiProfileName: null,
     provider: "openai",
+    referenceImages: [],
     referenceImageUrls: [],
     inputFidelity: null,
     quality: null,

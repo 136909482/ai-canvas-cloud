@@ -44,6 +44,7 @@ function createTask(overrides: Partial<GenerateTask>): GenerateTask {
     startedAt: 0,
     finishedAt: null,
     ...overrides,
+    referenceImages: overrides.referenceImages ?? [],
   };
 }
 
@@ -180,6 +181,19 @@ function runTaskQueueRecoveryTests() {
     reassignedTask.projectId === "opened-project",
     "loaded tasks should belong to the project that contains the snapshot",
   );
+
+  const legacyTask = createTask({
+    operationType: "image-to-image",
+    referenceImageUrls: ["https://legacy/reference.png"],
+  });
+  (legacyTask as unknown as Record<string, unknown>).referenceImages =
+    undefined;
+  const migratedLegacyTask = recoverTasksAfterSnapshotLoad([legacyTask])[0];
+  assert(
+    migratedLegacyTask.referenceImages[0]?.imageUrl ===
+      "https://legacy/reference.png",
+    "legacy URL-only task snapshots should migrate to structured image inputs",
+  );
 }
 
 runTaskQueueRecoveryTests();
@@ -214,6 +228,47 @@ function runTaskQueueRetryTelemetryTests() {
 }
 
 runTaskQueueRetryTelemetryTests();
+
+function runTaskImageSourceSnapshotTests() {
+  const store = useTaskQueueStore.getState();
+  store.resetToEmpty();
+  store.createTask({
+    sourceNodeId: "gen-image-source",
+    model: "model-1",
+    prompt: "prompt",
+    operationType: "image-to-image",
+    referenceImages: [
+      {
+        sourceNodeId: "image-1",
+        imageUrl: "https://storage.example/signed?expires=soon",
+        assetRelativePath: "cloud-assets/11111111-1111-4111-8111-111111111111",
+      },
+    ],
+  });
+
+  const snapshot = useTaskQueueStore.getState().getSnapshot();
+  const persistedSource = snapshot.tasks[0]?.referenceImages[0];
+  assert(
+    persistedSource?.assetRelativePath ===
+      "cloud-assets/11111111-1111-4111-8111-111111111111",
+    "task snapshots should preserve stable asset locators",
+  );
+  assert(
+    persistedSource.imageUrl === "",
+    "task snapshots should not persist expiring signed asset URLs",
+  );
+
+  store.replaceSnapshot(snapshot, "project-1");
+  const restoredSource =
+    useTaskQueueStore.getState().tasks[0]?.referenceImages[0];
+  assert(
+    restoredSource?.assetRelativePath === persistedSource.assetRelativePath,
+    "restored tasks should retain stable asset locators without a signed URL",
+  );
+  store.resetToEmpty();
+}
+
+runTaskImageSourceSnapshotTests();
 
 function runAtomicClaimTests() {
   const store = useTaskQueueStore.getState();

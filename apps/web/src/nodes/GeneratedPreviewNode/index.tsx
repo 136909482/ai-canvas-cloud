@@ -13,6 +13,7 @@ import {
 import { CanvasImagePreview } from "@/components/CanvasImagePreview";
 import { StableNodeToolbar } from "@/components/StableNodeToolbar";
 import { ZoomableImagePreview } from "@/components/ZoomableImagePreview";
+import { getPreviewNodeSizeAtWidth } from "@/features/generateQueue/previewUtils";
 import { useCanvasStore } from "@/store/useCanvasStore";
 import { useHistoryStore } from "@/store/useHistoryStore";
 import { useImageEditorStore } from "@/store/useImageEditorStore";
@@ -95,6 +96,10 @@ function formatResolution(width: number, height: number) {
 }
 
 function formatModelLabel(model: string, modelName?: string) {
+  if (model.trim().toLowerCase() === "manual-edit") {
+    return "图片编辑";
+  }
+
   const normalizedModelName = modelName?.trim();
   if (normalizedModelName) {
     return normalizedModelName;
@@ -197,6 +202,8 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
   data,
   selected,
   dragging,
+  width,
+  height,
 }: GeneratedPreviewNodeProps) {
   recordComponentRender("GeneratedPreviewNode");
   const deleteNode = useCanvasStore((s) => s.deleteNode);
@@ -242,6 +249,7 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
       useCanvasStore.getState().updateNodeData(id, {
         width: Math.round(contentWidth) + PADDING_X,
         height: nextHeight,
+        layoutMode: "manual",
       });
     },
     [data.imageHeight, data.imageUrl, data.imageWidth, id],
@@ -254,6 +262,33 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
 
   const previewMeta = previewMetaParts.join(" / ");
   const nodeTitle = hasImage ? previewMeta : UI_TEXT.previewTitle;
+
+  useEffect(() => {
+    if (typeof width !== "number" || typeof height !== "number") {
+      return;
+    }
+
+    const isImageEditorOutput =
+      data.model === "manual-edit" || data.model === "manual-mask";
+    const hasLegacyDefaultSize =
+      Math.round(width) === 300 && Math.round(height) === 260;
+    if (!isImageEditorOutput || !hasLegacyDefaultSize) {
+      return;
+    }
+
+    updateNodeData(
+      id,
+      getPreviewNodeSizeAtWidth(data.imageWidth, data.imageHeight, width),
+    );
+  }, [
+    data.imageHeight,
+    data.imageWidth,
+    data.model,
+    height,
+    id,
+    updateNodeData,
+    width,
+  ]);
 
   useEffect(() => {
     if (!showPreview) {
@@ -513,19 +548,20 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
             ) : isGenerating ? (
               <>
                 <div className="preview-generating-surface absolute inset-0 overflow-hidden rounded-lg">
-                  <div className="preview-grid-overlay absolute inset-0" />
-                  <div className="preview-aurora preview-aurora-a absolute -left-12 top-[-10%] h-44 w-44" />
-                  <div className="preview-aurora preview-aurora-b absolute right-[-8%] top-[16%] h-40 w-40" />
-                  <div className="preview-aurora preview-aurora-c absolute left-[18%] bottom-[-18%] h-48 w-48" />
-                  <div className="preview-wave absolute inset-x-[-14%] top-[18%] h-24" />
-                  <div className="preview-wave preview-wave-delayed absolute inset-x-[-18%] bottom-[16%] h-28" />
-                  <div className="preview-flow-sheen absolute inset-y-[-16%] left-[-30%] w-[58%]" />
-                  <div className="preview-core-glow absolute left-1/2 top-1/2 h-28 w-28 -translate-x-1/2 -translate-y-1/2" />
+                  <div className="preview-aurora-field absolute inset-[-28%]" />
+                  <div className="preview-silk-ribbon preview-silk-ribbon-a absolute inset-x-[-32%] top-[-4%] h-[58%]" />
+                  <div className="preview-silk-ribbon preview-silk-ribbon-b absolute inset-x-[-38%] bottom-[-8%] h-[62%]" />
+                  <div className="preview-light-veil absolute inset-[-12%]" />
                 </div>
                 <div className="preview-vignette absolute inset-0 rounded-lg" />
                 <div className="relative z-10 flex flex-1 items-center justify-center">
-                  <div className="rounded-full border border-violet-400/30 bg-[var(--panel-bg)] px-3 py-1 text-[11px] font-medium text-violet-500 backdrop-blur">
-                    {UI_TEXT.generating}
+                  <div className="preview-generating-status flex flex-col items-center gap-2 text-[var(--text-primary)]">
+                    <span className="preview-generating-mark flex h-7 w-7 items-center justify-center">
+                      <Sparkles className="h-4 w-4" aria-hidden="true" />
+                    </span>
+                    <span className="text-[11px] font-medium tracking-normal">
+                      {UI_TEXT.generating}
+                    </span>
                   </div>
                 </div>
               </>

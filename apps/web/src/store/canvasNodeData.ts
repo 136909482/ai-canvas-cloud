@@ -1,5 +1,6 @@
 import type { Node } from "@xyflow/react";
 import { DEFAULT_IMAGE_MODEL_ID } from "@/config/modelCatalog";
+import { normalizeGenerateRatio } from "@/constants/generateNode";
 import {
   DEFAULT_IMAGE_CROP_COLUMNS,
   DEFAULT_IMAGE_CROP_ROWS,
@@ -200,7 +201,7 @@ export function createImageEditNodeData(
       typeof data?.negativePrompt === "string" ? data.negativePrompt : "",
     model:
       typeof data?.model === "string" ? data.model : DEFAULT_IMAGE_MODEL_ID,
-    ratio: typeof data?.ratio === "string" ? data.ratio : "1:1",
+    ratio: normalizeGenerateRatio(data?.ratio ?? "1:1"),
     resolution: typeof data?.resolution === "string" ? data.resolution : "1K",
     status:
       data?.status === "queued" ||

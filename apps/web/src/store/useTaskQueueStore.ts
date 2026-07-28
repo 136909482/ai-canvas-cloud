@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   createTaskDisplayId,
   mergeTaskSnapshot,
+  prepareTasksForSnapshot,
   recoverTasksAfterSnapshotLoad,
   sanitizeTasks,
   type GenerateTaskSnapshot,
@@ -107,7 +108,7 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
           resolution: input.resolution ?? "1K",
           operationType:
             input.operationType ??
-            (input.referenceImageUrls?.length
+            (input.referenceImages?.length || input.referenceImageUrls?.length
               ? "image-to-image"
               : "text-to-image"),
           sourceImageNodeId: input.sourceImageNodeId ?? null,
@@ -115,7 +116,19 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
           apiProfileId: input.apiProfileId ?? null,
           apiProfileName: input.apiProfileName ?? null,
           provider: input.provider ?? null,
-          referenceImageUrls: input.referenceImageUrls ?? [],
+          referenceImages:
+            input.referenceImages ??
+            (input.referenceImageUrls ?? []).map((imageUrl) => ({
+              sourceNodeId: null,
+              imageUrl,
+              assetRelativePath: null,
+            })),
+          editImageSource: input.editImageSource ?? null,
+          maskImageSource: input.maskImageSource ?? null,
+          referenceImageUrls:
+            input.referenceImages?.map((source) => source.imageUrl) ??
+            input.referenceImageUrls ??
+            [],
           inputFidelity: input.inputFidelity ?? null,
           quality: input.quality ?? null,
           googleSearch: Boolean(input.googleSearch),
@@ -145,7 +158,7 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
   },
 
   getSnapshot: (): TaskQueueSnapshot => ({
-    tasks: sanitizeTasks(get().tasks),
+    tasks: prepareTasksForSnapshot(get().tasks),
   }),
 
   replaceSnapshot: (snapshot, projectId) =>
