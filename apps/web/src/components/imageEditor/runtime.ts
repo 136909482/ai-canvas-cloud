@@ -34,7 +34,7 @@ export type TextAnnotation = CanvasPoint & {
   color: string;
   rotation: number;
 };
-export type TextDraft = Omit<TextAnnotation, "id"> & { id: string | null };
+export type TextDraft = TextAnnotation;
 export type UndoSnapshot = HTMLCanvasElement;
 
 function getTextFont(fontSize: number) {
