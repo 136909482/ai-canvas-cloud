@@ -4,6 +4,8 @@ FROM node:24.13.0-alpine3.22 AS workspace
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
+COPY apps/admin-api/package.json apps/admin-api/package.json
+COPY apps/admin-web/package.json apps/admin-web/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/project-graph/package.json packages/project-graph/package.json
@@ -36,6 +38,23 @@ COPY --from=build --chown=node:node /app/server/dist server/dist
 USER node
 EXPOSE 8787
 CMD ["node", "apps/api/dist/index.js"]
+
+FROM node:24.13.0-alpine3.22 AS admin-api
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
+COPY --from=build --chown=node:node /app/apps/admin-api/package.json apps/admin-api/package.json
+COPY --from=build --chown=node:node /app/apps/admin-api/dist apps/admin-api/dist
+COPY --from=build --chown=node:node /app/packages/contracts/package.json packages/contracts/package.json
+COPY --from=build --chown=node:node /app/packages/contracts/dist packages/contracts/dist
+COPY --from=build --chown=node:node /app/packages/shared/package.json packages/shared/package.json
+COPY --from=build --chown=node:node /app/packages/shared/dist packages/shared/dist
+COPY --from=build --chown=node:node /app/server/package.json server/package.json
+COPY --from=build --chown=node:node /app/server/dist server/dist
+USER node
+EXPOSE 8788
+CMD ["node", "apps/admin-api/dist/index.js"]
 
 FROM node:24.13.0-alpine3.22 AS migrate
 ENV NODE_ENV=production
@@ -71,7 +90,29 @@ USER node
 VOLUME ["/backups"]
 CMD ["node", "scripts/create-staging-backup.mjs"]
 
+FROM workspace AS release
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
+COPY --from=build --chown=node:node /app/apps/admin-api/package.json apps/admin-api/package.json
+COPY --from=build --chown=node:node /app/apps/admin-api/src/config.ts apps/admin-api/src/config.ts
+COPY --from=build --chown=node:node /app/packages/contracts/package.json packages/contracts/package.json
+COPY --from=build --chown=node:node /app/packages/contracts/dist packages/contracts/dist
+COPY --from=build --chown=node:node /app/packages/shared/package.json packages/shared/package.json
+COPY --from=build --chown=node:node /app/packages/shared/dist packages/shared/dist
+COPY --from=build --chown=node:node /app/server/package.json server/package.json
+COPY --from=build --chown=node:node /app/server/dist server/dist
+COPY --from=build --chown=node:node /app/server/db/migrations server/db/migrations
+COPY --from=build --chown=node:node /app/scripts scripts
+USER node
+CMD ["node", "scripts/check-deployment-config.mjs"]
+
 FROM nginxinc/nginx-unprivileged:1.29.1-alpine AS web
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 COPY infra/deploy/staging/web.nginx.conf /etc/nginx/templates/default.conf.template
+EXPOSE 8080
+
+FROM nginxinc/nginx-unprivileged:1.29.1-alpine AS admin-web
+COPY --from=build /app/apps/admin-web/dist /usr/share/nginx/html
+COPY infra/deploy/production/admin.nginx.conf /etc/nginx/templates/default.conf.template
 EXPOSE 8080

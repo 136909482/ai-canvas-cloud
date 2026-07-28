@@ -22,10 +22,14 @@ export interface ApiConfig {
   redisUrl: string;
   s3Endpoint: string;
   s3PublicEndpoint: string;
+  s3PublicOrigin: string;
+  s3ForcePathStyle: boolean;
   s3Bucket: string;
   s3Region: string;
   s3AccessKeyId: string;
   s3SecretAccessKey: string;
+  objectStorageCredentialKeys?: string;
+  objectStorageCredentialActiveKeyVersion: number;
   devSeedAdmin: boolean;
   devSeedAdminUsername: string;
   devSeedAdminEmail: string;
@@ -130,6 +134,17 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   ) {
     throw new Error("SMTP_CREDENTIAL_ACTIVE_KEY_VERSION must be positive");
   }
+  const objectStorageCredentialActiveKeyVersion = Number(
+    env.OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION ?? 1,
+  );
+  if (
+    !Number.isInteger(objectStorageCredentialActiveKeyVersion) ||
+    objectStorageCredentialActiveKeyVersion < 1
+  ) {
+    throw new Error(
+      "OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION must be positive",
+    );
+  }
 
   return {
     env: appEnv,
@@ -165,10 +180,25 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       "S3_PUBLIC_ENDPOINT",
       readRequiredEnv(env, "S3_ENDPOINT"),
     ),
+    s3PublicOrigin: readOptionalEnv(
+      env,
+      "S3_PUBLIC_ORIGIN",
+      new URL(
+        readOptionalEnv(
+          env,
+          "S3_PUBLIC_ENDPOINT",
+          readRequiredEnv(env, "S3_ENDPOINT"),
+        ),
+      ).origin,
+    ),
+    s3ForcePathStyle: readBooleanEnv(env, "S3_FORCE_PATH_STYLE", true),
     s3Bucket: readRequiredEnv(env, "S3_BUCKET"),
     s3Region: readRequiredEnv(env, "S3_REGION"),
     s3AccessKeyId: readRequiredEnv(env, "S3_ACCESS_KEY_ID"),
     s3SecretAccessKey: readRequiredEnv(env, "S3_SECRET_ACCESS_KEY"),
+    objectStorageCredentialKeys:
+      env.OBJECT_STORAGE_CREDENTIAL_KEYS?.trim() || undefined,
+    objectStorageCredentialActiveKeyVersion,
     devSeedAdmin:
       appEnv !== "production" && readBooleanEnv(env, "DEV_SEED_ADMIN", false),
     devSeedAdminUsername: readOptionalEnv(

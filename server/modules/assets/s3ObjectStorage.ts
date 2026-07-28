@@ -31,6 +31,7 @@ export interface S3ObjectStorageOptions {
 
 export interface S3ObjectStorageHealth {
   checkHealth: () => Promise<void>;
+  destroy: () => void;
 }
 
 function isObjectNotFound(error: unknown) {
@@ -80,6 +81,11 @@ export function createS3ObjectStorage(
       : client;
 
   return {
+    destroy() {
+      client.destroy();
+      if (signingClient !== client) signingClient.destroy();
+    },
+
     async checkHealth() {
       await client.send(new HeadBucketCommand({ Bucket: options.bucket }));
     },

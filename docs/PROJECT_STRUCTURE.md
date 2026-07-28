@@ -26,7 +26,7 @@ server/
     projects/          项目元数据与生命周期
     project-graph/     图增量事务、change 和当前资产引用
     project-snapshots/ checkpoint、历史、restore 和 manifest 修复
-    assets/            上传、读取、S3、配额、诊断和 GC
+    assets/            上传、读取、动态加密 S3 配置、配额、诊断和 GC
     generation-telemetry/ 脱敏生成 attempt 校验、幂等收口与授权
     migrations/        目录包预检、暂存、commit 和导出
     admin/             Admin 认证、RBAC、用户运营、设置和审计
@@ -34,6 +34,7 @@ server/
 infra/
   local/               PostgreSQL、Redis、MinIO
   deploy/staging/      Compose、Nginx、监控、备份和恢复基线
+  deploy/production/   宝塔入口、轻量 Compose 和生产环境变量模板
 
 docs/                  5 份长期参考文档
 scripts/               测试、迁移、进程、部署和受控维护入口
@@ -98,7 +99,7 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 
 `server/db/migrations` 保存有序 SQL 和 `release-manifest.json`。应用启动不自动迁移，发布显式运行 migrate。数据库运行角色只有普通 API 和 Admin API；旧 Worker 角色只允许出现在清理与兼容测试中。
 
-根 `Dockerfile` 构建 Web、API、Admin Web、Admin API、migrate 和 operations。staging Compose 不包含 Worker、生成队列、Provider 密钥环或队列恢复。
+根 `Dockerfile` 构建 Web、API、Admin Web、Admin API、migrate、release 和 operations。staging Compose 不包含 Worker、生成队列、Provider 密钥环或队列恢复。production Compose 只常驻四个应用容器，使用外部 PostgreSQL、Redis 和私有 OSS/S3，不在应用服务器内启动状态服务或构建镜像。
 
 ## 测试放置
 

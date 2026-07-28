@@ -11,7 +11,8 @@ import {
   createPostgresProjectGraphService,
   createPostgresProjectSnapshotService,
   createPostgresProjectService,
-  createS3ObjectStorage,
+  createManagedS3ObjectStorage,
+  createObjectStorageCredentialKeyring,
   createWorkspaceAuthorizationService,
   createPostgresWorkspaceUsageService,
   createPostgresMigrationImportService,
@@ -84,14 +85,22 @@ const generationTelemetryService = createPostgresGenerationTelemetryService(
   dbPool,
   { authorizationService: workspaceAuthorizationService },
 );
-const objectStorage = createS3ObjectStorage({
-  endpoint: config.s3Endpoint,
-  publicEndpoint: config.s3PublicEndpoint,
-  bucket: config.s3Bucket,
-  region: config.s3Region,
-  accessKeyId: config.s3AccessKeyId,
-  secretAccessKey: config.s3SecretAccessKey,
-  forcePathStyle: true,
+const objectStorage = createManagedS3ObjectStorage(dbPool, {
+  keyring: createObjectStorageCredentialKeyring({
+    serializedKeys: config.objectStorageCredentialKeys,
+    activeVersion: config.objectStorageCredentialActiveKeyVersion,
+    developmentSecret:
+      config.env === "development" ? config.betterAuthSecret : undefined,
+  }),
+  fallback: {
+    endpoint: config.s3Endpoint,
+    publicEndpoint: config.s3PublicEndpoint,
+    bucket: config.s3Bucket,
+    region: config.s3Region,
+    accessKeyId: config.s3AccessKeyId,
+    secretAccessKey: config.s3SecretAccessKey,
+    forcePathStyle: config.s3ForcePathStyle,
+  },
 });
 const assetService = createPostgresAssetService(dbPool, {
   authorizationService: workspaceAuthorizationService,
@@ -210,6 +219,7 @@ async function shutdown(signal: NodeJS.Signals) {
   try {
     await closeApiServer(server, config.shutdownTimeoutMs);
     await rateLimiter.close();
+    objectStorage.destroy();
     await dbPool.end();
     logger.info("shutdown.completed", { signal });
     process.exit(0);

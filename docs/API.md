@@ -253,6 +253,10 @@ POST /admin/v1/smtp-settings/test-connection
 POST /admin/v1/smtp-settings/test-email
 POST /admin/v1/smtp-settings
 POST /admin/v1/smtp-settings/disable
+GET  /admin/v1/object-storage-settings
+POST /admin/v1/object-storage-settings/test-connection
+POST /admin/v1/object-storage-settings
+POST /admin/v1/object-storage-settings/restore-environment
 GET  /admin/v1/site-config
 POST /admin/v1/site-config
 GET  /admin/v1/site-assets
@@ -281,6 +285,10 @@ SMTP 设置只允许 `super_admin` 通过 `smtp_config.write` 访问。GET 返�
 连接测试和测试邮件使用当前请求表单，不发布配置，合计按管理员限制为 10 分钟 5 次；测试邮件额外接受 `recipient`，测试记录不保存收件地址、主机或凭据。保存会在写事务前重新验证连接，再以 `expectedRevisionId` 乐观锁原子插入不可变 revision、切换 current 并更新普通 API 可读发布投影；验证失败保留旧配置，冲突返回 `409 SMTP_CONFIG_CONFLICT`。disable 创建新的 disabled revision；普通 API 看到明确停用后不回退环境变量。
 
 SMTP 上游错误只映射为 `SMTP_HOST_NOT_ALLOWED|SMTP_DNS_FAILED|SMTP_CONNECTION_FAILED|SMTP_TLS_FAILED|SMTP_AUTH_FAILED|SMTP_SENDER_REJECTED|SMTP_RECIPIENT_REJECTED`；测试限流为 `SMTP_RATE_LIMITED`。响应、日志、审计与指标不包含上游原始响应、密码、token、注册或密码重置验证码、完整密码重置链接或收件邮箱。
+
+对象存储设置只允许 `super_admin` 通过 `object_storage_config.write` 访问。GET 返回 `source=environment|managed`、非敏感连接字段、`credentialsConfigured/identityLocked/revisionId/updatedAt`，永不返回 AccessKey。写入只接受 `endpoint/publicEndpoint/publicOrigin/region/bucket/forcePathStyle/accessKeyId?/secretAccessKey?/expectedRevisionId`；两项凭据必须同时出现，首个 managed revision 必填，后续留空表示保留。
+
+测试连接和保存都执行候选 Bucket 的 `HeadBucket`、随机对象写入、读回比对和删除；测试不发布，保存验证成功后才原子切换。已有资产时改变存储身份返回 `409 OBJECT_STORAGE_IDENTITY_LOCKED`，revision 冲突返回 `409 OBJECT_STORAGE_CONFIG_CONFLICT`，读写删除失败为 `OBJECT_STORAGE_CONNECTION_FAILED`，限流为 `OBJECT_STORAGE_RATE_LIMITED`。恢复环境要求当前 revision，撤销后台发布后返回环境配置；探针 key、AccessKey 和 SDK 原始错误不进入响应、日志或审计。
 
 site assets 只接受 PNG/JPEG/WebP/ICO、最大 4 MiB、单边最大 4096；完成时复核 metadata、完整 hash、魔数和真实尺寸。site config 保存版本化结构、不可变 revision、current 指针、公开投影和同事务审计，不接受 HTML、JavaScript、任意 CSS 或 URL 凭据/fragment。
 

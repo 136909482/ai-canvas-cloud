@@ -196,7 +196,7 @@ test(
         .filter(
           (fileName) =>
             fileName.endsWith(".sql") &&
-            !/^(?:002[5-9]|003[2-3])_/.test(fileName),
+            !/^(?:002[5-9]|003[235])_/.test(fileName),
         )
         .sort();
       for (const fileName of migrations) {
@@ -326,8 +326,16 @@ test(
         "/api/v1/auth/register",
         accountB.registerBody(usernameB, emailB, password),
       );
-      assert.equal(registeredA.statusCode, 201);
-      assert.equal(registeredB.statusCode, 201);
+      assert.equal(
+        registeredA.statusCode,
+        201,
+        JSON.stringify(registeredA.body),
+      );
+      assert.equal(
+        registeredB.statusCode,
+        201,
+        JSON.stringify(registeredB.body),
+      );
       const workspaceA = (registeredA.body as { workspace: { id: string } })
         .workspace.id;
       const workspaceB = (registeredB.body as { workspace: { id: string } })

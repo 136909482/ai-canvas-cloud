@@ -25,6 +25,7 @@ test("Admin API config requires independent database role, secret, and origin", 
   const config = loadAdminApiConfig(baseEnv);
   assert.equal(config.port, 8788);
   assert.deepEqual(config.allowedOrigins, ["http://localhost:5174"]);
+  assert.equal(config.s3ForcePathStyle, true);
   assert.throws(
     () =>
       loadAdminApiConfig({
@@ -49,6 +50,14 @@ test("Admin API config requires independent database role, secret, and origin", 
       }),
     /origins must be distinct/,
   );
+});
+
+test("Admin API config supports virtual-hosted object storage", () => {
+  const config = loadAdminApiConfig({
+    ...baseEnv,
+    S3_FORCE_PATH_STYLE: "false",
+  });
+  assert.equal(config.s3ForcePathStyle, false);
 });
 
 test("Admin API config rejects credential-bearing or path-bearing origins", () => {
@@ -76,14 +85,21 @@ test("Admin API config requires managed SMTP keys in protected environments", ()
     /SMTP_CREDENTIAL_KEYS/,
   );
   const keys = JSON.stringify({ 3: Buffer.alloc(32, 3).toString("base64") });
+  const storageKeys = JSON.stringify({
+    2: Buffer.alloc(32, 2).toString("base64"),
+  });
   const config = loadAdminApiConfig({
     ...baseEnv,
     NODE_ENV: "staging",
     SMTP_CREDENTIAL_KEYS: keys,
     SMTP_CREDENTIAL_ACTIVE_KEY_VERSION: "3",
+    OBJECT_STORAGE_CREDENTIAL_KEYS: storageKeys,
+    OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION: "2",
   });
   assert.equal(config.smtpCredentialKeys, keys);
   assert.equal(config.smtpCredentialActiveKeyVersion, 3);
+  assert.equal(config.objectStorageCredentialKeys, storageKeys);
+  assert.equal(config.objectStorageCredentialActiveKeyVersion, 2);
   assert.throws(
     () =>
       loadAdminApiConfig({

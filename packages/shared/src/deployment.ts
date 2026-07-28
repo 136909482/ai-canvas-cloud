@@ -25,6 +25,18 @@ function truthy(value: string | undefined) {
   return ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
 }
 
+function readBoolean(
+  value: string | undefined,
+  fallback: boolean,
+  key: string,
+) {
+  if (!value?.trim()) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  throw new Error(`${key} must be a boolean value`);
+}
+
 function rejectLocalHost(value: string, key: string) {
   let parsed: URL;
   try {
@@ -135,6 +147,16 @@ export function validateProtectedDeploymentEnvironment(
     );
   }
 
+  const bucket = required(env, "S3_BUCKET").toLowerCase();
+  if (!bucket.includes(environment)) {
+    throw new Error(`S3_BUCKET must be scoped to ${environment}`);
+  }
+  const forcePathStyle = readBoolean(
+    env.S3_FORCE_PATH_STYLE,
+    true,
+    "S3_FORCE_PATH_STYLE",
+  );
+
   if (options.requireWeb !== false) {
     const webPublicUrl = rejectLocalHost(
       required(env, "WEB_PUBLIC_URL"),
@@ -185,12 +207,18 @@ export function validateProtectedDeploymentEnvironment(
       required(env, "S3_PUBLIC_ORIGIN"),
       "S3_PUBLIC_ORIGIN",
     );
+    const expectedPublicOrigin = new URL(publicStorage.origin);
+    if (!forcePathStyle) {
+      expectedPublicOrigin.hostname = `${bucket}.${expectedPublicOrigin.hostname}`;
+    }
     if (
       publicStorageOrigin.protocol !== "https:" ||
-      publicStorageOrigin.origin !== publicStorage.origin
+      publicStorageOrigin.origin !== expectedPublicOrigin.origin
     ) {
       throw new Error(
-        "S3_PUBLIC_ORIGIN must match the HTTPS origin of S3_PUBLIC_ENDPOINT",
+        forcePathStyle
+          ? "S3_PUBLIC_ORIGIN must match the HTTPS origin of S3_PUBLIC_ENDPOINT"
+          : "S3_PUBLIC_ORIGIN must match the bucket virtual-hosted HTTPS origin derived from S3_PUBLIC_ENDPOINT",
       );
     }
   }
@@ -208,10 +236,6 @@ export function validateProtectedDeploymentEnvironment(
     throw new Error("REDIS_URL must use redis:// or rediss://");
   }
   rejectLocalHost(required(env, "S3_ENDPOINT"), "S3_ENDPOINT");
-  const bucket = required(env, "S3_BUCKET").toLowerCase();
-  if (!bucket.includes(environment)) {
-    throw new Error(`S3_BUCKET must be scoped to ${environment}`);
-  }
   if (options.requireWeb !== false) {
     rejectPlaceholder(
       required(env, "BETTER_AUTH_SECRET"),
@@ -226,6 +250,21 @@ export function validateProtectedDeploymentEnvironment(
     required(env, "S3_SECRET_ACCESS_KEY"),
     "S3_SECRET_ACCESS_KEY",
   );
+  rejectPlaceholder(
+    required(env, "OBJECT_STORAGE_CREDENTIAL_KEYS"),
+    "OBJECT_STORAGE_CREDENTIAL_KEYS",
+  );
+  const objectStorageCredentialVersion = Number(
+    required(env, "OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION"),
+  );
+  if (
+    !Number.isInteger(objectStorageCredentialVersion) ||
+    objectStorageCredentialVersion < 1
+  ) {
+    throw new Error(
+      "OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION must be positive",
+    );
+  }
   if (
     truthy(env.DEV_SEED_ADMIN) ||
     env.DEV_SEED_ADMIN_EMAIL?.trim() ||

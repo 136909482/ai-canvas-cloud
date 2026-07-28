@@ -2670,6 +2670,61 @@ code {
   }
 }
 
+.storage-lock-alert {
+  margin-bottom: 16px;
+}
+
+.storage-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 20px;
+  max-width: 980px;
+}
+
+.storage-form-grid__wide {
+  grid-column: 1 / -1;
+}
+
+.storage-switch-field .ant-form-item-control-input {
+  min-height: 32px;
+}
+
+.storage-form-actions {
+  max-width: 980px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 6px;
+  border-top: 1px solid #edf0f4;
+}
+
+@media (max-width: 767px) {
+  .storage-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .storage-form-grid__wide {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 575px) {
+  .object-storage-settings-page .page-header__extra,
+  .object-storage-settings-page .page-header__extra > .ant-space {
+    width: 100%;
+  }
+
+  .object-storage-settings-page .page-header__extra .ant-btn {
+    flex: 1 1 auto;
+  }
+
+  .storage-form-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

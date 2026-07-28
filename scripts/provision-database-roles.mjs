@@ -162,6 +162,12 @@ try {
     `GRANT SELECT ON public.smtp_config_publications TO ${app}`,
   );
   await client.query(
+    `REVOKE INSERT, UPDATE, DELETE ON public.object_storage_config_publications FROM ${app}`,
+  );
+  await client.query(
+    `GRANT SELECT ON public.object_storage_config_publications TO ${app}`,
+  );
+  await client.query(
     `REVOKE DELETE ON public.generation_telemetry FROM ${app}`,
   );
   await client.query(`REVOKE ALL ON SCHEMA admin FROM ${app}`);
@@ -183,6 +189,9 @@ try {
   );
   await client.query(
     `GRANT SELECT, INSERT, UPDATE ON public.smtp_config_publications TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON public.object_storage_config_publications TO ${admin}`,
   );
   await client.query(
     `REVOKE ALL ON public.registration_email_challenges FROM ${admin}`,

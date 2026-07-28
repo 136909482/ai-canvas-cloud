@@ -16,12 +16,14 @@ import {
   createUnavailableAdminDashboardService,
   createUnavailableAdminSiteConfigService,
   createUnavailableAdminSmtpConfigService,
+  createUnavailableAdminObjectStorageConfigService,
   createUnavailableAdminUserOperationsService,
   type AdminRequestContext,
   type AdminDashboardService,
   type AdminService,
   type AdminSiteConfigService,
   type AdminSmtpConfigService,
+  type AdminObjectStorageConfigService,
   type AdminUserOperationsService,
 } from "@ai-canvas-cloud/server/modules/admin";
 import type { AdminApiConfig } from "./config.js";
@@ -39,6 +41,7 @@ interface AdminServerOptions {
   dashboardService?: AdminDashboardService;
   siteConfigService?: AdminSiteConfigService;
   smtpConfigService?: AdminSmtpConfigService;
+  objectStorageConfigService?: AdminObjectStorageConfigService;
   userOperationsService?: AdminUserOperationsService;
   logger: Logger;
   metrics?: MetricsRegistry;
@@ -224,6 +227,7 @@ export function createAdminApiServer({
   dashboardService = createUnavailableAdminDashboardService(),
   siteConfigService = createUnavailableAdminSiteConfigService(),
   smtpConfigService = createUnavailableAdminSmtpConfigService(),
+  objectStorageConfigService = createUnavailableAdminObjectStorageConfigService(),
   userOperationsService = createUnavailableAdminUserOperationsService(),
   logger,
   metrics = createMetricsRegistry(),
@@ -503,6 +507,64 @@ export function createAdminApiServer({
                   context,
                 );
         sendJson(response, 200, payload, requestId);
+        return;
+      }
+      if (
+        url.pathname === "/admin/v1/object-storage-settings" &&
+        request.method === "GET"
+      ) {
+        sendJson(
+          response,
+          200,
+          await objectStorageConfigService.getCurrent(context),
+          requestId,
+        );
+        return;
+      }
+      if (
+        url.pathname === "/admin/v1/object-storage-settings/test-connection" &&
+        request.method === "POST"
+      ) {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          200,
+          await objectStorageConfigService.testConnection(
+            body as never,
+            context,
+          ),
+          requestId,
+        );
+        return;
+      }
+      if (
+        url.pathname === "/admin/v1/object-storage-settings" &&
+        request.method === "POST"
+      ) {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          200,
+          await objectStorageConfigService.publish(body as never, context),
+          requestId,
+        );
+        return;
+      }
+      if (
+        url.pathname ===
+          "/admin/v1/object-storage-settings/restore-environment" &&
+        request.method === "POST"
+      ) {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          200,
+          await objectStorageConfigService.restoreEnvironment(
+            body as never,
+            context,
+          ),
+          requestId,
+        );
         return;
       }
       if (

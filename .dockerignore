@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 infra/deploy/staging/staging.env
+infra/deploy/production/production.env
 **/node_modules
 **/dist
 **/coverage

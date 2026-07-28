@@ -453,6 +453,20 @@
       "rollback": "wait for all 10-minute code challenges to expire before removing the additive challenge table, then deploy the prior application; do not remove the table while a code-based reset consumer can still submit it",
       "forwardRepair": "rerun the idempotent migration, reapply scoped role grants, and verify reset-code delivery, consumption and Admin isolation before accepting password resets",
       "backupRequired": false
+    },
+    {
+      "version": "0035",
+      "name": "managed_object_storage_configuration",
+      "releaseTrain": "p8-storage",
+      "phase": "expand",
+      "oldAppReadable": true,
+      "newAppReadable": true,
+      "oldAppWithNewSchema": true,
+      "lockRisk": "low",
+      "statementTimeoutMs": 10000,
+      "rollback": "restore environment object storage before dropping the additive publication, test-attempt and revision tables; retain the environment S3 configuration during rollback",
+      "forwardRepair": "rerun the idempotent migration, reapply scoped role grants, validate ciphertext envelopes, and keep environment storage active until a managed revision passes the read-write-delete probe",
+      "backupRequired": false
     }
   ]
 }

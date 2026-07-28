@@ -8,9 +8,11 @@ import {
   createPostgresAdminDashboardService,
   createPostgresAdminSiteConfigService,
   createPostgresAdminSmtpConfigService,
+  createPostgresAdminObjectStorageConfigService,
   createPostgresAdminUserOperationsService,
   createPostgresPool,
-  createS3ObjectStorage,
+  createManagedS3ObjectStorage,
+  createObjectStorageCredentialKeyring,
   createSmtpCredentialKeyring,
   legacySmtpRuntimeConfig,
   loadDotEnv,
@@ -35,14 +37,24 @@ const adminService = createPostgresAdminService(pool, {
   trustedOrigins: config.allowedOrigins,
   environment: config.env,
 });
-const objectStorage = createS3ObjectStorage({
+const objectStorageKeyring = createObjectStorageCredentialKeyring({
+  serializedKeys: config.objectStorageCredentialKeys,
+  activeVersion: config.objectStorageCredentialActiveKeyVersion,
+  developmentSecret: config.smtpDevelopmentSecret,
+});
+const fallbackObjectStorage = {
   endpoint: config.s3Endpoint,
   publicEndpoint: config.s3PublicEndpoint,
+  publicOrigin: config.s3PublicOrigin,
   bucket: config.s3Bucket,
   region: config.s3Region,
   accessKeyId: config.s3AccessKeyId,
   secretAccessKey: config.s3SecretAccessKey,
-  forcePathStyle: true,
+  forcePathStyle: config.s3ForcePathStyle,
+};
+const objectStorage = createManagedS3ObjectStorage(pool, {
+  keyring: objectStorageKeyring,
+  fallback: fallbackObjectStorage,
 });
 const siteConfigService = createPostgresAdminSiteConfigService(pool, {
   adminService,
@@ -76,6 +88,14 @@ const smtpConfigService = createPostgresAdminSmtpConfigService(pool, {
   auditSecret: config.betterAuthSecret,
   metrics,
 });
+const objectStorageConfigService =
+  createPostgresAdminObjectStorageConfigService(pool, {
+    adminService,
+    keyring: objectStorageKeyring,
+    fallbackConfig: fallbackObjectStorage,
+    auditSecret: config.betterAuthSecret,
+    invalidateManagedConfig: objectStorage.invalidateManagedConfig,
+  });
 const userOperationsService = createPostgresAdminUserOperationsService(pool, {
   adminService,
   auditSecret: config.betterAuthSecret,
@@ -103,6 +123,7 @@ const server = createAdminApiServer({
   dashboardService,
   siteConfigService,
   smtpConfigService,
+  objectStorageConfigService,
   userOperationsService,
   logger,
   metrics,
@@ -116,6 +137,7 @@ async function shutdown(signal: NodeJS.Signals) {
   logger.info("shutdown.started", { signal });
   try {
     await closeAdminApiServer(server, config.shutdownTimeoutMs);
+    objectStorage.destroy();
     await pool.end();
     logger.info("shutdown.completed", { signal });
     process.exit(0);

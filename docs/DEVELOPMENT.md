@@ -29,6 +29,69 @@ Admin Browser -> Admin Web -> Admin API -> PostgreSQL admin schema
 
 常驻进程只有 Web、API、Admin Web 和 Admin API。迁移、备份、恢复和资产维护按需运行。不存在 Worker、BullMQ Consumer、服务端任务 dispatcher、服务器 Provider 调用或 Worker readiness。
 
+## Docker 生产部署
+
+### 2 核 2G 拓扑
+
+轻量生产 Compose 位于 `infra/deploy/production`。2 核 2G ECS 只运行四个无状态应用容器，数据库、限流状态和媒体必须使用托管服务：
+
+```text
+Internet -> Baota Nginx (HTTPS)
+             |-> 127.0.0.1:8080 -> Web -> API
+             \-> 127.0.0.1:8081 -> Admin Web -> Admin API
+
+API/Admin API -> RDS PostgreSQL (private network)
+API           -> Aliyun Redis (private network)
+API/Admin API -> Private OSS bucket
+```
+
+Compose 不发布 `8787` 或 `8788`，Web 入口也只绑定宿主机回环地址。常驻容器内存上限合计约 864 MB，给 Linux、宝塔、宿主 Nginx 和 Docker 留出余量。该规格适合初期低流量；出现持续 swap、OOM、readiness 超时或 API 延迟后，应升级到至少 2 核 4G，不得通过取消内存限制掩盖资源不足。
+
+ECS 安全组只开放 `22`、`80`、`443`。RDS 与 Redis 使用 VPC 私网地址，并只允许 ECS 安全组访问。OSS Bucket 保持私有读写，RAM 用户只授予目标 Bucket 所需的读取、写入、列举、分片上传和删除权限。
+
+### 构建和配置
+
+不要在 2G ECS 构建镜像。在本地 Docker Desktop、CI 或 ACR 构建服务中，以同一个不可变 Git SHA 分别构建并推送五个 target：
+
+```bash
+docker buildx build --platform linux/amd64 --target api -t <acr>/ai-canvas-cloud-api:<git-sha> --push .
+docker buildx build --platform linux/amd64 --target web -t <acr>/ai-canvas-cloud-web:<git-sha> --push .
+docker buildx build --platform linux/amd64 --target admin-api -t <acr>/ai-canvas-cloud-admin-api:<git-sha> --push .
+docker buildx build --platform linux/amd64 --target admin-web -t <acr>/ai-canvas-cloud-admin-web:<git-sha> --push .
+docker buildx build --platform linux/amd64 --target release -t <acr>/ai-canvas-cloud-release:<git-sha> --push .
+```
+
+把 `infra/deploy/production` 上传到服务器固定目录，将 `production.env.example` 复制为 `production.env`，权限设置为 `600`，再填写域名、五个 ACR 镜像、RDS、Redis、OSS、邮件和密钥配置。`BETTER_AUTH_SECRET` 至少 32 字符；`SMTP_CREDENTIAL_KEYS` 与 `OBJECT_STORAGE_CREDENTIAL_KEYS` 中每个值都是独立的 32 字节 Base64 密钥。数据库和 Redis 密码中的保留字符必须进行 URL 编码。
+
+阿里云 OSS 使用区域 endpoint 和虚拟主机样式：`S3_FORCE_PATH_STYLE=false`，`S3_PUBLIC_ENDPOINT` 填 `https://oss-<region>.aliyuncs.com`，`S3_PUBLIC_ORIGIN` 填 `https://<bucket>.oss-<region>.aliyuncs.com`。Bucket CORS 至少允许普通站点和管理站点两个 HTTPS Origin、`GET/PUT/HEAD` 方法、`Content-Type` 与 `x-amz-*` 请求头，并暴露 `ETag`；不要把 Bucket 改成公共读。
+
+对象存储环境变量是启动和故障回退配置。API/Admin API 每次对象操作通过 `public.object_storage_config_publications` 的短缓存选择当前 revision，后台发布后无需重启；发布前必须完成随机探针对象的写入、读回比对和删除。AccessKey ID/Secret 作为同一 AES-256-GCM 信封保存，主密钥只能来自服务端环境。已有正式资产后存储身份不可在后台切换，避免历史 object key 指向另一 Bucket。`S3_PUBLIC_ORIGIN` 同时进入 Web/Admin Web 的 CSP，因此调整签名域名时必须先更新 Bucket CORS、生产环境变量并重建两个 Web 容器，再发布后台配置。
+
+### 首次发布
+
+先创建 RDS 数据库、Redis 实例、私有 OSS Bucket 和两个已签发 HTTPS 证书的域名。进入服务器上的 `infra/deploy/production` 目录并登录 ACR，然后依次执行：
+
+```bash
+docker compose --env-file production.env --profile release pull
+docker compose --env-file production.env --profile release run --rm release-check
+docker compose --env-file production.env --profile release run --rm migrate
+docker compose --env-file production.env --profile release run --rm database-roles
+docker compose --env-file production.env --profile release run --rm database-role-check
+docker compose --env-file production.env --profile release run --rm admin-bootstrap
+docker compose --env-file production.env up -d
+docker compose --env-file production.env ps
+```
+
+`database-roles` 会原地更新 `production.env` 中的普通 API/Admin API 最小权限数据库 URL，并在留空时生成独立的 `ADMIN_BETTER_AUTH_SECRET`；因此该文件必须可写，且角色配置后必须新建应用容器。`admin-bootstrap` 要求交互终端，只用于创建首个 `super_admin`。
+
+宝塔为普通站点和管理站点分别创建网站、申请 HTTPS 并启用强制 HTTPS。普通站点反向代理到 `http://127.0.0.1:8080`，管理站点反向代理到 `http://127.0.0.1:8081`；可使用同目录的 `baota-web.location.conf.example` 和 `baota-admin.location.conf.example`。宝塔不直接代理 API 端口，容器内 Web Nginx 分别代理 `/api/` 和 `/admin/`。
+
+### 升级和回滚
+
+升级前创建 RDS 快照并确认 OSS 版本控制或备份策略有效。把 `production.env` 中五个镜像更新为同一新 Git SHA，先 `pull`、运行 `release-check`，再依次运行 `migrate`、`database-roles` 和 `database-role-check`，最后执行 `docker compose --env-file production.env up -d`。发布后检查四个容器 health、普通登录、Admin 登录、资产上传和签名读取。
+
+应用回滚只把四个常驻镜像改回与当前数据库 schema 兼容的旧 SHA，再执行 `pull` 和 `up -d`；不要自动反向执行 SQL。若新迁移与旧应用不兼容，按 [`DATA_MODEL.md`](DATA_MODEL.md) 的回滚或前向修复要求处理，必要时从发布前 RDS 快照恢复到隔离实例验证后再切换。
+
 ## 分层职责
 
 - `apps/web` 负责画布 UI、Cloud 平台适配、浏览器 Vault、受控 Provider 协议和本地任务恢复。
@@ -56,6 +119,8 @@ Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户�
 认证邮件支持 `development|smtp|managed` 三种传输模式。`managed` 每次发送前读取 `public.smtp_config_publications`，按 revision 缓存解密后的运行配置和 Nodemailer transporter，并在每次发送前重新校验 DNS；后台新 revision 或公网目标变化后下一封邮件立即替换缓存，不要求重启。尚无后台 revision 时可回退旧 SMTP 环境变量，管理员明确停用后不得回退。注册邮箱验证码仅在站点设置开启后发送，发送与已有账号均保持不披露账号状态的响应语义；注册与密码重置验证码均由 PostgreSQL 挑战记录一次性消费，10 分钟有效、60 秒冷却、连续 5 次错误失效。密码重置表不保存 Better Auth token 明文，只保存 AES-256-GCM 密文；SMTP `sendMail` 不自动重试。
 
 只有 `super_admin` 拥有 `smtp_config.write`。后台测试和发布只接受用户名/密码 SMTP、`SSL/TLS` 或强制 `STARTTLS`，证书校验和 TLS 1.2 不可关闭；每次连接先解析全部 DNS 结果并拒绝本机、私网、链路本地和保留地址。密码只以 AES-256-GCM 信封密文进入数据库，`SMTP_CREDENTIAL_KEYS` 与活动 key version 只能由 API/Admin API 服务器环境提供，不能从后台填写或返回前端。
+
+只有 `super_admin` 拥有 `object_storage_config.write`。后台 GET 不返回 AccessKey；测试每管理员 10 分钟最多 5 次且不保存探针 object key。保存会重新测试并以 revision 乐观锁原子发布；恢复环境配置撤销 current/publication 并立即回到 `S3_*`。普通 API 仅可 SELECT 发布投影，Admin 仍不能读取资产 object key 或项目内容。
 
 ## 项目图、检查点与资产
 

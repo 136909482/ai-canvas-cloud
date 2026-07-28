@@ -34,6 +34,11 @@ const SmtpSettingsView = lazy(() =>
     default: module.SmtpSettingsView,
   })),
 );
+const ObjectStorageSettingsView = lazy(() =>
+  import("./ObjectStorageSettingsView").then((module) => ({
+    default: module.ObjectStorageSettingsView,
+  })),
+);
 const SecurityView = lazy(() =>
   import("./SecurityView").then((module) => ({ default: module.SecurityView })),
 );
@@ -77,6 +82,7 @@ function Console({
     );
   else if (view === "site") page = <SiteConfigView />;
   else if (view === "smtp") page = <SmtpSettingsView />;
+  else if (view === "storage") page = <ObjectStorageSettingsView />;
   else page = <AuditView />;
 
   return (

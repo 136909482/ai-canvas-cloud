@@ -28,6 +28,15 @@ test("API config validates required cloud dependencies", () => {
   assert.equal(config.devSeedAdminEmail, "admin@example.com");
   assert.equal(config.s3Bucket, "bucket");
   assert.equal(config.s3PublicEndpoint, "http://localhost:9000");
+  assert.equal(config.s3ForcePathStyle, true);
+});
+
+test("API config supports virtual-hosted object storage", () => {
+  const config = loadApiConfig({
+    ...baseEnv,
+    S3_FORCE_PATH_STYLE: "false",
+  });
+  assert.equal(config.s3ForcePathStyle, false);
 });
 
 test("API config rejects missing secrets and invalid log level", () => {
@@ -91,6 +100,10 @@ test("API config reads development admin seed options outside production", () =>
       BETTER_AUTH_SECRET: "a".repeat(48),
       S3_ACCESS_KEY_ID: "production-access-key",
       S3_SECRET_ACCESS_KEY: "production-object-secret",
+      OBJECT_STORAGE_CREDENTIAL_KEYS: JSON.stringify({
+        1: Buffer.alloc(32, 4).toString("base64"),
+      }),
+      OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION: "1",
       AUTH_EMAIL_TRANSPORT: "smtp",
       SMTP_HOST: "smtp.production.example.com",
       SMTP_PORT: "465",

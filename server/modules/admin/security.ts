@@ -10,6 +10,7 @@ const ROLE_PERMISSIONS: Readonly<
     "security.write",
     "site_config.write",
     "smtp_config.write",
+    "object_storage_config.write",
     "user.read",
     "user.write",
   ]),
@@ -44,6 +45,10 @@ export class AdminAccessError extends Error {
     | "SMTP_SENDER_REJECTED"
     | "SMTP_RECIPIENT_REJECTED"
     | "SMTP_RATE_LIMITED"
+    | "OBJECT_STORAGE_CONFIG_CONFLICT"
+    | "OBJECT_STORAGE_IDENTITY_LOCKED"
+    | "OBJECT_STORAGE_CONNECTION_FAILED"
+    | "OBJECT_STORAGE_RATE_LIMITED"
     | "SERVICE_UNAVAILABLE";
 
   constructor(

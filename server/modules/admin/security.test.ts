@@ -23,7 +23,15 @@ test("administrator access requires active status and matching role permission",
   assert.equal(hasAdminPermission("operator", "site_config.write"), true);
   assert.equal(hasAdminPermission("super_admin", "security.write"), true);
   assert.equal(hasAdminPermission("super_admin", "smtp_config.write"), true);
+  assert.equal(
+    hasAdminPermission("super_admin", "object_storage_config.write"),
+    true,
+  );
   assert.equal(hasAdminPermission("operator", "smtp_config.write"), false);
+  assert.equal(
+    hasAdminPermission("operator", "object_storage_config.write"),
+    false,
+  );
   assert.equal(hasAdminPermission("operator", "security.write"), false);
   for (const role of [
     "super_admin",

@@ -10,6 +10,18 @@ const template = readFileSync(
   "utf8",
 );
 const nginx = readFileSync("infra/deploy/staging/web.nginx.conf", "utf8");
+const productionCompose = readFileSync(
+  "infra/deploy/production/docker-compose.yml",
+  "utf8",
+);
+const productionTemplate = readFileSync(
+  "infra/deploy/production/production.env.example",
+  "utf8",
+);
+const adminNginx = readFileSync(
+  "infra/deploy/production/admin.nginx.conf",
+  "utf8",
+);
 const prometheus = readFileSync("infra/deploy/staging/prometheus.yml", "utf8");
 const alerts = readFileSync("infra/deploy/staging/alerts.yml", "utf8");
 const applyMigrations = readFileSync("scripts/apply-migrations.mjs", "utf8");
@@ -37,8 +49,19 @@ test("deployment artifacts keep runtime targets non-root and migration explicit"
     dockerfile,
     /FROM nginxinc\/nginx-unprivileged:1\.29\.1-alpine AS web/,
   );
-  assert.equal((dockerfile.match(/USER node/g) ?? []).length, 3);
+  assert.match(dockerfile, /FROM node:24\.13\.0-alpine3\.22 AS admin-api/);
+  assert.match(
+    dockerfile,
+    /FROM nginxinc\/nginx-unprivileged:1\.29\.1-alpine AS admin-web/,
+  );
+  assert.match(dockerfile, /FROM workspace AS release/);
+  assert.equal((dockerfile.match(/USER node/g) ?? []).length, 5);
+  assert.equal(
+    packageJson.dependencies?.["@rolldown/binding-win32-x64-msvc"],
+    undefined,
+  );
   assert.match(dockerignore, /infra\/deploy\/staging\/staging\.env/);
+  assert.match(dockerignore, /infra\/deploy\/production\/production\.env/);
   assert.match(compose, /profiles: \["release"\]/);
   assert.match(compose, /staging-postgres-data/);
   assert.match(compose, /staging-redis-data/);
@@ -59,10 +82,10 @@ test("staging environment template contains placeholders and no local defaults",
   );
 });
 
-test("staging web and object storage boundaries are explicit and origin-scoped", () => {
+test("staging web and object storage boundaries allow controlled HTTPS providers", () => {
   assert.match(nginx, /Content-Security-Policy/);
   assert.match(nginx, /frame-ancestors 'none'/);
-  assert.match(nginx, /connect-src 'self' \$\{S3_PUBLIC_ORIGIN\}/);
+  assert.match(nginx, /connect-src 'self' https:/);
   assert.doesNotMatch(nginx, /unsafe-eval/);
   assert.match(nginx, /client_max_body_size 8m/);
   assert.match(nginx, /expires 1y/);
@@ -76,6 +99,34 @@ test("staging web and object storage boundaries are explicit and origin-scoped",
   assert.match(
     template,
     /S3_PUBLIC_ORIGIN=https:\/\/staging-storage\.replace-with-real-domain/,
+  );
+});
+
+test("production deployment stays lightweight and loopback-only", () => {
+  assert.doesNotMatch(
+    productionCompose,
+    /\n  (postgres|redis|object-storage|minio|prometheus):/,
+  );
+  assert.match(productionCompose, /127\.0\.0\.1:\$\{WEB_PORT:-8080\}:8080/);
+  assert.match(
+    productionCompose,
+    /127\.0\.0\.1:\$\{ADMIN_WEB_PORT:-8081\}:8080/,
+  );
+  assert.match(productionCompose, /API_IMAGE/);
+  assert.match(productionCompose, /ADMIN_API_IMAGE/);
+  assert.match(productionCompose, /RELEASE_IMAGE/);
+  assert.match(productionCompose, /database-roles:/);
+  assert.match(productionCompose, /admin-bootstrap:/);
+  assert.match(productionCompose, /mem_limit: 448m/);
+  assert.match(adminNginx, /proxy_pass http:\/\/admin-api:8788/);
+  assert.match(productionTemplate, /S3_FORCE_PATH_STYLE=false/);
+  assert.match(
+    productionTemplate,
+    /S3_PUBLIC_ORIGIN=https:\/\/ai-canvas-cloud-production-assets\.oss-cn-hangzhou\.aliyuncs\.com/,
+  );
+  assert.doesNotMatch(
+    productionTemplate,
+    /\n(POSTGRES_PASSWORD|REDIS_PASSWORD)=/,
   );
 });
 

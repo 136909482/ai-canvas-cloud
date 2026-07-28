@@ -188,7 +188,15 @@ SMTP 密码使用 AES-256-GCM 信封加密，每个 revision 使用随机 96 位
 
 `admin.smtp_test_attempts` 只保存管理员、`connection|email`、`pending|success|failure`、受限失败类别与时间，用于每管理员 10 分钟 5 次的原子限频；不含收件邮箱、SMTP 主机、用户名或凭据。测试请求不创建配置 revision，也不改变 current/publication。
 
-普通 API 角色没有 `admin` schema USAGE，只对站点和 SMTP 公开投影有 SELECT；SMTP publication 不可写。Admin 角色除上述用户运营列级投影、生成遥测安全聚合列以及站点/SMTP 公开投影外，不拥有 public 业务表的宽泛权限；`PUBLIC` 对 SMTP 三类 Admin 表和 publication 均无权限。
+### 全站对象存储配置
+
+`admin.object_storage_config_revisions` 保存不可修改的 Endpoint、签名 Endpoint/Origin、Region、Bucket、路径样式、加密凭据信封、key version、创建管理员和时间；`admin.object_storage_config_current` 保存 singleton 当前指针。AccessKey ID/Secret 合并为 AES-256-GCM 信封，AAD 固定为 `object-storage-config:<revisionId>:credentials`；独立主密钥版本映射 `OBJECT_STORAGE_CREDENTIAL_KEYS` 只存在 API/Admin API 环境。
+
+`public.object_storage_config_publications` 是普通 API 动态选择 S3 客户端所需的最小加密投影。发布先在事务外对候选 Bucket 完成 `HeadBucket` 和随机探针对象写、读、删，再以 `expectedRevisionId` 乐观锁原子插入 revision、切换 current、upsert publication 和追加脱敏审计。恢复环境配置删除 current/publication，保留不可变历史 revision，并回退部署 `S3_*`；失败或冲突不改变旧发布。
+
+`admin.object_storage_test_attempts` 只保存管理员、`pending|success|failure`、受限失败类别与时间，用于每管理员 10 分钟 5 次限频；不保存 Endpoint、Bucket、探针 object key 或凭据。只要存在未删除正式资产，服务拒绝改变 Endpoint、Region、Bucket 或路径样式；RAM AccessKey 和签名访问地址仍可通过新 revision 轮换。
+
+普通 API 角色没有 `admin` schema USAGE，只对站点、SMTP 和对象存储公开投影有 SELECT；三类 publication 均不可写。Admin 角色除用户运营列级投影、生成遥测安全聚合列和必要公开投影外，不拥有 public 业务表宽泛权限，尤其不能读取资产 object key；`PUBLIC` 对配置 Admin 表和 publication 均无权限。
 
 ## 已移除的历史 schema
 
@@ -292,6 +300,14 @@ commit 在一个事务中完成项目策略、资产 UUID 映射、图/引用/ch
 0034 在 release manifest 中是 `releaseTrain=p8-mail-codes`、`phase=expand`、低锁风险、10 秒 statement timeout、`backupRequired=false`。它新增 `password_reset_email_challenges`，保存带服务端密钥的邮箱与验证码 HMAC、过期时间、发送冷却、失败次数和消费时间；Better Auth 生成的内部重置 token 使用从服务端密钥派生的 AES-256-GCM 密文保存，绝不落库或记录明文。普通 API 角色可读写挑战表，Admin 角色无权读取或写入。
 
 发布顺序：先执行 0034 和角色 provisioning，再发布 API/Web 代码。忘记密码先请求验证码，浏览器再以 `{ email, code, password }` 提交；验证码有效 10 分钟，60 秒内不生成替代 token，连续 5 次错误即消费失效。验证码正确后才解密内部 token 并交由 Better Auth 更新密码和撤销 session。
+
+### 0035：版本化加密对象存储配置
+
+0035 在 release manifest 中是 `releaseTrain=p8-storage`、`phase=expand`、低锁风险、10 秒 statement timeout、`backupRequired=false`。它只新增三张 Admin 表和 `public.object_storage_config_publications`，旧应用继续使用环境 `S3_*`。
+
+发布顺序：先在 API/Admin API 部署同一份 `OBJECT_STORAGE_CREDENTIAL_KEYS` 与活动版本并保留全部 `S3_*`，执行 0035 和角色 provisioning，再部署应用。超级管理员用与环境相同的存储身份填写后台配置，完成真实读写删除测试后发布；确认上传、签名读取、站点品牌资产和迁移包均正常后，环境凭据仍保留作显式恢复路径。
+
+回滚边界：先在后台恢复环境配置，确认 publication 已撤销且环境 Bucket 可读写，再部署旧应用；尚未产生 managed revision 时可直接删除 additive 表。前向修复为幂等重跑 0035、重新应用精确角色权限、校验 current/publication/revision 和信封 key version、验证历史资产仍指向原 Bucket。禁止通过更换 Bucket 掩盖凭据错误，也禁止从日志、审计或前端重建 AccessKey。
 
 回滚边界：必须先部署仍能消费已发验证码的兼容代码，或等待所有 10 分钟挑战过期后，才能移除表。前向修复为幂等重跑 0034、重新应用角色授权、确认 Admin 无法访问挑战表，并复验重置验证码投递、消费和 session 撤销。
 

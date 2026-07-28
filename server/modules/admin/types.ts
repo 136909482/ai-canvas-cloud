@@ -15,6 +15,7 @@ export const ADMIN_PERMISSIONS = [
   "security.write",
   "site_config.write",
   "smtp_config.write",
+  "object_storage_config.write",
   "user.read",
   "user.write",
 ] as const;

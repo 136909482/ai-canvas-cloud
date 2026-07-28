@@ -2416,6 +2416,54 @@ async function assertManagedSmtpSchema(client) {
   );
 }
 
+async function assertManagedObjectStorageSchema(client) {
+  const adminTables = await client.query(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema = 'admin' AND table_name = ANY($1::text[])`,
+    [
+      [
+        "object_storage_config_revisions",
+        "object_storage_config_current",
+        "object_storage_test_attempts",
+      ],
+    ],
+  );
+  assert.equal(adminTables.rowCount, 3);
+  const publication = await client.query(`
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'object_storage_config_publications'
+  `);
+  assert.equal(publication.rowCount, 1);
+  const publicAccess = await client.query(`
+    SELECT
+      has_table_privilege('public', 'admin.object_storage_config_revisions', 'SELECT') AS revision_read,
+      has_table_privilege('public', 'admin.object_storage_test_attempts', 'SELECT') AS attempt_read,
+      has_table_privilege('public', 'public.object_storage_config_publications', 'SELECT') AS publication_read
+  `);
+  assert.deepEqual(publicAccess.rows[0], {
+    revision_read: false,
+    attempt_read: false,
+    publication_read: false,
+  });
+  const attemptColumns = await client.query(`
+    SELECT column_name FROM information_schema.columns
+    WHERE table_schema = 'admin' AND table_name = 'object_storage_test_attempts'
+  `);
+  assert.equal(
+    attemptColumns.rows.some(({ column_name }) =>
+      [
+        "object_key",
+        "endpoint",
+        "bucket",
+        "access_key_id",
+        "secret_access_key",
+      ].includes(column_name),
+    ),
+    false,
+  );
+}
+
 let legacyOfficialSiteConfigRevisionId = null;
 
 async function seedLegacyOfficialSiteConfigFixture(client) {
@@ -2647,7 +2695,8 @@ try {
       migration.version === "0031" ||
       migration.version === "0032" ||
       migration.version === "0033" ||
-      migration.version === "0034"
+      migration.version === "0034" ||
+      migration.version === "0035"
     ) {
       await client.query(migration.sql);
     }
@@ -2674,6 +2723,7 @@ try {
   await assertRegistrationEmailCodeSchema(client);
   await assertPasswordResetEmailCodeSchema(client);
   await assertManagedSmtpSchema(client);
+  await assertManagedObjectStorageSchema(client);
   await client.query("SET CONSTRAINTS ALL IMMEDIATE");
   await client.query("ROLLBACK");
   console.log(

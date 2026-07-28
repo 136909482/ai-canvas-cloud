@@ -29,7 +29,7 @@ test(
       )
         .filter(
           (name) =>
-            name.endsWith(".sql") && !/^(?:002[5-9]|0030|003[23])_/.test(name),
+            name.endsWith(".sql") && !/^(?:002[5-9]|0030|003[235])_/.test(name),
         )
         .sort();
       for (const migration of migrations) {

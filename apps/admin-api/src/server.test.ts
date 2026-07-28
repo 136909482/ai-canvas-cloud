@@ -9,6 +9,7 @@ import {
   type AdminService,
   type AdminSiteConfigService,
   type AdminSmtpConfigService,
+  type AdminObjectStorageConfigService,
   type AdminUserOperationsService,
 } from "@ai-canvas-cloud/server/modules/admin";
 import { createAdminApiServer } from "./server.ts";
@@ -27,10 +28,15 @@ const config = {
   allowedOrigins: ["http://localhost:5174"],
   s3Endpoint: "http://localhost:9000",
   s3PublicEndpoint: "http://localhost:9000",
+  s3PublicOrigin: "http://localhost:9000",
+  s3ForcePathStyle: true,
   s3Bucket: "test",
   s3Region: "us-east-1",
   s3AccessKeyId: "test",
   s3SecretAccessKey: "test",
+  objectStorageCredentialActiveKeyVersion: 1,
+  smtpCredentialActiveKeyVersion: 1,
+  smtpSecure: false,
 };
 
 const logger = { debug() {}, info() {}, warn() {}, error() {} };
@@ -95,6 +101,7 @@ async function withServer(
     userOperationsService?: AdminUserOperationsService;
     dashboardService?: AdminDashboardService;
     smtpConfigService?: AdminSmtpConfigService;
+    objectStorageConfigService?: AdminObjectStorageConfigService;
   } = {},
 ) {
   const server = createAdminApiServer({
@@ -504,6 +511,82 @@ test("Admin SMTP routes expose masked settings and keep every mutation behind CS
     },
     undefined,
     { smtpConfigService },
+  );
+});
+
+test("Admin object storage routes mask credentials and protect every mutation with CSRF", async () => {
+  const calls: string[] = [];
+  const response = {
+    source: "managed" as const,
+    endpoint: "https://oss-cn-hangzhou.aliyuncs.com",
+    publicEndpoint: "https://oss-cn-hangzhou.aliyuncs.com",
+    publicOrigin: "https://bucket.oss-cn-hangzhou.aliyuncs.com",
+    region: "cn-hangzhou",
+    bucket: "bucket",
+    forcePathStyle: false,
+    credentialsConfigured: true,
+    identityLocked: true,
+    revisionId: "123e4567-e89b-42d3-a456-426614174000",
+    updatedAt: new Date().toISOString(),
+  };
+  const objectStorageConfigService: AdminObjectStorageConfigService = {
+    async getCurrent() {
+      calls.push("get");
+      return response;
+    },
+    async testConnection() {
+      calls.push("test");
+      return { ok: true, testedAt: new Date().toISOString() };
+    },
+    async publish() {
+      calls.push("publish");
+      return response;
+    },
+    async restoreEnvironment() {
+      calls.push("restore");
+      return { ...response, source: "environment", revisionId: null };
+    },
+  };
+  await withServer(
+    createUnavailableAdminService(),
+    async (port) => {
+      const read = await request(port, {
+        path: "/admin/v1/object-storage-settings",
+        origin: config.allowedOrigins[0],
+      });
+      assert.equal(read.status, 200);
+      assert.equal(read.body.credentialsConfigured, true);
+      assert.equal("accessKeyId" in read.body, false);
+      assert.equal("secretAccessKey" in read.body, false);
+
+      const rejected = await request(port, {
+        path: "/admin/v1/object-storage-settings/test-connection",
+        method: "POST",
+        origin: config.allowedOrigins[0],
+        body: {},
+      });
+      assert.equal(rejected.status, 403);
+
+      const token = await csrf(port);
+      for (const [path, expected] of [
+        ["/admin/v1/object-storage-settings/test-connection", "test"],
+        ["/admin/v1/object-storage-settings", "publish"],
+        ["/admin/v1/object-storage-settings/restore-environment", "restore"],
+      ] as const) {
+        const result = await request(port, {
+          path,
+          method: "POST",
+          origin: config.allowedOrigins[0],
+          cookie: token.cookie,
+          csrf: token.token,
+          body: {},
+        });
+        assert.equal(result.status, 200);
+        assert.equal(calls.at(-1), expected);
+      }
+    },
+    undefined,
+    { objectStorageConfigService },
   );
 });
 

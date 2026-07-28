@@ -1,0 +1,149 @@
+name: ai-canvas-cloud-production
+
+x-runtime-logging: &runtime-logging
+  driver: json-file
+  options:
+    max-size: 5m
+    max-file: "3"
+
+x-runtime-security: &runtime-security
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+  stop_grace_period: 20s
+  networks:
+    - application
+
+x-release-service: &release-service
+  image: ${RELEASE_IMAGE:?set RELEASE_IMAGE in production.env}
+  env_file: ./production.env
+  profiles: ["release"]
+  volumes:
+    - ./production.env:/app/.env
+  mem_limit: 768m
+  cpus: 1.5
+  pids_limit: 256
+  security_opt:
+    - no-new-privileges:true
+  restart: "no"
+  networks:
+    - application
+  logging: *runtime-logging
+
+services:
+  api:
+    image: ${API_IMAGE:?set API_IMAGE in production.env}
+    env_file: ./production.env
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 8787
+      API_TRUST_PROXY: "true"
+      NODE_OPTIONS: --max-old-space-size=256
+    expose:
+      - "8787"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:8787/health/live'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
+        ]
+      interval: 15s
+      timeout: 4s
+      retries: 6
+      start_period: 20s
+    mem_limit: 448m
+    cpus: 1.0
+    pids_limit: 192
+    <<: *runtime-security
+    logging: *runtime-logging
+
+  web:
+    image: ${WEB_IMAGE:?set WEB_IMAGE in production.env}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    mem_limit: 48m
+    cpus: 0.25
+    pids_limit: 64
+    <<: *runtime-security
+    logging: *runtime-logging
+
+  admin-api:
+    image: ${ADMIN_API_IMAGE:?set ADMIN_API_IMAGE in production.env}
+    env_file: ./production.env
+    environment:
+      ADMIN_API_HOST: 0.0.0.0
+      ADMIN_API_PORT: 8788
+      ADMIN_API_TRUST_PROXY: "true"
+      NODE_OPTIONS: --max-old-space-size=160
+    expose:
+      - "8788"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:8788/health/live'').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
+        ]
+      interval: 15s
+      timeout: 4s
+      retries: 6
+      start_period: 20s
+    mem_limit: 320m
+    cpus: 0.5
+    pids_limit: 160
+    <<: *runtime-security
+    logging: *runtime-logging
+
+  admin-web:
+    image: ${ADMIN_WEB_IMAGE:?set ADMIN_WEB_IMAGE in production.env}
+    environment:
+      S3_PUBLIC_ORIGIN: ${S3_PUBLIC_ORIGIN:?set S3_PUBLIC_ORIGIN in production.env}
+    depends_on:
+      admin-api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${ADMIN_WEB_PORT:-8081}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    mem_limit: 48m
+    cpus: 0.25
+    pids_limit: 64
+    <<: *runtime-security
+    logging: *runtime-logging
+
+  release-check:
+    <<: *release-service
+    command: ["node", "scripts/check-deployment-config.mjs"]
+
+  migrate:
+    <<: *release-service
+    command: ["node", "scripts/apply-migrations.mjs"]
+
+  database-roles:
+    <<: *release-service
+    user: "0:0"
+    command: ["node", "scripts/provision-database-roles.mjs"]
+
+  database-role-check:
+    <<: *release-service
+    command: ["node", "scripts/check-admin-role-isolation.mjs"]
+
+  admin-bootstrap:
+    <<: *release-service
+    stdin_open: true
+    tty: true
+    command: ["node", "--import", "tsx", "scripts/bootstrap-admin.mjs"]
+
+networks:
+  application:
+    name: ai-canvas-cloud-production

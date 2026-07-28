@@ -12,9 +12,9 @@ import {
 
 test("schema release manifest covers every migration with monotonic release phases", () => {
   const result = validateSchemaReleaseManifest(loadSchemaReleaseManifest());
-  assert.equal(result.files.length, 34);
-  assert.equal(result.manifest.migrations.at(-1).version, "0034");
-  assert.equal(result.manifest.migrations.at(-1).releaseTrain, "p8-mail-codes");
+  assert.equal(result.files.length, 35);
+  assert.equal(result.manifest.migrations.at(-1).version, "0035");
+  assert.equal(result.manifest.migrations.at(-1).releaseTrain, "p8-storage");
   assert.equal(result.manifest.migrations.at(-1).phase, "expand");
   assert.equal(result.manifest.migrations.at(-1).oldAppWithNewSchema, true);
   assert.equal(

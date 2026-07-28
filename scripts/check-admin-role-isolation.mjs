@@ -24,7 +24,7 @@ const connections = {
   app: process.env.DATABASE_URL,
   admin: process.env.ADMIN_DATABASE_URL,
 };
-const expectedMigrationVersions = Array.from({ length: 34 }, (_, index) =>
+const expectedMigrationVersions = Array.from({ length: 35 }, (_, index) =>
   String(index + 1).padStart(4, "0"),
 );
 
@@ -49,6 +49,8 @@ const expectedPermissions = {
     sitePublicationWrite: false,
     smtpPublicationRead: true,
     smtpPublicationWrite: false,
+    objectStoragePublicationRead: true,
+    objectStoragePublicationWrite: false,
     registrationEmailChallengeRead: true,
     registrationEmailChallengeWrite: true,
     passwordResetEmailChallengeRead: true,
@@ -73,6 +75,8 @@ const expectedPermissions = {
     sitePublicationWrite: true,
     smtpPublicationRead: true,
     smtpPublicationWrite: true,
+    objectStoragePublicationRead: true,
+    objectStoragePublicationWrite: true,
     registrationEmailChallengeRead: false,
     registrationEmailChallengeWrite: false,
     passwordResetEmailChallengeRead: false,
@@ -203,6 +207,12 @@ for (const [connection, connectionString] of Object.entries(connections)) {
     );
     const smtpPublicationWrite = await client.query(
       `SELECT has_table_privilege(current_user, 'public.smtp_config_publications', 'INSERT,UPDATE') AS allowed`,
+    );
+    const objectStoragePublicationRead = await client.query(
+      `SELECT has_table_privilege(current_user, 'public.object_storage_config_publications', 'SELECT') AS allowed`,
+    );
+    const objectStoragePublicationWrite = await client.query(
+      `SELECT has_table_privilege(current_user, 'public.object_storage_config_publications', 'INSERT,UPDATE,DELETE') AS allowed`,
     );
     const registrationEmailChallengeRead = await client.query(
       `SELECT has_table_privilege(current_user, 'public.registration_email_challenges', 'SELECT') AS allowed`,
@@ -349,6 +359,10 @@ for (const [connection, connectionString] of Object.entries(connections)) {
       sitePublicationWrite: sitePublicationWrite.rows[0]?.allowed,
       smtpPublicationRead: smtpPublicationRead.rows[0]?.allowed,
       smtpPublicationWrite: smtpPublicationWrite.rows[0]?.allowed,
+      objectStoragePublicationRead:
+        objectStoragePublicationRead.rows[0]?.allowed,
+      objectStoragePublicationWrite:
+        objectStoragePublicationWrite.rows[0]?.allowed,
       registrationEmailChallengeRead:
         registrationEmailChallengeRead.rows[0]?.allowed,
       registrationEmailChallengeWrite:

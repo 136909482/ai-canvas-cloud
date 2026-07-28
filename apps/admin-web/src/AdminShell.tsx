@@ -5,6 +5,7 @@ import {
   Activity,
   LogOut,
   Mail,
+  HardDrive,
   Menu as MenuIcon,
   ScrollText,
   Settings2,
@@ -21,6 +22,7 @@ const ICONS: Record<AdminView, ReactNode> = {
   users: <UsersRound size={18} />,
   site: <Settings2 size={18} />,
   smtp: <Mail size={18} />,
+  storage: <HardDrive size={18} />,
   audit: <ScrollText size={18} />,
   security: <ShieldCheck size={18} />,
 };

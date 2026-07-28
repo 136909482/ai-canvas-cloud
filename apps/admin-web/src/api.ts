@@ -26,13 +26,17 @@ import type {
   SmtpSettingsResponse,
   SmtpTestEmailInput,
   SmtpTestResponse,
+  ObjectStorageSettingsInput,
+  ObjectStorageSettingsResponse,
+  ObjectStorageTestResponse,
+  RestoreEnvironmentObjectStorageInput,
 } from "@ai-canvas-cloud/contracts";
 
+const configuredApiUrl = (
+  import.meta.env.VITE_ADMIN_API_URL as string | undefined
+)?.replace(/\/$/, "");
 const API_URL =
-  (import.meta.env.VITE_ADMIN_API_URL as string | undefined)?.replace(
-    /\/$/,
-    "",
-  ) ?? "http://127.0.0.1:8788";
+  configuredApiUrl ?? (import.meta.env.DEV ? "http://127.0.0.1:8788" : "");
 let csrfToken: string | null = null;
 
 export class AdminApiError extends Error {
@@ -237,6 +241,29 @@ export const adminApi = {
   disableSmtpSettings(input: DisableSmtpSettingsInput) {
     return post<SmtpSettingsResponse>(
       "/admin/v1/smtp-settings/disable",
+      input as unknown as Record<string, unknown>,
+    );
+  },
+  objectStorageSettings() {
+    return request<ObjectStorageSettingsResponse>(
+      "/admin/v1/object-storage-settings",
+    );
+  },
+  testObjectStorageConnection(input: ObjectStorageSettingsInput) {
+    return post<ObjectStorageTestResponse>(
+      "/admin/v1/object-storage-settings/test-connection",
+      input as unknown as Record<string, unknown>,
+    );
+  },
+  publishObjectStorageSettings(input: ObjectStorageSettingsInput) {
+    return post<ObjectStorageSettingsResponse>(
+      "/admin/v1/object-storage-settings",
+      input as unknown as Record<string, unknown>,
+    );
+  },
+  restoreEnvironmentObjectStorage(input: RestoreEnvironmentObjectStorageInput) {
+    return post<ObjectStorageSettingsResponse>(
+      "/admin/v1/object-storage-settings/restore-environment",
       input as unknown as Record<string, unknown>,
     );
   },

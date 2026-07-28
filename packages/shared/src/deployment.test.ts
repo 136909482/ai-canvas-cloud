@@ -20,6 +20,10 @@ function baseEnv() {
     BETTER_AUTH_SECRET: "a".repeat(48),
     S3_ACCESS_KEY_ID: "staging-access-key",
     S3_SECRET_ACCESS_KEY: "staging-object-secret",
+    OBJECT_STORAGE_CREDENTIAL_KEYS: JSON.stringify({
+      1: Buffer.alloc(32, 6).toString("base64"),
+    }),
+    OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION: "1",
     AUTH_EMAIL_TRANSPORT: "smtp",
     SMTP_HOST: "smtp.staging.example.com",
     SMTP_PORT: "465",
@@ -48,6 +52,19 @@ function baseEnv() {
 
 test("protected deployment accepts independently scoped staging resources", () => {
   assert.doesNotThrow(() => validateProtectedDeploymentEnvironment(baseEnv()));
+});
+
+test("protected deployment accepts virtual-hosted object storage origins", () => {
+  assert.doesNotThrow(() =>
+    validateProtectedDeploymentEnvironment({
+      ...baseEnv(),
+      S3_ENDPOINT: "https://oss-cn-hangzhou.aliyuncs.com",
+      S3_PUBLIC_ENDPOINT: "https://oss-cn-hangzhou.aliyuncs.com",
+      S3_PUBLIC_ORIGIN:
+        "https://ai-canvas-cloud-staging-assets.oss-cn-hangzhou.aliyuncs.com",
+      S3_FORCE_PATH_STYLE: "false",
+    }),
+  );
 });
 
 test("protected deployment accepts managed SMTP without legacy credentials", () => {
@@ -130,6 +147,14 @@ test("protected deployment rejects local URLs, placeholders, missing origins and
         S3_PUBLIC_ORIGIN: "https://other-storage.example.com",
       }),
     /S3_PUBLIC_ORIGIN/,
+  );
+  assert.throws(
+    () =>
+      validateProtectedDeploymentEnvironment({
+        ...baseEnv(),
+        S3_FORCE_PATH_STYLE: "sometimes",
+      }),
+    /S3_FORCE_PATH_STYLE/,
   );
 });
 

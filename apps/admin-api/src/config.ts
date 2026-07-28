@@ -21,10 +21,14 @@ export interface AdminApiConfig {
   allowedOrigins: string[];
   s3Endpoint: string;
   s3PublicEndpoint: string;
+  s3PublicOrigin: string;
+  s3ForcePathStyle: boolean;
   s3Bucket: string;
   s3Region: string;
   s3AccessKeyId: string;
   s3SecretAccessKey: string;
+  objectStorageCredentialKeys?: string;
+  objectStorageCredentialActiveKeyVersion: number;
   smtpCredentialKeys?: string;
   smtpCredentialActiveKeyVersion: number;
   smtpDevelopmentSecret?: string;
@@ -95,6 +99,11 @@ export function loadAdminApiConfig(
   const smtpCredentialActiveKeyVersion = Number(
     env.SMTP_CREDENTIAL_ACTIVE_KEY_VERSION ?? 1,
   );
+  const objectStorageCredentialKeys =
+    env.OBJECT_STORAGE_CREDENTIAL_KEYS?.trim() || undefined;
+  const objectStorageCredentialActiveKeyVersion = Number(
+    env.OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION ?? 1,
+  );
   const webPublicUrl = readOptionalEnv(
     env,
     "ADMIN_WEB_PUBLIC_URL",
@@ -120,6 +129,14 @@ export function loadAdminApiConfig(
     );
   }
   if (
+    !Number.isInteger(objectStorageCredentialActiveKeyVersion) ||
+    objectStorageCredentialActiveKeyVersion < 1
+  ) {
+    throw new Error(
+      "OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION must be positive",
+    );
+  }
+  if (
     !Number.isInteger(smtpCredentialActiveKeyVersion) ||
     smtpCredentialActiveKeyVersion < 1
   ) {
@@ -128,6 +145,14 @@ export function loadAdminApiConfig(
   if (isProtectedDeploymentEnvironment(appEnv) && !smtpCredentialKeys) {
     throw new Error(
       "SMTP_CREDENTIAL_KEYS is required in a protected environment",
+    );
+  }
+  if (
+    isProtectedDeploymentEnvironment(appEnv) &&
+    !objectStorageCredentialKeys
+  ) {
+    throw new Error(
+      "OBJECT_STORAGE_CREDENTIAL_KEYS is required in a protected environment",
     );
   }
   const ordinaryOrigins = (env.WEB_ALLOWED_ORIGINS ?? env.WEB_PUBLIC_URL ?? "")
@@ -162,10 +187,24 @@ export function loadAdminApiConfig(
       "S3_PUBLIC_ENDPOINT",
       readRequiredEnv(env, "S3_ENDPOINT"),
     ),
+    s3PublicOrigin: readOptionalEnv(
+      env,
+      "S3_PUBLIC_ORIGIN",
+      new URL(
+        readOptionalEnv(
+          env,
+          "S3_PUBLIC_ENDPOINT",
+          readRequiredEnv(env, "S3_ENDPOINT"),
+        ),
+      ).origin,
+    ),
+    s3ForcePathStyle: readBoolean(env, "S3_FORCE_PATH_STYLE", true),
     s3Bucket: readRequiredEnv(env, "S3_BUCKET"),
     s3Region: readRequiredEnv(env, "S3_REGION"),
     s3AccessKeyId: readRequiredEnv(env, "S3_ACCESS_KEY_ID"),
     s3SecretAccessKey: readRequiredEnv(env, "S3_SECRET_ACCESS_KEY"),
+    objectStorageCredentialKeys,
+    objectStorageCredentialActiveKeyVersion,
     smtpCredentialKeys,
     smtpCredentialActiveKeyVersion,
     smtpDevelopmentSecret:
