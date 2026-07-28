@@ -734,9 +734,7 @@ export function ImageFullscreenEditor() {
     }
 
     const annotation: TextAnnotation = {
-      id:
-        textDraft.id ??
-        `text-annotation-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: textDraft.id,
       x: textDraft.x,
       y: textDraft.y,
       value: textDraft.value,
@@ -806,7 +804,7 @@ export function ImageFullscreenEditor() {
       event.currentTarget.setPointerCapture(event.pointerId);
       setTextDraft({
         ...point,
-        id: null,
+        id: `text-annotation-${crypto.randomUUID()}`,
         value: "",
         fontSize: textSize,
         color: brushColor,
