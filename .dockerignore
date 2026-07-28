@@ -3,6 +3,8 @@
 !.env.example
 infra/deploy/staging/staging.env
 infra/deploy/production/production.env
+infra/deploy/single-host/secrets
+infra/deploy/single-host/backups
 **/node_modules
 **/dist
 **/coverage

@@ -30,7 +30,7 @@
     "db:migrate": "node scripts/apply-migrations.mjs",
     "db:roles:provision": "node scripts/provision-database-roles.mjs",
     "db:roles:check": "node scripts/check-admin-role-isolation.mjs",
-    "admin:bootstrap": "node --import tsx scripts/bootstrap-admin.mjs",
+    "admin:bootstrap": "npm run build && node scripts/bootstrap-admin.mjs",
     "db:migrate:test": "node scripts/check-migrations.mjs",
     "db:migrate:compat": "node scripts/check-schema-release.mjs && node --import tsx --test scripts/schema-release.test.mjs",
     "db:repair:checkpoint-assets": "npm run build --workspace @ai-canvas-cloud/server && node scripts/repair-checkpoint-asset-manifests.mjs",

@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
 FROM node:24.13.0-alpine3.22 AS workspace
+ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org
+ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
@@ -55,6 +57,30 @@ COPY --from=build --chown=node:node /app/server/dist server/dist
 USER node
 EXPOSE 8788
 CMD ["node", "apps/admin-api/dist/index.js"]
+
+FROM node:24.13.0-alpine3.22 AS single-host-app
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
+COPY --from=build --chown=node:node /app/apps/api/package.json apps/api/package.json
+COPY --from=build --chown=node:node /app/apps/api/dist apps/api/dist
+COPY --from=build --chown=node:node /app/apps/admin-api/package.json apps/admin-api/package.json
+COPY --from=build --chown=node:node /app/apps/admin-api/dist apps/admin-api/dist
+COPY --from=build --chown=node:node /app/apps/web/dist apps/web/dist
+COPY --from=build --chown=node:node /app/apps/admin-web/dist apps/admin-web/dist
+COPY --from=build --chown=node:node /app/packages/contracts/package.json packages/contracts/package.json
+COPY --from=build --chown=node:node /app/packages/contracts/dist packages/contracts/dist
+COPY --from=build --chown=node:node /app/packages/shared/package.json packages/shared/package.json
+COPY --from=build --chown=node:node /app/packages/shared/dist packages/shared/dist
+COPY --from=build --chown=node:node /app/server/package.json server/package.json
+COPY --from=build --chown=node:node /app/server/dist server/dist
+COPY --from=build --chown=node:node /app/server/db/migrations server/db/migrations
+COPY --from=build --chown=node:node /app/scripts scripts
+USER node
+EXPOSE 8080
+EXPOSE 8081
+CMD ["node", "apps/api/dist/index.js"]
 
 FROM node:24.13.0-alpine3.22 AS migrate
 ENV NODE_ENV=production

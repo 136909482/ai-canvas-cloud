@@ -5,7 +5,7 @@ import {
   createPostgresPool,
   loadDotEnv,
 } from "@ai-canvas-cloud/server";
-import { loadAdminApiConfig } from "../apps/admin-api/src/config.ts";
+import { loadAdminApiConfig } from "../apps/admin-api/dist/config.js";
 
 function readSecret(prompt) {
   if (

@@ -16,6 +16,12 @@
     { "path": "../packages/contracts" },
     { "path": "../packages/shared" }
   ],
-  "include": ["index.ts", "db/**/*.ts", "env/**/*.ts", "modules/**/*.ts"],
+  "include": [
+    "index.ts",
+    "staticSite.ts",
+    "db/**/*.ts",
+    "env/**/*.ts",
+    "modules/**/*.ts"
+  ],
   "exclude": ["**/*.test.ts"]
 }

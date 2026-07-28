@@ -92,6 +92,39 @@ docker compose --env-file production.env ps
 
 应用回滚只把四个常驻镜像改回与当前数据库 schema 兼容的旧 SHA，再执行 `pull` 和 `up -d`；不要自动反向执行 SQL。若新迁移与旧应用不兼容，按 [`DATA_MODEL.md`](DATA_MODEL.md) 的回滚或前向修复要求处理，必要时从发布前 RDS 快照恢复到隔离实例验证后再切换。
 
+## 单机 Docker 生产部署
+
+`infra/deploy/single-host` 面向宝塔和 2 核 2 GB 的单台低流量服务器。它只常驻普通应用、后台应用、PostgreSQL 和 Redis：普通应用在 `127.0.0.1:8080` 同时提供 Web 与 `/api/`，后台应用在 `127.0.0.1:8081` 同时提供 Admin Web 与 `/admin/`。两个应用使用同一个不可变镜像，但保留独立 Cookie、认证密钥、数据库角色、运行时环境文件和域名；数据库与 Redis 不发布宿主机端口，媒体继续存储在私有 OSS。
+
+2 GB 机器必须启用至少 2 GB swap。四个常驻容器的内存上限合计为 896 MB，给 Linux、宝塔和 Docker 留出余量；出现持续 swap、OOM、readiness 失败或明显延迟后必须升级到至少 2 核 4 GB。宝塔已安装的 PostgreSQL/Redis 服务应停止，避免端口、内存和数据来源混淆。
+
+### 镜像构建
+
+GitHub `main` 是单机镜像的唯一发布源。仓库中的 `.github/workflows/single-host-image.yml` 在 `npm test`、`npm run lint` 和 `npm run build` 成功后构建 `single-host-app`，推送不可变 Git SHA 标签与 `stable` 标签。GitHub 仓库 Variables 必须设置 `ACR_REGISTRY` 和 `ACR_NAMESPACE`，Secrets 必须设置 `ACR_USERNAME` 和 `ACR_PASSWORD`；它们只用于 CI 登录 ACR，不能写进仓库或服务器环境模板。
+
+### 单机首次发布
+
+先创建私有 OSS Bucket、两个 DNS 记录和宝塔 HTTPS 站点。把整个 `infra/deploy/single-host` 目录上传到服务器固定目录，例如 `/www/wwwroot/ai-canvas-cloud-single-host`，进入该目录后执行：
+
+```bash
+sudo bash setup.sh
+```
+
+脚本只询问两个域名、ACR 完整镜像仓库和 OSS/RAM 凭据；它在服务器生成数据库、Redis、认证与加密密钥，将 master 配置保存在 `secrets/release.env`，并生成普通/后台两个独立运行时环境文件。脚本会提示 ACR 登录、拉取 CI 构建的 `stable` 镜像、创建数据库角色、创建首个 `super_admin`，并等待两个健康检查通过。`secrets/` 与 `backups/` 均为本机私有目录，权限必须保持为 `700`/`600`。
+
+宝塔普通站点反向代理到 `http://127.0.0.1:8080`，管理站点反向代理到 `http://127.0.0.1:8081`；使用目录中的 `baota-public.location.conf.example` 和 `baota-admin.location.conf.example`。安全组只开放 `22`、`80` 和 `443`。
+
+### 日常发布与故障处理
+
+GitHub Actions 绿色完成后，服务器进入单机目录只执行：
+
+```bash
+sudo bash deploy.sh
+sudo bash status.sh
+```
+
+`deploy.sh` 拉取 `stable` 并记录实际 SHA256 digest，先创建 PostgreSQL 自包含备份，再校验配置、运行迁移和数据库角色校验、刷新两个运行时环境文件、重建两个应用并等待健康检查。发布脚本不会在服务器构建源码，也不会自动回滚 SQL；迁移后的失败保留备份和失败状态，必须按 `DATA_MODEL.md` 的前向修复或隔离恢复流程处理。备份必须复制到另一台设备或独立 OSS Bucket，同机备份不能覆盖整机故障。
+
 ## 分层职责
 
 - `apps/web` 负责画布 UI、Cloud 平台适配、浏览器 Vault、受控 Provider 协议和本地任务恢复。

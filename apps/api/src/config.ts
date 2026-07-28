@@ -14,6 +14,7 @@ export interface ApiConfig {
   port: number;
   trustProxy: boolean;
   shutdownTimeoutMs: number;
+  staticSiteRoot?: string;
   betterAuthUrl: string;
   betterAuthSecret: string;
   webPublicUrl: string;
@@ -157,6 +158,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       "API_SHUTDOWN_TIMEOUT_MS",
       10_000,
     ),
+    staticSiteRoot: env.WEB_STATIC_SITE_ROOT?.trim() || undefined,
     betterAuthUrl: readOptionalEnv(
       env,
       "BETTER_AUTH_URL",

@@ -21,6 +21,7 @@ const config = {
   logLevel: "error" as const,
   shutdownTimeoutMs: 1_000,
   trustProxy: false,
+  staticSiteRoot: undefined,
   databaseUrl: "postgres://admin_role@localhost/cloud",
   betterAuthUrl: "http://127.0.0.1:8788",
   betterAuthSecret: "admin-secret-that-is-long-enough-for-tests",

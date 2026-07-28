@@ -13,6 +13,7 @@ export interface AdminApiConfig {
   port: number;
   logLevel: LogLevel;
   shutdownTimeoutMs: number;
+  staticSiteRoot?: string;
   trustProxy: boolean;
   databaseUrl: string;
   betterAuthUrl: string;
@@ -92,9 +93,9 @@ export function loadAdminApiConfig(
   const host = readOptionalEnv(env, "ADMIN_API_HOST", "127.0.0.1");
   const port = readPortEnv(env, "ADMIN_API_PORT", 8788);
   const databaseUrl = readRequiredEnv(env, "ADMIN_DATABASE_URL");
-  const ordinaryDatabaseUrl = readRequiredEnv(env, "DATABASE_URL");
+  const ordinaryDatabaseRole = readRequiredEnv(env, "APP_DATABASE_ROLE");
   const betterAuthSecret = readRequiredEnv(env, "ADMIN_BETTER_AUTH_SECRET");
-  const ordinaryAuthSecret = readRequiredEnv(env, "BETTER_AUTH_SECRET");
+  const ordinaryAuthSecret = env.BETTER_AUTH_SECRET?.trim();
   const smtpCredentialKeys = env.SMTP_CREDENTIAL_KEYS?.trim() || undefined;
   const smtpCredentialActiveKeyVersion = Number(
     env.SMTP_CREDENTIAL_ACTIVE_KEY_VERSION ?? 1,
@@ -115,17 +116,20 @@ export function loadAdminApiConfig(
   const logLevel = readOptionalEnv(env, "LOG_LEVEL", "info") as LogLevel;
   if (!LOG_LEVELS.has(logLevel))
     throw new Error(`Invalid LOG_LEVEL: ${logLevel}`);
-  if (betterAuthSecret.length < 32 || betterAuthSecret === ordinaryAuthSecret) {
+  if (
+    betterAuthSecret.length < 32 ||
+    (ordinaryAuthSecret !== undefined &&
+      betterAuthSecret === ordinaryAuthSecret)
+  ) {
     throw new Error(
       "ADMIN_BETTER_AUTH_SECRET must be at least 32 characters and independent from BETTER_AUTH_SECRET",
     );
   }
   if (
-    databaseRole(databaseUrl, "ADMIN_DATABASE_URL") ===
-    databaseRole(ordinaryDatabaseUrl, "DATABASE_URL")
+    databaseRole(databaseUrl, "ADMIN_DATABASE_URL") === ordinaryDatabaseRole
   ) {
     throw new Error(
-      "ADMIN_DATABASE_URL must use a database role distinct from DATABASE_URL",
+      "ADMIN_DATABASE_URL must use a database role distinct from APP_DATABASE_ROLE",
     );
   }
   if (
@@ -171,6 +175,7 @@ export function loadAdminApiConfig(
       "ADMIN_API_SHUTDOWN_TIMEOUT_MS",
       10_000,
     ),
+    staticSiteRoot: env.ADMIN_STATIC_SITE_ROOT?.trim() || undefined,
     trustProxy: readBoolean(env, "ADMIN_API_TRUST_PROXY", false),
     databaseUrl,
     betterAuthUrl: readOptionalEnv(

@@ -18,6 +18,30 @@ const productionTemplate = readFileSync(
   "infra/deploy/production/production.env.example",
   "utf8",
 );
+const singleHostCompose = readFileSync(
+  "infra/deploy/single-host/docker-compose.yml",
+  "utf8",
+);
+const singleHostTemplate = readFileSync(
+  "infra/deploy/single-host/release.env.example",
+  "utf8",
+);
+const singleHostSetup = readFileSync(
+  "infra/deploy/single-host/setup.sh",
+  "utf8",
+);
+const singleHostDeploy = readFileSync(
+  "infra/deploy/single-host/deploy.sh",
+  "utf8",
+);
+const singleHostStatus = readFileSync(
+  "infra/deploy/single-host/status.sh",
+  "utf8",
+);
+const singleHostWorkflow = readFileSync(
+  ".github/workflows/single-host-image.yml",
+  "utf8",
+);
 const adminNginx = readFileSync(
   "infra/deploy/production/admin.nginx.conf",
   "utf8",
@@ -44,6 +68,10 @@ test("server generation runtime paths remain removed", () => {
 
 test("deployment artifacts keep runtime targets non-root and migration explicit", () => {
   assert.match(dockerfile, /FROM node:24\.13\.0-alpine3\.22 AS api/);
+  assert.match(
+    dockerfile,
+    /ARG NPM_CONFIG_REGISTRY=https:\/\/registry\.npmjs\.org/,
+  );
   assert.doesNotMatch(dockerfile, / AS worker/);
   assert.match(
     dockerfile,
@@ -55,13 +83,18 @@ test("deployment artifacts keep runtime targets non-root and migration explicit"
     /FROM nginxinc\/nginx-unprivileged:1\.29\.1-alpine AS admin-web/,
   );
   assert.match(dockerfile, /FROM workspace AS release/);
-  assert.equal((dockerfile.match(/USER node/g) ?? []).length, 5);
+  assert.match(
+    dockerfile,
+    /FROM node:24\.13\.0-alpine3\.22 AS single-host-app/,
+  );
+  assert.equal((dockerfile.match(/USER node/g) ?? []).length, 6);
   assert.equal(
     packageJson.dependencies?.["@rolldown/binding-win32-x64-msvc"],
     undefined,
   );
   assert.match(dockerignore, /infra\/deploy\/staging\/staging\.env/);
   assert.match(dockerignore, /infra\/deploy\/production\/production\.env/);
+  assert.match(dockerignore, /infra\/deploy\/single-host\/secrets/);
   assert.match(compose, /profiles: \["release"\]/);
   assert.match(compose, /staging-postgres-data/);
   assert.match(compose, /staging-redis-data/);
@@ -128,6 +161,42 @@ test("production deployment stays lightweight and loopback-only", () => {
     productionTemplate,
     /\n(POSTGRES_PASSWORD|REDIS_PASSWORD)=/,
   );
+});
+
+test("single-host production uses one image, two application containers, and private state", () => {
+  assert.match(singleHostCompose, /postgres:17\.6-alpine3\.22/);
+  assert.match(singleHostCompose, /redis:8\.2\.1-alpine3\.22/);
+  assert.match(singleHostCompose, /ai-canvas-cloud-single-host-postgres/);
+  assert.match(singleHostCompose, /ai-canvas-cloud-single-host-redis/);
+  assert.doesNotMatch(singleHostCompose, /- ["']?(5432|6379):/);
+  assert.match(
+    singleHostCompose,
+    /image: \$\{APP_IMAGE:\?run deploy\.sh first\}/,
+  );
+  assert.match(singleHostCompose, /127\.0\.0\.1:8080:8080/);
+  assert.match(singleHostCompose, /127\.0\.0\.1:8081:8081/);
+  assert.match(singleHostCompose, /\n  public:/);
+  assert.match(singleHostCompose, /\n  admin:/);
+  assert.doesNotMatch(singleHostCompose, /\n  (web|admin-web):/);
+  assert.match(singleHostCompose, /secrets\/runtime\/public\.env/);
+  assert.match(singleHostCompose, /secrets\/runtime\/admin\.env/);
+  assert.match(singleHostCompose, /--maxmemory 64mb/);
+  assert.match(singleHostCompose, /--maxmemory-policy noeviction/);
+  assert.match(singleHostCompose, /profiles: \["release"\]/);
+  assert.match(singleHostTemplate, /APP_REPOSITORY=/);
+  assert.match(singleHostSetup, /docker login/);
+  assert.match(
+    singleHostSetup,
+    /ADMIN_BETTER_AUTH_SECRET="\$\(random_hex 32\)"/,
+  );
+  assert.match(singleHostSetup, /bootstrap-admin\.mjs/);
+  assert.match(singleHostDeploy, /APP_REPOSITORY.*stable/);
+  assert.match(singleHostDeploy, /apply-migrations\.mjs/);
+  assert.match(singleHostDeploy, /check-admin-role-isolation\.mjs/);
+  assert.match(singleHostStatus, /single-host status/);
+  assert.match(singleHostWorkflow, /target: single-host-app/);
+  assert.match(singleHostWorkflow, /:stable/);
+  assert.match(singleHostWorkflow, /linux\/amd64/);
 });
 
 test("staging monitoring scrapes API and keeps alerts low-cardinality", () => {

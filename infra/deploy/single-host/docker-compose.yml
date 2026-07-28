@@ -1,0 +1,167 @@
+name: ai-canvas-cloud-single-host
+
+x-runtime-logging: &runtime-logging
+  driver: json-file
+  options:
+    max-size: 5m
+    max-file: "3"
+
+x-runtime-security: &runtime-security
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+  stop_grace_period: 20s
+  networks:
+    - application
+
+services:
+  postgres:
+    image: postgres:17.6-alpine3.22
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?run setup.sh first}
+      POSTGRES_USER: ${POSTGRES_USER:?run setup.sh first}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run setup.sh first}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    command:
+      - postgres
+      - -c
+      - listen_addresses=*
+      - -c
+      - max_connections=30
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - effective_cache_size=384MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - work_mem=2MB
+      - -c
+      - password_encryption=scram-sha-256
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+    mem_limit: 256m
+    cpus: 0.75
+    pids_limit: 128
+    <<: *runtime-security
+    logging: *runtime-logging
+
+  redis:
+    image: redis:8.2.1-alpine3.22
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?run setup.sh first}
+    command:
+      - sh
+      - -c
+      - >-
+        exec redis-server --appendonly yes --appendfsync everysec
+        --requirepass "$$REDIS_PASSWORD" --maxmemory 64mb
+        --maxmemory-policy noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    mem_limit: 96m
+    cpus: 0.25
+    pids_limit: 64
+    <<: *runtime-security
+    logging: *runtime-logging
+
+  public:
+    image: ${APP_IMAGE:?run deploy.sh first}
+    env_file: ./secrets/runtime/public.env
+    command: ["node", "apps/api/dist/index.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(\"http://127.0.0.1:8080/health/ready\").then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
+        ]
+      interval: 15s
+      timeout: 4s
+      retries: 6
+      start_period: 20s
+    mem_limit: 320m
+    cpus: 1.0
+    pids_limit: 160
+    <<: *runtime-security
+    logging: *runtime-logging
+
+  admin:
+    image: ${APP_IMAGE:?run deploy.sh first}
+    env_file: ./secrets/runtime/admin.env
+    command: ["node", "apps/admin-api/dist/index.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8081:8081"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(\"http://127.0.0.1:8081/health/ready\").then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
+        ]
+      interval: 15s
+      timeout: 4s
+      retries: 6
+      start_period: 20s
+    mem_limit: 224m
+    cpus: 0.5
+    pids_limit: 128
+    <<: *runtime-security
+    logging: *runtime-logging
+
+  release:
+    image: ${APP_IMAGE:?run deploy.sh first}
+    profiles: ["release"]
+    user: "0:0"
+    env_file: ./secrets/release.env
+    volumes:
+      - ./secrets/release.env:/app/.env
+      - ./secrets/runtime:/runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 384m
+    cpus: 1.0
+    pids_limit: 192
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    networks:
+      - application
+    logging: *runtime-logging
+
+networks:
+  application:
+    name: ai-canvas-cloud-single-host
+
+volumes:
+  postgres-data:
+    name: ai-canvas-cloud-single-host-postgres
+  redis-data:
+    name: ai-canvas-cloud-single-host-redis

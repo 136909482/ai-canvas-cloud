@@ -48,6 +48,8 @@ npm run dev:admin-api
 
 生产配置从 `infra/deploy/production/production.env.example` 复制为同目录未跟踪的 `production.env`。首次发布、宝塔反向代理、迁移、升级和回滚顺序见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#docker-生产部署)。安全组只需开放 `22`、`80` 和 `443`，`8787`、`8788`、PostgreSQL 与 Redis 端口不得暴露公网。
 
+[`infra/deploy/single-host`](infra/deploy/single-host) 提供面向宝塔单机的简化部署：长期只运行普通应用、后台应用、PostgreSQL 和 Redis 四个容器。GitHub Actions 构建一个 ACR 镜像，服务器首次执行 `bash setup.sh`，之后只执行 `bash deploy.sh`；服务器不再构建前端或维护五个镜像。单机首次安装、GitHub/ACR 配置、备份和故障处理见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#单机-docker-生产部署)。
+
 ## 日常验证
 
 编辑过程中只运行受影响范围：

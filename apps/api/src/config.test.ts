@@ -29,6 +29,12 @@ test("API config validates required cloud dependencies", () => {
   assert.equal(config.s3Bucket, "bucket");
   assert.equal(config.s3PublicEndpoint, "http://localhost:9000");
   assert.equal(config.s3ForcePathStyle, true);
+  assert.equal(config.staticSiteRoot, undefined);
+  assert.equal(
+    loadApiConfig({ ...baseEnv, WEB_STATIC_SITE_ROOT: "/app/apps/web/dist" })
+      .staticSiteRoot,
+    "/app/apps/web/dist",
+  );
 });
 
 test("API config supports virtual-hosted object storage", () => {

@@ -10,6 +10,8 @@ coverage/
 infra/local/data/
 infra/deploy/staging/staging.env
 infra/deploy/production/production.env
+infra/deploy/single-host/secrets/
+infra/deploy/single-host/backups/
 test-results/
 .playwright-cli/
 .codex-run/

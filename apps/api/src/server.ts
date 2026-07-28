@@ -33,6 +33,7 @@ import {
   createUnavailableAssetService,
   type AssetService,
 } from "@ai-canvas-cloud/server/modules/assets";
+import { createStaticSite } from "@ai-canvas-cloud/server";
 import {
   AuthServiceError,
   createUnavailableAuthService,
@@ -111,6 +112,19 @@ interface ServerOptions {
     redis?: () => Promise<void>;
   };
   rateLimiter?: RateLimiter;
+}
+
+const PUBLIC_SITE_CONTENT_SECURITY_POLICY =
+  "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https:; worker-src 'self' blob:; manifest-src 'self'; form-action 'self'";
+
+function isApiOwnedPath(pathname: string) {
+  return (
+    pathname === "/metrics" ||
+    pathname === "/api" ||
+    pathname.startsWith("/api/") ||
+    pathname === "/health" ||
+    pathname.startsWith("/health/")
+  );
 }
 
 function sendJson(
@@ -1787,6 +1801,13 @@ export function createApiServer({
   readinessChecks,
   rateLimiter,
 }: ServerOptions) {
+  const staticSite = config.staticSiteRoot
+    ? createStaticSite({
+        root: config.staticSiteRoot,
+        contentSecurityPolicy: PUBLIC_SITE_CONTENT_SECURITY_POLICY,
+        environment: config.env,
+      })
+    : undefined;
   const server = http.createServer(async (request, response) => {
     const requestId = createRequestId();
     const startedAt = performance.now();
@@ -1845,6 +1866,11 @@ export function createApiServer({
       method: request.method,
       pathGroup: requestPathGroup(requestUrl.pathname),
     });
+
+    if (staticSite && !isApiOwnedPath(requestUrl.pathname)) {
+      await staticSite.handle(request, response, requestUrl.pathname);
+      return;
+    }
 
     if (handleSecurityBoundary(request, response, config, requestId)) {
       return;

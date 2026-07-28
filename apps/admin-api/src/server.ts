@@ -26,6 +26,7 @@ import {
   type AdminObjectStorageConfigService,
   type AdminUserOperationsService,
 } from "@ai-canvas-cloud/server/modules/admin";
+import { createStaticSite } from "@ai-canvas-cloud/server";
 import type { AdminApiConfig } from "./config.js";
 import {
   clearCsrfCookie,
@@ -49,6 +50,20 @@ interface AdminServerOptions {
     postgres?: () => Promise<MeasuredDependencyStatus>;
     objectStorage?: () => Promise<MeasuredDependencyStatus>;
   };
+}
+
+function isAdminApiOwnedPath(pathname: string) {
+  return (
+    pathname === "/metrics" ||
+    pathname === "/admin" ||
+    pathname.startsWith("/admin/") ||
+    pathname === "/health" ||
+    pathname.startsWith("/health/")
+  );
+}
+
+function adminSiteContentSecurityPolicy(s3PublicOrigin: string) {
+  return `default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: ${s3PublicOrigin}; font-src 'self' data:; connect-src 'self' ${s3PublicOrigin}; worker-src 'self' blob:; manifest-src 'self'; form-action 'self'`;
 }
 
 function sendMetrics(
@@ -233,6 +248,15 @@ export function createAdminApiServer({
   metrics = createMetricsRegistry(),
   readinessChecks,
 }: AdminServerOptions) {
+  const staticSite = config.staticSiteRoot
+    ? createStaticSite({
+        root: config.staticSiteRoot,
+        contentSecurityPolicy: adminSiteContentSecurityPolicy(
+          config.s3PublicOrigin,
+        ),
+        environment: config.env,
+      })
+    : undefined;
   return http.createServer(async (request, response) => {
     const requestId = randomUUID();
     const url = new URL(
@@ -244,6 +268,10 @@ export function createAdminApiServer({
       method: request.method,
       pathGroup: adminPathGroup(url.pathname),
     });
+    if (staticSite && !isAdminApiOwnedPath(url.pathname)) {
+      await staticSite.handle(request, response, url.pathname);
+      return;
+    }
     if (handleAdminSecurityBoundary(request, response, config, requestId))
       return;
     try {

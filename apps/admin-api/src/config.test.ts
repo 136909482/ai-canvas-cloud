@@ -4,8 +4,7 @@ import { loadAdminApiConfig } from "./config.ts";
 
 const baseEnv = {
   NODE_ENV: "development",
-  DATABASE_URL:
-    "postgres://ordinary_role:ordinary-password@localhost:5432/cloud",
+  APP_DATABASE_ROLE: "ordinary_role",
   BETTER_AUTH_SECRET: "ordinary-auth-secret-that-is-long-enough",
   WEB_ALLOWED_ORIGINS: "http://localhost:5173",
   ADMIN_DATABASE_URL:
@@ -30,7 +29,8 @@ test("Admin API config requires independent database role, secret, and origin", 
     () =>
       loadAdminApiConfig({
         ...baseEnv,
-        ADMIN_DATABASE_URL: baseEnv.DATABASE_URL,
+        ADMIN_DATABASE_URL:
+          "postgres://ordinary_role:ordinary-password@localhost:5432/cloud",
       }),
     /distinct/,
   );
@@ -50,6 +50,13 @@ test("Admin API config requires independent database role, secret, and origin", 
       }),
     /origins must be distinct/,
   );
+});
+
+test("Admin API runtime can omit ordinary credentials while retaining isolation metadata", () => {
+  const runtimeEnv = { ...baseEnv };
+  Reflect.deleteProperty(runtimeEnv, "BETTER_AUTH_SECRET");
+  const config = loadAdminApiConfig(runtimeEnv);
+  assert.equal(config.databaseUrl.includes("admin_role"), true);
 });
 
 test("Admin API config supports virtual-hosted object storage", () => {
