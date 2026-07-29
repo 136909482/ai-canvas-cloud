@@ -67,6 +67,8 @@ docker buildx build --platform linux/amd64 --target release -t <acr>/ai-canvas-c
 
 对象存储环境变量可作为启动和故障回退配置。设置 `OBJECT_STORAGE_ENVIRONMENT_FALLBACK=false` 时允许不提供 `S3_*`，此时服务可以启动和登录，但 readiness 保持 degraded，资产上传、读取和站点媒体操作在后台发布首个托管配置前不可用。API/Admin API 每次对象操作通过 `public.object_storage_config_publications` 的短缓存选择当前 revision，后台发布后无需重启；发布前必须完成随机探针对象的写入、读回比对和删除。AccessKey ID/Secret 作为同一 AES-256-GCM 信封保存，主密钥只能来自服务端环境。已有正式资产后存储身份不可在后台切换，避免历史 object key 指向另一 Bucket。通用生产部署的 `S3_PUBLIC_ORIGIN` 同时进入 Web/Admin Web 的 CSP，因此调整签名域名时必须先更新 Bucket CORS、生产环境变量并重建两个 Web 容器，再发布后台配置；无环境回退的单机 Admin CSP 允许托管配置使用 HTTPS 对象存储来源。
 
+无引用资产清理由普通 API 拥有，Admin API 只提供受 `asset_maintenance.write` 保护的控制入口。两个服务使用同一份至少 32 字符的 `ASSET_MAINTENANCE_TOKEN`，Admin API 通过仅部署网络可达的 `ASSET_MAINTENANCE_API_URL` 调用普通 API；该密钥不得进入浏览器、日志或审计。后台必须先 preview，再由超级管理员二次确认 apply。候选资产须超过固定 7 天宽限期，且没有当前 `asset_references` 或有效 checkpoint manifest 引用；apply 对每个候选加锁并重新检查后才删除 OSS 对象、收敛数据库状态。Admin 响应和审计只保留聚合数量与容量，不返回用户、项目、asset ID 或 object key。
+
 ### 首次发布
 
 先创建 RDS 数据库、Redis 实例、私有 OSS Bucket 和两个已签发 HTTPS 证书的域名。进入服务器上的 `infra/deploy/production` 目录并登录 ACR，然后依次执行：
@@ -120,7 +122,7 @@ PostgreSQL 与 Redis 继续使用 Compose 中固定版本的 Docker 官方镜像
 sudo bash setup.sh
 ```
 
-脚本只询问普通站点和 Admin 站点两个域名；镜像文件名、端口、数据库名称和资源标识来自仓库默认配置，数据库、Redis、认证与加密密钥在服务器自动生成。master 配置保存在 `secrets/release.env`，普通/后台使用两个独立运行时环境文件。脚本加载本地归档、确认程序镜像为 `linux/amd64`、创建数据库角色和首个 `super_admin`，并等待两个应用进程启动。一个程序镜像会被普通应用和后台应用两个容器复用，加上 PostgreSQL、Redis，最终仍是四个常驻容器。`secrets/` 与 `backups/` 均为本机私有目录，权限必须保持为 `700`/`600`。
+脚本只询问普通站点和 Admin 站点两个域名；镜像文件名、端口、数据库名称和资源标识来自仓库默认配置，数据库、Redis、认证、加密密钥与内部资产维护密钥在服务器自动生成。master 配置保存在 `secrets/release.env`，普通/后台使用两个独立运行时环境文件。旧安装升级时 `deploy.sh` 会在缺少 `ASSET_MAINTENANCE_TOKEN` 时自动补齐，不要求人工填写。脚本加载本地归档、确认程序镜像为 `linux/amd64`、创建数据库角色和首个 `super_admin`，并等待两个应用进程启动。一个程序镜像会被普通应用和后台应用两个容器复用，加上 PostgreSQL、Redis，最终仍是四个常驻容器。`secrets/` 与 `backups/` 均为本机私有目录，权限必须保持为 `700`/`600`。
 
 首次登录 Admin 后进入“对象存储”，填写 Endpoint、签名 Endpoint、Bucket Origin、Region、Bucket 和 RAM AccessKey，先执行读写删除测试，再保存启用。发布前普通站点和 Admin 均可登录，但依赖 readiness 显示 degraded，图片和视频上传不可用；发布后无需重启容器。单机模式没有环境 OSS 回退，因此后台不会提供“恢复环境配置”操作。
 
@@ -159,7 +161,7 @@ Web 不得 import `server/`、数据库驱动、Redis 或对象存储管理 SDK�
 - 跨 workspace 与不存在资源使用相同的非披露错误语义。
 - 密码、Cookie、token、完整邮件链接、正文和 Provider Key 不得进入日志。
 
-Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户名、邮箱、UID、状态、session 时间、workspace 与存储聚合，不读取兼容 `name`、密码、session token、项目正文、资产 object key 或浏览器 Provider 配置。
+Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户名、邮箱、UID、状态、session 时间、workspace 与存储聚合，不读取兼容 `name`、密码哈希、session token、项目正文、资产 object key 或浏览器 Provider 配置。仅 `super_admin` 可通过账号恢复入口写入新的 Better Auth 密码哈希；输入密码只在请求内存中短期存在，更新与 session 撤销、脱敏审计同事务提交，响应和审计不返回密码或哈希。
 
 认证邮件支持 `development|smtp|managed` 三种传输模式。`managed` 每次发送前读取 `public.smtp_config_publications`，按 revision 缓存解密后的运行配置和 Nodemailer transporter，并在每次发送前重新校验 DNS；后台新 revision 或公网目标变化后下一封邮件立即替换缓存，不要求重启。尚无后台 revision 时可回退旧 SMTP 环境变量，管理员明确停用后不得回退。注册邮箱验证码仅在站点设置开启后发送，发送与已有账号均保持不披露账号状态的响应语义；注册与密码重置验证码均由 PostgreSQL 挑战记录一次性消费，10 分钟有效、60 秒冷却、连续 5 次错误失效。密码重置表不保存 Better Auth token 明文，只保存 AES-256-GCM 密文；SMTP `sendMail` 不自动重试。
 
@@ -202,7 +204,7 @@ Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户�
 
 普通 API readiness 检查 PostgreSQL、Redis 和对象存储；Admin API 只检查 PostgreSQL 和对象存储。指标只使用低基数标签，不包含用户、workspace、project、动态 URL、主机、邮箱、正文或凭据；邮件指标只按 `verification|password_reset|test`、结果、失败类别和配置来源区分。
 
-生产应用启动不自动迁移。`0029_remove_server_generation.sql` 已删除旧 Provider 密文、服务器任务/队列/用量、官方目录/积分和任务资产引用；`0030_user_usernames.sql` 已把普通账号升级为必填且不可修改的用户名契约；`0031_generation_telemetry.sql` 增加不可执行的脱敏运营表；`0032_managed_smtp_configuration.sql` 增加版本化加密 SMTP 配置与最小发布投影；`0033_registration_email_codes.sql` 增加只保存 HMAC 哈希的注册邮箱验证码挑战表，并扩展站点配置 schema；`0034_password_reset_email_codes.sql` 增加保存 HMAC 和 AES-256-GCM token 密文的密码重置验证码挑战表。执行 contract 前必须备份并停止不兼容写入方，所有迁移后重新应用数据库角色并完成约束审计；回滚与前向修复详细语义只在 [`DATA_MODEL.md`](DATA_MODEL.md) 维护。
+生产应用启动不自动迁移。`0029_remove_server_generation.sql` 已删除旧 Provider 密文、服务器任务/队列/用量、官方目录/积分和任务资产引用；`0030_user_usernames.sql` 已把普通账号升级为必填且不可修改的用户名契约；`0031_generation_telemetry.sql` 增加不可执行的脱敏运营表；`0032_managed_smtp_configuration.sql` 增加版本化加密 SMTP 配置与最小发布投影；`0033_registration_email_codes.sql` 增加只保存 HMAC 哈希的注册邮箱验证码挑战表，并扩展站点配置 schema；`0034_password_reset_email_codes.sql` 增加保存 HMAC 和 AES-256-GCM token 密文的密码重置验证码挑战表；`0036_personal_workspace_storage_quota.sql` 保留现有数据并把旧默认个人空间配额调整为 10 GiB。执行 contract 前必须备份并停止不兼容写入方，所有迁移后重新应用数据库角色并完成约束审计；回滚与前向修复详细语义只在 [`DATA_MODEL.md`](DATA_MODEL.md) 维护。
 
 ## 开发命令
 

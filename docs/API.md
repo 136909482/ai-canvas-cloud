@@ -248,6 +248,7 @@ GET  /admin/v1/users/:userId
 POST /admin/v1/users/:userId/ban
 POST /admin/v1/users/:userId/unban
 POST /admin/v1/users/:userId/revoke-sessions
+POST /admin/v1/users/:userId/reset-password
 GET  /admin/v1/smtp-settings
 POST /admin/v1/smtp-settings/test-connection
 POST /admin/v1/smtp-settings/test-email
@@ -257,6 +258,8 @@ GET  /admin/v1/object-storage-settings
 POST /admin/v1/object-storage-settings/test-connection
 POST /admin/v1/object-storage-settings
 POST /admin/v1/object-storage-settings/restore-environment
+POST /admin/v1/asset-cleanup/preview
+POST /admin/v1/asset-cleanup/apply
 GET  /admin/v1/site-config
 POST /admin/v1/site-config
 GET  /admin/v1/site-assets
@@ -274,11 +277,13 @@ username 修改要求 3–30 位小写字母、数字、下划线或点。passwo
 
 `generation.timeZone` 固定为 `Asia/Shanghai`。`today` 和 `yesterdaySamePeriod` 返回 requests/succeeded/failed/canceled/results/activeCreators/successRate/p95DurationMs；昨日同期使用相同已过自然日时长。成功率为 `succeeded / (succeeded + failed)`，主动取消不进入分母。`daily` 返回近 7 个上海自然日的文本/图片/视频请求和终态数量，`failures` 只返回当日受限失败分类排行。`registrations.today/yesterdaySamePeriod` 使用同一自然日边界。
 
-用户运营要求 `super_admin` 或 `support`：GET 使用 `user.read`，POST 使用 `user.write`。`GET /admin/v1/users` 接受 `cursor`、`limit=1..100`（默认 50）、`status=active|disabled|deleted`、`verification=verified|unverified` 和最长 128 字符的 `search`；搜索仅匹配精确用户编号以及受控的用户名/邮箱子串。响应为 `{ items, nextCursor }`，按 `createdAt DESC, id DESC` 使用不透明 keyset 游标。
+用户运营读取要求 `super_admin` 或 `support` 的 `user.read`；封禁、解封和强退要求 `user.write`。直接重置普通用户登录凭据要求仅 `super_admin` 拥有的 `user.credentials.write`。`GET /admin/v1/users` 接受 `cursor`、`limit=1..100`（默认 50）、`status=active|disabled|deleted`、`verification=verified|unverified` 和最长 128 字符的 `search`；搜索仅匹配精确用户编号以及受控的用户名/邮箱子串。响应为 `{ items, nextCursor }`，按 `createdAt DESC, id DESC` 使用不透明 keyset 游标。
 
 列表 `items` 只包含 `id/userNumber/username/email/emailVerified/status/workspaceCount/storageUsedBytes/activeSessionCount/lastActiveAt/createdAt/updatedAt`。`GET /admin/v1/users/:userId` 返回 `{ user, workspaces }`，workspace 只包含 ID、名称、类型、成员角色、状态、套餐键、存储配额/已用/预留和时间。响应不包含兼容 `name`、密码、session token、IP/User-Agent、项目正文、Prompt、资产内容/object key 或 Provider 配置。
 
 三个用户 POST 都接受且只接受 `{ "reason": string }`，去除首尾空白后长度必须为 3–500，并执行统一 Admin Origin/Fetch Metadata/CSRF 校验。`ban`/`unban` 返回 `{ user, revokedSessionCount }`；封禁幂等设为 disabled 并撤销 session，解封设为 active 但不恢复旧 session。`revoke-sessions` 返回 `{ userId, revokedSessionCount, revokedAt }` 且不改变用户状态。目标不存在返回 `404 RESOURCE_NOT_FOUND`，目标为 deleted 或请求非法返回稳定校验错误；成功操作与脱敏审计同事务提交。
+
+`reset-password` 只接受 `{ "newPassword": string, "reason": string }`；密码保持原值且长度为 10–256，原因按上述规则校验。服务端使用 Better Auth 的密码哈希实现更新现有 credential 账号，并在同一事务撤销全部普通用户 session、写入不含密码或哈希的 `user.password.reset` 审计，返回 `{ userId, revokedSessionCount, resetAt }`。目标为 deleted 或没有 password credential 时返回稳定校验错误；密码、哈希和 session ID 均不进入响应、日志或审计。
 
 SMTP 设置只允许 `super_admin` 通过 `smtp_config.write` 访问。GET 返回 `state=unconfigured|active|disabled`、`source=none|environment|managed`、非敏感连接/发件字段、`passwordConfigured`、`revisionId` 和更新时间，永不返回旧密码。设置输入只接受 `host/port/securityMode/username/password?/fromEmail/fromName/expectedRevisionId`；端口限于 `25|465|587|2525`，安全模式限于 `implicit_tls|starttls`。首次 managed 配置必须提供密码，已有 managed revision 时留空表示保留。
 
@@ -289,6 +294,10 @@ SMTP 上游错误只映射为 `SMTP_HOST_NOT_ALLOWED|SMTP_DNS_FAILED|SMTP_CONNEC
 对象存储设置只允许 `super_admin` 通过 `object_storage_config.write` 访问。GET 返回 `source=unconfigured|environment|managed`、非敏感连接字段、`credentialsConfigured/environmentFallbackConfigured/identityLocked/revisionId/updatedAt`，永不返回 AccessKey。`unconfigured` 表示服务已启动但尚无可用对象存储，连接字段为空。写入只接受 `endpoint/publicEndpoint/publicOrigin/region/bucket/forcePathStyle/accessKeyId?/secretAccessKey?/expectedRevisionId`；两项凭据必须同时出现，首个 managed revision 必填，后续留空表示保留。
 
 测试连接和保存都执行候选 Bucket 的 `HeadBucket`、随机对象写入、读回比对和删除；测试不发布，保存验证成功后才原子切换。已有资产时改变存储身份返回 `409 OBJECT_STORAGE_IDENTITY_LOCKED`，revision 冲突返回 `409 OBJECT_STORAGE_CONFIG_CONFLICT`，读写删除失败为 `OBJECT_STORAGE_CONNECTION_FAILED`，限流为 `OBJECT_STORAGE_RATE_LIMITED`。恢复环境要求当前 revision 且 `environmentFallbackConfigured=true`，否则返回 `409 OBJECT_STORAGE_ENVIRONMENT_FALLBACK_UNAVAILABLE`；探针 key、AccessKey 和 SDK 原始错误不进入响应、日志或审计。
+
+资产清理只允许 `super_admin` 通过 `asset_maintenance.write` 使用。preview 和 apply 都是无请求体的 Admin POST，受 Admin session、Origin 与 CSRF 保护；preview 只扫描，apply 必须由界面在 preview 后二次确认。响应只包含 `mode/graceHours/cutoff/scannedAssetCount/reclaimableObjectCount/reclaimableBytes/deletedObjectCount/deletedBytes/missingObjectCount/finalizedMissingAssetCount/retainedAssetCount/truncated/completedAt`，不包含用户、workspace、项目、asset ID 或 object key。执行不可用统一返回 `503 ASSET_CLEANUP_FAILED`。
+
+`POST /internal/v1/asset-cleanup` 是普通 API 的部署内部端点，不属于公网平台 API。它只接受 Bearer `ASSET_MAINTENANCE_TOKEN` 和严格 `{ "apply": boolean }` JSON，由 Admin API 在部署私网内调用；无密钥或错误密钥返回 `403 ACCESS_DENIED`。该端点执行引用保护、OSS 操作和数据库状态收敛，但仍只返回上述聚合结构。
 
 site assets 只接受 PNG/JPEG/WebP/ICO、最大 4 MiB、单边最大 4096；完成时复核 metadata、完整 hash、魔数和真实尺寸。site config 保存版本化结构、不可变 revision、current 指针、公开投影和同事务审计，不接受 HTML、JavaScript、任意 CSS 或 URL 凭据/fragment。
 
@@ -341,6 +350,7 @@ EXPORT_RETRY_EXHAUSTED
 PACKAGE_LIMIT_EXCEEDED
 SERVICE_UNAVAILABLE
 ADMIN_ACCESS_DENIED
+ASSET_CLEANUP_FAILED
 SMTP_CONFIG_CONFLICT
 SMTP_HOST_NOT_ALLOWED
 SMTP_DNS_FAILED

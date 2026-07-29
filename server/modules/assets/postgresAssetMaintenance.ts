@@ -18,6 +18,7 @@ interface AssetMaintenanceRow {
   id: string;
   workspace_id: string;
   object_key: string;
+  byte_size: number | string;
   status: AssetGcStatus;
   has_current_reference: boolean;
   has_checkpoint_reference: boolean;
@@ -46,6 +47,7 @@ export type AssetMaintenanceReason =
 export interface AssetMaintenanceItem {
   assetId: string;
   objectKey: string;
+  byteSize: number;
   action: AssetMaintenanceAction;
   reason: AssetMaintenanceReason;
   statusBefore: AssetGcStatus;
@@ -96,6 +98,9 @@ export interface PostgresAssetMaintenanceService {
   maintainOrphanObjectPage: (
     input: OrphanObjectMaintenanceInput,
   ) => Promise<OrphanObjectMaintenancePage>;
+  cleanupUnreferencedAssetBatch: (
+    input: AssetMaintenanceInput,
+  ) => Promise<AssetMaintenanceBatch>;
 }
 
 function assetSelect(lockClause = "") {
@@ -104,6 +109,7 @@ function assetSelect(lockClause = "") {
       a.id::text,
       a.workspace_id::text,
       a.object_key,
+      a.byte_size,
       a.status,
       EXISTS (
         SELECT 1 FROM asset_references ar
@@ -150,6 +156,49 @@ async function readAssetBatch(
   return result.rows;
 }
 
+async function readCleanupAssetBatch(
+  client: Pick<DbClient, "query">,
+  input: AssetMaintenanceInput,
+) {
+  const batchSize = validateAssetMaintenanceBatchSize(input.batchSize);
+  const values: unknown[] = [input.cutoff];
+  let cursorClause = "";
+  if (input.cursor) {
+    values.push(input.cursor.createdAt, input.cursor.id);
+    cursorClause = `
+      AND (a.created_at, a.id) > ($${values.length - 1}::timestamptz, $${values.length}::uuid)
+    `;
+  }
+  values.push(batchSize);
+  const result = await client.query<AssetMaintenanceRow>(
+    `${assetSelect()}
+      WHERE NOT EXISTS (
+        SELECT 1 FROM asset_references ar
+        WHERE ar.workspace_id = a.workspace_id AND ar.asset_id = a.id
+      )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM project_snapshots s
+          JOIN projects p ON p.id = s.project_id
+          WHERE p.workspace_id = a.workspace_id
+            AND s.is_valid
+            AND s.asset_manifest_json ? a.id::text
+        )
+        AND (
+          CASE
+            WHEN a.status = 'pending'
+              THEN GREATEST(a.updated_at, COALESCE(au.expires_at, a.updated_at))
+            ELSE COALESCE(a.deleted_at, a.updated_at, a.created_at)
+          END
+        ) <= $1
+        ${cursorClause}
+      ORDER BY a.created_at, a.id
+      LIMIT $${values.length}`,
+    values,
+  );
+  return result.rows;
+}
+
 async function readLockedAsset(client: DbClient, assetId: string) {
   const locked = await client.query<{ id: string }>(
     `SELECT id::text FROM assets WHERE id = $1 FOR UPDATE SKIP LOCKED`,
@@ -179,6 +228,7 @@ function retainedItem(
   return {
     assetId: row.id,
     objectKey: row.object_key,
+    byteSize: Number(row.byte_size),
     action: "retained",
     reason,
     statusBefore: row.status,
@@ -192,7 +242,6 @@ async function preflightAsset(
   cutoff: Date,
 ): Promise<AssetMaintenanceItem> {
   const reason = classifyAssetGcRetention({
-    status: row.status,
     hasCurrentReference: row.has_current_reference,
     hasCheckpointReference: row.has_checkpoint_reference,
     gcEligibleAt: row.gc_eligible_at,
@@ -243,7 +292,6 @@ async function applyAsset(
       };
     }
     const reason = classifyAssetGcRetention({
-      status: row.status,
       hasCurrentReference: row.has_current_reference,
       hasCheckpointReference: row.has_checkpoint_reference,
       gcEligibleAt: row.gc_eligible_at,
@@ -275,12 +323,30 @@ async function applyAsset(
     return {
       assetId: row.id,
       objectKey: row.object_key,
+      byteSize: Number(row.byte_size),
       action: exists ? "asset_object_deleted" : "missing_object_finalized",
       reason: exists ? "eligible" : "object_missing",
       statusBefore: row.status,
       statusAfter: "deleted",
     };
   });
+}
+
+async function processAssetBatch(
+  pool: DbPool,
+  storage: AssetMaintenanceObjectStorage,
+  rows: AssetMaintenanceRow[],
+  input: AssetMaintenanceInput,
+) {
+  const items: AssetMaintenanceItem[] = [];
+  for (const row of rows) {
+    items.push(
+      input.apply
+        ? await applyAsset(pool, storage, row, input.cutoff)
+        : await preflightAsset(storage, row, input.cutoff),
+    );
+  }
+  return { items, nextCursor: nextCursor(rows) };
 }
 
 async function existingObjectKeys(
@@ -304,15 +370,7 @@ export function createPostgresAssetMaintenanceService(
   return {
     async maintainAssetBatch(input) {
       const rows = await readAssetBatch(pool, input);
-      const items: AssetMaintenanceItem[] = [];
-      for (const row of rows) {
-        items.push(
-          input.apply
-            ? await applyAsset(pool, storage, row, input.cutoff)
-            : await preflightAsset(storage, row, input.cutoff),
-        );
-      }
-      return { items, nextCursor: nextCursor(rows) };
+      return processAssetBatch(pool, storage, rows, input);
     },
 
     async maintainOrphanObjectPage(input) {
@@ -379,6 +437,11 @@ export function createPostgresAssetMaintenanceService(
       }
 
       return { items, nextStartAfter: page.nextStartAfter };
+    },
+
+    async cleanupUnreferencedAssetBatch(input) {
+      const rows = await readCleanupAssetBatch(pool, input);
+      return processAssetBatch(pool, storage, rows, input);
     },
   };
 }

@@ -7,6 +7,7 @@ import type {
 import {
   Avatar,
   Button,
+  Checkbox,
   Input,
   Modal,
   Skeleton,
@@ -23,12 +24,14 @@ import {
   Database,
   Fingerprint,
   HardDrive,
+  KeyRound,
   LogOut,
   RefreshCw,
   ShieldCheck,
   TriangleAlert,
   Unlock,
   UserRound,
+  WandSparkles,
 } from "lucide-react";
 import { adminApi, AdminApiError } from "./api";
 import {
@@ -98,6 +101,15 @@ function workspaceStoragePercent(workspace: AdminManagedWorkspaceSummary) {
   return Math.min(100, Math.max(1, percentage));
 }
 
+function generateRecoveryPassword() {
+  const alphabet =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  return Array.from(bytes, (value) => alphabet[value % alphabet.length]).join(
+    "",
+  );
+}
+
 export function UserDetailView({
   userId,
   onBack,
@@ -113,6 +125,10 @@ export function UserDetailView({
     resource: "users",
     action: "user.write",
   });
+  const { data: credentialAccess } = useCan({
+    resource: "users",
+    action: "user.credentials.write",
+  });
   const [detail, setDetail] = useState<AdminUserResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +138,12 @@ export function UserDetailView({
   );
   const [reason, setReason] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
+  const [passwordResetOpen, setPasswordResetOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetReason, setResetReason] = useState("");
+  const [identityVerified, setIdentityVerified] = useState(false);
+  const [passwordResetBusy, setPasswordResetBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!access?.can) return;
@@ -175,6 +197,47 @@ export function UserDetailView({
       );
     } finally {
       setActionBusy(false);
+    }
+  }
+
+  function clearPasswordReset() {
+    setNewPassword("");
+    setConfirmPassword("");
+    setResetReason("");
+    setIdentityVerified(false);
+  }
+
+  async function submitPasswordReset() {
+    if (
+      newPassword.length < 10 ||
+      newPassword.length > 256 ||
+      confirmPassword !== newPassword ||
+      resetReason.trim().length < 3 ||
+      !identityVerified
+    )
+      return;
+    setPasswordResetBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await adminApi.resetUserPassword(userId, {
+        newPassword,
+        reason: resetReason.trim(),
+      });
+      setNotice(
+        `登录密码已重置，撤销 ${result.revokedSessionCount} 个会话；请通过可信渠道交付新密码`,
+      );
+      setPasswordResetOpen(false);
+      clearPasswordReset();
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof AdminApiError
+          ? cause.message
+          : "密码重置失败，请稍后重试",
+      );
+    } finally {
+      setPasswordResetBusy(false);
     }
   }
 
@@ -376,6 +439,27 @@ export function UserDetailView({
             </article>
           </section>
 
+          {credentialAccess?.can && detail.user.status !== "deleted" ? (
+            <section className="user-recovery-panel">
+              <div className="user-recovery-panel__intro">
+                <span className="user-recovery-panel__icon">
+                  <KeyRound size={18} />
+                </span>
+                <div>
+                  <h2>账号恢复</h2>
+                  <p>身份核验后设置新登录密码，并立即撤销全部旧会话</p>
+                </div>
+              </div>
+              <Button
+                type="primary"
+                icon={<KeyRound size={16} />}
+                onClick={() => setPasswordResetOpen(true)}
+              >
+                重置登录密码
+              </Button>
+            </section>
+          ) : null}
+
           <section className="table-section user-workspaces">
             <header className="user-workspaces__header">
               <div className="user-workspaces__title">
@@ -443,6 +527,112 @@ export function UserDetailView({
           ) : null}
         </>
       )}
+
+      <Modal
+        open={passwordResetOpen}
+        title="重置登录密码"
+        okText="确认重置并强制下线"
+        cancelText="取消"
+        confirmLoading={passwordResetBusy}
+        okButtonProps={{
+          danger: true,
+          disabled:
+            newPassword.length < 10 ||
+            newPassword.length > 256 ||
+            confirmPassword !== newPassword ||
+            resetReason.trim().length < 3 ||
+            !identityVerified,
+        }}
+        onOk={() => void submitPasswordReset()}
+        onCancel={() => {
+          if (!passwordResetBusy) {
+            setPasswordResetOpen(false);
+            clearPasswordReset();
+          }
+        }}
+        afterOpenChange={(open) => {
+          if (!open && !passwordResetBusy) clearPasswordReset();
+        }}
+      >
+        <p className="password-reset-warning">
+          该操作将替换 {detail?.user.username ?? "此用户"}{" "}
+          的现有登录密码，并撤销所有设备会话。密码不会出现在审计记录中。
+        </p>
+        <div className="password-reset-heading">
+          <label className="modal-field-label" htmlFor="user-new-password">
+            新登录密码
+          </label>
+          <Button
+            type="link"
+            size="small"
+            icon={<WandSparkles size={14} />}
+            onClick={() => {
+              const generated = generateRecoveryPassword();
+              setNewPassword(generated);
+              setConfirmPassword(generated);
+            }}
+          >
+            生成强密码
+          </Button>
+        </div>
+        <Input.Password
+          id="user-new-password"
+          autoFocus
+          value={newPassword}
+          onChange={(event) => setNewPassword(event.target.value)}
+          minLength={10}
+          maxLength={256}
+          placeholder="10-256 个字符"
+          status={
+            newPassword.length > 0 && newPassword.length < 10
+              ? "error"
+              : undefined
+          }
+        />
+        <label className="modal-field-label" htmlFor="user-confirm-password">
+          再次输入新密码
+        </label>
+        <Input.Password
+          id="user-confirm-password"
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          maxLength={256}
+          placeholder="确认新密码"
+          status={
+            confirmPassword.length > 0 && confirmPassword !== newPassword
+              ? "error"
+              : undefined
+          }
+        />
+        {confirmPassword.length > 0 && confirmPassword !== newPassword ? (
+          <span className="password-reset-error">两次输入的密码不一致</span>
+        ) : null}
+        <label className="modal-field-label" htmlFor="password-reset-reason">
+          恢复原因
+        </label>
+        <Input.TextArea
+          id="password-reset-reason"
+          value={resetReason}
+          onChange={(event) => setResetReason(event.target.value)}
+          minLength={3}
+          maxLength={500}
+          rows={3}
+          showCount
+          placeholder="请填写身份核验方式或工单依据"
+          status={
+            resetReason.length > 0 && resetReason.trim().length < 3
+              ? "error"
+              : undefined
+          }
+        />
+        <Checkbox
+          className="password-reset-confirmation"
+          checked={identityVerified}
+          onChange={(event) => setIdentityVerified(event.target.checked)}
+        >
+          已通过现有可信渠道核实用户身份
+        </Checkbox>
+      </Modal>
 
       <Modal
         open={pendingAction !== null}

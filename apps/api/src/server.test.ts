@@ -28,7 +28,10 @@ import {
   type MigrationExportResponse,
   DEFAULT_SITE_CONFIG,
 } from "@ai-canvas-cloud/contracts";
-import type { AssetService } from "@ai-canvas-cloud/server/modules/assets";
+import type {
+  AssetCleanupService,
+  AssetService,
+} from "@ai-canvas-cloud/server/modules/assets";
 import {
   BETTER_AUTH_SESSION_COOKIE_NAME,
   AuthServiceError,
@@ -75,6 +78,17 @@ const config: ApiConfig = {
   s3Region: "local",
   s3AccessKeyId: "test",
   s3SecretAccessKey: "test",
+  objectStorageEnvironmentFallback: true,
+  s3PublicOrigin: "http://localhost:9000",
+  s3ForcePathStyle: true,
+  objectStorageCredentialActiveKeyVersion: 1,
+  assetMaintenanceToken: "asset-maintenance-token-for-tests-123456",
+  devSeedAdmin: false,
+  devSeedAdminUsername: "admin_user",
+  devSeedAdminEmail: "admin@example.com",
+  authEmailTransport: "development",
+  smtpCredentialActiveKeyVersion: 1,
+  smtpSecure: false,
 };
 
 function createAuthResponse(expiresAt: Date): AuthSuccessResponse {
@@ -644,8 +658,8 @@ function createFakeWorkspaceUsageService() {
           usedBytes: 1024,
           reservedBytes: 512,
           totalBytes: 1536,
-          quotaBytes: 20 * 1024 * 1024 * 1024,
-          availableBytes: 20 * 1024 * 1024 * 1024 - 1536,
+          quotaBytes: 10 * 1024 * 1024 * 1024,
+          availableBytes: 10 * 1024 * 1024 * 1024 - 1536,
         },
         projects: [
           {
@@ -908,6 +922,71 @@ function requestText(port: number, path: string) {
       .on("error", reject);
   });
 }
+
+test("internal asset cleanup requires its bearer token and returns aggregates only", async () => {
+  const calls: boolean[] = [];
+  const assetCleanupService: AssetCleanupService = {
+    async run(input) {
+      calls.push(input.apply);
+      return {
+        mode: input.apply ? "apply" : "preview",
+        graceHours: 168,
+        cutoff: "2026-07-22T00:00:00.000Z",
+        scannedAssetCount: 2,
+        reclaimableObjectCount: 1,
+        reclaimableBytes: 42,
+        deletedObjectCount: input.apply ? 1 : 0,
+        deletedBytes: input.apply ? 42 : 0,
+        missingObjectCount: 0,
+        finalizedMissingAssetCount: 0,
+        retainedAssetCount: 1,
+        truncated: false,
+        completedAt: "2026-07-29T00:00:00.000Z",
+      };
+    },
+  };
+  const server = createApiServer({ config, assetCleanupService });
+  const port = await listen(server);
+  try {
+    for (const authorization of [undefined, "Bearer wrong-token"]) {
+      const rejected = await requestJson(port, {
+        method: "POST",
+        path: "/internal/v1/asset-cleanup",
+        body: { apply: false },
+        headers: authorization ? { authorization } : undefined,
+      });
+      assert.equal(rejected.statusCode, 403);
+    }
+    assert.deepEqual(calls, []);
+
+    const preview = await requestJson(port, {
+      method: "POST",
+      path: "/internal/v1/asset-cleanup",
+      body: { apply: false },
+      headers: {
+        authorization: `Bearer ${config.assetMaintenanceToken}`,
+      },
+    });
+    assert.equal(preview.statusCode, 200);
+    assert.deepEqual(calls, [false]);
+    const serialized = JSON.stringify(preview.body);
+    assert.equal(serialized.includes("objectKey"), false);
+    assert.equal(serialized.includes("workspace"), false);
+
+    const invalid = await requestJson(port, {
+      method: "POST",
+      path: "/internal/v1/asset-cleanup",
+      body: { apply: false, objectKey: "private/file.png" },
+      headers: {
+        authorization: `Bearer ${config.assetMaintenanceToken}`,
+      },
+    });
+    assert.equal(invalid.statusCode, 400);
+    assert.deepEqual(calls, [false]);
+  } finally {
+    await closeApiServer(server, 1_000);
+  }
+});
 
 test("public site configuration returns a safe projection with ETag revalidation", async () => {
   const etag = `"${"a".repeat(64)}"`;
@@ -1824,7 +1903,7 @@ test("current workspace usage route uses only the trusted session actor", async 
     );
     assert.equal(
       (response.body as WorkspaceUsageResponse).storage.quotaBytes,
-      20 * 1024 * 1024 * 1024,
+      10 * 1024 * 1024 * 1024,
     );
     assert.equal(
       (response.body as WorkspaceUsageResponse).projects[0]?.storageBytes,

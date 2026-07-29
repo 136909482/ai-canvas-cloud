@@ -5,6 +5,8 @@ import {
   createSmtpCredentialKeyring,
   legacySmtpRuntimeConfig,
   createPostgresAssetService,
+  createPostgresAssetMaintenanceService,
+  createAssetCleanupService,
   createPostgresAuthService,
   createPostgresGenerationTelemetryService,
   createPostgresPool,
@@ -108,6 +110,9 @@ const assetService = createPostgresAssetService(dbPool, {
   authorizationService: workspaceAuthorizationService,
   objectStorage,
 });
+const assetCleanupService = createAssetCleanupService(
+  createPostgresAssetMaintenanceService(dbPool, objectStorage),
+);
 const projectGraphService = createPostgresProjectGraphService(dbPool, {
   authorizationService: workspaceAuthorizationService,
 });
@@ -158,6 +163,7 @@ const server = createApiServer({
   authService,
   generationTelemetryService,
   assetService,
+  assetCleanupService,
   projectGraphService,
   projectSnapshotService,
   projectService,

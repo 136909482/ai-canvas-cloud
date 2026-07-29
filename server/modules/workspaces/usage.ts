@@ -11,7 +11,7 @@ import {
 } from "./authorization.js";
 
 export const DEFAULT_PERSONAL_WORKSPACE_STORAGE_QUOTA_BYTES =
-  20 * 1024 * 1024 * 1024;
+  10 * 1024 * 1024 * 1024;
 
 interface WorkspaceStorageUsageRow {
   workspace_id: string;

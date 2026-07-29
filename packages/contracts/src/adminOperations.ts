@@ -3,6 +3,8 @@ import type { GenerationFailureCategory } from "./generationTelemetry.ts";
 export const ADMIN_USER_LIST_DEFAULT_LIMIT = 50;
 export const ADMIN_USER_LIST_MAX_LIMIT = 100;
 export const ADMIN_USER_ACTION_REASON_MAX_LENGTH = 500;
+export const ADMIN_USER_PASSWORD_MIN_LENGTH = 10;
+export const ADMIN_USER_PASSWORD_MAX_LENGTH = 256;
 
 export type AdminManagedUserStatus = "active" | "disabled" | "deleted";
 export type AdminUserVerificationFilter = "verified" | "unverified";
@@ -67,6 +69,17 @@ export interface AdminUserSessionRevocationResponse {
   userId: string;
   revokedSessionCount: number;
   revokedAt: string;
+}
+
+export interface AdminUserPasswordResetRequest {
+  newPassword: string;
+  reason: string;
+}
+
+export interface AdminUserPasswordResetResponse {
+  userId: string;
+  revokedSessionCount: number;
+  resetAt: string;
 }
 
 export interface AdminDependencyHealth {
@@ -249,6 +262,28 @@ export function validateAdminUserActionRequest(
     );
   }
   return { reason };
+}
+
+export function validateAdminUserPasswordResetRequest(
+  value: unknown,
+): AdminUserPasswordResetRequest {
+  const input = requireRecord(value);
+  rejectUnknownKeys(input, new Set(["newPassword", "reason"]));
+  if (typeof input.newPassword !== "string") {
+    throw new Error("newPassword is required");
+  }
+  if (
+    input.newPassword.length < ADMIN_USER_PASSWORD_MIN_LENGTH ||
+    input.newPassword.length > ADMIN_USER_PASSWORD_MAX_LENGTH
+  ) {
+    throw new Error(
+      `newPassword must contain between ${ADMIN_USER_PASSWORD_MIN_LENGTH} and ${ADMIN_USER_PASSWORD_MAX_LENGTH} characters`,
+    );
+  }
+  return {
+    newPassword: input.newPassword,
+    reason: validateAdminUserActionRequest({ reason: input.reason }).reason,
+  };
 }
 
 export function validateAdminManagedUserId(value: unknown) {

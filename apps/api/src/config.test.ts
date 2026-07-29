@@ -12,6 +12,7 @@ const baseEnv = {
   S3_REGION: "us-east-1",
   S3_ACCESS_KEY_ID: "access",
   S3_SECRET_ACCESS_KEY: "secret",
+  ASSET_MAINTENANCE_TOKEN: "asset-maintenance-token-for-tests-123456",
 };
 
 test("API config validates required cloud dependencies", () => {
@@ -30,6 +31,7 @@ test("API config validates required cloud dependencies", () => {
   assert.equal(config.s3PublicEndpoint, "http://localhost:9000");
   assert.equal(config.s3ForcePathStyle, true);
   assert.equal(config.staticSiteRoot, undefined);
+  assert.equal(config.assetMaintenanceToken, baseEnv.ASSET_MAINTENANCE_TOKEN);
   assert.equal(
     loadApiConfig({ ...baseEnv, WEB_STATIC_SITE_ROOT: "/app/apps/web/dist" })
       .staticSiteRoot,
@@ -66,6 +68,14 @@ test("API config allows managed object storage to be configured after startup", 
 });
 
 test("API config rejects missing secrets and invalid log level", () => {
+  assert.throws(
+    () =>
+      loadApiConfig({
+        ...baseEnv,
+        ASSET_MAINTENANCE_TOKEN: "too-short",
+      }),
+    /ASSET_MAINTENANCE_TOKEN/,
+  );
   assert.throws(
     () => loadApiConfig({ ...baseEnv, DATABASE_URL: "" }),
     /DATABASE_URL/,
@@ -143,6 +153,7 @@ test("API config reads development admin seed options outside production", () =>
       DEV_SEED_ADMIN_USERNAME: undefined,
       DEV_SEED_ADMIN_EMAIL: undefined,
       DEV_SEED_ADMIN_PASSWORD: undefined,
+      ASSET_MAINTENANCE_TOKEN: "a".repeat(64),
       ...Object.fromEntries(
         [
           "DATABASE_RESOURCE_ID",

@@ -1,8 +1,10 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import http from "node:http";
 import { isIP } from "node:net";
 import {
   API_V1_PREFIX,
   createServiceUnavailableError,
+  validateAssetCleanupRequest,
   type ApiErrorResponse,
   type ApplyProjectGraphOperationsRequest,
   type AuthDevicesResponse,
@@ -31,6 +33,7 @@ import {
 } from "@ai-canvas-cloud/contracts";
 import {
   createUnavailableAssetService,
+  type AssetCleanupService,
   type AssetService,
 } from "@ai-canvas-cloud/server/modules/assets";
 import { createStaticSite } from "@ai-canvas-cloud/server";
@@ -96,6 +99,7 @@ interface ServerOptions {
   authService?: AuthService;
   generationTelemetryService?: GenerationTelemetryService;
   assetService?: AssetService;
+  assetCleanupService?: AssetCleanupService;
   projectGraphService?: ProjectGraphService;
   projectSnapshotService?: ProjectSnapshotService;
   projectService?: ProjectService;
@@ -122,9 +126,22 @@ function isApiOwnedPath(pathname: string) {
     pathname === "/metrics" ||
     pathname === "/api" ||
     pathname.startsWith("/api/") ||
+    pathname === "/internal" ||
+    pathname.startsWith("/internal/") ||
     pathname === "/health" ||
     pathname.startsWith("/health/")
   );
+}
+
+const INTERNAL_ASSET_CLEANUP_PATH = "/internal/v1/asset-cleanup";
+
+function matchesInternalToken(request: http.IncomingMessage, expected: string) {
+  const authorization = request.headers.authorization;
+  if (!authorization?.startsWith("Bearer ")) return false;
+  const received = authorization.slice("Bearer ".length);
+  const expectedHash = createHash("sha256").update(expected).digest();
+  const receivedHash = createHash("sha256").update(received).digest();
+  return timingSafeEqual(expectedHash, receivedHash);
 }
 
 function sendJson(
@@ -210,6 +227,8 @@ function requestPathGroup(pathname: string) {
   if (pathname === "/metrics") return "/metrics";
   if (isLivePath(pathname)) return "/health/live";
   if (isReadyPath(pathname)) return "/health/ready";
+  if (pathname === INTERNAL_ASSET_CLEANUP_PATH)
+    return "/internal/v1/asset-cleanup";
   const match = pathname.match(/^\/api\/v1\/([a-z-]+)(?:\/|$)/);
   return match?.[1] && API_ROUTE_GROUPS.has(match[1])
     ? `/api/v1/${match[1]}`
@@ -1788,6 +1807,7 @@ export function createApiServer({
   authService = createUnavailableAuthService(),
   generationTelemetryService = createUnavailableGenerationTelemetryService(),
   assetService = createUnavailableAssetService(),
+  assetCleanupService,
   projectGraphService = createUnavailableProjectGraphService(),
   projectSnapshotService = createUnavailableProjectSnapshotService(),
   projectService = createUnavailableProjectService(),
@@ -1873,6 +1893,82 @@ export function createApiServer({
     }
 
     if (handleSecurityBoundary(request, response, config, requestId)) {
+      return;
+    }
+
+    if (requestUrl.pathname === INTERNAL_ASSET_CLEANUP_PATH) {
+      if (request.method !== "POST") {
+        sendJson(
+          response,
+          404,
+          createServiceUnavailableError(requestId, "Route not found"),
+          requestId,
+        );
+        return;
+      }
+      if (
+        !assetCleanupService ||
+        !config.assetMaintenanceToken ||
+        !matchesInternalToken(request, config.assetMaintenanceToken)
+      ) {
+        sendApiError(
+          response,
+          403,
+          {
+            error: {
+              code: "ACCESS_DENIED",
+              message: "Internal asset maintenance access denied",
+              retryable: false,
+              requestId,
+            },
+          },
+          requestId,
+        );
+        return;
+      }
+      let input;
+      try {
+        input = validateAssetCleanupRequest(
+          await readJsonBody<unknown>(request, 1_024),
+        );
+      } catch {
+        sendApiError(
+          response,
+          400,
+          {
+            error: {
+              code: "VALIDATION_FAILED",
+              message: "Asset cleanup request is invalid",
+              retryable: false,
+              requestId,
+            },
+          },
+          requestId,
+        );
+        return;
+      }
+      try {
+        sendJson(
+          response,
+          200,
+          await assetCleanupService.run(input),
+          requestId,
+        );
+      } catch {
+        sendApiError(
+          response,
+          503,
+          {
+            error: {
+              code: "SERVICE_UNAVAILABLE",
+              message: "Asset cleanup failed",
+              retryable: true,
+              requestId,
+            },
+          },
+          requestId,
+        );
+      }
       return;
     }
 

@@ -24,7 +24,7 @@ const connections = {
   app: process.env.DATABASE_URL,
   admin: process.env.ADMIN_DATABASE_URL,
 };
-const expectedMigrationVersions = Array.from({ length: 35 }, (_, index) =>
+const expectedMigrationVersions = Array.from({ length: 36 }, (_, index) =>
   String(index + 1).padStart(4, "0"),
 );
 
@@ -42,6 +42,8 @@ const expectedPermissions = {
     userOperationsRead: true,
     userStatusWrite: true,
     userSessionDelete: true,
+    credentialSelectorRead: true,
+    credentialPasswordWrite: true,
     sensitiveIdentityRead: true,
     projectContentRead: true,
     assetObjectRead: true,
@@ -68,6 +70,8 @@ const expectedPermissions = {
     userOperationsRead: true,
     userStatusWrite: true,
     userSessionDelete: true,
+    credentialSelectorRead: true,
+    credentialPasswordWrite: true,
     sensitiveIdentityRead: false,
     projectContentRead: false,
     assetObjectRead: false,
@@ -104,6 +108,8 @@ for (const [connection, connectionString] of Object.entries(connections)) {
     let userOperationsRead = true;
     let userStatusWrite = true;
     let userSessionDelete = true;
+    let credentialSelectorRead = true;
+    let credentialPasswordWrite = true;
     let sensitiveIdentityRead = true;
     let projectContentRead = true;
     let assetObjectRead = true;
@@ -164,6 +170,20 @@ for (const [connection, connectionString] of Object.entries(connections)) {
       await client.query(`DELETE FROM public."session" WHERE false`);
     } catch {
       userSessionDelete = false;
+    }
+    try {
+      await client.query(
+        `SELECT user_id, provider_id FROM public."account" LIMIT 1`,
+      );
+    } catch {
+      credentialSelectorRead = false;
+    }
+    try {
+      await client.query(
+        `UPDATE public."account" SET password = 'permission-check', updated_at = now() WHERE false`,
+      );
+    } catch {
+      credentialPasswordWrite = false;
     }
     try {
       await client.query(
@@ -352,6 +372,8 @@ for (const [connection, connectionString] of Object.entries(connections)) {
       userOperationsRead,
       userStatusWrite,
       userSessionDelete,
+      credentialSelectorRead,
+      credentialPasswordWrite,
       sensitiveIdentityRead,
       projectContentRead,
       assetObjectRead,

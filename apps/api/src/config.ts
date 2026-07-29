@@ -32,6 +32,7 @@ export interface ApiConfig {
   s3SecretAccessKey: string;
   objectStorageCredentialKeys?: string;
   objectStorageCredentialActiveKeyVersion: number;
+  assetMaintenanceToken?: string;
   devSeedAdmin: boolean;
   devSeedAdminUsername: string;
   devSeedAdminEmail: string;
@@ -158,6 +159,18 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const s3PublicEndpoint = objectStorageEnvironmentFallback
     ? readOptionalEnv(env, "S3_PUBLIC_ENDPOINT", s3Endpoint)
     : "";
+  const assetMaintenanceToken = env.ASSET_MAINTENANCE_TOKEN?.trim();
+  if (assetMaintenanceToken && assetMaintenanceToken.length < 32) {
+    throw new Error("ASSET_MAINTENANCE_TOKEN must be at least 32 characters");
+  }
+  if (
+    (appEnv === "production" || appEnv === "staging") &&
+    !assetMaintenanceToken
+  ) {
+    throw new Error(
+      "ASSET_MAINTENANCE_TOKEN is required in a protected environment",
+    );
+  }
 
   return {
     env: appEnv,
@@ -214,6 +227,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     objectStorageCredentialKeys:
       env.OBJECT_STORAGE_CREDENTIAL_KEYS?.trim() || undefined,
     objectStorageCredentialActiveKeyVersion,
+    assetMaintenanceToken,
     devSeedAdmin:
       appEnv !== "production" && readBooleanEnv(env, "DEV_SEED_ADMIN", false),
     devSeedAdminUsername: readOptionalEnv(

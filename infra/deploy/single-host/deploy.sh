@@ -69,6 +69,7 @@ wait_for_live() {
 require_command docker
 require_command awk
 require_command grep
+require_command openssl
 docker compose version >/dev/null
 
 if [[ "${EUID}" -ne 0 ]]; then
@@ -78,6 +79,12 @@ fi
 
 mkdir -p "$RUNTIME_DIR" "$BACKUP_DIR"
 chmod 700 "$SECRETS_DIR" "$RUNTIME_DIR" "$BACKUP_DIR"
+
+ASSET_MAINTENANCE_TOKEN="$(read_env ASSET_MAINTENANCE_TOKEN)"
+if [[ -z "$ASSET_MAINTENANCE_TOKEN" ]]; then
+  ASSET_MAINTENANCE_TOKEN="$(openssl rand -hex 32)"
+  set_env ASSET_MAINTENANCE_TOKEN "$ASSET_MAINTENANCE_TOKEN"
+fi
 
 APP_IMAGE_SOURCE="$(read_env APP_IMAGE_SOURCE)"
 APP_IMAGE_SOURCE="${APP_IMAGE_SOURCE:-registry}"

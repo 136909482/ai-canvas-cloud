@@ -22,6 +22,8 @@ const MISSING_ASSET = "66666666-6666-4666-8666-666666666666";
 const FAILURE_ASSET = "77777777-7777-4777-8777-777777777777";
 const BUCKET_ORPHAN_ASSET = "88888888-8888-4888-8888-888888888888";
 const RECENT_BUCKET_ORPHAN_ASSET = "99999999-9999-4999-8999-999999999999";
+const COMPLETED_CLEANUP_ASSET = "aaaaaaaa-1111-4111-8111-111111111111";
+const RECENT_COMPLETED_ASSET = "aaaaaaaa-2222-4222-8222-222222222222";
 
 function key(workspaceId: string, projectId: string, assetId: string) {
   return `workspaces/${workspaceId}/projects/${projectId}/uploads/${assetId}.png`;
@@ -105,6 +107,8 @@ test(
         ORPHAN_ASSET,
         MISSING_ASSET,
         FAILURE_ASSET,
+        COMPLETED_CLEANUP_ASSET,
+        RECENT_COMPLETED_ASSET,
       ];
       for (const assetId of assetRows) {
         await pool.query(
@@ -125,6 +129,10 @@ test(
       await pool.query(
         `UPDATE assets SET status = 'failed' WHERE id IN ($1, $2)`,
         [ORPHAN_ASSET, FAILURE_ASSET],
+      );
+      await pool.query(
+        `UPDATE assets SET created_at = now(), updated_at = now() WHERE id = $1`,
+        [RECENT_COMPLETED_ASSET],
       );
       await pool.query(
         `
@@ -161,6 +169,8 @@ test(
         CHECKPOINT_ASSET,
         ORPHAN_ASSET,
         FAILURE_ASSET,
+        COMPLETED_CLEANUP_ASSET,
+        RECENT_COMPLETED_ASSET,
       ]) {
         objects.set(key(WORKSPACE_A, PROJECT_A, assetId), {
           lastModified: old,
@@ -232,6 +242,37 @@ test(
       };
       const service = createPostgresAssetMaintenanceService(pool, storage);
       const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      const cleanupPreview = await service.cleanupUnreferencedAssetBatch({
+        cutoff,
+        batchSize: 500,
+      });
+      assert.equal(
+        cleanupPreview.items.find(
+          (item) => item.assetId === COMPLETED_CLEANUP_ASSET,
+        )?.action,
+        "would_delete_asset_object",
+      );
+      assert.equal(
+        cleanupPreview.items.find(
+          (item) => item.assetId === COMPLETED_CLEANUP_ASSET,
+        )?.byteSize,
+        4,
+      );
+      assert.equal(
+        cleanupPreview.items.some((item) => item.assetId === CURRENT_ASSET),
+        false,
+      );
+      assert.equal(
+        cleanupPreview.items.some((item) => item.assetId === CHECKPOINT_ASSET),
+        false,
+      );
+      assert.equal(
+        cleanupPreview.items.some(
+          (item) => item.assetId === RECENT_COMPLETED_ASSET,
+        ),
+        false,
+      );
 
       const preflightItems = [];
       let cursor = null;
@@ -305,7 +346,7 @@ test(
       `,
           [WORKSPACE_A, FAILURE_ASSET, PROJECT_A],
         );
-        applied = await service.maintainAssetBatch({
+        applied = await service.cleanupUnreferencedAssetBatch({
           cutoff,
           batchSize: 500,
           apply: true,
@@ -324,8 +365,8 @@ test(
         "asset_object_deleted",
       );
       assert.equal(
-        applied.items.find((item) => item.assetId === MISSING_ASSET)?.action,
-        "missing_object",
+        applied.items.some((item) => item.assetId === MISSING_ASSET),
+        false,
       );
       assert.equal(
         (
@@ -347,6 +388,22 @@ test(
         (
           await pool.query(`SELECT status FROM assets WHERE id = $1`, [
             CHECKPOINT_ASSET,
+          ])
+        ).rows[0]?.status,
+        "completed",
+      );
+      assert.equal(
+        (
+          await pool.query(`SELECT status FROM assets WHERE id = $1`, [
+            COMPLETED_CLEANUP_ASSET,
+          ])
+        ).rows[0]?.status,
+        "deleted",
+      );
+      assert.equal(
+        (
+          await pool.query(`SELECT status FROM assets WHERE id = $1`, [
+            RECENT_COMPLETED_ASSET,
           ])
         ).rows[0]?.status,
         "completed",

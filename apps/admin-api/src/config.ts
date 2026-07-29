@@ -31,6 +31,8 @@ export interface AdminApiConfig {
   s3SecretAccessKey: string;
   objectStorageCredentialKeys?: string;
   objectStorageCredentialActiveKeyVersion: number;
+  assetMaintenanceApiUrl: string;
+  assetMaintenanceToken?: string;
   smtpCredentialKeys?: string;
   smtpCredentialActiveKeyVersion: number;
   smtpDevelopmentSecret?: string;
@@ -119,6 +121,36 @@ export function loadAdminApiConfig(
   const allowedOrigins = parseOrigins(
     readOptionalEnv(env, "ADMIN_WEB_ALLOWED_ORIGINS", webPublicUrl),
   );
+  const assetMaintenanceApiUrl = readOptionalEnv(
+    env,
+    "ASSET_MAINTENANCE_API_URL",
+    "http://127.0.0.1:8787",
+  );
+  const assetMaintenanceToken = env.ASSET_MAINTENANCE_TOKEN?.trim();
+  let parsedMaintenanceUrl: URL;
+  try {
+    parsedMaintenanceUrl = new URL(assetMaintenanceApiUrl);
+  } catch {
+    throw new Error("ASSET_MAINTENANCE_API_URL must be a valid HTTP URL");
+  }
+  if (
+    !["http:", "https:"].includes(parsedMaintenanceUrl.protocol) ||
+    parsedMaintenanceUrl.username ||
+    parsedMaintenanceUrl.password ||
+    parsedMaintenanceUrl.pathname !== "/" ||
+    parsedMaintenanceUrl.search ||
+    parsedMaintenanceUrl.hash
+  ) {
+    throw new Error("ASSET_MAINTENANCE_API_URL must be an HTTP origin");
+  }
+  if (assetMaintenanceToken && assetMaintenanceToken.length < 32) {
+    throw new Error("ASSET_MAINTENANCE_TOKEN must be at least 32 characters");
+  }
+  if (isProtectedDeploymentEnvironment(appEnv) && !assetMaintenanceToken) {
+    throw new Error(
+      "ASSET_MAINTENANCE_TOKEN is required in a protected environment",
+    );
+  }
   const logLevel = readOptionalEnv(env, "LOG_LEVEL", "info") as LogLevel;
   if (!LOG_LEVELS.has(logLevel))
     throw new Error(`Invalid LOG_LEVEL: ${logLevel}`);
@@ -223,6 +255,8 @@ export function loadAdminApiConfig(
       : "",
     objectStorageCredentialKeys,
     objectStorageCredentialActiveKeyVersion,
+    assetMaintenanceApiUrl: parsedMaintenanceUrl.origin,
+    assetMaintenanceToken,
     smtpCredentialKeys,
     smtpCredentialActiveKeyVersion,
     smtpDevelopmentSecret:

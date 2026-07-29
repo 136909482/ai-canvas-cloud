@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useCan } from "@refinedev/core";
 import type {
+  AssetCleanupSummary,
   ObjectStorageSettingsInput,
   ObjectStorageSettingsResponse,
 } from "@ai-canvas-cloud/contracts";
@@ -15,9 +16,18 @@ import {
   Switch,
   Tag,
 } from "antd";
-import { DatabaseZap, RotateCcw, Save, ShieldCheck } from "lucide-react";
+import {
+  DatabaseZap,
+  HardDrive,
+  RotateCcw,
+  Save,
+  ScanSearch,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
 import { adminApi, AdminApiError } from "./api";
 import { AccessDenied, Feedback, PageHeader } from "./components";
+import { formatBytes } from "./uiModel";
 
 interface FormFields {
   endpoint: string;
@@ -30,7 +40,8 @@ interface FormFields {
   secretAccessKey?: string;
 }
 
-type BusyAction = "test" | "save" | "restore" | null;
+type BusyAction =
+  "test" | "save" | "restore" | "cleanup-preview" | "cleanup-apply" | null;
 
 const ERROR_MESSAGES: Record<string, string> = {
   OBJECT_STORAGE_CONFIG_CONFLICT: "对象存储配置已被更新，请刷新后重试。",
@@ -41,6 +52,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   OBJECT_STORAGE_CONNECTION_FAILED:
     "读写删除测试失败，请检查 OSS 地址、Bucket、RAM 权限和跨域设置。",
   OBJECT_STORAGE_RATE_LIMITED: "测试操作过于频繁，请稍后再试。",
+  ASSET_CLEANUP_FAILED: "资产清理服务暂时不可用，请稍后重试。",
 };
 
 function errorMessage(error: unknown) {
@@ -83,6 +95,8 @@ export function ObjectStorageSettingsView() {
   const [busy, setBusy] = useState<BusyAction>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [cleanupSummary, setCleanupSummary] =
+    useState<AssetCleanupSummary | null>(null);
 
   useEffect(() => {
     if (!access?.can) return;
@@ -186,6 +200,55 @@ export function ObjectStorageSettingsView() {
           setNotice("已恢复使用容器环境变量中的对象存储配置。 ");
         } catch (cause) {
           setError(errorMessage(cause));
+        } finally {
+          setBusy(null);
+        }
+      },
+    });
+  }
+
+  async function previewCleanup() {
+    setBusy("cleanup-preview");
+    clearFeedback();
+    try {
+      const summary = await adminApi.previewAssetCleanup();
+      setCleanupSummary(summary);
+      setNotice(
+        summary.reclaimableObjectCount > 0
+          ? `扫描完成：发现 ${summary.reclaimableObjectCount} 个可清理文件。`
+          : "扫描完成：当前没有达到清理条件的文件。",
+      );
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function applyCleanup() {
+    if (
+      cleanupSummary?.mode !== "preview" ||
+      !cleanupSummary.reclaimableObjectCount
+    )
+      return;
+    Modal.confirm({
+      title: "清理无引用文件？",
+      content: `将永久删除 ${cleanupSummary.reclaimableObjectCount} 个 OSS 文件，预计释放 ${formatBytes(cleanupSummary.reclaimableBytes)}。此操作不可撤销。`,
+      okText: "确认清理",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      async onOk() {
+        setBusy("cleanup-apply");
+        clearFeedback();
+        try {
+          const summary = await adminApi.applyAssetCleanup();
+          setCleanupSummary(summary);
+          setNotice(
+            `清理完成：删除 ${summary.deletedObjectCount} 个文件，释放 ${formatBytes(summary.deletedBytes)}。`,
+          );
+        } catch (cause) {
+          setError(errorMessage(cause));
+          throw cause;
         } finally {
           setBusy(null);
         }
@@ -424,6 +487,85 @@ export function ObjectStorageSettingsView() {
           </Form>
         )}
       </section>
+
+      {!unconfigured ? (
+        <section className="surface-section asset-cleanup-section">
+          <div className="section-heading asset-cleanup-heading">
+            <div className="section-heading__icon">
+              <HardDrive size={18} />
+            </div>
+            <div>
+              <h2>无引用资产清理</h2>
+              <p>仅处理超过 7 天且未被当前画布或有效保存点引用的文件</p>
+            </div>
+          </div>
+
+          <div className="asset-cleanup-summary" aria-live="polite">
+            <div>
+              <span>
+                {cleanupSummary?.mode === "apply" ? "本次删除" : "可清理文件"}
+              </span>
+              <strong>
+                {cleanupSummary
+                  ? cleanupSummary.mode === "apply"
+                    ? cleanupSummary.deletedObjectCount
+                    : cleanupSummary.reclaimableObjectCount
+                  : "--"}
+              </strong>
+            </div>
+            <div>
+              <span>
+                {cleanupSummary?.mode === "apply" ? "已释放" : "预计释放"}
+              </span>
+              <strong>
+                {cleanupSummary
+                  ? formatBytes(
+                      cleanupSummary.mode === "apply"
+                        ? cleanupSummary.deletedBytes
+                        : cleanupSummary.reclaimableBytes,
+                    )
+                  : "--"}
+              </strong>
+            </div>
+            <div>
+              <span>缺失对象记录</span>
+              <strong>{cleanupSummary?.missingObjectCount ?? "--"}</strong>
+            </div>
+          </div>
+
+          {cleanupSummary?.truncated ? (
+            <Alert
+              type="warning"
+              showIcon
+              message="本次扫描达到批次上限，请完成清理后再次扫描。"
+            />
+          ) : null}
+
+          <div className="asset-cleanup-actions">
+            <Button
+              icon={<ScanSearch size={16} />}
+              loading={busy === "cleanup-preview"}
+              disabled={busy !== null && busy !== "cleanup-preview"}
+              onClick={() => void previewCleanup()}
+            >
+              扫描可清理文件
+            </Button>
+            <Button
+              danger
+              icon={<Trash2 size={16} />}
+              loading={busy === "cleanup-apply"}
+              disabled={
+                cleanupSummary?.mode !== "preview" ||
+                !cleanupSummary.reclaimableObjectCount ||
+                (busy !== null && busy !== "cleanup-apply")
+              }
+              onClick={applyCleanup}
+            >
+              立即清理
+            </Button>
+          </div>
+        </section>
+      ) : null}
     </section>
   );
 }

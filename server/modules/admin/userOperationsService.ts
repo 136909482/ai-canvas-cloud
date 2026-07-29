@@ -2,13 +2,16 @@ import {
   validateAdminManagedUserId,
   validateAdminUserActionRequest,
   validateAdminUserListQuery,
+  validateAdminUserPasswordResetRequest,
   type AdminManagedUserSummary,
   type AdminManagedWorkspaceSummary,
   type AdminUserResponse,
+  type AdminUserPasswordResetResponse,
   type AdminUserSessionRevocationResponse,
   type AdminUserStatusActionResponse,
   type AdminUsersResponse,
 } from "@ai-canvas-cloud/contracts";
+import { hashPassword } from "better-auth/crypto";
 import { withTransaction, type DbPool } from "../../db/postgres.js";
 import { insertAdminAuditEvent } from "./adminAudit.js";
 import { AdminAccessError } from "./security.js";
@@ -73,11 +76,17 @@ export interface AdminUserOperationsService {
     input: unknown,
     context: AdminRequestContext,
   ): Promise<AdminUserSessionRevocationResponse>;
+  resetUserPassword(
+    userId: unknown,
+    input: unknown,
+    context: AdminRequestContext,
+  ): Promise<AdminUserPasswordResetResponse>;
 }
 
 export interface PostgresAdminUserOperationsOptions {
   adminService: Pick<AdminService, "requirePermission">;
   auditSecret: string;
+  passwordHasher?: (password: string) => Promise<string>;
 }
 
 export function createUnavailableAdminUserOperationsService(): AdminUserOperationsService {
@@ -90,6 +99,7 @@ export function createUnavailableAdminUserOperationsService(): AdminUserOperatio
     banUser: unavailable,
     unbanUser: unavailable,
     revokeUserSessions: unavailable,
+    resetUserPassword: unavailable,
   };
 }
 
@@ -175,6 +185,18 @@ function normalizeActionRequest(value: unknown) {
   }
 }
 
+function normalizePasswordResetRequest(value: unknown) {
+  try {
+    return validateAdminUserPasswordResetRequest(value);
+  } catch (error) {
+    throw validationError(
+      error instanceof Error
+        ? error.message
+        : "User password reset request is invalid",
+    );
+  }
+}
+
 function encodeCursor(user: AdminManagedUserSummary) {
   return Buffer.from(
     JSON.stringify({
@@ -209,6 +231,7 @@ export function createPostgresAdminUserOperationsService(
   pool: DbPool,
   options: PostgresAdminUserOperationsOptions,
 ): AdminUserOperationsService {
+  const passwordHasher = options.passwordHasher ?? hashPassword;
   const service: AdminUserOperationsService = {
     async listUsers(query, context) {
       await options.adminService.requirePermission(context, "user.read");
@@ -625,6 +648,94 @@ export function createPostgresAdminUserOperationsService(
           options.auditSecret,
         );
         return { revokedSessionCount, revokedAt };
+      });
+
+      return { userId: normalizedUserId, ...result };
+    },
+
+    async resetUserPassword(userId, input, context) {
+      const session = await options.adminService.requirePermission(
+        context,
+        "user.credentials.write",
+      );
+      const normalizedUserId = normalizeUserId(userId);
+      const request = normalizePasswordResetRequest(input);
+      const passwordHash = await passwordHasher(request.newPassword);
+      const result = await withTransaction(pool, async (client) => {
+        const locked = await client.query<{
+          status: "active" | "disabled" | "deleted";
+        }>(
+          `
+          SELECT status
+          FROM public."user"
+          WHERE id = $1
+          FOR UPDATE
+        `,
+          [normalizedUserId],
+        );
+        const current = locked.rows[0];
+        if (!current)
+          throw new AdminAccessError(
+            404,
+            "RESOURCE_NOT_FOUND",
+            "User was not found",
+          );
+        if (current.status === "deleted") {
+          throw new AdminAccessError(
+            409,
+            "VALIDATION_FAILED",
+            "Deleted users cannot be changed",
+          );
+        }
+
+        const updated = await client.query(
+          `
+          UPDATE public."account"
+          SET password = $2, updated_at = now()
+          WHERE user_id = $1
+            AND provider_id = 'credential'
+        `,
+          [normalizedUserId, passwordHash],
+        );
+        if (updated.rowCount !== 1) {
+          throw new AdminAccessError(
+            409,
+            "VALIDATION_FAILED",
+            "User does not have a password credential",
+          );
+        }
+
+        const revoked = await client.query<{ id: string }>(
+          `
+          DELETE FROM public."session"
+          WHERE user_id = $1
+          RETURNING id
+        `,
+          [normalizedUserId],
+        );
+        const revokedSessionCount = revoked.rowCount ?? revoked.rows.length;
+        const resetAt = new Date().toISOString();
+        await insertAdminAuditEvent(
+          client,
+          {
+            actor: session.admin,
+            action: "user.password.reset",
+            targetType: "user",
+            targetId: normalizedUserId,
+            result: "success",
+            requestId: context.requestId,
+            ipAddress: context.ipAddress,
+            userAgent: context.userAgent,
+            before: {},
+            after: {
+              reason: request.reason,
+              revokedSessionCount,
+              resetAt,
+            },
+          },
+          options.auditSecret,
+        );
+        return { revokedSessionCount, resetAt };
       });
 
       return { userId: normalizedUserId, ...result };

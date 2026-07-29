@@ -289,13 +289,31 @@ async function seedWorkspaceStorageQuotaUpgradeFixture(client) {
   `);
 }
 
+async function seedPersonalWorkspaceQuotaReductionFixture(client) {
+  await client.query(`
+    INSERT INTO "user" (id, name, username, display_username, email, email_verified)
+    VALUES ('quota-custom-user', 'Quota_Custom', 'quota_custom', 'Quota_Custom', 'quota-custom@example.com', true)
+  `);
+  await client.query(`
+    INSERT INTO workspaces (
+      id, type, name, owner_user_id, storage_quota_bytes
+    ) VALUES (
+      '99999999-9999-4999-8999-999999999998',
+      'personal',
+      'Custom quota workspace',
+      'quota-custom-user',
+      16106127360
+    )
+  `);
+}
+
 async function assertWorkspaceStorageQuotaMigration(client) {
   const upgraded = await client.query(`
     SELECT storage_quota_bytes
     FROM workspaces
     WHERE id = '99999999-9999-4999-8999-999999999999'
   `);
-  if (upgraded.rows[0]?.storage_quota_bytes !== "21474836480") {
+  if (upgraded.rows[0]?.storage_quota_bytes !== "10737418240") {
     throw new Error(
       "Workspace storage quota migration did not backfill an existing personal workspace",
     );
@@ -310,9 +328,19 @@ async function assertWorkspaceStorageQuotaMigration(client) {
     VALUES ('Quota default workspace', 'quota-default-user')
     RETURNING storage_quota_bytes
   `);
-  if (created.rows[0]?.storage_quota_bytes !== "21474836480") {
+  if (created.rows[0]?.storage_quota_bytes !== "10737418240") {
     throw new Error(
-      "Workspace storage quota migration did not set the 20 GiB default",
+      "Workspace storage quota migration did not set the 10 GiB default",
+    );
+  }
+  const custom = await client.query(`
+    SELECT storage_quota_bytes
+    FROM workspaces
+    WHERE id = '99999999-9999-4999-8999-999999999998'
+  `);
+  if (custom.rows[0]?.storage_quota_bytes !== "16106127360") {
+    throw new Error(
+      "Workspace storage quota migration changed an explicit custom quota",
     );
   }
 }
@@ -2688,6 +2716,9 @@ try {
     if (migration.version === "0030") {
       await seedUsernameUpgradeFixture(client);
     }
+    if (migration.version === "0036") {
+      await seedPersonalWorkspaceQuotaReductionFixture(client);
+    }
     await client.query(migration.sql);
     if (
       migration.version === "0029" ||
@@ -2696,7 +2727,8 @@ try {
       migration.version === "0032" ||
       migration.version === "0033" ||
       migration.version === "0034" ||
-      migration.version === "0035"
+      migration.version === "0035" ||
+      migration.version === "0036"
     ) {
       await client.query(migration.sql);
     }

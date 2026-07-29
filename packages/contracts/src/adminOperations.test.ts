@@ -3,9 +3,12 @@ import test from "node:test";
 import {
   ADMIN_USER_LIST_DEFAULT_LIMIT,
   ADMIN_USER_LIST_MAX_LIMIT,
+  ADMIN_USER_PASSWORD_MAX_LENGTH,
+  ADMIN_USER_PASSWORD_MIN_LENGTH,
   validateAdminManagedUserId,
   validateAdminUserActionRequest,
   validateAdminUserListQuery,
+  validateAdminUserPasswordResetRequest,
 } from "./adminOperations.ts";
 
 test("administrator user list query normalizes bounded filters and pagination", () => {
@@ -85,5 +88,41 @@ test("administrator managed user identifiers are path-safe and bounded", () => {
   assert.throws(
     () => validateAdminManagedUserId("x".repeat(129)),
     /userId is invalid/,
+  );
+});
+
+test("administrator password resets keep the password exact and validate a bounded reason", () => {
+  const password = "Temp Password 2026!";
+  assert.deepEqual(
+    validateAdminUserPasswordResetRequest({
+      newPassword: password,
+      reason: "  用户完成身份核验  ",
+    }),
+    { newPassword: password, reason: "用户完成身份核验" },
+  );
+  assert.throws(
+    () =>
+      validateAdminUserPasswordResetRequest({
+        newPassword: "x".repeat(ADMIN_USER_PASSWORD_MIN_LENGTH - 1),
+        reason: "身份核验完成",
+      }),
+    /between 10 and 256/,
+  );
+  assert.throws(
+    () =>
+      validateAdminUserPasswordResetRequest({
+        newPassword: "x".repeat(ADMIN_USER_PASSWORD_MAX_LENGTH + 1),
+        reason: "身份核验完成",
+      }),
+    /between 10 and 256/,
+  );
+  assert.throws(
+    () =>
+      validateAdminUserPasswordResetRequest({
+        newPassword: "valid-password",
+        reason: "身份核验完成",
+        userId: "forbidden",
+      }),
+    /unsupported fields/,
   );
 });

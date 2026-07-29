@@ -42,6 +42,8 @@ npm run dev:admin-api
 
 后台管理 OSS 时，API 与 Admin API 必须使用同一份 `OBJECT_STORAGE_CREDENTIAL_KEYS` 和 `OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION`。通用生产部署可保留环境 `S3_*` 作为首次启动和故障回退；单机安装使用 `OBJECT_STORAGE_ENVIRONMENT_FALLBACK=false`，允许服务先启动，再由超级管理员在“对象存储”中通过真实读写删除测试后发布加密配置，AccessKey 不会回显。已有资产时 Bucket、Region、Endpoint 和路径样式会锁定，只允许轮换 RAM AccessKey 与调整签名访问地址。
 
+超级管理员可在“对象存储”中先扫描、再确认清理超过 7 天的无引用资产。当前画布或有效 checkpoint 仍引用的资产不会删除，后台只显示文件数量和容量，不显示用户、项目或 object key。API 与 Admin API 还必须共享至少 32 字符的 `ASSET_MAINTENANCE_TOKEN`；单机安装与旧版本升级会自动生成该密钥。
+
 ## Docker 生产部署
 
 `infra/deploy/production` 提供面向宝塔和 2 核 2G ECS 的轻量 Compose。ECS 只常驻 Web、API、Admin Web 和 Admin API；PostgreSQL、Redis、私有对象存储分别使用 RDS、阿里云 Redis 和 OSS。镜像必须在本地或 CI 构建并推送到 ACR，生产服务器只拉取镜像，不在 2G 内存机器上执行前端构建。
@@ -123,4 +125,4 @@ npm run deploy:staging:backup
 npm run deploy:staging:restore:drill
 ```
 
-生产应用启动不自动迁移。`0029_remove_server_generation.sql` 会不可逆删除旧 Provider 密文和服务端生成链路；`0030_user_usernames.sql` 会把普通账号切换到必填用户名契约，两者都要求协调应用发布并提前备份。`0031`–`0035` 是只新增的运营遥测、加密 SMTP、邮箱验证码与加密对象存储配置迁移。执行、回滚和前向修复要求见 [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md)。
+生产应用启动不自动迁移。`0029_remove_server_generation.sql` 会不可逆删除旧 Provider 密文和服务端生成链路；`0030_user_usernames.sql` 会把普通账号切换到必填用户名契约，两者都要求协调应用发布并提前备份。`0031`–`0035` 是只新增的运营遥测、加密 SMTP、邮箱验证码与加密对象存储配置迁移；`0036` 在保留现有数据的前提下把旧默认个人空间配额从 20 GiB 调整为 10 GiB。执行、回滚和前向修复要求见 [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md)。

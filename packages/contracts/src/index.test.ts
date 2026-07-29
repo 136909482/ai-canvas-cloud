@@ -107,8 +107,8 @@ test("workspace usage contract separates stored and reserved bytes", () => {
       usedBytes: 1024,
       reservedBytes: 512,
       totalBytes: 1536,
-      quotaBytes: 20 * 1024 * 1024 * 1024,
-      availableBytes: 20 * 1024 * 1024 * 1024 - 1536,
+      quotaBytes: 10 * 1024 * 1024 * 1024,
+      availableBytes: 10 * 1024 * 1024 * 1024 - 1536,
     },
     projects: [
       {

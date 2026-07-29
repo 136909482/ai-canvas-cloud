@@ -200,7 +200,7 @@ try {
     `REVOKE ALL ON public.password_reset_email_challenges FROM ${admin}`,
   );
   await client.query(
-    `REVOKE ALL ON public."user", public."session", public.workspaces, public.workspace_members, public.assets, public.migration_import_asset_uploads, public.generation_telemetry FROM ${admin}`,
+    `REVOKE ALL ON public."user", public."session", public."account", public.workspaces, public.workspace_members, public.assets, public.migration_import_asset_uploads, public.generation_telemetry FROM ${admin}`,
   );
   await client.query(
     `GRANT SELECT (id, user_no, username, display_username, email, email_verified, status, created_at, updated_at) ON public."user" TO ${admin}`,
@@ -212,6 +212,12 @@ try {
     `GRANT SELECT (id, user_id, expires_at, created_at, updated_at) ON public."session" TO ${admin}`,
   );
   await client.query(`GRANT DELETE ON public."session" TO ${admin}`);
+  await client.query(
+    `GRANT SELECT (user_id, provider_id) ON public."account" TO ${admin}`,
+  );
+  await client.query(
+    `GRANT UPDATE (password, updated_at) ON public."account" TO ${admin}`,
+  );
   await client.query(
     `GRANT SELECT (id, type, name, owner_user_id, status, plan_key, storage_quota_bytes, created_at, updated_at) ON public.workspaces TO ${admin}`,
   );

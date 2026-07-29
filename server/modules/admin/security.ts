@@ -11,8 +11,10 @@ const ROLE_PERMISSIONS: Readonly<
     "site_config.write",
     "smtp_config.write",
     "object_storage_config.write",
+    "asset_maintenance.write",
     "user.read",
     "user.write",
+    "user.credentials.write",
   ]),
   operator: new Set(["audit.read", "dashboard.read", "site_config.write"]),
   support: new Set(["audit.read", "dashboard.read", "user.read", "user.write"]),
@@ -50,6 +52,7 @@ export class AdminAccessError extends Error {
     | "OBJECT_STORAGE_ENVIRONMENT_FALLBACK_UNAVAILABLE"
     | "OBJECT_STORAGE_CONNECTION_FAILED"
     | "OBJECT_STORAGE_RATE_LIMITED"
+    | "ASSET_CLEANUP_FAILED"
     | "SERVICE_UNAVAILABLE";
 
   constructor(

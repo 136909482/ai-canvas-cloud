@@ -18,6 +18,8 @@ const baseEnv = {
   S3_REGION: "us-east-1",
   S3_ACCESS_KEY_ID: "test-access-key",
   S3_SECRET_ACCESS_KEY: "test-secret-key",
+  ASSET_MAINTENANCE_API_URL: "http://127.0.0.1:8787",
+  ASSET_MAINTENANCE_TOKEN: "asset-maintenance-token-for-tests-123456",
 };
 
 test("Admin API config requires independent database role, secret, and origin", () => {
@@ -25,6 +27,7 @@ test("Admin API config requires independent database role, secret, and origin", 
   assert.equal(config.port, 8788);
   assert.deepEqual(config.allowedOrigins, ["http://localhost:5174"]);
   assert.equal(config.s3ForcePathStyle, true);
+  assert.equal(config.assetMaintenanceApiUrl, "http://127.0.0.1:8787");
   assert.throws(
     () =>
       loadAdminApiConfig({
@@ -88,6 +91,22 @@ test("Admin API config allows first-run setup without object storage", () => {
 });
 
 test("Admin API config rejects credential-bearing or path-bearing origins", () => {
+  assert.throws(
+    () =>
+      loadAdminApiConfig({
+        ...baseEnv,
+        ASSET_MAINTENANCE_API_URL: "http://127.0.0.1:8787/internal",
+      }),
+    /ASSET_MAINTENANCE_API_URL/,
+  );
+  assert.throws(
+    () =>
+      loadAdminApiConfig({
+        ...baseEnv,
+        ASSET_MAINTENANCE_TOKEN: "short",
+      }),
+    /ASSET_MAINTENANCE_TOKEN/,
+  );
   assert.throws(
     () =>
       loadAdminApiConfig({

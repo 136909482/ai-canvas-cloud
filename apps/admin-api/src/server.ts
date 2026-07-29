@@ -17,6 +17,7 @@ import {
   createUnavailableAdminSiteConfigService,
   createUnavailableAdminSmtpConfigService,
   createUnavailableAdminObjectStorageConfigService,
+  createUnavailableAdminAssetCleanupService,
   createUnavailableAdminUserOperationsService,
   type AdminRequestContext,
   type AdminDashboardService,
@@ -24,6 +25,7 @@ import {
   type AdminSiteConfigService,
   type AdminSmtpConfigService,
   type AdminObjectStorageConfigService,
+  type AdminAssetCleanupService,
   type AdminUserOperationsService,
 } from "@ai-canvas-cloud/server/modules/admin";
 import { createStaticSite } from "@ai-canvas-cloud/server";
@@ -43,6 +45,7 @@ interface AdminServerOptions {
   siteConfigService?: AdminSiteConfigService;
   smtpConfigService?: AdminSmtpConfigService;
   objectStorageConfigService?: AdminObjectStorageConfigService;
+  assetCleanupService?: AdminAssetCleanupService;
   userOperationsService?: AdminUserOperationsService;
   logger: Logger;
   metrics?: MetricsRegistry;
@@ -244,6 +247,7 @@ export function createAdminApiServer({
   siteConfigService = createUnavailableAdminSiteConfigService(),
   smtpConfigService = createUnavailableAdminSmtpConfigService(),
   objectStorageConfigService = createUnavailableAdminObjectStorageConfigService(),
+  assetCleanupService = createUnavailableAdminAssetCleanupService(),
   userOperationsService = createUnavailableAdminUserOperationsService(),
   logger,
   metrics = createMetricsRegistry(),
@@ -518,7 +522,7 @@ export function createAdminApiServer({
         return;
       }
       const userAction =
-        /^\/admin\/v1\/users\/([^/]+)\/(ban|unban|revoke-sessions)$/.exec(
+        /^\/admin\/v1\/users\/([^/]+)\/(ban|unban|revoke-sessions|reset-password)$/.exec(
           url.pathname,
         );
       if (userAction && request.method === "POST") {
@@ -530,11 +534,17 @@ export function createAdminApiServer({
             ? await userOperationsService.banUser(userId, body, context)
             : action === "unban"
               ? await userOperationsService.unbanUser(userId, body, context)
-              : await userOperationsService.revokeUserSessions(
-                  userId,
-                  body,
-                  context,
-                );
+              : action === "revoke-sessions"
+                ? await userOperationsService.revokeUserSessions(
+                    userId,
+                    body,
+                    context,
+                  )
+                : await userOperationsService.resetUserPassword(
+                    userId,
+                    body,
+                    context,
+                  );
         sendJson(response, 200, payload, requestId);
         return;
       }
@@ -592,6 +602,30 @@ export function createAdminApiServer({
             body as never,
             context,
           ),
+          requestId,
+        );
+        return;
+      }
+      if (
+        url.pathname === "/admin/v1/asset-cleanup/preview" &&
+        request.method === "POST"
+      ) {
+        sendJson(
+          response,
+          200,
+          await assetCleanupService.preview(context),
+          requestId,
+        );
+        return;
+      }
+      if (
+        url.pathname === "/admin/v1/asset-cleanup/apply" &&
+        request.method === "POST"
+      ) {
+        sendJson(
+          response,
+          200,
+          await assetCleanupService.apply(context),
           requestId,
         );
         return;

@@ -32,6 +32,7 @@ const publicKeys = [
   "S3_SECRET_ACCESS_KEY",
   "OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION",
   "OBJECT_STORAGE_CREDENTIAL_KEYS",
+  "ASSET_MAINTENANCE_TOKEN",
   "AUTH_EMAIL_TRANSPORT",
   "SMTP_CREDENTIAL_ACTIVE_KEY_VERSION",
   "SMTP_CREDENTIAL_KEYS",
@@ -70,6 +71,7 @@ const adminKeys = [
   "S3_SECRET_ACCESS_KEY",
   "OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION",
   "OBJECT_STORAGE_CREDENTIAL_KEYS",
+  "ASSET_MAINTENANCE_TOKEN",
   "SMTP_CREDENTIAL_ACTIVE_KEY_VERSION",
   "SMTP_CREDENTIAL_KEYS",
 ];
@@ -97,6 +99,7 @@ function fixtureValue(key) {
     S3_SECRET_ACCESS_KEY: "access-secret",
     OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION: "1",
     OBJECT_STORAGE_CREDENTIAL_KEYS: '{"1":"storage-key"}',
+    ASSET_MAINTENANCE_TOKEN: "asset-maintenance-token-for-tests-123456",
     AUTH_EMAIL_TRANSPORT: "managed",
     SMTP_CREDENTIAL_ACTIVE_KEY_VERSION: "1",
     SMTP_CREDENTIAL_KEYS: '{"1":"smtp-key"}',
@@ -164,6 +167,18 @@ test("single-host runtime rendering isolates public and admin credentials", () =
     assert.match(
       adminRuntime,
       /^ADMIN_STATIC_SITE_ROOT=\/app\/apps\/admin-web\/dist$/m,
+    );
+    assert.match(
+      adminRuntime,
+      /^ASSET_MAINTENANCE_API_URL=http:\/\/public:8080$/m,
+    );
+    assert.match(
+      publicRuntime,
+      /^ASSET_MAINTENANCE_TOKEN=asset-maintenance-token-for-tests-123456$/m,
+    );
+    assert.match(
+      adminRuntime,
+      /^ASSET_MAINTENANCE_TOKEN=asset-maintenance-token-for-tests-123456$/m,
     );
     assert.doesNotMatch(publicRuntime, /^ADMIN_DATABASE_URL=/m);
     assert.doesNotMatch(publicRuntime, /^ADMIN_BETTER_AUTH_SECRET=/m);

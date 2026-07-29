@@ -16,8 +16,10 @@ export const ADMIN_PERMISSIONS = [
   "site_config.write",
   "smtp_config.write",
   "object_storage_config.write",
+  "asset_maintenance.write",
   "user.read",
   "user.write",
+  "user.credentials.write",
 ] as const;
 
 export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number];

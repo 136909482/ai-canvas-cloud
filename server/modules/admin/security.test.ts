@@ -20,6 +20,11 @@ test("administrator access requires active status and matching role permission",
   assert.doesNotThrow(() => assertAdminAccess(activeAdmin, "audit.read"));
   assert.equal(hasAdminPermission("auditor", "user.write"), false);
   assert.equal(hasAdminPermission("support", "user.write"), true);
+  assert.equal(
+    hasAdminPermission("super_admin", "user.credentials.write"),
+    true,
+  );
+  assert.equal(hasAdminPermission("support", "user.credentials.write"), false);
   assert.equal(hasAdminPermission("operator", "site_config.write"), true);
   assert.equal(hasAdminPermission("super_admin", "security.write"), true);
   assert.equal(hasAdminPermission("super_admin", "smtp_config.write"), true);

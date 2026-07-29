@@ -12,6 +12,8 @@ import type {
   AdminUsersResponse,
   AdminUserActionRequest,
   AdminUserResponse,
+  AdminUserPasswordResetRequest,
+  AdminUserPasswordResetResponse,
   AdminUserSessionRevocationResponse,
   AdminUserStatusActionResponse,
   AdminUserVerificationFilter,
@@ -30,6 +32,7 @@ import type {
   ObjectStorageSettingsResponse,
   ObjectStorageTestResponse,
   RestoreEnvironmentObjectStorageInput,
+  AssetCleanupSummary,
 } from "@ai-canvas-cloud/contracts";
 
 const configuredApiUrl = (
@@ -217,6 +220,12 @@ export const adminApi = {
       input as unknown as Record<string, unknown>,
     );
   },
+  resetUserPassword(userId: string, input: AdminUserPasswordResetRequest) {
+    return post<AdminUserPasswordResetResponse>(
+      `/admin/v1/users/${encodeURIComponent(userId)}/reset-password`,
+      input as unknown as Record<string, unknown>,
+    );
+  },
   smtpSettings() {
     return request<SmtpSettingsResponse>("/admin/v1/smtp-settings");
   },
@@ -266,6 +275,12 @@ export const adminApi = {
       "/admin/v1/object-storage-settings/restore-environment",
       input as unknown as Record<string, unknown>,
     );
+  },
+  previewAssetCleanup() {
+    return post<AssetCleanupSummary>("/admin/v1/asset-cleanup/preview");
+  },
+  applyAssetCleanup() {
+    return post<AssetCleanupSummary>("/admin/v1/asset-cleanup/apply");
   },
   siteConfig() {
     return request<AdminSiteConfigResponse>("/admin/v1/site-config");

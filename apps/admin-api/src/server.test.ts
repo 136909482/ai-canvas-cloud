@@ -6,6 +6,7 @@ import {
   AdminAccessError,
   createUnavailableAdminService,
   type AdminDashboardService,
+  type AdminAssetCleanupService,
   type AdminService,
   type AdminSiteConfigService,
   type AdminSmtpConfigService,
@@ -36,6 +37,8 @@ const config = {
   s3AccessKeyId: "test",
   s3SecretAccessKey: "test",
   objectStorageCredentialActiveKeyVersion: 1,
+  assetMaintenanceApiUrl: "http://127.0.0.1:8787",
+  assetMaintenanceToken: "asset-maintenance-token-for-tests-123456",
   smtpCredentialActiveKeyVersion: 1,
   smtpSecure: false,
 };
@@ -103,6 +106,7 @@ async function withServer(
     dashboardService?: AdminDashboardService;
     smtpConfigService?: AdminSmtpConfigService;
     objectStorageConfigService?: AdminObjectStorageConfigService;
+    assetCleanupService?: AdminAssetCleanupService;
   } = {},
 ) {
   const server = createAdminApiServer({
@@ -121,6 +125,62 @@ async function withServer(
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
+
+test("Admin asset cleanup routes require CSRF and dispatch preview or apply", async () => {
+  const calls: string[] = [];
+  const response = {
+    mode: "preview" as const,
+    graceHours: 168,
+    cutoff: "2026-07-22T00:00:00.000Z",
+    scannedAssetCount: 1,
+    reclaimableObjectCount: 1,
+    reclaimableBytes: 42,
+    deletedObjectCount: 0,
+    deletedBytes: 0,
+    missingObjectCount: 0,
+    finalizedMissingAssetCount: 0,
+    retainedAssetCount: 0,
+    truncated: false,
+    completedAt: "2026-07-29T00:00:00.000Z",
+  };
+  const assetCleanupService: AdminAssetCleanupService = {
+    async preview() {
+      calls.push("preview");
+      return response;
+    },
+    async apply() {
+      calls.push("apply");
+      return { ...response, mode: "apply" };
+    },
+  };
+  await withServer(
+    createUnavailableAdminService(),
+    async (port) => {
+      const rejected = await request(port, {
+        path: "/admin/v1/asset-cleanup/preview",
+        method: "POST",
+        origin: config.allowedOrigins[0],
+      });
+      assert.equal(rejected.status, 403);
+      assert.deepEqual(calls, []);
+
+      const token = await csrf(port);
+      for (const action of ["preview", "apply"] as const) {
+        const result = await request(port, {
+          path: `/admin/v1/asset-cleanup/${action}`,
+          method: "POST",
+          origin: config.allowedOrigins[0],
+          cookie: token.cookie,
+          csrf: token.token,
+        });
+        assert.equal(result.status, 200);
+      }
+      assert.deepEqual(calls, ["preview", "apply"]);
+    },
+    undefined,
+    { assetCleanupService },
+  );
+});
 
 async function csrf(port: number) {
   const result = await request(port, {
@@ -701,6 +761,9 @@ test("Admin user list and detail routes expose only the bounded operations proje
     async revokeUserSessions() {
       throw new Error("not used");
     },
+    async resetUserPassword() {
+      throw new Error("not used");
+    },
   };
   await withServer(
     createUnavailableAdminService(),
@@ -766,7 +829,7 @@ test("Admin user list and detail routes expose only the bounded operations proje
   );
 });
 
-test("Admin user mutations require CSRF and forward only the target, reason, and request context", async () => {
+test("Admin user mutations require CSRF and forward only their bounded body and request context", async () => {
   const calls: Array<{
     action: string;
     userId: string;
@@ -828,21 +891,44 @@ test("Admin user mutations require CSRF and forward only the target, reason, and
         revokedAt: "2026-07-23T08:30:00.000Z",
       };
     },
+    async resetUserPassword(userId, input, context) {
+      calls.push({
+        action: "reset-password",
+        userId,
+        input,
+        requestId: context.requestId,
+      });
+      return {
+        userId,
+        revokedSessionCount: 1,
+        resetAt: "2026-07-23T08:31:00.000Z",
+      };
+    },
   };
   await withServer(
     createUnavailableAdminService(),
     async (port) => {
       const actions = [
-        { name: "ban", reason: "风险复核" },
-        { name: "unban", reason: "复核通过" },
-        { name: "revoke-sessions", reason: "用户要求退出全部设备" },
+        { name: "ban", body: { reason: "风险复核" } },
+        { name: "unban", body: { reason: "复核通过" } },
+        {
+          name: "revoke-sessions",
+          body: { reason: "用户要求退出全部设备" },
+        },
+        {
+          name: "reset-password",
+          body: {
+            newPassword: "Temporary 2026!",
+            reason: "用户完成身份核验",
+          },
+        },
       ] as const;
       for (const action of actions) {
         const rejected = await request(port, {
           path: `/admin/v1/users/user_01/${action.name}`,
           method: "POST",
           origin: config.allowedOrigins[0],
-          body: { reason: action.reason },
+          body: action.body,
         });
         assert.equal(rejected.status, 403, action.name);
       }
@@ -856,7 +942,7 @@ test("Admin user mutations require CSRF and forward only the target, reason, and
           origin: config.allowedOrigins[0],
           cookie: token.cookie,
           csrf: token.token,
-          body: { reason: action.reason },
+          body: action.body,
         });
         assert.equal(accepted.status, 200, action.name);
       }
@@ -865,7 +951,7 @@ test("Admin user mutations require CSRF and forward only the target, reason, and
         actions.map((action) => ({
           action: action.name,
           userId: "user_01",
-          input: { reason: action.reason },
+          input: action.body,
         })),
       );
       assert.equal(

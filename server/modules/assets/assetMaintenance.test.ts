@@ -52,17 +52,12 @@ test("managed object parsing accepts only canonical Cloud asset keys", () => {
 test("GC retention prioritizes live and checkpoint references before grace", () => {
   const cutoff = new Date("2026-07-10T00:00:00.000Z");
   const base = {
-    status: "failed" as const,
     hasCurrentReference: false,
     hasCheckpointReference: false,
     gcEligibleAt: "2026-07-01T00:00:00.000Z",
     cutoff,
   };
   assert.equal(classifyAssetGcRetention(base), "eligible");
-  assert.equal(
-    classifyAssetGcRetention({ ...base, status: "completed" }),
-    "active_asset",
-  );
   assert.equal(
     classifyAssetGcRetention({
       ...base,

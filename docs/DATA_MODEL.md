@@ -37,7 +37,7 @@
 
 ### `workspaces`
 
-保存 ID、类型、名称、owner、状态、plan、`storage_quota_bytes` 和时间戳。首发 `type=personal`，默认资产配额 20 GiB。旧任务配额列若仍存在只属于历史 schema 兼容，不作为当前服务端生成能力。
+保存 ID、类型、名称、owner、状态、plan、`storage_quota_bytes` 和时间戳。首发 `type=personal`，默认资产配额 10 GiB。旧任务配额列若仍存在只属于历史 schema 兼容，不作为当前服务端生成能力。
 
 ### `workspace_members`
 
@@ -125,7 +125,9 @@ Admin dashboard 按 `Asia/Shanghai` 自然日聚合请求、结果、成功/失�
 
 ## 资产对象诊断与 GC
 
-维护命令默认只读。completed 资产缺失对象只报告，不能据此静默改库。只有 pending 已过期、failed、quarantined 或软删除资产在宽限期后可成为候选；提交模式逐资产加排他锁并用新语句快照复查当前引用和有效 checkpoint manifest。任一保护引用存在都必须保留。
+通用维护命令默认只读。后台无引用资产清理固定使用 7 天宽限期，并拆分为只读 preview 与显式 apply。`pending` 已过期、`failed`、`quarantined`、软删除资产，以及已完成但不再被引用的 `completed` 资产，在宽限期后都可成为候选；当前 `asset_references` 或任一有效 `project_snapshots.asset_manifest_json` 引用存在时必须保留。宽限期按 pending 上传到期时间或资产最近的 `deleted_at/updated_at/created_at` 计算；首版不新增“引用移除时间”字段。
+
+apply 逐资产加排他锁，并在持锁后的新语句快照中复查当前引用和有效 checkpoint manifest。completed 资产对象缺失时只在显式 apply 中把数据库状态收敛为 deleted；preview 只汇总可释放对象、容量和缺失对象记录。Admin 数据库角色不读取 asset ID、object key 或项目内容，聚合结果由普通 API 的最小权限角色计算。
 
 对象存储与 PostgreSQL 不能形成一个事务，收敛顺序固定为“锁后复查 -> 幂等删除对象 -> 更新数据库状态”。提交失败由后续幂等运行收敛。
 
@@ -163,6 +165,7 @@ Admin 运行角色对 public 普通用户数据采用列级授权：
 
 - `"user"` 只读 `id/user_no/username/display_username/email/email_verified/status/created_at/updated_at`，只可更新 `status/updated_at`。
 - `"session"` 只读 `id/user_id/expires_at/created_at/updated_at`，并拥有 DELETE；`token`、IP 和 User-Agent 不可读。
+- `"account"` 只读用于定位 credential 行的 `user_id/provider_id`，只可更新 `password/updated_at`；密码哈希不可读。
 - `workspaces`、`workspace_members` 只开放用户归属、角色、状态、配额和时间所需的最小列。
 - `assets` 只开放 workspace、字节数、状态和软删除时间；`migration_import_asset_uploads` 只开放 workspace、预留字节、状态和 committed asset ID。资产 `object_key`、项目/节点/Prompt 正文均不可读。
 
@@ -170,7 +173,7 @@ Admin 运行角色对 public 普通用户数据采用列级授权：
 
 运营概览是无用户明细的即时聚合：注册统计排除 `deleted`，活跃用户按未过期 session 的最近更新时间计算 24 小时/7 天窗口；认证安全统计验证/未验证/disabled 数量；存储已用量统计未软删除且处于 `completed|failed|quarantined` 的资产，预留量统计 pending 资产和仍处于 `pending|uploading|validating|completed` 的迁移上传，总配额统计未删除 workspace。依赖健康只包含 PostgreSQL 与对象存储。
 
-封禁、解封和 session 撤销先以 `FOR UPDATE` 锁定目标用户，拒绝 `deleted` 用户，并在同一数据库事务追加脱敏 `admin.audit_events`。封禁将状态幂等设为 `disabled` 后删除该用户 session；并发登录若已创建临时 session，会在发现 `disabled` 状态时自行删除，因而不能留下竞态迟到 session。解封只设为 `active`，不恢复旧 session；独立 session 撤销不改变用户状态。审计 before/after 只保存目标 ID、状态、受限原因、撤销数量和哈希请求来源。
+封禁、解封、session 撤销和管理员密码重置先以 `FOR UPDATE` 锁定目标用户，拒绝 `deleted` 用户，并在同一数据库事务追加脱敏 `admin.audit_events`。封禁将状态幂等设为 `disabled` 后删除该用户 session；并发登录若已创建临时 session，会在发现 `disabled` 状态时自行删除，因而不能留下竞态迟到 session。解封只设为 `active`，不恢复旧 session；独立 session 撤销不改变用户状态。密码重置只允许 `super_admin`，使用 Better Auth 同源哈希更新现有 credential 并删除全部 session；密码明文、哈希和 session ID 不进入审计。审计 before/after 只保存目标 ID、状态、受限原因、撤销数量、操作时间和哈希请求来源。
 
 ### 站点配置与品牌资产
 
@@ -308,6 +311,12 @@ commit 在一个事务中完成项目策略、资产 UUID 映射、图/引用/ch
 发布顺序：先在 API/Admin API 部署同一份 `OBJECT_STORAGE_CREDENTIAL_KEYS` 与活动版本并保留全部 `S3_*`，执行 0035 和角色 provisioning，再部署应用。超级管理员用与环境相同的存储身份填写后台配置，完成真实读写删除测试后发布；确认上传、签名读取、站点品牌资产和迁移包均正常后，环境凭据仍保留作显式恢复路径。
 
 回滚边界：先在后台恢复环境配置，确认 publication 已撤销且环境 Bucket 可读写，再部署旧应用；尚未产生 managed revision 时可直接删除 additive 表。前向修复为幂等重跑 0035、重新应用精确角色权限、校验 current/publication/revision 和信封 key version、验证历史资产仍指向原 Bucket。禁止通过更换 Bucket 掩盖凭据错误，也禁止从日志、审计或前端重建 AccessKey。
+
+### 0036：个人空间默认存储配额
+
+0036 在 release manifest 中是 `releaseTrain=p8-storage-quota`、`phase=migrate`、中等锁风险、30 秒 statement timeout、`backupRequired=true`。它不删除任何数据，只把 `workspaces.storage_quota_bytes` 的新记录默认值设为 10 GiB，并将仍等于旧默认 20 GiB 的 personal workspace 调整为 10 GiB；其他显式配额保持不变。已用量超过新配额的 workspace 保留全部资产，但在用量重新低于配额前不能新增上传或迁移预留。
+
+发布前备份数据库，执行 0036 后核对受影响 workspace 数量和总已用量，再发布应用。回滚不得把所有 10 GiB workspace 无条件改回 20 GiB；只能恢复列默认值，并依据发布审计或备份恢复本次确实从 20 GiB 调整的 workspace。前向修复为幂等重跑 0036，并继续只匹配仍保留旧默认 20 GiB 的 personal workspace。
 
 回滚边界：必须先部署仍能消费已发验证码的兼容代码，或等待所有 10 分钟挑战过期后，才能移除表。前向修复为幂等重跑 0034、重新应用角色授权、确认 Admin 无法访问挑战表，并复验重置验证码投递、消费和 session 撤销。
 

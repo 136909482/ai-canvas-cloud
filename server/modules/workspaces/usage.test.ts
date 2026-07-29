@@ -13,7 +13,7 @@ test("workspace storage usage keeps stored and pending reservation bytes explici
     reservedBytes: 512,
   });
 
-  assert.equal(response.storage.quotaBytes, 20 * 1024 * 1024 * 1024);
+  assert.equal(response.storage.quotaBytes, 10 * 1024 * 1024 * 1024);
   assert.equal(response.storage.totalBytes, 1536);
   assert.equal(
     response.storage.availableBytes,

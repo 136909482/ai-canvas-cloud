@@ -9,6 +9,7 @@ import {
   createPostgresAdminSiteConfigService,
   createPostgresAdminSmtpConfigService,
   createPostgresAdminObjectStorageConfigService,
+  createAdminAssetCleanupService,
   createPostgresAdminUserOperationsService,
   createPostgresPool,
   createManagedS3ObjectStorage,
@@ -98,6 +99,11 @@ const objectStorageConfigService =
     auditSecret: config.betterAuthSecret,
     invalidateManagedConfig: objectStorage.invalidateManagedConfig,
   });
+const assetCleanupService = createAdminAssetCleanupService({
+  adminService,
+  apiUrl: config.assetMaintenanceApiUrl,
+  token: config.assetMaintenanceToken,
+});
 const userOperationsService = createPostgresAdminUserOperationsService(pool, {
   adminService,
   auditSecret: config.betterAuthSecret,
@@ -126,6 +132,7 @@ const server = createAdminApiServer({
   siteConfigService,
   smtpConfigService,
   objectStorageConfigService,
+  assetCleanupService,
   userOperationsService,
   logger,
   metrics,

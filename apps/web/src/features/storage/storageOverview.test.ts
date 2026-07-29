@@ -9,7 +9,7 @@ test("formats storage sizes with compact binary units", () => {
   assert.equal(formatStorageBytes(0), "0 B");
   assert.equal(formatStorageBytes(1536), "1.5 KB");
   assert.equal(formatStorageBytes(1024 * 1024 * 394.2), "394.2 MB");
-  assert.equal(formatStorageBytes(20 * 1024 * 1024 * 1024), "20 GB");
+  assert.equal(formatStorageBytes(10 * 1024 * 1024 * 1024), "10 GB");
 });
 
 test("storage percentage is stable for empty and over-quota workspaces", () => {

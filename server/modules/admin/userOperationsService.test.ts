@@ -1,14 +1,68 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { verifyPassword } from "better-auth/crypto";
 import type { DbPool } from "../../db/postgres.ts";
 import type { AdminService } from "./service.ts";
 import { createPostgresAdminUserOperationsService } from "./userOperationsService.ts";
+
+test("administrator password reset writes a Better Auth-compatible hash", async () => {
+  let storedHash = "";
+  const database = {
+    async query(sql: string, values: unknown[] = []) {
+      if (/^(?:BEGIN|COMMIT|ROLLBACK)$/.test(sql))
+        return { rows: [], rowCount: null };
+      if (sql.includes("SELECT status") && sql.includes("FOR UPDATE"))
+        return { rows: [{ status: "active" }], rowCount: 1 };
+      if (sql.includes('UPDATE public."account"')) {
+        storedHash = String(values[1]);
+        return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes('DELETE FROM public."session"'))
+        return { rows: [{ id: "session-1" }], rowCount: 1 };
+      if (sql.includes("INSERT INTO admin.audit_events"))
+        return { rows: [], rowCount: 1 };
+      throw new Error("Unexpected password reset query");
+    },
+    async connect() {
+      return { query: this.query.bind(this), release() {} };
+    },
+  } as unknown as DbPool;
+  const service = createPostgresAdminUserOperationsService(database, {
+    adminService: {
+      async requirePermission(_context, permission) {
+        assert.equal(permission, "user.credentials.write");
+        return {
+          admin: {
+            id: "admin-01",
+            username: "root",
+            role: "super_admin",
+            status: "active",
+          },
+          expiresAt: "2026-07-30T00:00:00.000Z",
+        };
+      },
+    },
+    auditSecret: "administrator-audit-secret-for-tests",
+  });
+  const password = "Recovery 2026!";
+
+  const result = await service.resetUserPassword(
+    "user_01",
+    { newPassword: password, reason: "用户完成身份核验" },
+    { requestId: "password-reset-request" },
+  );
+
+  assert.equal(result.revokedSessionCount, 1);
+  assert.notEqual(storedHash, password);
+  assert.equal(await verifyPassword({ hash: storedHash, password }), true);
+});
 
 test("administrator user ban, unban, and session revocation are transactional and audited", async () => {
   const now = "2026-07-23T01:00:00.000Z";
   const state = {
     status: "active" as "active" | "disabled" | "deleted",
     sessions: ["session-1", "session-2"],
+    passwordHash: "old-hash",
     audits: [] as unknown[][],
   };
   const summary = () => ({
@@ -38,6 +92,10 @@ test("administrator user ban, unban, and session revocation are transactional an
       ) {
         state.status = "disabled";
         return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes('UPDATE public."account"')) {
+        state.passwordHash = String(values[1]);
+        return { rows: [{ id: "credential-1" }], rowCount: 1 };
       }
       if (
         sql.includes('UPDATE public."user"') &&
@@ -78,13 +136,19 @@ test("administrator user ban, unban, and session revocation are transactional an
   };
   const adminService = {
     async requirePermission(_context: unknown, permission: string) {
-      assert.equal(["user.read", "user.write"].includes(permission), true);
+      assert.equal(
+        ["user.read", "user.write", "user.credentials.write"].includes(
+          permission,
+        ),
+        true,
+      );
       return adminSession;
     },
   } as Pick<AdminService, "requirePermission">;
   const service = createPostgresAdminUserOperationsService(database, {
     adminService,
     auditSecret: "administrator-audit-secret-for-tests",
+    passwordHasher: async (password) => `hashed:${password}`,
   });
   const context = {
     requestId: "request-01",
@@ -123,18 +187,37 @@ test("administrator user ban, unban, and session revocation are transactional an
   assert.equal(revoked.revokedSessionCount, 1);
   assert.deepEqual(state.sessions, []);
 
+  state.sessions.push("session-after-recovery");
+  const reset = await service.resetUserPassword(
+    "user_01",
+    {
+      newPassword: "Temporary 2026!",
+      reason: "用户完成身份核验",
+    },
+    context,
+  );
+  assert.equal(reset.revokedSessionCount, 1);
+  assert.equal(state.passwordHash, "hashed:Temporary 2026!");
+  assert.deepEqual(state.sessions, []);
+
   assert.deepEqual(
     state.audits.map((values) => values[2]),
-    ["user.ban", "user.ban", "user.unban", "user.sessions.revoke"],
+    [
+      "user.ban",
+      "user.ban",
+      "user.unban",
+      "user.sessions.revoke",
+      "user.password.reset",
+    ],
   );
   const serializedAudit = JSON.stringify(state.audits);
   assert.match(
     serializedAudit,
-    /风险复核|处理迟到登录|身份复核通过|用户请求退出全部设备/,
+    /风险复核|处理迟到登录|身份复核通过|用户请求退出全部设备|用户完成身份核验/,
   );
   assert.doesNotMatch(
     serializedAudit,
-    /artist@example\.com|late-session|session-3/,
+    /artist@example\.com|late-session|session-3|Temporary 2026|hashed:/,
   );
   for (const values of state.audits) {
     assert.match(String(values[7]), /^[0-9a-f]{64}$/);

@@ -88,9 +88,9 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 
 - `project-graph` 独占节点、连线、change、version/sequence 和当前节点资产引用写入。
 - `project-snapshots` 独占 checkpoint 与 restore。
-- `assets` 独占上传确认、私有读取、配额与 GC。
+- `assets` 独占上传确认、私有读取、配额、无引用资产扫描与 GC；普通 API 执行引用复查和对象删除。
 - `migrations` 编排导入导出，但复用图、资产和 checkpoint 领域 helper。
-- `admin` 只能通过受限服务读取普通用户最小投影、发布加密 SMTP/站点配置并写脱敏审计。
+- `admin` 只能通过受限服务读取普通用户最小投影、发布加密 SMTP/站点配置并写脱敏审计；资产清理只通过内部密钥调用普通 API 并接收聚合结果，Admin 数据库角色不得读取 object key。
 - `mail` 是 API 与 Admin API 共用的受控 SMTP 执行层；它不读取 HTTP 请求或数据库，主密钥只由两个服务器入口注入。
 
 普通 API 没有 Provider、官方模型、积分或服务器任务路由；历史 URL 保持 404。
