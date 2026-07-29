@@ -27,6 +27,7 @@ import {
 } from "./api";
 import { PublicHome } from "./PublicHome";
 import { FALLBACK_SITE_CONFIG, fetchPublicSiteConfig } from "@/api/siteConfig";
+import { getPublicPageHref } from "@/features/public/publicPages";
 import {
   SESSION_HEARTBEAT_INTERVAL_MS,
   shouldProbeSession,
@@ -147,6 +148,10 @@ export function AuthGate({ children }: AuthGateProps) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [emailVerificationCode, setEmailVerificationCode] = useState("");
+  const [acceptedTermsAndPrivacy, setAcceptedTermsAndPrivacy] = useState(false);
+  const [registrationSiteConfig, setRegistrationSiteConfig] = useState(
+    FALLBACK_SITE_CONFIG.config,
+  );
   const [
     registrationEmailVerificationRequired,
     setRegistrationEmailVerificationRequired,
@@ -203,6 +208,7 @@ export function AuthGate({ children }: AuthGateProps) {
     setPendingAuthMode(null);
     setAuthModalAnimationPhase("enter");
     setEmailVerificationCode("");
+    setAcceptedTermsAndPrivacy(false);
     setRegistrationCodeCooldown(0);
     setPasswordResetCode("");
     setPasswordResetCodeCooldown(0);
@@ -223,6 +229,7 @@ export function AuthGate({ children }: AuthGateProps) {
     void fetchPublicSiteConfig()
       .then((site) => {
         if (active) {
+          setRegistrationSiteConfig(site.config);
           setRegistrationEmailVerificationRequired(
             site.config.features.registrationEmailVerificationRequired,
           );
@@ -442,6 +449,10 @@ export function AuthGate({ children }: AuthGateProps) {
         setSubmitError(validationMessage);
         return;
       }
+      if (!acceptedTermsAndPrivacy) {
+        setSubmitError("请先阅读并同意用户协议和隐私政策");
+        return;
+      }
       if (
         registrationEmailVerificationRequired &&
         !/^\d{6}$/.test(emailVerificationCode.trim())
@@ -461,6 +472,7 @@ export function AuthGate({ children }: AuthGateProps) {
           username,
           email,
           password,
+          acceptedTermsAndPrivacy,
           emailVerificationCode: registrationEmailVerificationRequired
             ? emailVerificationCode.trim()
             : undefined,
@@ -875,6 +887,42 @@ export function AuthGate({ children }: AuthGateProps) {
                 </label>
               ) : null}
 
+              {mode === "register" ? (
+                <div className="auth-registration-consent">
+                  <input
+                    id="register-policy-consent"
+                    type="checkbox"
+                    checked={acceptedTermsAndPrivacy}
+                    onChange={(event) => {
+                      setAcceptedTermsAndPrivacy(event.target.checked);
+                      setSubmitError(null);
+                    }}
+                    required
+                  />
+                  <label htmlFor="register-policy-consent">
+                    我已阅读并同意
+                    <a
+                      href={getPublicPageHref(registrationSiteConfig, "terms")}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      《用户协议》
+                    </a>
+                    和
+                    <a
+                      href={getPublicPageHref(
+                        registrationSiteConfig,
+                        "privacy",
+                      )}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      《隐私政策》
+                    </a>
+                  </label>
+                </div>
+              ) : null}
+
               {submitError ? (
                 <div className="rounded-[8px] border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-200">
                   {submitError}
@@ -931,7 +979,10 @@ export function AuthGate({ children }: AuthGateProps) {
               ) : (
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={
+                    isSubmitting ||
+                    (mode === "register" && !acceptedTermsAndPrivacy)
+                  }
                   className="auth-modal__submit"
                 >
                   {isSubmitting ? (

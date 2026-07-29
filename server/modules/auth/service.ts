@@ -219,7 +219,16 @@ export function normalizeRegistrationInput(input: {
   username: string;
   email: string;
   password: string;
+  acceptedTermsAndPrivacy: boolean;
 }): NormalizedRegistrationInput {
+  if (input.acceptedTermsAndPrivacy !== true) {
+    throw new AuthServiceError({
+      statusCode: 400,
+      apiCode: "VALIDATION_FAILED",
+      message: "User agreement and privacy policy must be accepted",
+    });
+  }
+
   const { usernameNormalized, displayUsername } = normalizeUsername(
     input.username,
   );

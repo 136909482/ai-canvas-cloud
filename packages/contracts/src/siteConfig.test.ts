@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DEFAULT_SITE_LINK_PATHS,
   DEFAULT_SITE_CONFIG,
   validateSiteConfigDocument,
 } from "./siteConfig.ts";
@@ -12,6 +13,12 @@ test("site configuration runtime schema normalizes the complete safe document", 
   assert.equal(config.schemaVersion, 2);
   assert.equal(config.siteName, "AI Canvas");
   assert.deepEqual(config.navigation, ["home", "help", "legal"]);
+  assert.deepEqual(DEFAULT_SITE_LINK_PATHS, {
+    helpUrl: "/help",
+    feedbackUrl: "/feedback",
+    termsUrl: "/yonghuxieyi",
+    privacyUrl: "/yinsizhengce",
+  });
 });
 
 test("site configuration upgrades schema version 1 feature flags safely", () => {

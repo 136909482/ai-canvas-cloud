@@ -1363,6 +1363,7 @@ test("register route issues a HttpOnly session cookie and auth response", async 
         username: "Artist_01",
         email: "artist@example.com",
         password: "long-enough-password",
+        acceptedTermsAndPrivacy: true,
       },
     });
 

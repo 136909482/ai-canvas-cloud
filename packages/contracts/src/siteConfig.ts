@@ -1,5 +1,12 @@
 export const SITE_CONFIG_SCHEMA_VERSION = 2 as const;
 
+export const DEFAULT_SITE_LINK_PATHS = {
+  helpUrl: "/help",
+  feedbackUrl: "/feedback",
+  termsUrl: "/yonghuxieyi",
+  privacyUrl: "/yinsizhengce",
+} as const;
+
 export type SiteThemePreset = "system" | "light" | "dark";
 export type SiteNavigationItem = "home" | "help" | "legal";
 export type SiteAssetKind = "logo" | "favicon";

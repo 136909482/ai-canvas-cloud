@@ -6,7 +6,10 @@ import type {
   SiteConfigDocument,
   SiteThemePreset,
 } from "@ai-canvas-cloud/contracts";
-import { DEFAULT_SITE_CONFIG } from "@ai-canvas-cloud/contracts";
+import {
+  DEFAULT_SITE_CONFIG,
+  DEFAULT_SITE_LINK_PATHS,
+} from "@ai-canvas-cloud/contracts";
 import {
   Button,
   Checkbox,
@@ -42,6 +45,7 @@ function Field({
   onChange,
   placeholder,
   maxLength = 120,
+  extra,
   children,
 }: {
   label: string;
@@ -49,10 +53,11 @@ function Field({
   onChange?: (value: string) => void;
   placeholder?: string;
   maxLength?: number;
+  extra?: ReactNode;
   children?: ReactNode;
 }) {
   return (
-    <Form.Item label={label}>
+    <Form.Item label={label} extra={extra}>
       {children ?? (
         <Input
           aria-label={label}
@@ -73,12 +78,14 @@ function NullableField({
   onChange,
   placeholder,
   maxLength = 2048,
+  extra,
 }: {
   label: string;
   value: string | null;
   onChange: (value: string | null) => void;
   placeholder?: string;
   maxLength?: number;
+  extra?: ReactNode;
 }) {
   return (
     <Field
@@ -87,6 +94,7 @@ function NullableField({
       onChange={(next) => onChange(next || null)}
       placeholder={placeholder}
       maxLength={maxLength}
+      extra={extra}
     />
   );
 }
@@ -535,7 +543,10 @@ export function SiteConfigView() {
         <div className="tab-form-content">
           <div className="tab-intro">
             <h2>公开链接</h2>
-            <p>仅允许无凭据、无 fragment 的绝对 HTTP(S) 地址。</p>
+            <p>
+              四个公共页面留空时使用本站默认路径；填写完整 HTTP(S)
+              地址后，入口将跳转到该地址。
+            </p>
           </div>
           <div className="site-form-grid">
             <NullableField
@@ -547,7 +558,8 @@ export function SiteConfigView() {
                   links: { ...current.links, helpUrl },
                 }))
               }
-              placeholder="https://"
+              placeholder={DEFAULT_SITE_LINK_PATHS.helpUrl}
+              extra="留空使用当前网站域名 + /help"
             />
             <NullableField
               label="问题反馈"
@@ -558,7 +570,8 @@ export function SiteConfigView() {
                   links: { ...current.links, feedbackUrl },
                 }))
               }
-              placeholder="https://"
+              placeholder={DEFAULT_SITE_LINK_PATHS.feedbackUrl}
+              extra="留空使用当前网站域名 + /feedback"
             />
             <NullableField
               label="用户协议"
@@ -569,7 +582,8 @@ export function SiteConfigView() {
                   links: { ...current.links, termsUrl },
                 }))
               }
-              placeholder="https://"
+              placeholder={DEFAULT_SITE_LINK_PATHS.termsUrl}
+              extra="留空使用当前网站域名 + /yonghuxieyi"
             />
             <NullableField
               label="隐私政策"
@@ -580,7 +594,8 @@ export function SiteConfigView() {
                   links: { ...current.links, privacyUrl },
                 }))
               }
-              placeholder="https://"
+              placeholder={DEFAULT_SITE_LINK_PATHS.privacyUrl}
+              extra="留空使用当前网站域名 + /yinsizhengce"
             />
             <NullableField
               label="账号注销说明"

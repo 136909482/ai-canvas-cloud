@@ -155,6 +155,7 @@ export interface RegisterRequest {
   username: string;
   email: string;
   password: string;
+  acceptedTermsAndPrivacy: boolean;
   emailVerificationCode?: string;
   deviceId?: string;
 }

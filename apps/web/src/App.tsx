@@ -15,6 +15,8 @@ import { TooltipIconButton } from "@/components/TooltipIconButton";
 import { Toolbar } from "@/components/Toolbar";
 import { AccountMenu } from "@/features/auth/AccountMenu";
 import { AuthGate } from "@/features/auth/AuthGate";
+import { PublicContentPage } from "@/features/public/PublicContentPage";
+import { getPublicPageKind } from "@/features/public/publicPages";
 import { useImageEditorStore } from "@/store/useImageEditorStore";
 import { useProjectDialogStore } from "@/store/useProjectDialogStore";
 import { useProjectStore } from "@/store/useProjectStore";
@@ -141,6 +143,19 @@ function ProjectManagerDialogHost() {
 }
 
 export default function App() {
+  const publicPageKind = getPublicPageKind(window.location.pathname);
+
+  if (publicPageKind) {
+    return (
+      <>
+        <ThemeProvider />
+        <PublicContentPage kind={publicPageKind} />
+        <AppFeedbackHost />
+        <AppTooltipHost />
+      </>
+    );
+  }
+
   return (
     <>
       <ThemeProvider />

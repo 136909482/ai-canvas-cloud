@@ -69,6 +69,7 @@ export async function seedDevelopmentAdminAccount(
         username,
         email,
         password: options.password,
+        acceptedTermsAndPrivacy: true,
       },
       {
         requestId: "dev_admin_seed",

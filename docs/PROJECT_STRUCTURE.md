@@ -75,6 +75,7 @@ apps/admin-api --> server/modules/admin
 - `src/api`：固定 Cloud HTTP 客户端，不拼接对象 key 或任意 Provider target。
 - `src/platform/cloud`：项目图基线、version/sequence、diff、资产上传和签名 URL 缓存。
 - `src/features/settings`：Vault、Provider/模型配置、发现和匿名模型绑定。
+- `src/features/public`：帮助中心、问题反馈、用户协议、隐私政策及默认站内路径解析；只读取公开站点配置，不访问认证态或服务端基础设施。
 - `src/features/generateQueue`：浏览器任务动作、执行、调度、Provider adapter、结果入云和加密快照恢复。`orchestrator.ts` 只负责创建/重试/取消等用户动作，`taskExecution.ts` 负责 Provider 执行与恢复，`taskCanvasState.ts` 负责聚合画布节点状态，`taskQueueSnapshot.ts` 负责纯快照清洗和版本兼容；执行层与动作层共同依赖状态层，不得反向依赖 React 组件。
 - `src/components/TaskQueue*`：任务中心按钮、面板、任务行和无界面 Runner；组件只订阅 store 或调用生成任务公开动作，不实现 Provider 协议、缓存迁移或结果持久化。
 - `src/nodes`：React Flow 节点 UI，只通过 store 和平台层访问状态。

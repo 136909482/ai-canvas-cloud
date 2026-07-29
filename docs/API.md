@@ -91,7 +91,9 @@ GET /health/ready
 GET /api/v1/site-config
 ```
 
-无需登录，返回当前站点配置公开投影、品牌资产短期读取 URL 和 ETag。`If-None-Match` 命中返回 304。正文只包含 schemaVersion 1 的品牌/首页/Footer 纯文本、主体/备案纯文本、HTTP(S) 帮助与法律链接、主题、导航枚举、布尔功能开关和 Logo/Favicon asset ID/URL。无发布修订时返回内置安全默认值。
+无需登录，返回当前站点配置公开投影、品牌资产短期读取 URL 和 ETag。`If-None-Match` 命中返回 304。正文只包含 schemaVersion 2 的品牌/首页/Footer 纯文本、主体/备案纯文本、HTTP(S) 帮助与法律链接、主题、导航枚举、布尔功能开关和 Logo/Favicon asset ID/URL。无发布修订时返回内置安全默认值。
+
+帮助中心、问题反馈、用户协议和隐私政策的配置值为 `null` 时，Web 分别使用当前站点 Origin 下的 `/help`、`/feedback`、`/yonghuxieyi` 和 `/yinsizhengce`；管理员发布无凭据、无 fragment 的完整 HTTP(S) 地址后，所有公开入口和注册协议链接优先使用该地址。
 
 响应不包含 Admin revision 备注、对象 key、管理员 ID、Provider 配置或可执行 HTML/CSS/JavaScript。
 
@@ -112,7 +114,7 @@ POST   /api/v1/auth/password/reset
 POST   /api/v1/auth/password/change
 ```
 
-底层委托 Better Auth 管理用户名、邮箱密码、签名 Cookie、session 和内部密码重置 token。注册请求为 `{ username, email, password, emailVerificationCode?, deviceId? }`；`username` 必须匹配 `^[A-Za-z][A-Za-z0-9_]{2,29}$`，保留输入大小写用于展示，以小写规范值实现全局唯一。`admin|administrator|api|root|support|system` 不可注册，格式或保留词返回 `400 VALIDATION_FAILED`，冲突返回稳定 `409 USERNAME_UNAVAILABLE`。不提供用户名可用性查询或修改接口。
+底层委托 Better Auth 管理用户名、邮箱密码、签名 Cookie、session 和内部密码重置 token。注册请求为 `{ username, email, password, acceptedTermsAndPrivacy, emailVerificationCode?, deviceId? }`；`acceptedTermsAndPrivacy` 必须严格为 `true`，缺失或为 `false` 时在创建账号前返回 `400 VALIDATION_FAILED`。`username` 必须匹配 `^[A-Za-z][A-Za-z0-9_]{2,29}$`，保留输入大小写用于展示，以小写规范值实现全局唯一。`admin|administrator|api|root|support|system` 不可注册，格式或保留词返回 `400 VALIDATION_FAILED`，冲突返回稳定 `409 USERNAME_UNAVAILABLE`。不提供用户名可用性查询或修改接口。
 
 登录请求为 `{ identifier, password, deviceId?, force? }`；`identifier` 包含 `@` 时按邮箱登录，否则按不区分大小写的用户名登录。账号不存在、邮箱不存在、用户名不存在或密码错误统一返回 `401 AUTH_REQUIRED` 和“账号或密码错误”语义，不允许据此枚举账号。忘记密码仍只接受邮箱。注册、登录与 session 恢复后幂等确保 personal workspace 和 owner membership。
 

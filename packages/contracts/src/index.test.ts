@@ -4,6 +4,7 @@ import {
   apiErrorCodes,
   createServiceUnavailableError,
   type AuthSuccessResponse,
+  type RegisterRequest,
   type CurrentWorkspaceResponse,
   type WorkspaceUsageResponse,
   type ApplyProjectGraphOperationsRequest,
@@ -83,6 +84,17 @@ test("auth success response keeps user and workspace boundaries explicit", () =>
   assert.equal(response.user.email, "artist@example.com");
   assert.equal(response.user.username, "Artist_01");
   assert.equal(response.user.userNumber, 10001);
+});
+
+test("registration contract requires explicit legal consent", () => {
+  const request: RegisterRequest = {
+    username: "Artist_01",
+    email: "artist@example.com",
+    password: "long-enough-password",
+    acceptedTermsAndPrivacy: true,
+  };
+
+  assert.equal(request.acceptedTermsAndPrivacy, true);
 });
 
 test("current workspace response wraps the authorized workspace summary", () => {

@@ -153,7 +153,8 @@ Web 不得 import `server/`、数据库驱动、Redis 或对象存储管理 SDK�
 ## 认证与租户
 
 - 普通认证由 Better Auth username 插件管理不可变用户名，并管理邮箱密码、HttpOnly Cookie、session 和密码重置 token；注册与密码重置均通过认证领域服务的邮箱验证码完成，后者只在短期挑战表中保存 AES-256-GCM 加密的内部 token。用户名用小写规范值唯一与登录、用保留原始大小写的展示值进入用户响应；兼容 `name` 和 `image` 不作为昵称或头像能力。
-- 注册必须同时提供用户名、邮箱和密码；登录标识包含 `@` 时走邮箱，否则走不区分大小写的用户名。失败统一为账号或密码错误，不新增可枚举的用户名查询接口。
+- 注册必须同时提供用户名、邮箱、密码和严格为 `true` 的 `acceptedTermsAndPrivacy`；Web 用单个必选勾选框同时确认用户协议与隐私政策，认证领域在调用 Better Auth 创建账号前再次校验。登录标识包含 `@` 时走邮箱，否则走不区分大小写的用户名。失败统一为账号或密码错误，不新增可枚举的用户名查询接口。
+- 公开帮助中心、问题反馈、用户协议和隐私政策分别由 Web 固定路由 `/help`、`/feedback`、`/yonghuxieyi`、`/yinsizhengce` 承载；站点配置对应 URL 为空时使用当前 Origin 的固定路由，发布完整安全 HTTP(S) 地址后统一覆盖首页、公共页导航和注册链接。
 - 注册、登录和 session 恢复后幂等确保 personal workspace、owner membership 和 user state。
 - 所有资源访问从可信 session 解析用户，再按 `workspace_id` 和成员关系授权；客户端 `user_id` 不可信。
 - 同账号只允许一个有效 session；封禁用户不能登录、恢复 session 或通过 workspace 授权。

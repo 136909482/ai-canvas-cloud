@@ -15,12 +15,28 @@ test("normalizes and validates registration input before Better Auth receives it
     username: " Artist_01 ",
     email: " User@Example.COM ",
     password: "long-enough-password",
+    acceptedTermsAndPrivacy: true,
   });
 
   assert.equal(normalized.usernameNormalized, "artist_01");
   assert.equal(normalized.displayUsername, "Artist_01");
   assert.equal(normalized.emailNormalized, "user@example.com");
   assert.equal(normalized.password, "long-enough-password");
+});
+
+test("rejects registration before account creation without legal consent", () => {
+  assert.throws(
+    () =>
+      normalizeRegistrationInput({
+        username: "Artist_01",
+        email: "artist@example.com",
+        password: "long-enough-password",
+        acceptedTermsAndPrivacy: false,
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message === "User agreement and privacy policy must be accepted",
+  );
 });
 
 test("rejects invalid email and short password", () => {

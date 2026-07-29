@@ -10,6 +10,7 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { FALLBACK_SITE_CONFIG, fetchPublicSiteConfig } from "@/api/siteConfig";
+import { getPublicPageHref } from "@/features/public/publicPages";
 
 interface PublicHomeProps {
   onLogin: () => void;
@@ -240,23 +241,17 @@ export function PublicHome({ onLogin, onRegister }: PublicHomeProps) {
             {config.navigation.includes("help") ? (
               <div>
                 <h3>支持</h3>
-                {config.links.helpUrl ? (
-                  <a href={config.links.helpUrl}>帮助中心</a>
-                ) : null}
-                {config.features.feedbackEnabled && config.links.feedbackUrl ? (
-                  <a href={config.links.feedbackUrl}>问题反馈</a>
+                <a href={getPublicPageHref(config, "help")}>帮助中心</a>
+                {config.features.feedbackEnabled ? (
+                  <a href={getPublicPageHref(config, "feedback")}>问题反馈</a>
                 ) : null}
               </div>
             ) : null}
             {config.navigation.includes("legal") ? (
               <div>
                 <h3>法律</h3>
-                {config.links.termsUrl ? (
-                  <a href={config.links.termsUrl}>用户协议</a>
-                ) : null}
-                {config.links.privacyUrl ? (
-                  <a href={config.links.privacyUrl}>隐私政策</a>
-                ) : null}
+                <a href={getPublicPageHref(config, "terms")}>用户协议</a>
+                <a href={getPublicPageHref(config, "privacy")}>隐私政策</a>
                 {config.links.accountDeletionUrl ? (
                   <a href={config.links.accountDeletionUrl}>账号注销说明</a>
                 ) : null}

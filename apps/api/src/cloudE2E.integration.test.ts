@@ -118,7 +118,13 @@ class BrowserContext {
   }
 
   registerBody(username: string, email: string, password: string) {
-    return { username, email, password, deviceId: this.deviceId };
+    return {
+      username,
+      email,
+      password,
+      acceptedTermsAndPrivacy: true,
+      deviceId: this.deviceId,
+    };
   }
 
   loginBody(identifier: string, password: string, force = false) {
