@@ -162,14 +162,13 @@ export function ObjectStorageSettingsView() {
     setBusy("save");
     clearFeedback();
     try {
-      const updated = await adminApi.publishObjectStorageSettings(
-        await currentInput(),
-      );
+      const input = await currentInput();
+      const updated = await adminApi.publishObjectStorageSettings(input);
       setSettings(updated);
       form.setFieldsValue({
         ...formValues(updated),
-        accessKeyId: undefined,
-        secretAccessKey: undefined,
+        accessKeyId: input.accessKeyId,
+        secretAccessKey: input.secretAccessKey,
       });
       setDirty(false);
       setNotice("对象存储配置已验证并发布。后端将在数秒内切换。");

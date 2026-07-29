@@ -1,15 +1,16 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { AdminSessionResponse } from "@ai-canvas-cloud/contracts";
-import { Button, Drawer, Layout, Menu, Tooltip } from "antd";
+import { Button, Drawer, Layout, Menu, Tooltip, type MenuProps } from "antd";
 import {
   Activity,
+  HardDrive,
   LogOut,
   Mail,
-  HardDrive,
   Menu as MenuIcon,
   ScrollText,
   Settings2,
   ShieldCheck,
+  SlidersHorizontal,
   UserRound,
   UsersRound,
 } from "lucide-react";
@@ -20,7 +21,7 @@ import { ROLE_LABELS } from "./uiModel";
 const ICONS: Record<AdminView, ReactNode> = {
   dashboard: <Activity size={18} />,
   users: <UsersRound size={18} />,
-  site: <Settings2 size={18} />,
+  site: <SlidersHorizontal size={18} />,
   smtp: <Mail size={18} />,
   storage: <HardDrive size={18} />,
   audit: <ScrollText size={18} />,
@@ -41,18 +42,48 @@ export function AdminShell({
   children: ReactNode;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [openMenuKeys, setOpenMenuKeys] = useState<string[]>([]);
   const navigation = useMemo(
     () => navigationForRole(session.admin.role),
     [session.admin.role],
   );
-  const menuItems = navigation.map((item) => ({
-    key: item.key,
-    icon: ICONS[item.key],
-    label: item.label,
-  }));
+  const menuItems = useMemo<MenuProps["items"]>(() => {
+    const settingsViews = new Set<AdminView>(["site", "storage", "smtp"]);
+    const settingsItems = navigation
+      .filter((item) => settingsViews.has(item.key))
+      .map((item) => ({
+        key: item.key,
+        icon: ICONS[item.key],
+        label: item.key === "site" ? "基础设置" : item.label,
+      }));
+    const items: NonNullable<MenuProps["items"]> = [];
+
+    for (const item of navigation) {
+      if (item.key === "site") {
+        items.push({
+          key: "site-settings",
+          icon: <Settings2 size={18} />,
+          label: "网站设置",
+          children: settingsItems,
+        });
+        continue;
+      }
+      if (settingsViews.has(item.key)) continue;
+      items.push({
+        key: item.key,
+        icon: ICONS[item.key],
+        label: item.label,
+      });
+    }
+
+    return items;
+  }, [navigation]);
 
   function navigate(key: string) {
     onNavigate(key as AdminView);
+    if (["site", "storage", "smtp"].includes(key)) {
+      setOpenMenuKeys(["site-settings"]);
+    }
     setDrawerOpen(false);
   }
 
@@ -60,8 +91,10 @@ export function AdminShell({
     <Menu
       mode="inline"
       selectedKeys={[view]}
+      openKeys={openMenuKeys}
       items={menuItems}
       onClick={({ key }) => navigate(key)}
+      onOpenChange={setOpenMenuKeys}
       aria-label="后台主导航"
     />
   );
