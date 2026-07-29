@@ -100,17 +100,27 @@ docker compose --env-file production.env ps
 
 ### 镜像构建
 
-GitHub `main` 是单机镜像的唯一发布源。仓库中的 `.github/workflows/single-host-image.yml` 在 `npm test`、`npm run lint` 和 `npm run build` 成功后构建 `single-host-app`，推送不可变 Git SHA 标签与 `stable` 标签。GitHub 仓库 Variables 必须设置 `ACR_REGISTRY` 和 `ACR_NAMESPACE`，Secrets 必须设置 `ACR_USERNAME` 和 `ACR_PASSWORD`；它们只用于 CI 登录 ACR，不能写进仓库或服务器环境模板。
+默认发布源是开发电脑上的 Docker Desktop。在 Windows PowerShell 中进入仓库根目录并执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build-single-host-offline-image.ps1
+```
+
+脚本会自动寻找并启动 Docker Desktop，构建 `linux/amd64` 的 `single-host-app`，实际运行一次服务端依赖导入冒烟检查，再把程序镜像写入 `.tmp/ai-canvas-cloud-single-host-image.tar`，并输出文件大小和 SHA256。这个归档不包含 PostgreSQL、Redis、服务器密钥或本地 `.env`。服务器不构建源码，也不需要 ACR；arm64 电脑同样必须保留脚本中的 `linux/amd64` 目标，供 x86_64 ECS 使用。
+
+PostgreSQL 与 Redis 继续使用 Compose 中固定版本的 Docker 官方镜像。服务器已经存在 `postgres:17.6-alpine3.22` 和 `redis:8.2.1-alpine3.22` 时不需要本地重复导出；缺少时首次启动会从 Docker Hub 拉取，因此国内服务器需要可用的 Docker 镜像加速。
+
+仓库中的 GitHub Actions ACR 工作流保留为可选的兼容发布通道。已有服务器可继续使用 `APP_IMAGE_SOURCE=registry`、`APP_REPOSITORY=<registry>/<namespace>/<image>`；新安装默认使用 `archive`，不需要配置 GitHub ACR Variables 或 Secrets。
 
 ### 单机首次发布
 
-先创建两个 DNS 记录和宝塔 HTTPS 站点；OSS Bucket 可以在安装前或安装后创建。把整个 `infra/deploy/single-host` 目录上传到服务器固定目录，例如 `/www/wwwroot/ai-canvas-cloud-single-host`。私有 ACR 需要提前在服务器执行一次 `docker login <registry>`，后续安装和升级复用 Docker 凭据；安装脚本不会接收或保存 ACR 密码。进入目录后执行：
+先创建两个 DNS 记录和宝塔 HTTPS 站点；OSS Bucket 可以在安装前或安装后创建。把 `infra/deploy/single-host` 中的部署文件上传到服务器固定目录，例如 `/www/wwwroot/ai-canvas-cloud-single-host`，再把本地生成的 `ai-canvas-cloud-single-host-image.tar` 上传到同一目录。目录中必须直接看到 `setup.sh`、`deploy.sh`、`docker-compose.yml`、`release.env.example` 和镜像归档，不能再多套一层文件夹。进入目录后执行：
 
 ```bash
 sudo bash setup.sh
 ```
 
-脚本只询问普通站点和 Admin 站点两个域名；ACR 仓库、端口、数据库名称和资源标识来自仓库默认配置，数据库、Redis、认证与加密密钥在服务器自动生成。master 配置保存在 `secrets/release.env`，普通/后台使用两个独立运行时环境文件。脚本拉取 CI 构建的 `stable` 镜像、创建数据库角色、创建首个 `super_admin`，并等待两个应用进程启动。`secrets/` 与 `backups/` 均为本机私有目录，权限必须保持为 `700`/`600`。
+脚本只询问普通站点和 Admin 站点两个域名；镜像文件名、端口、数据库名称和资源标识来自仓库默认配置，数据库、Redis、认证与加密密钥在服务器自动生成。master 配置保存在 `secrets/release.env`，普通/后台使用两个独立运行时环境文件。脚本加载本地归档、确认程序镜像为 `linux/amd64`、创建数据库角色和首个 `super_admin`，并等待两个应用进程启动。一个程序镜像会被普通应用和后台应用两个容器复用，加上 PostgreSQL、Redis，最终仍是四个常驻容器。`secrets/` 与 `backups/` 均为本机私有目录，权限必须保持为 `700`/`600`。
 
 首次登录 Admin 后进入“对象存储”，填写 Endpoint、签名 Endpoint、Bucket Origin、Region、Bucket 和 RAM AccessKey，先执行读写删除测试，再保存启用。发布前普通站点和 Admin 均可登录，但依赖 readiness 显示 degraded，图片和视频上传不可用；发布后无需重启容器。单机模式没有环境 OSS 回退，因此后台不会提供“恢复环境配置”操作。
 
@@ -118,14 +128,14 @@ sudo bash setup.sh
 
 ### 日常发布与故障处理
 
-GitHub Actions 绿色完成后，服务器进入单机目录只执行：
+升级时先在本地更新代码并重新运行 PowerShell 构建脚本，再用宝塔上传并覆盖服务器同目录的 `ai-canvas-cloud-single-host-image.tar`。服务器进入单机目录执行：
 
 ```bash
 sudo bash deploy.sh
 sudo bash status.sh
 ```
 
-`deploy.sh` 拉取 `stable` 并记录实际 SHA256 digest，等待 PostgreSQL 和 Redis healthcheck 通过后创建 PostgreSQL 自包含备份，再校验配置、运行迁移和数据库角色校验、刷新两个运行时环境文件、重建两个应用并等待存活检查。发布脚本不会在服务器构建源码，也不会自动回滚 SQL；迁移后的失败保留备份和失败状态，必须按 `DATA_MODEL.md` 的前向修复或隔离恢复流程处理。备份必须复制到另一台设备或独立 OSS Bucket，同机备份不能覆盖整机故障。`status.sh` 分别显示应用是否运行和 PostgreSQL、Redis、OSS 是否全部 ready。
+`deploy.sh` 加载归档，并按实际 Image ID 创建不可变本地标签，等待 PostgreSQL 和 Redis healthcheck 通过后创建 PostgreSQL 自包含备份，再校验配置、运行迁移和数据库角色校验、刷新两个运行时环境文件、重建两个应用并等待存活检查。发布脚本不会在服务器构建源码，也不会自动回滚 SQL；迁移后的失败保留备份和失败状态，必须按 `DATA_MODEL.md` 的前向修复或隔离恢复流程处理。备份必须复制到另一台设备或独立 OSS Bucket，同机备份不能覆盖整机故障。`status.sh` 分别显示应用是否运行和 PostgreSQL、Redis、OSS 是否全部 ready。
 
 ## 分层职责
 

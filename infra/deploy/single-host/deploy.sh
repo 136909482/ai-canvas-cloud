@@ -79,20 +79,53 @@ fi
 mkdir -p "$RUNTIME_DIR" "$BACKUP_DIR"
 chmod 700 "$SECRETS_DIR" "$RUNTIME_DIR" "$BACKUP_DIR"
 
-APP_REPOSITORY="$(read_env APP_REPOSITORY)"
-if [[ -z "$APP_REPOSITORY" ]]; then
-  printf '%s\n' 'APP_REPOSITORY is missing from release.env.' >&2
-  exit 1
-fi
-
-printf 'Pulling %s:stable ...\n' "$APP_REPOSITORY"
-if ! docker pull "${APP_REPOSITORY}:stable"; then
-  printf '%s\n' 'Could not pull the application image. Confirm this server is logged in to the configured ACR registry, then retry.' >&2
-  exit 1
-fi
-APP_IMAGE="$(docker image inspect "${APP_REPOSITORY}:stable" --format '{{range .RepoDigests}}{{println .}}{{end}}' | grep -F "${APP_REPOSITORY}@sha256:" | head -n 1)"
-if [[ -z "$APP_IMAGE" ]]; then
-  printf '%s\n' 'Could not resolve an immutable image digest for stable.' >&2
+APP_IMAGE_SOURCE="$(read_env APP_IMAGE_SOURCE)"
+APP_IMAGE_SOURCE="${APP_IMAGE_SOURCE:-registry}"
+if [[ "$APP_IMAGE_SOURCE" == "archive" ]]; then
+  APP_IMAGE_ARCHIVE="$(read_env APP_IMAGE_ARCHIVE)"
+  APP_LOCAL_IMAGE="$(read_env APP_LOCAL_IMAGE)"
+  if [[ -z "$APP_IMAGE_ARCHIVE" || ! "$APP_IMAGE_ARCHIVE" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    printf '%s\n' 'APP_IMAGE_ARCHIVE is missing or invalid in release.env.' >&2
+    exit 1
+  fi
+  if [[ -z "$APP_LOCAL_IMAGE" || ! "$APP_LOCAL_IMAGE" =~ ^[A-Za-z0-9./:_-]+$ ]]; then
+    printf '%s\n' 'APP_LOCAL_IMAGE is missing or invalid in release.env.' >&2
+    exit 1
+  fi
+  ARCHIVE_FILE="$SCRIPT_DIR/$APP_IMAGE_ARCHIVE"
+  if [[ ! -f "$ARCHIVE_FILE" ]]; then
+    printf 'Missing local image archive: %s\n' "$ARCHIVE_FILE" >&2
+    exit 1
+  fi
+  printf 'Loading offline images from %s ...\n' "$ARCHIVE_FILE"
+  docker load --input "$ARCHIVE_FILE"
+  IMAGE_PLATFORM="$(docker image inspect "$APP_LOCAL_IMAGE" --format '{{.Os}}/{{.Architecture}}')"
+  if [[ "$IMAGE_PLATFORM" != "linux/amd64" ]]; then
+    printf 'Expected a linux/amd64 image, received %s.\n' "$IMAGE_PLATFORM" >&2
+    exit 1
+  fi
+  IMAGE_ID="$(docker image inspect "$APP_LOCAL_IMAGE" --format '{{.Id}}')"
+  IMAGE_ID_HEX="${IMAGE_ID#sha256:}"
+  APP_IMAGE="ai-canvas-cloud-single-host:local-${IMAGE_ID_HEX:0:12}"
+  docker image tag "$APP_LOCAL_IMAGE" "$APP_IMAGE"
+elif [[ "$APP_IMAGE_SOURCE" == "registry" ]]; then
+  APP_REPOSITORY="$(read_env APP_REPOSITORY)"
+  if [[ -z "$APP_REPOSITORY" ]]; then
+    printf '%s\n' 'APP_REPOSITORY is missing from release.env.' >&2
+    exit 1
+  fi
+  printf 'Pulling %s:stable ...\n' "$APP_REPOSITORY"
+  if ! docker pull "${APP_REPOSITORY}:stable"; then
+    printf '%s\n' 'Could not pull the application image. Confirm this server is logged in to the configured registry, then retry.' >&2
+    exit 1
+  fi
+  APP_IMAGE="$(docker image inspect "${APP_REPOSITORY}:stable" --format '{{range .RepoDigests}}{{println .}}{{end}}' | grep -F "${APP_REPOSITORY}@sha256:" | head -n 1)"
+  if [[ -z "$APP_IMAGE" ]]; then
+    printf '%s\n' 'Could not resolve an immutable image digest for stable.' >&2
+    exit 1
+  fi
+else
+  printf 'Unsupported APP_IMAGE_SOURCE: %s\n' "$APP_IMAGE_SOURCE" >&2
   exit 1
 fi
 set_env APP_IMAGE "$APP_IMAGE"

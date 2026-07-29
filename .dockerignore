@@ -15,4 +15,4 @@ infra/deploy/single-host/backups
 .playwright-cli
 infra/local/data
 test-results
-*.tsbuildinfo
+**/*.tsbuildinfo

@@ -48,7 +48,7 @@ npm run dev:admin-api
 
 生产配置从 `infra/deploy/production/production.env.example` 复制为同目录未跟踪的 `production.env`。首次发布、宝塔反向代理、迁移、升级和回滚顺序见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#docker-生产部署)。安全组只需开放 `22`、`80` 和 `443`，`8787`、`8788`、PostgreSQL 与 Redis 端口不得暴露公网。
 
-[`infra/deploy/single-host`](infra/deploy/single-host) 提供面向宝塔单机的简化部署：长期只运行普通应用、后台应用、PostgreSQL 和 Redis 四个容器。GitHub Actions 构建一个 ACR 镜像，服务器首次执行 `bash setup.sh`，之后只执行 `bash deploy.sh`；服务器不再构建前端或维护五个镜像。单机首次安装、GitHub/ACR 配置、备份和故障处理见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#单机-docker-生产部署)。
+[`infra/deploy/single-host`](infra/deploy/single-host) 提供面向宝塔单机的简化部署：长期只运行普通应用、后台应用、PostgreSQL 和 Redis 四个容器。本地 Docker Desktop 一次构建并导出程序镜像，上传服务器后由 `setup.sh`/`deploy.sh` 直接加载；服务器不构建源码，也不要求购买 ACR。PostgreSQL 和 Redis 继续使用 Compose 中固定版本的官方镜像，服务器已有时不会重复上传。单机首次安装、离线镜像构建、备份和故障处理见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#单机-docker-生产部署)。
 
 ## 日常验证
 

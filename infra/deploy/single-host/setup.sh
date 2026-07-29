@@ -26,6 +26,11 @@ read_required() {
   printf '%s' "$value"
 }
 
+read_default() {
+  local key="$1"
+  awk -v key="$key" 'index($0, key "=") == 1 { print substr($0, length(key) + 2); exit }' "$DEFAULTS_ENV"
+}
+
 require_command docker
 require_command openssl
 require_command awk
@@ -46,7 +51,9 @@ printf '%s\n' 'Only the two domain names are required. Enter them without https:
 
 PUBLIC_DOMAIN="$(read_required 'Public domain: ')"
 ADMIN_DOMAIN="$(read_required 'Admin domain: ')"
-APP_REPOSITORY="$(awk -F= 'index($0, "APP_REPOSITORY=") == 1 { print substr($0, length("APP_REPOSITORY=") + 1); exit }' "$DEFAULTS_ENV")"
+APP_IMAGE_SOURCE="$(read_default APP_IMAGE_SOURCE)"
+APP_IMAGE_ARCHIVE="$(read_default APP_IMAGE_ARCHIVE)"
+APP_LOCAL_IMAGE="$(read_default APP_LOCAL_IMAGE)"
 
 for value in "$PUBLIC_DOMAIN" "$ADMIN_DOMAIN"; do
   if [[ ! "$value" =~ ^[A-Za-z0-9.-]+$ ]]; then
@@ -54,8 +61,21 @@ for value in "$PUBLIC_DOMAIN" "$ADMIN_DOMAIN"; do
     exit 1
   fi
 done
-if [[ -z "$APP_REPOSITORY" || ! "$APP_REPOSITORY" =~ ^[A-Za-z0-9./:_-]+$ ]]; then
-  printf '%s\n' 'ACR image repository contains unsupported characters.' >&2
+if [[ "$APP_IMAGE_SOURCE" != "archive" ]]; then
+  printf '%s\n' 'The bundled single-host installer requires APP_IMAGE_SOURCE=archive.' >&2
+  exit 1
+fi
+if [[ -z "$APP_IMAGE_ARCHIVE" || ! "$APP_IMAGE_ARCHIVE" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  printf '%s\n' 'The local image archive name is invalid.' >&2
+  exit 1
+fi
+if [[ -z "$APP_LOCAL_IMAGE" || ! "$APP_LOCAL_IMAGE" =~ ^[A-Za-z0-9./:_-]+$ ]]; then
+  printf '%s\n' 'The local image name is invalid.' >&2
+  exit 1
+fi
+if [[ ! -f "$SCRIPT_DIR/$APP_IMAGE_ARCHIVE" ]]; then
+  printf 'Missing local image archive: %s\n' "$SCRIPT_DIR/$APP_IMAGE_ARCHIVE" >&2
+  printf '%s\n' 'Upload the image archive beside setup.sh, then retry.' >&2
   exit 1
 fi
 
@@ -89,7 +109,10 @@ cat >"$RELEASE_ENV" <<EOF
 NODE_ENV=production
 DEPLOYMENT_ENV=production
 LOG_LEVEL=info
-APP_REPOSITORY=${APP_REPOSITORY}
+APP_IMAGE_SOURCE=${APP_IMAGE_SOURCE}
+APP_IMAGE_ARCHIVE=${APP_IMAGE_ARCHIVE}
+APP_LOCAL_IMAGE=${APP_LOCAL_IMAGE}
+APP_IMAGE=
 
 POSTGRES_DB=${POSTGRES_DB}
 POSTGRES_USER=${POSTGRES_USER}

@@ -42,6 +42,10 @@ const singleHostWorkflow = readFileSync(
   ".github/workflows/single-host-image.yml",
   "utf8",
 );
+const singleHostOfflineBuild = readFileSync(
+  "scripts/build-single-host-offline-image.ps1",
+  "utf8",
+);
 const adminNginx = readFileSync(
   "infra/deploy/production/admin.nginx.conf",
   "utf8",
@@ -107,6 +111,7 @@ test("deployment artifacts keep runtime targets non-root and migration explicit"
   assert.match(dockerignore, /infra\/deploy\/staging\/staging\.env/);
   assert.match(dockerignore, /infra\/deploy\/production\/production\.env/);
   assert.match(dockerignore, /infra\/deploy\/single-host\/secrets/);
+  assert.match(dockerignore, /\*\*\/\*\.tsbuildinfo/);
   assert.match(compose, /profiles: \["release"\]/);
   assert.match(compose, /staging-postgres-data/);
   assert.match(compose, /staging-redis-data/);
@@ -196,7 +201,16 @@ test("single-host production uses one image, two application containers, and pri
   assert.match(singleHostCompose, /--maxmemory-policy noeviction/);
   assert.match(singleHostCompose, /profiles: \["release"\]/);
   assert.match(singleHostCompose, /health\/live/);
-  assert.match(singleHostTemplate, /APP_REPOSITORY=/);
+  assert.match(singleHostTemplate, /APP_IMAGE_SOURCE=archive/);
+  assert.match(
+    singleHostTemplate,
+    /APP_IMAGE_ARCHIVE=ai-canvas-cloud-single-host-image\.tar/,
+  );
+  assert.match(
+    singleHostTemplate,
+    /APP_LOCAL_IMAGE=ai-canvas-cloud-single-host:offline/,
+  );
+  assert.doesNotMatch(singleHostTemplate, /APP_REPOSITORY=/);
   assert.doesNotMatch(singleHostSetup, /docker login/);
   assert.match(singleHostSetup, /PUBLIC_DOMAIN=.*read_required/);
   assert.match(singleHostSetup, /ADMIN_DOMAIN=.*read_required/);
@@ -210,6 +224,13 @@ test("single-host production uses one image, two application containers, and pri
     /ADMIN_BETTER_AUTH_SECRET="\$\(random_hex 32\)"/,
   );
   assert.match(singleHostSetup, /bootstrap-admin\.mjs/);
+  assert.match(singleHostSetup, /Missing local image archive/);
+  assert.match(singleHostDeploy, /docker load --input/);
+  assert.match(singleHostDeploy, /linux\/amd64/);
+  assert.match(
+    singleHostDeploy,
+    /APP_IMAGE_SOURCE="\$\{APP_IMAGE_SOURCE:-registry\}"/,
+  );
   assert.match(singleHostDeploy, /APP_REPOSITORY.*stable/);
   assert.match(
     singleHostDeploy,
@@ -225,6 +246,9 @@ test("single-host production uses one image, two application containers, and pri
   assert.match(singleHostWorkflow, /target: single-host-app/);
   assert.match(singleHostWorkflow, /:stable/);
   assert.match(singleHostWorkflow, /linux\/amd64/);
+  assert.match(singleHostOfflineBuild, /"--target", "single-host-app"/);
+  assert.match(singleHostOfflineBuild, /"run", "--rm"/);
+  assert.match(singleHostOfflineBuild, /"save"/);
 });
 
 test("staging monitoring scrapes API and keeps alerts low-cardinality", () => {
