@@ -87,6 +87,18 @@ test("deployment artifacts keep runtime targets non-root and migration explicit"
     dockerfile,
     /FROM node:24\.13\.0-alpine3\.22 AS single-host-app/,
   );
+  assert.equal(
+    (
+      dockerfile.match(
+        /COPY --from=production-dependencies --chown=node:node \/app\/server\/node_modules \.\/server\/node_modules/g,
+      ) ?? []
+    ).length,
+    5,
+  );
+  assert.match(
+    dockerfile,
+    /RUN node -e "import\('\.\/server\/dist\/modules\/admin\/postgresAdminService\.js'\)"/,
+  );
   assert.equal((dockerfile.match(/USER node/g) ?? []).length, 6);
   assert.equal(
     packageJson.dependencies?.["@rolldown/binding-win32-x64-msvc"],

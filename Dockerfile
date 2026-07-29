@@ -28,6 +28,7 @@ FROM node:24.13.0-alpine3.22 AS api
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
+COPY --from=production-dependencies --chown=node:node /app/server/node_modules ./server/node_modules
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/apps/api/package.json apps/api/package.json
 COPY --from=build --chown=node:node /app/apps/api/dist apps/api/dist
@@ -45,6 +46,7 @@ FROM node:24.13.0-alpine3.22 AS admin-api
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
+COPY --from=production-dependencies --chown=node:node /app/server/node_modules ./server/node_modules
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/apps/admin-api/package.json apps/admin-api/package.json
 COPY --from=build --chown=node:node /app/apps/admin-api/dist apps/admin-api/dist
@@ -62,6 +64,7 @@ FROM node:24.13.0-alpine3.22 AS single-host-app
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
+COPY --from=production-dependencies --chown=node:node /app/server/node_modules ./server/node_modules
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/apps/api/package.json apps/api/package.json
 COPY --from=build --chown=node:node /app/apps/api/dist apps/api/dist
@@ -77,6 +80,7 @@ COPY --from=build --chown=node:node /app/server/package.json server/package.json
 COPY --from=build --chown=node:node /app/server/dist server/dist
 COPY --from=build --chown=node:node /app/server/db/migrations server/db/migrations
 COPY --from=build --chown=node:node /app/scripts scripts
+RUN node -e "import('./server/dist/modules/admin/postgresAdminService.js')"
 USER node
 EXPOSE 8080
 EXPOSE 8081
@@ -86,6 +90,7 @@ FROM node:24.13.0-alpine3.22 AS migrate
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
+COPY --from=production-dependencies --chown=node:node /app/server/node_modules ./server/node_modules
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/packages/shared/package.json packages/shared/package.json
 COPY --from=build --chown=node:node /app/packages/shared/dist packages/shared/dist
@@ -104,6 +109,7 @@ WORKDIR /app
 RUN apk add --no-cache postgresql17-client
 COPY --from=minio-client /usr/bin/mc /usr/local/bin/mc
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
+COPY --from=production-dependencies --chown=node:node /app/server/node_modules ./server/node_modules
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/packages/shared/package.json packages/shared/package.json
 COPY --from=build --chown=node:node /app/packages/shared/dist packages/shared/dist
