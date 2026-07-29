@@ -157,6 +157,11 @@ compose up -d --force-recreate public admin
 wait_for_live public 8080
 wait_for_live admin 8081
 
+printf '%s\n' 'Prewarming public and Admin HTML plus hashed static assets through their public domains ...'
+if ! compose --profile release run --rm release node scripts/prewarm-static-assets.mjs; then
+  printf '%s\n' 'WARNING: Static asset prewarm could not complete; the healthy release remains active.' >&2
+fi
+
 cat >"$STATE_FILE" <<EOF
 APP_IMAGE=${APP_IMAGE}
 DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)

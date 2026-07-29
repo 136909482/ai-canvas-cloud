@@ -4,11 +4,9 @@ import type {
   AuthSuccessResponse,
   RegisterRequest,
 } from "@ai-canvas-cloud/contracts";
-import { useProjectStore } from "@/store/useProjectStore";
-import { useSettingsStore } from "@/store/useSettingsStore";
 import { fetchAuthSession, loginAuth, logoutAuth, registerAuth } from "./api";
 
-type AuthStatus = "checking" | "authenticated" | "anonymous";
+export type AuthStatus = "checking" | "authenticated" | "anonymous";
 
 interface AuthStore {
   status: AuthStatus;
@@ -32,10 +30,14 @@ function toSession(response: AuthSuccessResponse): AuthSessionResponse {
 }
 
 let sessionCheckInFlight: Promise<void> | null = null;
+let authenticatedRuntimeCleanup: () => void = () => undefined;
+
+export function registerAuthenticatedRuntimeCleanup(cleanup: () => void) {
+  authenticatedRuntimeCleanup = cleanup;
+}
 
 export function clearAuthenticatedRuntime() {
-  useSettingsStore.getState().clearVaultSession();
-  useProjectStore.getState().resetForSession();
+  authenticatedRuntimeCleanup();
 }
 
 export const useAuthStore = create<AuthStore>()((set, get) => ({

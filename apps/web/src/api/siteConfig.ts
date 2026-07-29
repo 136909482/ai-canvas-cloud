@@ -1,7 +1,7 @@
 import {
   DEFAULT_SITE_CONFIG,
   type PublicSiteConfigResponse,
-} from "@ai-canvas-cloud/contracts";
+} from "@ai-canvas-cloud/contracts/site-config";
 import { requestCloudJson } from "./cloudApiClient";
 
 export const FALLBACK_SITE_CONFIG: PublicSiteConfigResponse = {

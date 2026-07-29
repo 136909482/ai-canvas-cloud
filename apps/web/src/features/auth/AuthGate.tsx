@@ -33,6 +33,7 @@ import {
   shouldProbeSession,
 } from "./sessionProbe";
 import { useAuthStore } from "./useAuthStore";
+import { shouldLoadAuthenticatedApp } from "./authenticatedAppLoading";
 import { themeClasses } from "@/styles/themeClasses";
 
 interface AuthGateProps {
@@ -552,7 +553,7 @@ export function AuthGate({ children }: AuthGateProps) {
     );
   }
 
-  if (status === "authenticated" && session && mode !== "reset") {
+  if (shouldLoadAuthenticatedApp(status, Boolean(session), mode === "reset")) {
     return children;
   }
 

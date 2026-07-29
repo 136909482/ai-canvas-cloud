@@ -29,6 +29,16 @@ Admin Browser -> Admin Web -> Admin API -> PostgreSQL admin schema
 
 常驻进程只有 Web、API、Admin Web 和 Admin API。迁移、备份、恢复和资产维护按需运行。不存在 Worker、BullMQ Consumer、服务端任务 dispatcher、服务器 Provider 调用或 Worker readiness。
 
+## 前端加载与静态缓存
+
+普通 Web 的 `App.tsx` 只静态依赖公开页面、认证门和轻量加载恢复界面。登录后工作区由独立 `AuthenticatedApp` 动态入口承载画布、工具栏、项目管理器、图片编辑器、浏览器任务运行器、设置 Store 和 `ReactFlowProvider`；`AuthGate` 只有在会话状态为 `authenticated`、存在可信 session 且当前不是密码重置流程时才渲染该入口。会话检查中、匿名、登录失败、注册和重置密码不得触发动态导入。登录后运行时负责注册登出、会话失效和换账号时的项目 Store 与 Vault 内存清理，不允许认证 Store 静态反向依赖工作区 Store。
+
+动态入口使用轻量 `Suspense` 等待态和错误边界。浏览器因发布切换、旧 HTML 或网络问题无法取得 Chunk 时显示“版本已更新，请刷新”和刷新按钮，不得白屏。公开首页、认证、帮助与法律模块不得导入画布、工具栏、项目 Store、React Flow、编辑器或全景模块。
+
+Web 生产构建保留 React、React Flow、编辑器、Three.js、全景、图标、状态库和工具栏分组，分组不得递归吞并公开入口依赖。`npm run build -w @ai-canvas-cloud/web` 在 Vite 输出后自动检查 `dist/index.html`：禁止 modulepreload `AuthenticatedApp`、`app-toolbar`、`vendor-flow`、`vendor-editor`、`vendor-three` 和 `vendor-panorama`，并按 `index.html` 实际引用的模块脚本、modulepreload 和样式计算 Gzip 总量，匿名入口上限固定为 200 KiB。站点配置与 HTTP 常量使用 contracts 轻量子路径，禁止为单个公开常量重新引入 contracts 根 Barrel。
+
+Node 静态站点对 `index.html`、`/` 和所有 SPA 回退 HTML 返回 `Cache-Control: no-store`；`/assets/*` 返回 `Cache-Control: public, max-age=31536000, immutable`，其他静态文件使用 `no-cache`。Hash 文件名变化即创建新 URL，新旧资源可同时缓存一年。EdgeOne 必须使用源站缓存头，不得配置覆盖 `/assets/*` 的短 TTL；HTML 不得在 EdgeOne 缓存。
+
 ## Docker 生产部署
 
 ### 2 核 2G 拓扑
@@ -137,7 +147,9 @@ sudo bash deploy.sh
 sudo bash status.sh
 ```
 
-`deploy.sh` 加载归档，并按实际 Image ID 创建不可变本地标签，等待 PostgreSQL 和 Redis healthcheck 通过后创建 PostgreSQL 自包含备份，再校验配置、运行迁移和数据库角色校验、刷新两个运行时环境文件、重建两个应用并等待存活检查。发布脚本不会在服务器构建源码，也不会自动回滚 SQL；迁移后的失败保留备份和失败状态，必须按 `DATA_MODEL.md` 的前向修复或隔离恢复流程处理。备份必须复制到另一台设备或独立 OSS Bucket，同机备份不能覆盖整机故障。`status.sh` 分别显示应用是否运行和 PostgreSQL、Redis、OSS 是否全部 ready。
+`deploy.sh` 加载归档，并按实际 Image ID 创建不可变本地标签，等待 PostgreSQL 和 Redis healthcheck 通过后创建 PostgreSQL 自包含备份，再校验配置、运行迁移和数据库角色校验、刷新两个运行时环境文件、重建两个应用并等待存活检查。普通站点和 Admin 全部存活后，脚本通过 release 容器读取 `/app/apps/web/dist` 与 `/app/apps/admin-web/dist`，先真实 `GET` 两个正式域名的 HTML，再枚举两套 `/assets/*` 通过对应正式域名预热 EdgeOne，包括懒加载 Chunk。预热固定并发 4、单请求超时 15 秒、失败最多重试 2 次；日志只包含域名、无查询参数的资源路径、状态码和成功/失败汇总。个别资源失败只产生警告，不回滚健康版本；预热无需 Cookie、Token、腾讯云 SecretId/SecretKey 或 EdgeOne 管理 API。
+
+发布脚本不会在服务器构建源码，也不会自动回滚 SQL；迁移后的失败保留备份和失败状态，必须按 `DATA_MODEL.md` 的前向修复或隔离恢复流程处理。备份必须复制到另一台设备或独立 OSS Bucket，同机备份不能覆盖整机故障。`status.sh` 分别显示应用是否运行和 PostgreSQL、Redis、OSS 是否全部 ready。正式发布后还应连续请求同一 Hash 资源两次，确认一年 `immutable` 响应头且第二次由 EdgeOne 命中；该项必须在真实域名和真实 EdgeOne 响应头上验收，本地模拟不能代替。
 
 ## 分层职责
 
@@ -236,7 +248,7 @@ npm run build
 npm run format:check
 ```
 
-`test:unit` 排除 `*.integration.test.*`，并允许用仓库内测试文件或目录限制范围。`npm test` 包含全部测试；两者只构建测试运行时需要的共享、server、API 和 Admin API 工作区，不做 Web/Admin Web 的 Vite 生产打包。`typecheck` 使用 TypeScript project references；`check` 组合全部非集成测试、当前 Git 改动文件的 Lint/Prettier 和增量类型检查。
+`test:unit` 排除 `*.integration.test.*`，并允许用仓库内测试文件或目录限制范围。`npm test` 包含全部测试；两者只构建测试运行时需要的共享、server、API 和 Admin API 工作区，不做 Web/Admin Web 的 Vite 生产打包。`typecheck` 使用 TypeScript project references；`check` 组合全部非集成测试、当前 Git 改动文件的 Lint/Prettier 和增量类型检查。`npm run build` 还会对 Web 生产产物执行匿名入口 200 KiB Gzip 预算和禁止 preload 登录后 Chunk 的检查。
 
 数据库与运维：
 

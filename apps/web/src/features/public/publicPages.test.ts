@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_SITE_CONFIG } from "@ai-canvas-cloud/contracts";
+import { DEFAULT_SITE_CONFIG } from "@ai-canvas-cloud/contracts/site-config";
 import { getPublicPageHref, getPublicPageKind } from "./publicPages.ts";
 
 test("public content paths resolve with or without a trailing slash", () => {

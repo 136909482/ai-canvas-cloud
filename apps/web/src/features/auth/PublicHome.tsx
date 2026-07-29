@@ -282,4 +282,4 @@ import { useEffect, useState } from "react";
 import type {
   PublicSiteConfigResponse,
   SiteConfigDocument,
-} from "@ai-canvas-cloud/contracts";
+} from "@ai-canvas-cloud/contracts/site-config";

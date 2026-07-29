@@ -7,7 +7,7 @@ import {
   MessageSquareText,
   ShieldCheck,
 } from "lucide-react";
-import type { PublicSiteConfigResponse } from "@ai-canvas-cloud/contracts";
+import type { PublicSiteConfigResponse } from "@ai-canvas-cloud/contracts/site-config";
 import { FALLBACK_SITE_CONFIG, fetchPublicSiteConfig } from "@/api/siteConfig";
 import {
   PUBLIC_PAGE_META,

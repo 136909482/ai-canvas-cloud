@@ -14,55 +14,57 @@ export default defineConfig({
     chunkSizeWarningLimit: 700,
     rolldownOptions: {
       output: {
-        manualChunks(id) {
-          const normalizedId = id.replace(/\\/g, "/");
-
-          if (normalizedId.includes("/src/components/Toolbar.tsx")) {
-            return "app-toolbar";
-          }
-
-          if (!normalizedId.includes("node_modules")) {
-            return undefined;
-          }
-
-          if (
-            normalizedId.includes("/react/") ||
-            normalizedId.includes("/react-dom/") ||
-            normalizedId.includes("/scheduler/")
-          ) {
-            return "vendor-react";
-          }
-
-          if (normalizedId.includes("/@xyflow/")) {
-            return "vendor-flow";
-          }
-
-          if (
-            normalizedId.includes("/@tiptap/") ||
-            normalizedId.includes("/prosemirror-") ||
-            normalizedId.includes("/orderedmap/") ||
-            normalizedId.includes("/rope-sequence/")
-          ) {
-            return "vendor-editor";
-          }
-
-          if (normalizedId.includes("/three/")) {
-            return "vendor-three";
-          }
-
-          if (normalizedId.includes("/@photo-sphere-viewer/")) {
-            return "vendor-panorama";
-          }
-
-          if (normalizedId.includes("/lucide-react/")) {
-            return "vendor-icons";
-          }
-
-          if (normalizedId.includes("/zustand/")) {
-            return "vendor-state";
-          }
-
-          return "vendor";
+        strictExecutionOrder: true,
+        codeSplitting: {
+          includeDependenciesRecursively: false,
+          groups: [
+            {
+              name: "app-toolbar",
+              test: (id) =>
+                id.replace(/\\/g, "/").includes("/src/components/Toolbar.tsx"),
+              priority: 20,
+            },
+            {
+              name: "vendor-react",
+              test: /node_modules[\\/](?:react|react-dom|scheduler)[\\/]/,
+              priority: 10,
+            },
+            {
+              name: "vendor-flow",
+              test: /node_modules[\\/]@xyflow[\\/]/,
+              priority: 10,
+            },
+            {
+              name: "vendor-editor",
+              test: /node_modules[\\/](?:@tiptap[\\/]|prosemirror-|orderedmap[\\/]|rope-sequence[\\/])/,
+              priority: 10,
+            },
+            {
+              name: "vendor-three",
+              test: /node_modules[\\/]three[\\/]/,
+              priority: 10,
+            },
+            {
+              name: "vendor-panorama",
+              test: /node_modules[\\/]@photo-sphere-viewer[\\/]/,
+              priority: 10,
+            },
+            {
+              name: "vendor-icons",
+              test: /node_modules[\\/]lucide-react[\\/]/,
+              priority: 10,
+            },
+            {
+              name: "vendor-state",
+              test: /node_modules[\\/]zustand[\\/]/,
+              priority: 10,
+            },
+            {
+              name: "vendor",
+              test: /node_modules[\\/]/,
+              priority: 0,
+            },
+          ],
         },
       },
     },

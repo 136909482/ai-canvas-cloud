@@ -1,4 +1,4 @@
-export const API_V1_PREFIX = "/api/v1";
+export { API_V1_PREFIX } from "./http.ts";
 
 export const apiErrorCodes = [
   "AUTH_REQUIRED",

@@ -52,6 +52,10 @@ npm run dev:admin-api
 
 [`infra/deploy/single-host`](infra/deploy/single-host) 提供面向宝塔单机的简化部署：长期只运行普通应用、后台应用、PostgreSQL 和 Redis 四个容器。本地 Docker Desktop 一次构建并导出程序镜像，上传服务器后由 `setup.sh`/`deploy.sh` 直接加载；服务器不构建源码，也不要求购买 ACR。PostgreSQL 和 Redis 继续使用 Compose 中固定版本的官方镜像，服务器已有时不会重复上传。单机首次安装、离线镜像构建、备份和故障处理见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#单机-docker-生产部署)。
 
+普通站点的公开首页、登录、注册、密码重置、帮助和法律页面只加载认证与基础界面。会话确认已登录后才动态下载画布、工具栏、项目管理、编辑器、任务运行器、React Flow 和全景预览；Chunk 加载失败会显示刷新恢复界面。`npm run build` 会检查 `apps/web/dist/index.html` 没有 preload 登录后、工具栏、React Flow、编辑器、Three.js 或全景 Chunk，并要求匿名入口实际引用的 JS/CSS Gzip 总量不超过 200 KiB。
+
+静态站点对 `index.html` 和 SPA 回退 HTML 返回 `Cache-Control: no-store`，对带 Hash 的 `/assets/*` 返回 `public, max-age=31536000, immutable`。EdgeOne 应遵循源站缓存头，不得用短缓存规则覆盖 `/assets/*`。单机 `deploy.sh` 在普通站点和 Admin 存活检查通过后，从 release 容器读取两套构建目录，经 `WEB_PUBLIC_URL` 和 `ADMIN_WEB_PUBLIC_URL` 预热 HTML 与全部静态资源；个别预热失败只警告并汇总，不回滚已健康版本，也不需要腾讯云密钥或 EdgeOne 管理 API。
+
 ## 日常验证
 
 编辑过程中只运行受影响范围：
@@ -76,7 +80,7 @@ npm test
 npm run build
 ```
 
-`npm test` 会构建测试运行时实际依赖的 6 个共享/后端工作区，不再重复构建两个前端生产包。数据库、认证、权限、资产、Vault 和发布验证按风险触发，完整矩阵见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)。
+`npm test` 会构建测试运行时实际依赖的 6 个共享/后端工作区，不再重复构建两个前端生产包。`npm run build` 除生产打包外还执行匿名入口体积和 preload 门禁。数据库、认证、权限、资产、Vault 和发布验证按风险触发，完整矩阵见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)。
 
 ## 文档入口
 

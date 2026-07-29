@@ -11,6 +11,12 @@
     "paths": {
       "@/*": ["src/*"],
       "@ai-canvas-cloud/contracts": ["../../packages/contracts/src/index.ts"],
+      "@ai-canvas-cloud/contracts/http": [
+        "../../packages/contracts/src/http.ts"
+      ],
+      "@ai-canvas-cloud/contracts/site-config": [
+        "../../packages/contracts/src/siteConfig.ts"
+      ],
       "@ai-canvas-cloud/project-graph": [
         "../../packages/project-graph/src/index.ts"
       ],

@@ -1,8 +1,8 @@
-import {
-  API_V1_PREFIX,
-  type ApiErrorCode,
-  type ApiErrorResponse,
+import type {
+  ApiErrorCode,
+  ApiErrorResponse,
 } from "@ai-canvas-cloud/contracts";
+import { API_V1_PREFIX } from "@ai-canvas-cloud/contracts/http";
 
 export const AUTH_SESSION_EXPIRED_EVENT =
   "ai-canvas-cloud-auth-session-expired";

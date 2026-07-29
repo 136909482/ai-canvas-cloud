@@ -1,7 +1,7 @@
 import {
   DEFAULT_SITE_LINK_PATHS,
   type SiteConfigDocument,
-} from "@ai-canvas-cloud/contracts";
+} from "@ai-canvas-cloud/contracts/site-config";
 
 export type PublicPageKind = "help" | "terms" | "privacy" | "feedback";
 

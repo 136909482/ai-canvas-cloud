@@ -34,6 +34,10 @@ const singleHostDeploy = readFileSync(
   "infra/deploy/single-host/deploy.sh",
   "utf8",
 );
+const staticAssetPrewarm = readFileSync(
+  "scripts/prewarm-static-assets.mjs",
+  "utf8",
+);
 const singleHostStatus = readFileSync(
   "infra/deploy/single-host/status.sh",
   "utf8",
@@ -242,6 +246,18 @@ test("single-host production uses one image, two application containers, and pri
   );
   assert.match(singleHostDeploy, /apply-migrations\.mjs/);
   assert.match(singleHostDeploy, /check-admin-role-isolation\.mjs/);
+  assert.match(singleHostDeploy, /wait_for_live public 8080/);
+  assert.match(singleHostDeploy, /wait_for_live admin 8081/);
+  assert.ok(
+    singleHostDeploy.indexOf("wait_for_live admin 8081") <
+      singleHostDeploy.indexOf("prewarm-static-assets.mjs"),
+  );
+  assert.match(singleHostDeploy, /if ! compose .*prewarm-static-assets\.mjs/);
+  assert.match(staticAssetPrewarm, /PREWARM_CONCURRENCY = 4/);
+  assert.match(staticAssetPrewarm, /PREWARM_TIMEOUT_MS = 15_000/);
+  assert.match(staticAssetPrewarm, /PREWARM_RETRIES = 2/);
+  assert.match(staticAssetPrewarm, /\/app\/apps\/web\/dist/);
+  assert.match(staticAssetPrewarm, /\/app\/apps\/admin-web\/dist/);
   assert.match(singleHostStatus, /single-host status/);
   assert.match(singleHostWorkflow, /target: single-host-app/);
   assert.match(singleHostWorkflow, /:stable/);
