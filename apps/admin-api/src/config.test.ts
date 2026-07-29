@@ -67,6 +67,26 @@ test("Admin API config supports virtual-hosted object storage", () => {
   assert.equal(config.s3ForcePathStyle, false);
 });
 
+test("Admin API config allows first-run setup without object storage", () => {
+  const env = {
+    ...baseEnv,
+    OBJECT_STORAGE_ENVIRONMENT_FALLBACK: "false",
+  };
+  for (const key of [
+    "S3_ENDPOINT",
+    "S3_PUBLIC_ENDPOINT",
+    "S3_BUCKET",
+    "S3_REGION",
+    "S3_ACCESS_KEY_ID",
+    "S3_SECRET_ACCESS_KEY",
+  ]) {
+    Reflect.deleteProperty(env, key);
+  }
+  const config = loadAdminApiConfig(env);
+  assert.equal(config.objectStorageEnvironmentFallback, false);
+  assert.equal(config.s3Endpoint, "");
+});
+
 test("Admin API config rejects credential-bearing or path-bearing origins", () => {
   assert.throws(
     () =>

@@ -40,7 +40,7 @@ npm run dev:admin-api
 
 后台管理 SMTP 时，把 `AUTH_EMAIL_TRANSPORT` 设为 `managed`，并在 API 与 Admin API 的服务器环境中提供同一份 `SMTP_CREDENTIAL_KEYS`（版本到 32 字节 Base64 密钥的 JSON）和 `SMTP_CREDENTIAL_ACTIVE_KEY_VERSION`。主密钥不能在后台填写；首次发布 managed 配置前可保留旧 `SMTP_*` 环境变量作为回退，确认测试邮件和认证邮件成功后再移除旧密码。
 
-后台管理 OSS 时，API 与 Admin API 必须使用同一份 `OBJECT_STORAGE_CREDENTIAL_KEYS` 和 `OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION`。环境 `S3_*` 继续作为首次启动和故障回退；超级管理员在“对象存储”中通过真实读写删除测试后发布加密配置，AccessKey 不会回显。已有资产时 Bucket、Region、Endpoint 和路径样式会锁定，只允许轮换 RAM AccessKey 与调整签名访问地址。
+后台管理 OSS 时，API 与 Admin API 必须使用同一份 `OBJECT_STORAGE_CREDENTIAL_KEYS` 和 `OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION`。通用生产部署可保留环境 `S3_*` 作为首次启动和故障回退；单机安装使用 `OBJECT_STORAGE_ENVIRONMENT_FALLBACK=false`，允许服务先启动，再由超级管理员在“对象存储”中通过真实读写删除测试后发布加密配置，AccessKey 不会回显。已有资产时 Bucket、Region、Endpoint 和路径样式会锁定，只允许轮换 RAM AccessKey 与调整签名访问地址。
 
 ## Docker 生产部署
 

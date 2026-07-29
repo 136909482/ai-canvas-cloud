@@ -147,15 +147,20 @@ export function validateProtectedDeploymentEnvironment(
     );
   }
 
-  const bucket = required(env, "S3_BUCKET").toLowerCase();
-  if (!bucket.includes(environment)) {
+  const objectStorageEnvironmentFallback = readBoolean(
+    env.OBJECT_STORAGE_ENVIRONMENT_FALLBACK,
+    true,
+    "OBJECT_STORAGE_ENVIRONMENT_FALLBACK",
+  );
+  const bucket = objectStorageEnvironmentFallback
+    ? required(env, "S3_BUCKET").toLowerCase()
+    : undefined;
+  if (bucket && !bucket.includes(environment)) {
     throw new Error(`S3_BUCKET must be scoped to ${environment}`);
   }
-  const forcePathStyle = readBoolean(
-    env.S3_FORCE_PATH_STYLE,
-    true,
-    "S3_FORCE_PATH_STYLE",
-  );
+  const forcePathStyle = objectStorageEnvironmentFallback
+    ? readBoolean(env.S3_FORCE_PATH_STYLE, true, "S3_FORCE_PATH_STYLE")
+    : true;
 
   if (options.requireWeb !== false) {
     const webPublicUrl = rejectLocalHost(
@@ -190,36 +195,38 @@ export function validateProtectedDeploymentEnvironment(
         "WEB_ALLOWED_ORIGINS must contain HTTPS origins in a protected environment",
       );
     }
-    const publicStorage = rejectLocalHost(
-      required(env, "S3_PUBLIC_ENDPOINT"),
-      "S3_PUBLIC_ENDPOINT",
-    );
-    if (
-      publicStorage.protocol !== "https:" ||
-      publicStorage.search ||
-      publicStorage.hash
-    ) {
-      throw new Error(
-        "S3_PUBLIC_ENDPOINT must be an HTTPS origin without query or fragment in a protected environment",
+    if (objectStorageEnvironmentFallback) {
+      const publicStorage = rejectLocalHost(
+        required(env, "S3_PUBLIC_ENDPOINT"),
+        "S3_PUBLIC_ENDPOINT",
       );
-    }
-    const publicStorageOrigin = rejectLocalHost(
-      required(env, "S3_PUBLIC_ORIGIN"),
-      "S3_PUBLIC_ORIGIN",
-    );
-    const expectedPublicOrigin = new URL(publicStorage.origin);
-    if (!forcePathStyle) {
-      expectedPublicOrigin.hostname = `${bucket}.${expectedPublicOrigin.hostname}`;
-    }
-    if (
-      publicStorageOrigin.protocol !== "https:" ||
-      publicStorageOrigin.origin !== expectedPublicOrigin.origin
-    ) {
-      throw new Error(
-        forcePathStyle
-          ? "S3_PUBLIC_ORIGIN must match the HTTPS origin of S3_PUBLIC_ENDPOINT"
-          : "S3_PUBLIC_ORIGIN must match the bucket virtual-hosted HTTPS origin derived from S3_PUBLIC_ENDPOINT",
+      if (
+        publicStorage.protocol !== "https:" ||
+        publicStorage.search ||
+        publicStorage.hash
+      ) {
+        throw new Error(
+          "S3_PUBLIC_ENDPOINT must be an HTTPS origin without query or fragment in a protected environment",
+        );
+      }
+      const publicStorageOrigin = rejectLocalHost(
+        required(env, "S3_PUBLIC_ORIGIN"),
+        "S3_PUBLIC_ORIGIN",
       );
+      const expectedPublicOrigin = new URL(publicStorage.origin);
+      if (!forcePathStyle) {
+        expectedPublicOrigin.hostname = `${bucket}.${expectedPublicOrigin.hostname}`;
+      }
+      if (
+        publicStorageOrigin.protocol !== "https:" ||
+        publicStorageOrigin.origin !== expectedPublicOrigin.origin
+      ) {
+        throw new Error(
+          forcePathStyle
+            ? "S3_PUBLIC_ORIGIN must match the HTTPS origin of S3_PUBLIC_ENDPOINT"
+            : "S3_PUBLIC_ORIGIN must match the bucket virtual-hosted HTTPS origin derived from S3_PUBLIC_ENDPOINT",
+        );
+      }
     }
   }
 
@@ -235,7 +242,9 @@ export function validateProtectedDeploymentEnvironment(
   if (!["redis:", "rediss:"].includes(redisUrl.protocol)) {
     throw new Error("REDIS_URL must use redis:// or rediss://");
   }
-  rejectLocalHost(required(env, "S3_ENDPOINT"), "S3_ENDPOINT");
+  if (objectStorageEnvironmentFallback) {
+    rejectLocalHost(required(env, "S3_ENDPOINT"), "S3_ENDPOINT");
+  }
   if (options.requireWeb !== false) {
     rejectPlaceholder(
       required(env, "BETTER_AUTH_SECRET"),
@@ -245,11 +254,13 @@ export function validateProtectedDeploymentEnvironment(
       throw new Error("BETTER_AUTH_SECRET must be at least 32 characters");
     }
   }
-  rejectPlaceholder(required(env, "S3_ACCESS_KEY_ID"), "S3_ACCESS_KEY_ID");
-  rejectPlaceholder(
-    required(env, "S3_SECRET_ACCESS_KEY"),
-    "S3_SECRET_ACCESS_KEY",
-  );
+  if (objectStorageEnvironmentFallback) {
+    rejectPlaceholder(required(env, "S3_ACCESS_KEY_ID"), "S3_ACCESS_KEY_ID");
+    rejectPlaceholder(
+      required(env, "S3_SECRET_ACCESS_KEY"),
+      "S3_SECRET_ACCESS_KEY",
+    );
+  }
   rejectPlaceholder(
     required(env, "OBJECT_STORAGE_CREDENTIAL_KEYS"),
     "OBJECT_STORAGE_CREDENTIAL_KEYS",

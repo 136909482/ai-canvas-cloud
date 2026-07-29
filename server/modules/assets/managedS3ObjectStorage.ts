@@ -29,11 +29,13 @@ export function createManagedS3ObjectStorage(
   pool: DbPool,
   options: {
     keyring: ObjectStorageCredentialKeyring;
-    fallback: S3ObjectStorageOptions;
+    fallback?: S3ObjectStorageOptions;
     cacheTtlMs?: number;
   },
 ): ManagedS3ObjectStorage {
-  const fallback = createS3ObjectStorage(options.fallback);
+  const fallback = options.fallback
+    ? createS3ObjectStorage(options.fallback)
+    : undefined;
   const clients = new Map<string, S3ObjectStorage>();
   const cacheTtlMs = options.cacheTtlMs ?? 2_000;
   let cached:
@@ -50,6 +52,9 @@ export function createManagedS3ObjectStorage(
     `);
     const row = result.rows[0];
     if (!row) {
+      if (!fallback) {
+        throw new Error("Object storage is not configured");
+      }
       cached = {
         revisionId: null,
         storage: fallback,
@@ -87,7 +92,7 @@ export function createManagedS3ObjectStorage(
       cached = undefined;
     },
     destroy() {
-      fallback.destroy();
+      fallback?.destroy();
       for (const storage of clients.values()) storage.destroy();
       clients.clear();
     },

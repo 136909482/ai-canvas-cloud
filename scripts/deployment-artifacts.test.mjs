@@ -183,14 +183,30 @@ test("single-host production uses one image, two application containers, and pri
   assert.match(singleHostCompose, /--maxmemory 64mb/);
   assert.match(singleHostCompose, /--maxmemory-policy noeviction/);
   assert.match(singleHostCompose, /profiles: \["release"\]/);
+  assert.match(singleHostCompose, /health\/live/);
   assert.match(singleHostTemplate, /APP_REPOSITORY=/);
-  assert.match(singleHostSetup, /docker login/);
+  assert.doesNotMatch(singleHostSetup, /docker login/);
+  assert.match(singleHostSetup, /PUBLIC_DOMAIN=.*read_required/);
+  assert.match(singleHostSetup, /ADMIN_DOMAIN=.*read_required/);
+  assert.doesNotMatch(
+    singleHostSetup,
+    /OSS endpoint|S3_ENDPOINT=.*read_required/,
+  );
+  assert.match(singleHostSetup, /OBJECT_STORAGE_ENVIRONMENT_FALLBACK=false/);
   assert.match(
     singleHostSetup,
     /ADMIN_BETTER_AUTH_SECRET="\$\(random_hex 32\)"/,
   );
   assert.match(singleHostSetup, /bootstrap-admin\.mjs/);
   assert.match(singleHostDeploy, /APP_REPOSITORY.*stable/);
+  assert.match(
+    singleHostDeploy,
+    /compose up -d --wait --wait-timeout 180 postgres redis/,
+  );
+  assert.ok(
+    singleHostDeploy.indexOf("--wait --wait-timeout 180 postgres redis") <
+      singleHostDeploy.indexOf("pg_dump"),
+  );
   assert.match(singleHostDeploy, /apply-migrations\.mjs/);
   assert.match(singleHostDeploy, /check-admin-role-isolation\.mjs/);
   assert.match(singleHostStatus, /single-host status/);

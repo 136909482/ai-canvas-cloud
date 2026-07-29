@@ -52,17 +52,17 @@ compose() {
   docker compose --env-file "$RELEASE_ENV" -f "$COMPOSE_FILE" "$@"
 }
 
-wait_for_health() {
+wait_for_live() {
   local service="$1"
   local port="$2"
   local attempt
   for attempt in $(seq 1 30); do
-    if compose exec -T "$service" node -e "fetch('http://127.0.0.1:${port}/health/ready').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"; then
+    if compose exec -T "$service" node -e "fetch('http://127.0.0.1:${port}/health/live').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"; then
       return 0
     fi
     sleep 2
   done
-  printf '%s service did not become ready.\n' "$service" >&2
+  printf '%s service did not start.\n' "$service" >&2
   return 1
 }
 
@@ -86,7 +86,10 @@ if [[ -z "$APP_REPOSITORY" ]]; then
 fi
 
 printf 'Pulling %s:stable ...\n' "$APP_REPOSITORY"
-docker pull "${APP_REPOSITORY}:stable"
+if ! docker pull "${APP_REPOSITORY}:stable"; then
+  printf '%s\n' 'Could not pull the application image. Confirm this server is logged in to the configured ACR registry, then retry.' >&2
+  exit 1
+fi
 APP_IMAGE="$(docker image inspect "${APP_REPOSITORY}:stable" --format '{{range .RepoDigests}}{{println .}}{{end}}' | grep -F "${APP_REPOSITORY}@sha256:" | head -n 1)"
 if [[ -z "$APP_IMAGE" ]]; then
   printf '%s\n' 'Could not resolve an immutable image digest for stable.' >&2
@@ -94,7 +97,8 @@ if [[ -z "$APP_IMAGE" ]]; then
 fi
 set_env APP_IMAGE "$APP_IMAGE"
 
-compose up -d postgres redis
+printf '%s\n' 'Starting PostgreSQL and Redis, then waiting for them to become healthy ...'
+compose up -d --wait --wait-timeout 180 postgres redis
 
 POSTGRES_USER="$(read_env POSTGRES_USER)"
 POSTGRES_DB="$(read_env POSTGRES_DB)"
@@ -110,8 +114,8 @@ compose --profile release run --rm release node scripts/render-single-host-runti
 compose --profile release run --rm release node scripts/check-admin-role-isolation.mjs
 compose up -d --force-recreate public admin
 
-wait_for_health public 8080
-wait_for_health admin 8081
+wait_for_live public 8080
+wait_for_live admin 8081
 
 cat >"$STATE_FILE" <<EOF
 APP_IMAGE=${APP_IMAGE}
@@ -119,4 +123,4 @@ DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 DATABASE_BACKUP=${BACKUP_FILE}
 EOF
 chmod 600 "$STATE_FILE"
-printf '%s\n' 'Deployment completed. Public and Admin services are healthy.'
+printf '%s\n' 'Deployment completed. Public and Admin services are running. Configure OSS in Admin to make all dependencies ready.'

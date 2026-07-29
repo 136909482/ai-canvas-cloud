@@ -36,6 +36,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   OBJECT_STORAGE_CONFIG_CONFLICT: "对象存储配置已被更新，请刷新后重试。",
   OBJECT_STORAGE_IDENTITY_LOCKED:
     "当前已有资产，不能切换 Endpoint、Region、Bucket 或路径样式。",
+  OBJECT_STORAGE_ENVIRONMENT_FALLBACK_UNAVAILABLE:
+    "当前安装没有设置环境回退，请继续使用后台托管配置。",
   OBJECT_STORAGE_CONNECTION_FAILED:
     "读写删除测试失败，请检查 OSS 地址、Bucket、RAM 权限和跨域设置。",
   OBJECT_STORAGE_RATE_LIMITED: "测试操作过于频繁，请稍后再试。",
@@ -196,6 +198,7 @@ export function ObjectStorageSettingsView() {
     return <AccessDenied message="当前管理员无权配置对象存储" />;
 
   const managed = settings?.source === "managed";
+  const unconfigured = settings?.source === "unconfigured";
   const needsCredentials = !managed;
   const identityLocked = Boolean(settings?.identityLocked);
 
@@ -206,8 +209,12 @@ export function ObjectStorageSettingsView() {
         description="管理画布图片、视频和迁移包使用的私有 OSS 存储"
         extra={
           <Space size={8} wrap>
-            <Tag color={managed ? "success" : "processing"}>
-              {managed ? "后台托管" : "环境配置"}
+            <Tag
+              color={
+                managed ? "success" : unconfigured ? "warning" : "processing"
+              }
+            >
+              {managed ? "后台托管" : unconfigured ? "尚未配置" : "环境配置"}
             </Tag>
             <Button
               icon={<DatabaseZap size={16} />}
@@ -221,6 +228,15 @@ export function ObjectStorageSettingsView() {
         }
       />
       <Feedback error={error} success={notice} />
+      {unconfigured ? (
+        <Alert
+          className="storage-lock-alert"
+          type="info"
+          showIcon
+          message="对象存储尚未配置"
+          description="请填写 OSS 连接信息并保存启用；在此之前，图片和视频上传功能不可用。"
+        />
+      ) : null}
       {identityLocked ? (
         <Alert
           className="storage-lock-alert"
@@ -383,7 +399,7 @@ export function ObjectStorageSettingsView() {
               </Form.Item>
             </div>
             <div className="storage-form-actions">
-              {managed ? (
+              {managed && settings?.environmentFallbackConfigured ? (
                 <Button
                   icon={<RotateCcw size={16} />}
                   loading={busy === "restore"}

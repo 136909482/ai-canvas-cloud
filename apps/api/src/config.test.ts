@@ -45,6 +45,26 @@ test("API config supports virtual-hosted object storage", () => {
   assert.equal(config.s3ForcePathStyle, false);
 });
 
+test("API config allows managed object storage to be configured after startup", () => {
+  const env = {
+    ...baseEnv,
+    OBJECT_STORAGE_ENVIRONMENT_FALLBACK: "false",
+  };
+  for (const key of [
+    "S3_ENDPOINT",
+    "S3_PUBLIC_ENDPOINT",
+    "S3_BUCKET",
+    "S3_REGION",
+    "S3_ACCESS_KEY_ID",
+    "S3_SECRET_ACCESS_KEY",
+  ]) {
+    Reflect.deleteProperty(env, key);
+  }
+  const config = loadApiConfig(env);
+  assert.equal(config.objectStorageEnvironmentFallback, false);
+  assert.equal(config.s3Endpoint, "");
+});
+
 test("API config rejects missing secrets and invalid log level", () => {
   assert.throws(
     () => loadApiConfig({ ...baseEnv, DATABASE_URL: "" }),

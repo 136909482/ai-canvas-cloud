@@ -526,6 +526,7 @@ test("Admin object storage routes mask credentials and protect every mutation wi
     bucket: "bucket",
     forcePathStyle: false,
     credentialsConfigured: true,
+    environmentFallbackConfigured: true,
     identityLocked: true,
     revisionId: "123e4567-e89b-42d3-a456-426614174000",
     updatedAt: new Date().toISOString(),

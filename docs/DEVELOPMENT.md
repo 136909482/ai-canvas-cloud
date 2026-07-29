@@ -65,7 +65,7 @@ docker buildx build --platform linux/amd64 --target release -t <acr>/ai-canvas-c
 
 阿里云 OSS 使用区域 endpoint 和虚拟主机样式：`S3_FORCE_PATH_STYLE=false`，`S3_PUBLIC_ENDPOINT` 填 `https://oss-<region>.aliyuncs.com`，`S3_PUBLIC_ORIGIN` 填 `https://<bucket>.oss-<region>.aliyuncs.com`。Bucket CORS 至少允许普通站点和管理站点两个 HTTPS Origin、`GET/PUT/HEAD` 方法、`Content-Type` 与 `x-amz-*` 请求头，并暴露 `ETag`；不要把 Bucket 改成公共读。
 
-对象存储环境变量是启动和故障回退配置。API/Admin API 每次对象操作通过 `public.object_storage_config_publications` 的短缓存选择当前 revision，后台发布后无需重启；发布前必须完成随机探针对象的写入、读回比对和删除。AccessKey ID/Secret 作为同一 AES-256-GCM 信封保存，主密钥只能来自服务端环境。已有正式资产后存储身份不可在后台切换，避免历史 object key 指向另一 Bucket。`S3_PUBLIC_ORIGIN` 同时进入 Web/Admin Web 的 CSP，因此调整签名域名时必须先更新 Bucket CORS、生产环境变量并重建两个 Web 容器，再发布后台配置。
+对象存储环境变量可作为启动和故障回退配置。设置 `OBJECT_STORAGE_ENVIRONMENT_FALLBACK=false` 时允许不提供 `S3_*`，此时服务可以启动和登录，但 readiness 保持 degraded，资产上传、读取和站点媒体操作在后台发布首个托管配置前不可用。API/Admin API 每次对象操作通过 `public.object_storage_config_publications` 的短缓存选择当前 revision，后台发布后无需重启；发布前必须完成随机探针对象的写入、读回比对和删除。AccessKey ID/Secret 作为同一 AES-256-GCM 信封保存，主密钥只能来自服务端环境。已有正式资产后存储身份不可在后台切换，避免历史 object key 指向另一 Bucket。通用生产部署的 `S3_PUBLIC_ORIGIN` 同时进入 Web/Admin Web 的 CSP，因此调整签名域名时必须先更新 Bucket CORS、生产环境变量并重建两个 Web 容器，再发布后台配置；无环境回退的单机 Admin CSP 允许托管配置使用 HTTPS 对象存储来源。
 
 ### 首次发布
 
@@ -104,13 +104,15 @@ GitHub `main` 是单机镜像的唯一发布源。仓库中的 `.github/workflow
 
 ### 单机首次发布
 
-先创建私有 OSS Bucket、两个 DNS 记录和宝塔 HTTPS 站点。把整个 `infra/deploy/single-host` 目录上传到服务器固定目录，例如 `/www/wwwroot/ai-canvas-cloud-single-host`，进入该目录后执行：
+先创建两个 DNS 记录和宝塔 HTTPS 站点；OSS Bucket 可以在安装前或安装后创建。把整个 `infra/deploy/single-host` 目录上传到服务器固定目录，例如 `/www/wwwroot/ai-canvas-cloud-single-host`。私有 ACR 需要提前在服务器执行一次 `docker login <registry>`，后续安装和升级复用 Docker 凭据；安装脚本不会接收或保存 ACR 密码。进入目录后执行：
 
 ```bash
 sudo bash setup.sh
 ```
 
-脚本只询问两个域名、ACR 完整镜像仓库和 OSS/RAM 凭据；它在服务器生成数据库、Redis、认证与加密密钥，将 master 配置保存在 `secrets/release.env`，并生成普通/后台两个独立运行时环境文件。脚本会提示 ACR 登录、拉取 CI 构建的 `stable` 镜像、创建数据库角色、创建首个 `super_admin`，并等待两个健康检查通过。`secrets/` 与 `backups/` 均为本机私有目录，权限必须保持为 `700`/`600`。
+脚本只询问普通站点和 Admin 站点两个域名；ACR 仓库、端口、数据库名称和资源标识来自仓库默认配置，数据库、Redis、认证与加密密钥在服务器自动生成。master 配置保存在 `secrets/release.env`，普通/后台使用两个独立运行时环境文件。脚本拉取 CI 构建的 `stable` 镜像、创建数据库角色、创建首个 `super_admin`，并等待两个应用进程启动。`secrets/` 与 `backups/` 均为本机私有目录，权限必须保持为 `700`/`600`。
+
+首次登录 Admin 后进入“对象存储”，填写 Endpoint、签名 Endpoint、Bucket Origin、Region、Bucket 和 RAM AccessKey，先执行读写删除测试，再保存启用。发布前普通站点和 Admin 均可登录，但依赖 readiness 显示 degraded，图片和视频上传不可用；发布后无需重启容器。单机模式没有环境 OSS 回退，因此后台不会提供“恢复环境配置”操作。
 
 宝塔普通站点反向代理到 `http://127.0.0.1:8080`，管理站点反向代理到 `http://127.0.0.1:8081`；使用目录中的 `baota-public.location.conf.example` 和 `baota-admin.location.conf.example`。安全组只开放 `22`、`80` 和 `443`。
 
@@ -123,7 +125,7 @@ sudo bash deploy.sh
 sudo bash status.sh
 ```
 
-`deploy.sh` 拉取 `stable` 并记录实际 SHA256 digest，先创建 PostgreSQL 自包含备份，再校验配置、运行迁移和数据库角色校验、刷新两个运行时环境文件、重建两个应用并等待健康检查。发布脚本不会在服务器构建源码，也不会自动回滚 SQL；迁移后的失败保留备份和失败状态，必须按 `DATA_MODEL.md` 的前向修复或隔离恢复流程处理。备份必须复制到另一台设备或独立 OSS Bucket，同机备份不能覆盖整机故障。
+`deploy.sh` 拉取 `stable` 并记录实际 SHA256 digest，等待 PostgreSQL 和 Redis healthcheck 通过后创建 PostgreSQL 自包含备份，再校验配置、运行迁移和数据库角色校验、刷新两个运行时环境文件、重建两个应用并等待存活检查。发布脚本不会在服务器构建源码，也不会自动回滚 SQL；迁移后的失败保留备份和失败状态，必须按 `DATA_MODEL.md` 的前向修复或隔离恢复流程处理。备份必须复制到另一台设备或独立 OSS Bucket，同机备份不能覆盖整机故障。`status.sh` 分别显示应用是否运行和 PostgreSQL、Redis、OSS 是否全部 ready。
 
 ## 分层职责
 

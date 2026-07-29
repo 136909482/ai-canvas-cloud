@@ -63,7 +63,8 @@ function isAdminApiOwnedPath(pathname: string) {
 }
 
 function adminSiteContentSecurityPolicy(s3PublicOrigin: string) {
-  return `default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: ${s3PublicOrigin}; font-src 'self' data:; connect-src 'self' ${s3PublicOrigin}; worker-src 'self' blob:; manifest-src 'self'; form-action 'self'`;
+  const storageSource = s3PublicOrigin || "https:";
+  return `default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: ${storageSource}; font-src 'self' data:; connect-src 'self' ${storageSource}; worker-src 'self' blob:; manifest-src 'self'; form-action 'self'`;
 }
 
 function sendMetrics(

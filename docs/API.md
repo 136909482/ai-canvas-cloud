@@ -286,9 +286,9 @@ SMTP 设置只允许 `super_admin` 通过 `smtp_config.write` 访问。GET 返�
 
 SMTP 上游错误只映射为 `SMTP_HOST_NOT_ALLOWED|SMTP_DNS_FAILED|SMTP_CONNECTION_FAILED|SMTP_TLS_FAILED|SMTP_AUTH_FAILED|SMTP_SENDER_REJECTED|SMTP_RECIPIENT_REJECTED`；测试限流为 `SMTP_RATE_LIMITED`。响应、日志、审计与指标不包含上游原始响应、密码、token、注册或密码重置验证码、完整密码重置链接或收件邮箱。
 
-对象存储设置只允许 `super_admin` 通过 `object_storage_config.write` 访问。GET 返回 `source=environment|managed`、非敏感连接字段、`credentialsConfigured/identityLocked/revisionId/updatedAt`，永不返回 AccessKey。写入只接受 `endpoint/publicEndpoint/publicOrigin/region/bucket/forcePathStyle/accessKeyId?/secretAccessKey?/expectedRevisionId`；两项凭据必须同时出现，首个 managed revision 必填，后续留空表示保留。
+对象存储设置只允许 `super_admin` 通过 `object_storage_config.write` 访问。GET 返回 `source=unconfigured|environment|managed`、非敏感连接字段、`credentialsConfigured/environmentFallbackConfigured/identityLocked/revisionId/updatedAt`，永不返回 AccessKey。`unconfigured` 表示服务已启动但尚无可用对象存储，连接字段为空。写入只接受 `endpoint/publicEndpoint/publicOrigin/region/bucket/forcePathStyle/accessKeyId?/secretAccessKey?/expectedRevisionId`；两项凭据必须同时出现，首个 managed revision 必填，后续留空表示保留。
 
-测试连接和保存都执行候选 Bucket 的 `HeadBucket`、随机对象写入、读回比对和删除；测试不发布，保存验证成功后才原子切换。已有资产时改变存储身份返回 `409 OBJECT_STORAGE_IDENTITY_LOCKED`，revision 冲突返回 `409 OBJECT_STORAGE_CONFIG_CONFLICT`，读写删除失败为 `OBJECT_STORAGE_CONNECTION_FAILED`，限流为 `OBJECT_STORAGE_RATE_LIMITED`。恢复环境要求当前 revision，撤销后台发布后返回环境配置；探针 key、AccessKey 和 SDK 原始错误不进入响应、日志或审计。
+测试连接和保存都执行候选 Bucket 的 `HeadBucket`、随机对象写入、读回比对和删除；测试不发布，保存验证成功后才原子切换。已有资产时改变存储身份返回 `409 OBJECT_STORAGE_IDENTITY_LOCKED`，revision 冲突返回 `409 OBJECT_STORAGE_CONFIG_CONFLICT`，读写删除失败为 `OBJECT_STORAGE_CONNECTION_FAILED`，限流为 `OBJECT_STORAGE_RATE_LIMITED`。恢复环境要求当前 revision 且 `environmentFallbackConfigured=true`，否则返回 `409 OBJECT_STORAGE_ENVIRONMENT_FALLBACK_UNAVAILABLE`；探针 key、AccessKey 和 SDK 原始错误不进入响应、日志或审计。
 
 site assets 只接受 PNG/JPEG/WebP/ICO、最大 4 MiB、单边最大 4096；完成时复核 metadata、完整 hash、魔数和真实尺寸。site config 保存版本化结构、不可变 revision、current 指针、公开投影和同事务审计，不接受 HTML、JavaScript、任意 CSS 或 URL 凭据/fragment。
 

@@ -21,6 +21,7 @@ export interface ApiConfig {
   webAllowedOrigins: string[];
   databaseUrl: string;
   redisUrl: string;
+  objectStorageEnvironmentFallback: boolean;
   s3Endpoint: string;
   s3PublicEndpoint: string;
   s3PublicOrigin: string;
@@ -146,6 +147,17 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       "OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION must be positive",
     );
   }
+  const objectStorageEnvironmentFallback = readBooleanEnv(
+    env,
+    "OBJECT_STORAGE_ENVIRONMENT_FALLBACK",
+    true,
+  );
+  const s3Endpoint = objectStorageEnvironmentFallback
+    ? readRequiredEnv(env, "S3_ENDPOINT")
+    : "";
+  const s3PublicEndpoint = objectStorageEnvironmentFallback
+    ? readOptionalEnv(env, "S3_PUBLIC_ENDPOINT", s3Endpoint)
+    : "";
 
   return {
     env: appEnv,
@@ -176,28 +188,29 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     ),
     databaseUrl: readRequiredEnv(env, "DATABASE_URL"),
     redisUrl: readRequiredEnv(env, "REDIS_URL"),
-    s3Endpoint: readRequiredEnv(env, "S3_ENDPOINT"),
-    s3PublicEndpoint: readOptionalEnv(
-      env,
-      "S3_PUBLIC_ENDPOINT",
-      readRequiredEnv(env, "S3_ENDPOINT"),
-    ),
-    s3PublicOrigin: readOptionalEnv(
-      env,
-      "S3_PUBLIC_ORIGIN",
-      new URL(
-        readOptionalEnv(
+    objectStorageEnvironmentFallback,
+    s3Endpoint,
+    s3PublicEndpoint,
+    s3PublicOrigin: objectStorageEnvironmentFallback
+      ? readOptionalEnv(
           env,
-          "S3_PUBLIC_ENDPOINT",
-          readRequiredEnv(env, "S3_ENDPOINT"),
-        ),
-      ).origin,
-    ),
+          "S3_PUBLIC_ORIGIN",
+          new URL(s3PublicEndpoint).origin,
+        )
+      : "",
     s3ForcePathStyle: readBooleanEnv(env, "S3_FORCE_PATH_STYLE", true),
-    s3Bucket: readRequiredEnv(env, "S3_BUCKET"),
-    s3Region: readRequiredEnv(env, "S3_REGION"),
-    s3AccessKeyId: readRequiredEnv(env, "S3_ACCESS_KEY_ID"),
-    s3SecretAccessKey: readRequiredEnv(env, "S3_SECRET_ACCESS_KEY"),
+    s3Bucket: objectStorageEnvironmentFallback
+      ? readRequiredEnv(env, "S3_BUCKET")
+      : "",
+    s3Region: objectStorageEnvironmentFallback
+      ? readRequiredEnv(env, "S3_REGION")
+      : "",
+    s3AccessKeyId: objectStorageEnvironmentFallback
+      ? readRequiredEnv(env, "S3_ACCESS_KEY_ID")
+      : "",
+    s3SecretAccessKey: objectStorageEnvironmentFallback
+      ? readRequiredEnv(env, "S3_SECRET_ACCESS_KEY")
+      : "",
     objectStorageCredentialKeys:
       env.OBJECT_STORAGE_CREDENTIAL_KEYS?.trim() || undefined,
     objectStorageCredentialActiveKeyVersion,

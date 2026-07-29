@@ -30,9 +30,15 @@ fi
 
 for target in 'public 8080' 'admin 8081'; do
   set -- $target
-  if compose exec -T "$1" node -e "fetch('http://127.0.0.1:$2/health/ready').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"; then
-    printf '%s service: healthy\n' "$1"
+  if compose exec -T "$1" node -e "fetch('http://127.0.0.1:$2/health/live').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"; then
+    printf '%s service: running\n' "$1"
   else
-    printf '%s service: unhealthy\n' "$1"
+    printf '%s service: stopped\n' "$1"
+    continue
+  fi
+  if compose exec -T "$1" node -e "fetch('http://127.0.0.1:$2/health/ready').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"; then
+    printf '%s dependencies: ready\n' "$1"
+  else
+    printf '%s dependencies: not ready (configure or check OSS)\n' "$1"
   fi
 done

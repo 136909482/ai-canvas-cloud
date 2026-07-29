@@ -42,16 +42,18 @@ const objectStorageKeyring = createObjectStorageCredentialKeyring({
   activeVersion: config.objectStorageCredentialActiveKeyVersion,
   developmentSecret: config.smtpDevelopmentSecret,
 });
-const fallbackObjectStorage = {
-  endpoint: config.s3Endpoint,
-  publicEndpoint: config.s3PublicEndpoint,
-  publicOrigin: config.s3PublicOrigin,
-  bucket: config.s3Bucket,
-  region: config.s3Region,
-  accessKeyId: config.s3AccessKeyId,
-  secretAccessKey: config.s3SecretAccessKey,
-  forcePathStyle: config.s3ForcePathStyle,
-};
+const fallbackObjectStorage = config.objectStorageEnvironmentFallback
+  ? {
+      endpoint: config.s3Endpoint,
+      publicEndpoint: config.s3PublicEndpoint,
+      publicOrigin: config.s3PublicOrigin,
+      bucket: config.s3Bucket,
+      region: config.s3Region,
+      accessKeyId: config.s3AccessKeyId,
+      secretAccessKey: config.s3SecretAccessKey,
+      forcePathStyle: config.s3ForcePathStyle,
+    }
+  : undefined;
 const objectStorage = createManagedS3ObjectStorage(pool, {
   keyring: objectStorageKeyring,
   fallback: fallbackObjectStorage,

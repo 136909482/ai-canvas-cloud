@@ -62,7 +62,7 @@ export interface AdminObjectStorageConfigService {
 interface Options {
   adminService: AdminService;
   keyring: ObjectStorageCredentialKeyring;
-  fallbackConfig: ObjectStorageEnvironmentConfig;
+  fallbackConfig?: ObjectStorageEnvironmentConfig;
   auditSecret: string;
   invalidateManagedConfig?: () => void;
   testStorage?: (
@@ -108,10 +108,26 @@ async function hasAssets(pool: Queryable) {
 
 function responseFrom(
   row: ObjectStorageConfigRow | null,
-  fallback: ObjectStorageEnvironmentConfig,
+  fallback: ObjectStorageEnvironmentConfig | undefined,
   identityLocked: boolean,
 ): ObjectStorageSettingsResponse {
   if (!row) {
+    if (!fallback) {
+      return {
+        source: "unconfigured",
+        endpoint: "",
+        publicEndpoint: "",
+        publicOrigin: "",
+        region: "",
+        bucket: "",
+        forcePathStyle: false,
+        credentialsConfigured: false,
+        environmentFallbackConfigured: false,
+        identityLocked,
+        revisionId: null,
+        updatedAt: null,
+      };
+    }
     return {
       source: "environment",
       endpoint: fallback.endpoint,
@@ -121,6 +137,7 @@ function responseFrom(
       bucket: fallback.bucket,
       forcePathStyle: fallback.forcePathStyle ?? true,
       credentialsConfigured: true,
+      environmentFallbackConfigured: true,
       identityLocked,
       revisionId: null,
       updatedAt: null,
@@ -135,6 +152,7 @@ function responseFrom(
     bucket: row.bucket,
     forcePathStyle: row.force_path_style,
     credentialsConfigured: true,
+    environmentFallbackConfigured: Boolean(fallback),
     identityLocked,
     revisionId: row.revision_id,
     updatedAt: new Date(row.updated_at).toISOString(),
@@ -196,7 +214,7 @@ function candidate(
 function assertStorageIdentity(
   input: ObjectStorageSettingsInput,
   current: ObjectStorageConfigRow | null,
-  fallback: ObjectStorageEnvironmentConfig,
+  fallback: ObjectStorageEnvironmentConfig | undefined,
   identityLocked: boolean,
 ) {
   if (!identityLocked) return;
@@ -208,6 +226,13 @@ function assertStorageIdentity(
         forcePathStyle: current.force_path_style,
       }
     : fallback;
+  if (!base) {
+    throw new AdminAccessError(
+      409,
+      "OBJECT_STORAGE_IDENTITY_LOCKED",
+      "Object storage identity cannot be recovered while assets exist",
+    );
+  }
   if (
     input.endpoint !== base.endpoint ||
     input.region !== base.region ||
@@ -519,6 +544,13 @@ export function createPostgresAdminObjectStorageConfigService(
 
     async restoreEnvironment(raw, context) {
       const session = await requireSession(context);
+      if (!options.fallbackConfig) {
+        throw new AdminAccessError(
+          409,
+          "OBJECT_STORAGE_ENVIRONMENT_FALLBACK_UNAVAILABLE",
+          "No environment object storage fallback is configured",
+        );
+      }
       let input: RestoreEnvironmentObjectStorageInput;
       try {
         input = validateRestoreEnvironmentObjectStorageInput(raw);

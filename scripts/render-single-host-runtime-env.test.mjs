@@ -21,6 +21,7 @@ const publicKeys = [
   "WEB_ALLOWED_ORIGINS",
   "DATABASE_URL",
   "REDIS_URL",
+  "OBJECT_STORAGE_ENVIRONMENT_FALLBACK",
   "S3_ENDPOINT",
   "S3_PUBLIC_ENDPOINT",
   "S3_PUBLIC_ORIGIN",
@@ -58,6 +59,7 @@ const adminKeys = [
   "ADMIN_WEB_PUBLIC_URL",
   "ADMIN_WEB_ALLOWED_ORIGINS",
   "WEB_ALLOWED_ORIGINS",
+  "OBJECT_STORAGE_ENVIRONMENT_FALLBACK",
   "S3_ENDPOINT",
   "S3_PUBLIC_ENDPOINT",
   "S3_PUBLIC_ORIGIN",
@@ -84,6 +86,7 @@ function fixtureValue(key) {
     DATABASE_URL:
       "postgresql://public-role:public-password@postgres:5432/cloud",
     REDIS_URL: "redis://:redis-password@redis:6379/0",
+    OBJECT_STORAGE_ENVIRONMENT_FALLBACK: "false",
     S3_ENDPOINT: "https://oss.example.com",
     S3_PUBLIC_ENDPOINT: "https://oss.example.com",
     S3_PUBLIC_ORIGIN: "https://bucket.oss.example.com",

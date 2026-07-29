@@ -83,6 +83,23 @@ test("protected deployment accepts managed SMTP without legacy credentials", () 
   assert.doesNotThrow(() => validateProtectedDeploymentEnvironment(env));
 });
 
+test("protected deployment can start before managed object storage is configured", () => {
+  const env = baseEnv();
+  env.OBJECT_STORAGE_ENVIRONMENT_FALLBACK = "false";
+  for (const key of [
+    "S3_ENDPOINT",
+    "S3_PUBLIC_ENDPOINT",
+    "S3_PUBLIC_ORIGIN",
+    "S3_BUCKET",
+    "S3_REGION",
+    "S3_ACCESS_KEY_ID",
+    "S3_SECRET_ACCESS_KEY",
+  ]) {
+    delete env[key];
+  }
+  assert.doesNotThrow(() => validateProtectedDeploymentEnvironment(env));
+});
+
 test("protected deployment rejects local URLs, placeholders, missing origins and seed", () => {
   assert.throws(
     () =>

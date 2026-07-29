@@ -8,6 +8,7 @@ COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 SECRETS_DIR="$SCRIPT_DIR/secrets"
 RUNTIME_DIR="$SECRETS_DIR/runtime"
 RELEASE_ENV="$SECRETS_DIR/release.env"
+DEFAULTS_ENV="$SCRIPT_DIR/release.env.example"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -21,16 +22,6 @@ read_required() {
   local value=""
   while [[ -z "$value" ]]; do
     read -r -p "$prompt" value
-  done
-  printf '%s' "$value"
-}
-
-read_secret() {
-  local prompt="$1"
-  local value=""
-  while [[ -z "$value" ]]; do
-    read -r -s -p "$prompt" value
-    printf '\n'
   done
   printf '%s' "$value"
 }
@@ -51,18 +42,11 @@ if [[ -e "$RELEASE_ENV" ]]; then
 fi
 
 printf '%s\n' 'AI Canvas Cloud single-host setup'
-printf '%s\n' 'Enter domain names without https://. Secrets are generated locally and never printed.'
+printf '%s\n' 'Only the two domain names are required. Enter them without https://.'
 
 PUBLIC_DOMAIN="$(read_required 'Public domain: ')"
 ADMIN_DOMAIN="$(read_required 'Admin domain: ')"
-APP_REPOSITORY="$(read_required 'ACR image repository (for example registry.cn-hangzhou.aliyuncs.com/namespace/ai-canvas-cloud): ')"
-S3_ENDPOINT="$(read_required 'OSS endpoint (https://...): ')"
-S3_PUBLIC_ENDPOINT="$(read_required 'OSS public endpoint (https://...): ')"
-S3_PUBLIC_ORIGIN="$(read_required 'OSS bucket origin (https://bucket....): ')"
-S3_BUCKET="$(read_required 'OSS bucket name: ')"
-S3_REGION="$(read_required 'OSS region: ')"
-S3_ACCESS_KEY_ID="$(read_required 'OSS RAM access key ID: ')"
-S3_SECRET_ACCESS_KEY="$(read_secret 'OSS RAM access key secret: ')"
+APP_REPOSITORY="$(awk -F= 'index($0, "APP_REPOSITORY=") == 1 { print substr($0, length("APP_REPOSITORY=") + 1); exit }' "$DEFAULTS_ENV")"
 
 for value in "$PUBLIC_DOMAIN" "$ADMIN_DOMAIN"; do
   if [[ ! "$value" =~ ^[A-Za-z0-9.-]+$ ]]; then
@@ -70,16 +54,10 @@ for value in "$PUBLIC_DOMAIN" "$ADMIN_DOMAIN"; do
     exit 1
   fi
 done
-if [[ ! "$APP_REPOSITORY" =~ ^[A-Za-z0-9./:_-]+$ ]]; then
+if [[ -z "$APP_REPOSITORY" || ! "$APP_REPOSITORY" =~ ^[A-Za-z0-9./:_-]+$ ]]; then
   printf '%s\n' 'ACR image repository contains unsupported characters.' >&2
   exit 1
 fi
-for value in "$S3_ENDPOINT" "$S3_PUBLIC_ENDPOINT" "$S3_PUBLIC_ORIGIN"; do
-  if [[ ! "$value" =~ ^https://[^[:space:]]+$ ]]; then
-    printf 'Expected an HTTPS URL: %s\n' "$value" >&2
-    exit 1
-  fi
-done
 
 mkdir -p "$RUNTIME_DIR" "$SCRIPT_DIR/backups"
 chmod 700 "$SECRETS_DIR" "$RUNTIME_DIR" "$SCRIPT_DIR/backups"
@@ -135,14 +113,7 @@ ADMIN_WEB_ALLOWED_ORIGINS=https://${ADMIN_DOMAIN}
 ADMIN_BETTER_AUTH_URL=https://${ADMIN_DOMAIN}
 ADMIN_BETTER_AUTH_SECRET=${ADMIN_BETTER_AUTH_SECRET}
 
-S3_ENDPOINT=${S3_ENDPOINT}
-S3_PUBLIC_ENDPOINT=${S3_PUBLIC_ENDPOINT}
-S3_PUBLIC_ORIGIN=${S3_PUBLIC_ORIGIN}
-S3_BUCKET=${S3_BUCKET}
-S3_FORCE_PATH_STYLE=false
-S3_REGION=${S3_REGION}
-S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID}
-S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
+OBJECT_STORAGE_ENVIRONMENT_FALLBACK=false
 OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION=1
 OBJECT_STORAGE_CREDENTIAL_KEYS={"1":"${OBJECT_STORAGE_KEY}"}
 
@@ -170,10 +141,6 @@ MAIL_CREDENTIAL_ID=ai-canvas-cloud-production-mail-credential
 EOF
 chmod 600 "$RELEASE_ENV"
 
-ACR_REGISTRY="${APP_REPOSITORY%%/*}"
-printf 'Docker login for %s. Enter the ACR credentials when prompted.\n' "$ACR_REGISTRY"
-docker login "$ACR_REGISTRY"
-
 bash "$SCRIPT_DIR/deploy.sh"
 
 compose() {
@@ -182,4 +149,4 @@ compose() {
 
 printf '%s\n' 'Create the first super_admin account now.'
 compose --profile release run --rm release node scripts/bootstrap-admin.mjs
-printf '%s\n' 'Setup complete. Configure the two Baota sites to proxy to 127.0.0.1:8080 and 127.0.0.1:8081.'
+printf '%s\n' 'Setup complete. Configure OSS in the Admin site, then configure the two Baota sites to proxy to 127.0.0.1:8080 and 127.0.0.1:8081.'

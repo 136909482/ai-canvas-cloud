@@ -20,6 +20,7 @@ export interface AdminApiConfig {
   betterAuthSecret: string;
   webPublicUrl: string;
   allowedOrigins: string[];
+  objectStorageEnvironmentFallback: boolean;
   s3Endpoint: string;
   s3PublicEndpoint: string;
   s3PublicOrigin: string;
@@ -105,6 +106,11 @@ export function loadAdminApiConfig(
   const objectStorageCredentialActiveKeyVersion = Number(
     env.OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION ?? 1,
   );
+  const objectStorageEnvironmentFallback = readBoolean(
+    env,
+    "OBJECT_STORAGE_ENVIRONMENT_FALLBACK",
+    true,
+  );
   const webPublicUrl = readOptionalEnv(
     env,
     "ADMIN_WEB_PUBLIC_URL",
@@ -165,6 +171,12 @@ export function loadAdminApiConfig(
   if (allowedOrigins.some((origin) => ordinaryOrigins.includes(origin))) {
     throw new Error("Admin Web and ordinary Web origins must be distinct");
   }
+  const s3Endpoint = objectStorageEnvironmentFallback
+    ? readRequiredEnv(env, "S3_ENDPOINT")
+    : "";
+  const s3PublicEndpoint = objectStorageEnvironmentFallback
+    ? readOptionalEnv(env, "S3_PUBLIC_ENDPOINT", s3Endpoint)
+    : "";
   return {
     env: appEnv,
     host,
@@ -186,28 +198,29 @@ export function loadAdminApiConfig(
     betterAuthSecret,
     webPublicUrl,
     allowedOrigins,
-    s3Endpoint: readRequiredEnv(env, "S3_ENDPOINT"),
-    s3PublicEndpoint: readOptionalEnv(
-      env,
-      "S3_PUBLIC_ENDPOINT",
-      readRequiredEnv(env, "S3_ENDPOINT"),
-    ),
-    s3PublicOrigin: readOptionalEnv(
-      env,
-      "S3_PUBLIC_ORIGIN",
-      new URL(
-        readOptionalEnv(
+    objectStorageEnvironmentFallback,
+    s3Endpoint,
+    s3PublicEndpoint,
+    s3PublicOrigin: objectStorageEnvironmentFallback
+      ? readOptionalEnv(
           env,
-          "S3_PUBLIC_ENDPOINT",
-          readRequiredEnv(env, "S3_ENDPOINT"),
-        ),
-      ).origin,
-    ),
+          "S3_PUBLIC_ORIGIN",
+          new URL(s3PublicEndpoint).origin,
+        )
+      : "",
     s3ForcePathStyle: readBoolean(env, "S3_FORCE_PATH_STYLE", true),
-    s3Bucket: readRequiredEnv(env, "S3_BUCKET"),
-    s3Region: readRequiredEnv(env, "S3_REGION"),
-    s3AccessKeyId: readRequiredEnv(env, "S3_ACCESS_KEY_ID"),
-    s3SecretAccessKey: readRequiredEnv(env, "S3_SECRET_ACCESS_KEY"),
+    s3Bucket: objectStorageEnvironmentFallback
+      ? readRequiredEnv(env, "S3_BUCKET")
+      : "",
+    s3Region: objectStorageEnvironmentFallback
+      ? readRequiredEnv(env, "S3_REGION")
+      : "",
+    s3AccessKeyId: objectStorageEnvironmentFallback
+      ? readRequiredEnv(env, "S3_ACCESS_KEY_ID")
+      : "",
+    s3SecretAccessKey: objectStorageEnvironmentFallback
+      ? readRequiredEnv(env, "S3_SECRET_ACCESS_KEY")
+      : "",
     objectStorageCredentialKeys,
     objectStorageCredentialActiveKeyVersion,
     smtpCredentialKeys,

@@ -92,15 +92,17 @@ const objectStorage = createManagedS3ObjectStorage(dbPool, {
     developmentSecret:
       config.env === "development" ? config.betterAuthSecret : undefined,
   }),
-  fallback: {
-    endpoint: config.s3Endpoint,
-    publicEndpoint: config.s3PublicEndpoint,
-    bucket: config.s3Bucket,
-    region: config.s3Region,
-    accessKeyId: config.s3AccessKeyId,
-    secretAccessKey: config.s3SecretAccessKey,
-    forcePathStyle: config.s3ForcePathStyle,
-  },
+  fallback: config.objectStorageEnvironmentFallback
+    ? {
+        endpoint: config.s3Endpoint,
+        publicEndpoint: config.s3PublicEndpoint,
+        bucket: config.s3Bucket,
+        region: config.s3Region,
+        accessKeyId: config.s3AccessKeyId,
+        secretAccessKey: config.s3SecretAccessKey,
+        forcePathStyle: config.s3ForcePathStyle,
+      }
+    : undefined,
 });
 const assetService = createPostgresAssetService(dbPool, {
   authorizationService: workspaceAuthorizationService,

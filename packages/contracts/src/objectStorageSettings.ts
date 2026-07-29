@@ -1,4 +1,5 @@
-export type ObjectStorageSettingsSource = "managed" | "environment";
+export type ObjectStorageSettingsSource =
+  "managed" | "environment" | "unconfigured";
 
 declare const URL: {
   new (input: string): {
@@ -23,6 +24,7 @@ export interface ObjectStorageSettingsResponse {
   bucket: string;
   forcePathStyle: boolean;
   credentialsConfigured: boolean;
+  environmentFallbackConfigured: boolean;
   identityLocked: boolean;
   revisionId: string | null;
   updatedAt: string | null;
