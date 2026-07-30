@@ -1,4 +1,5 @@
 import {
+  databasePoolMax,
   readOptionalEnv,
   readPortEnv,
   readRequiredEnv,
@@ -21,6 +22,7 @@ export interface ApiConfig {
   webPublicUrl: string;
   webAllowedOrigins: string[];
   databaseUrl: string;
+  databasePoolMax?: number;
   redisUrl: string;
   objectStorageEnvironmentFallback: boolean;
   s3Endpoint: string;
@@ -212,6 +214,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       readOptionalEnv(env, "WEB_PUBLIC_URL", "http://localhost:5173"),
     ),
     databaseUrl: readRequiredEnv(env, "DATABASE_URL"),
+    databasePoolMax: databasePoolMax(env, "api"),
     redisUrl: readRequiredEnv(env, "REDIS_URL"),
     objectStorageEnvironmentFallback,
     s3Endpoint,

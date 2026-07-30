@@ -21,6 +21,70 @@ function required(env: NodeJS.ProcessEnv, key: string) {
   return value;
 }
 
+function positiveInteger(
+  env: NodeJS.ProcessEnv,
+  key: string,
+  fallback: number,
+) {
+  const raw = env[key]?.trim();
+  if (!raw) return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${key} must be a positive integer`);
+  }
+  return value;
+}
+
+export function databasePoolMax(
+  env: NodeJS.ProcessEnv,
+  service: "api" | "admin-api",
+) {
+  const maximumConnections = positiveInteger(
+    env,
+    "DATABASE_MAX_CONNECTIONS",
+    30,
+  );
+  const reservedConnections = positiveInteger(
+    env,
+    "DATABASE_RESERVED_CONNECTIONS",
+    6,
+  );
+  const apiInstances = positiveInteger(env, "API_INSTANCE_COUNT", 1);
+  const adminInstances = positiveInteger(env, "ADMIN_API_INSTANCE_COUNT", 1);
+  const availableConnections = maximumConnections - reservedConnections;
+  const instanceCount = apiInstances + adminInstances;
+  if (availableConnections < instanceCount) {
+    throw new Error(
+      "Database connection budget cannot allocate one connection per API instance",
+    );
+  }
+  const automaticPoolMax = Math.min(
+    10,
+    Math.floor(availableConnections / instanceCount),
+  );
+  const apiPoolMax = positiveInteger(
+    env,
+    "API_DATABASE_POOL_MAX",
+    automaticPoolMax,
+  );
+  const adminPoolMax = positiveInteger(
+    env,
+    "ADMIN_DATABASE_POOL_MAX",
+    automaticPoolMax,
+  );
+  if (apiPoolMax > 10 || adminPoolMax > 10) {
+    throw new Error("Database pool max must not exceed 10 per API instance");
+  }
+  const allocatedConnections =
+    apiPoolMax * apiInstances + adminPoolMax * adminInstances;
+  if (allocatedConnections > availableConnections) {
+    throw new Error(
+      `Database connection budget exceeded: ${allocatedConnections} allocated, ${availableConnections} available`,
+    );
+  }
+  return service === "api" ? apiPoolMax : adminPoolMax;
+}
+
 function truthy(value: string | undefined) {
   return ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
 }
@@ -123,6 +187,8 @@ export function validateProtectedDeploymentEnvironment(
   if ((env.DEPLOYMENT_ENV ?? "").trim().toLowerCase() !== environment) {
     throw new Error(`DEPLOYMENT_ENV must equal NODE_ENV (${environment})`);
   }
+  databasePoolMax(env, "api");
+  databasePoolMax(env, "admin-api");
   for (const key of [...RESOURCE_KEYS, ...CREDENTIAL_KEYS]) {
     requireEnvironmentScopedId(env, key, environment);
   }

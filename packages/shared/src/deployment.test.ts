@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateProtectedDeploymentEnvironment } from "./deployment.ts";
+import {
+  databasePoolMax,
+  validateProtectedDeploymentEnvironment,
+} from "./deployment.ts";
 
 function baseEnv() {
   const env: NodeJS.ProcessEnv = {
@@ -52,6 +55,33 @@ function baseEnv() {
 
 test("protected deployment accepts independently scoped staging resources", () => {
   assert.doesNotThrow(() => validateProtectedDeploymentEnvironment(baseEnv()));
+});
+
+test("database connection budget is shared across public and Admin instances", () => {
+  const env = {
+    DATABASE_MAX_CONNECTIONS: "30",
+    DATABASE_RESERVED_CONNECTIONS: "6",
+    API_INSTANCE_COUNT: "2",
+    ADMIN_API_INSTANCE_COUNT: "2",
+  };
+  assert.equal(databasePoolMax(env, "api"), 6);
+  assert.equal(databasePoolMax(env, "admin-api"), 6);
+  assert.throws(
+    () =>
+      databasePoolMax(
+        {
+          ...env,
+          API_DATABASE_POOL_MAX: "7",
+          ADMIN_DATABASE_POOL_MAX: "6",
+        },
+        "api",
+      ),
+    /budget exceeded/,
+  );
+  assert.throws(
+    () => databasePoolMax({ ...env, API_DATABASE_POOL_MAX: "11" }, "api"),
+    /must not exceed 10/,
+  );
 });
 
 test("protected deployment accepts virtual-hosted object storage origins", () => {

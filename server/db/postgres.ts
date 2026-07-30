@@ -6,6 +6,7 @@ export type DbClient = pg.PoolClient;
 export interface PostgresPoolOptions {
   connectionString: string;
   schema?: string;
+  max?: number;
 }
 
 export function createPostgresPool(options: PostgresPoolOptions) {
@@ -14,6 +15,7 @@ export function createPostgresPool(options: PostgresPoolOptions) {
   }
   return new pg.Pool({
     connectionString: options.connectionString,
+    max: options.max,
     options: options.schema ? `-c search_path=${options.schema}` : undefined,
   });
 }

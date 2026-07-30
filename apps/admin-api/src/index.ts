@@ -32,6 +32,7 @@ const logger = createJsonLogger({
 const pool = createPostgresPool({
   connectionString: config.databaseUrl,
   schema: "admin",
+  max: config.databasePoolMax,
 });
 const adminService = createPostgresAdminService(pool, {
   baseURL: config.betterAuthUrl,

@@ -1,4 +1,5 @@
 import {
+  databasePoolMax,
   readOptionalEnv,
   readPortEnv,
   readPositiveIntegerEnv,
@@ -17,6 +18,7 @@ export interface AdminApiConfig {
   staticSiteRoot?: string;
   trustProxy: boolean;
   databaseUrl: string;
+  databasePoolMax?: number;
   betterAuthUrl: string;
   betterAuthSecret: string;
   webPublicUrl: string;
@@ -234,6 +236,7 @@ export function loadAdminApiConfig(
     staticSiteRoot: env.ADMIN_STATIC_SITE_ROOT?.trim() || undefined,
     trustProxy: readBoolean(env, "ADMIN_API_TRUST_PROXY", false),
     databaseUrl,
+    databasePoolMax: databasePoolMax(env, "admin-api"),
     betterAuthUrl: readOptionalEnv(
       env,
       "ADMIN_BETTER_AUTH_URL",

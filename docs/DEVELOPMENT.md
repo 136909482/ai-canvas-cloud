@@ -299,7 +299,10 @@ npm run dev:start
 npm run dev:stop
 npm run dev:restart
 npm run dev:status
+npm run verify:http-adapters
 ```
+
+`verify:http-adapters` 必须连接真实 PostgreSQL、Redis 和对象存储，且 `MIGRATION_DATABASE_URL` 对应角色必须具有 `CREATEDB` 权限。命令迁移一个临时基线库，再克隆 Legacy/Fastify 两个相同快照；写入使用各自数据库中的独立项目和唯一幂等键，适配器按轮交替采样，结束后删除临时对象和数据库。正式验收固定使用 25/100/250 并发、15 秒预热、60 秒采样和 3 次重复，混合覆盖会话、项目列表/详情、图读写、资产元数据和 Admin 用户查询；Legacy 基线出现 5xx 或传输错误时环境无效，Fastify 中位吞吐不得低于 Legacy 的 95%，P95 不得高于 Legacy 的 110%，不得出现非预期非 2xx。随后以 2 个公共 API 和 2 个 Admin API 实例验证轮询、共享会话、Redis 全局限流、跨实例资产上传、图幂等、稳定 409 和单实例重启。
 
 代码验证：
 

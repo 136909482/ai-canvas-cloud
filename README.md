@@ -80,9 +80,12 @@ npm run check
 ```bash
 npm test
 npm run build
+npm run verify:http-adapters
 ```
 
 `npm test` 会构建测试运行时实际依赖的 6 个共享/后端工作区，不再重复构建两个前端生产包。`npm run build` 除生产打包外还执行匿名入口体积和 preload 门禁。数据库、认证、权限、资产、Vault 和发布验证按风险触发，完整矩阵见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)。
+
+`npm run verify:http-adapters` 使用真实 PostgreSQL、Redis 和对象存储，要求 `MIGRATION_DATABASE_URL` 对应角色具有 `CREATEDB` 权限。命令从同一迁移基线克隆隔离的 Legacy/Fastify 临时数据库，按轮交替执行 25/100/250 并发混合业务负载，随后验收 2 个公共 API 与 2 个 Admin API 实例；结束时删除临时对象和数据库，默认约需 25 分钟。基线出现 5xx 或传输错误时测试环境无效。可用 `ADAPTER_BENCH_WARMUP_SECONDS`、`ADAPTER_BENCH_DURATION_SECONDS`、`ADAPTER_BENCH_REPETITIONS` 和 `ADAPTER_BENCH_CONCURRENCY` 缩短本地调试，但缩短后的结果不能作为发布门禁。
 
 ## 文档入口
 

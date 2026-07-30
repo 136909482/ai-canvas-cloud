@@ -38,7 +38,10 @@ loadDotEnv();
 const config = loadApiConfig();
 const logger = createJsonLogger({ level: config.logLevel, service: "api" });
 const metrics = createMetricsRegistry();
-const dbPool = createPostgresPool({ connectionString: config.databaseUrl });
+const dbPool = createPostgresPool({
+  connectionString: config.databaseUrl,
+  max: config.databasePoolMax,
+});
 const rateLimiter = createRedisRateLimiter(config.redisUrl, config.env);
 const legacySmtpConfig =
   config.smtpHost &&
