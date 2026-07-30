@@ -25,6 +25,7 @@ const baseEnv = {
 test("Admin API config requires independent database role, secret, and origin", () => {
   const config = loadAdminApiConfig(baseEnv);
   assert.equal(config.port, 8788);
+  assert.equal(config.httpAdapter, "legacy");
   assert.deepEqual(config.allowedOrigins, ["http://localhost:5174"]);
   assert.equal(config.s3ForcePathStyle, true);
   assert.equal(config.assetMaintenanceApiUrl, "http://127.0.0.1:8787");
@@ -52,6 +53,13 @@ test("Admin API config requires independent database role, secret, and origin", 
         ADMIN_WEB_ALLOWED_ORIGINS: "http://localhost:5173",
       }),
     /origins must be distinct/,
+  );
+});
+
+test("Admin API config rejects unsupported HTTP adapters", () => {
+  assert.throws(
+    () => loadAdminApiConfig({ ...baseEnv, HTTP_ADAPTER: "express" }),
+    /Invalid HTTP_ADAPTER/,
   );
 });
 

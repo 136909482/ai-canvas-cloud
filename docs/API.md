@@ -18,6 +18,8 @@
 
 API 响应发送 nosniff、frame deny、Referrer/Permissions/COOP/CORP 及 `default-src 'none'` 的 API CSP；protected 环境发送 HSTS。Web HTML 的页面 CSP 由 Nginx 单独负责。
 
+HTTP adapter 不属于业务契约。开发环境使用 Fastify adapter 时，`GET /docs` 和 `GET /docs/json` 只描述已经迁移并注册 Schema 的公共路由；production/staging 完全不注册这两个 OpenAPI 路由并返回 404。切换 adapter 不得改变本文件中的路径、状态码、响应头、Cookie、错误结构或领域副作用。
+
 ## 浏览器 Vault 与 API 边界
 
 浏览器 Vault、任务缓存和临时生成结果没有 Cloud HTTP 资源。配置 Vault 使用 `schemaVersion=2`，任务缓存使用 `schemaVersion=3` 并兼容解密迁移 v2，二者的 `cipherVersion=1`；IndexedDB 数据库版本为 3。设备存储使用不可导出的 WebCrypto AES-256-GCM `CryptoKey`，AAD 绑定版本、Origin 和可信 session 用户 ID，任务缓存额外绑定项目 ID，临时结果额外绑定任务 ID。Provider 配置不含 Key，Key 按 `providerProfileId` 存在独立凭据槽，模型条目以 `modelEntryId` 为唯一身份。Provider 与模型配置保存后固定把密文与 Key 写入当前 Origin 的 IndexedDB，不提供 persistence 或单独删除入口；登出/session 失效/换账号清空内存但不删除设备记录；清除当前网站数据会由浏览器删除密文、Key、模型绑定、任务缓存和临时结果。当前内测环境不读取历史 localStorage、旧 Vault 或 v1 任务缓存。

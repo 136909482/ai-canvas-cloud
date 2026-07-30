@@ -9,6 +9,7 @@ import {
 
 export interface ApiConfig {
   env: string;
+  httpAdapter: "legacy" | "fastify";
   logLevel: LogLevel;
   host: string;
   port: number;
@@ -50,6 +51,16 @@ export interface ApiConfig {
 
 const logLevels = new Set<LogLevel>(["debug", "info", "warn", "error"]);
 const truthyEnvValues = new Set(["1", "true", "yes", "on"]);
+
+function readHttpAdapter(env: NodeJS.ProcessEnv) {
+  const value = (env.API_HTTP_ADAPTER ?? env.HTTP_ADAPTER ?? "legacy")
+    .trim()
+    .toLowerCase();
+  if (value !== "legacy" && value !== "fastify") {
+    throw new Error(`Invalid HTTP_ADAPTER: ${value}`);
+  }
+  return value;
+}
 
 function readLogLevel(env: NodeJS.ProcessEnv): LogLevel {
   const value = readOptionalEnv(env, "LOG_LEVEL", "info");
@@ -174,6 +185,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
 
   return {
     env: appEnv,
+    httpAdapter: readHttpAdapter(env),
     logLevel: readLogLevel(env),
     host: readOptionalEnv(env, "API_HOST", "127.0.0.1"),
     port: readPortEnv(env, "API_PORT", 8787),

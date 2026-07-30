@@ -30,6 +30,7 @@ import {
 } from "@ai-canvas-cloud/shared";
 import { loadApiConfig } from "./config.js";
 import { closeApiServer, createApiServer } from "./server.js";
+import { createFastifyApiServer } from "./fastify/server.js";
 import { createRedisRateLimiter } from "./rateLimit.js";
 
 loadDotEnv();
@@ -157,7 +158,7 @@ const authService = createPostgresAuthService(dbPool, {
     (await siteConfigService.getCurrent()).config.features
       .registrationEmailVerificationRequired,
 });
-const server = createApiServer({
+const serverOptions = {
   config,
   logger,
   authService,
@@ -186,7 +187,11 @@ const server = createApiServer({
     objectStorage: objectStorage.checkHealth,
     redis: rateLimiter.ping,
   },
-});
+};
+const server =
+  config.httpAdapter === "fastify"
+    ? await createFastifyApiServer(serverOptions)
+    : createApiServer(serverOptions);
 void migrationExportService.recoverExports().catch(() => undefined);
 void migrationAssetUploadService
   .maintainStagingObjects()
@@ -248,5 +253,6 @@ server.listen(config.port, config.host, () => {
     host: config.host,
     port: config.port,
     env: config.env,
+    httpAdapter: config.httpAdapter,
   });
 });

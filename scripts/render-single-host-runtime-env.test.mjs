@@ -138,6 +138,8 @@ test("single-host runtime rendering isolates public and admin credentials", () =
     [
       ...keys.map((key) => `${key}=${fixtureValue(key)}`),
       "ADMIN_DATABASE_ROLE=admin-role",
+      "PUBLIC_HTTP_ADAPTER=fastify",
+      "ADMIN_HTTP_ADAPTER=legacy",
       "",
     ].join("\n"),
   );
@@ -172,6 +174,8 @@ test("single-host runtime rendering isolates public and admin credentials", () =
       adminRuntime,
       /^ASSET_MAINTENANCE_API_URL=http:\/\/public:8080$/m,
     );
+    assert.match(publicRuntime, /^HTTP_ADAPTER=fastify$/m);
+    assert.match(adminRuntime, /^HTTP_ADAPTER=legacy$/m);
     assert.match(
       publicRuntime,
       /^ASSET_MAINTENANCE_TOKEN=asset-maintenance-token-for-tests-123456$/m,

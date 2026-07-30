@@ -93,7 +93,7 @@ import type {
 } from "./rateLimit.js";
 import { handleSecurityBoundary } from "./security.js";
 
-interface ServerOptions {
+export interface ServerOptions {
   config: ApiConfig;
   logger?: Logger;
   authService?: AuthService;
@@ -117,6 +117,11 @@ interface ServerOptions {
   };
   rateLimiter?: RateLimiter;
 }
+
+export const HTTP_ADAPTER_CLOSE = Symbol("httpAdapterClose");
+export type AdapterHttpServer = http.Server & {
+  [HTTP_ADAPTER_CLOSE]?: () => Promise<void>;
+};
 
 const PUBLIC_SITE_CONTENT_SECURITY_POLICY =
   "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https:; worker-src 'self' blob:; manifest-src 'self'; form-action 'self'";
@@ -2223,6 +2228,20 @@ export function createApiServer({
 }
 
 export async function closeApiServer(server: http.Server, timeoutMs: number) {
+  const adapterClose = (server as AdapterHttpServer)[HTTP_ADAPTER_CLOSE];
+  if (adapterClose) {
+    await Promise.race([
+      adapterClose(),
+      new Promise<never>((_resolve, reject) => {
+        const timeout = setTimeout(
+          () => reject(new Error("Timed out closing API server")),
+          timeoutMs,
+        );
+        timeout.unref();
+      }),
+    ]);
+    return;
+  }
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(
       () => reject(new Error("Timed out closing API server")),

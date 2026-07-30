@@ -9,6 +9,7 @@ import {
 
 export interface AdminApiConfig {
   env: string;
+  httpAdapter: "legacy" | "fastify";
   host: string;
   port: number;
   logLevel: LogLevel;
@@ -50,6 +51,16 @@ const TRUTHY_VALUES = new Set(["1", "true", "yes", "on"]);
 function readBoolean(env: NodeJS.ProcessEnv, key: string, fallback: boolean) {
   const value = env[key]?.trim().toLowerCase();
   return value ? TRUTHY_VALUES.has(value) : fallback;
+}
+
+function readHttpAdapter(env: NodeJS.ProcessEnv) {
+  const value = (env.ADMIN_API_HTTP_ADAPTER ?? env.HTTP_ADAPTER ?? "legacy")
+    .trim()
+    .toLowerCase();
+  if (value !== "legacy" && value !== "fastify") {
+    throw new Error(`Invalid HTTP_ADAPTER: ${value}`);
+  }
+  return value;
 }
 
 function parseOrigins(raw: string) {
@@ -211,6 +222,7 @@ export function loadAdminApiConfig(
     : "";
   return {
     env: appEnv,
+    httpAdapter: readHttpAdapter(env),
     host,
     port,
     logLevel,

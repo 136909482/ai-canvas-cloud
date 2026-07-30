@@ -24,6 +24,11 @@ import { closeAdminApiServer, createAdminApiServer } from "./server.js";
 loadDotEnv();
 
 const config = loadAdminApiConfig();
+if (config.httpAdapter === "fastify") {
+  throw new Error(
+    "Admin API Fastify adapter is unavailable until the public API observation period completes",
+  );
+}
 const logger = createJsonLogger({
   level: config.logLevel,
   service: "admin-api",

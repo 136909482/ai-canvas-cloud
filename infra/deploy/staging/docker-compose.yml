@@ -85,6 +85,7 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 8787
       API_TRUST_PROXY: "true"
+      HTTP_ADAPTER: ${PUBLIC_HTTP_ADAPTER:-legacy}
     depends_on:
       postgres:
         condition: service_healthy

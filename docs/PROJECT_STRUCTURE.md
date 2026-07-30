@@ -7,7 +7,7 @@
 ```text
 apps/
   web/                 Vite + React 画布、Cloud 客户端、浏览器 Vault 与本地生成
-  api/                 普通用户 HTTP、安全、限流和健康检查
+  api/                 普通用户 HTTP、安全、限流、健康检查与渐进 Fastify adapter
   admin-web/           独立 Admin React 控制台
   admin-api/           独立 Admin 认证、RBAC、运营、设置和审计 HTTP
 
@@ -86,6 +86,8 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 ### API 与领域服务
 
 `apps/api` 和 `apps/admin-api` 保持薄入口：解析请求、校验会话/schema/安全策略、调用领域服务、映射稳定错误。`server/modules` 是事务和授权查询的唯一所有者。
+
+`apps/api/src/fastify` 保存公共 Fastify server factory、共用接入插件和按 `system/auth/workspaces/telemetry/assets/migrations/projects` 拆分的路由；迁移期间未完成的组仍由 `apps/api/src/server.ts` 处理。`apps/admin-api` 只保留已校验但尚未启用的 adapter 选择，必须等公共 API 生产观察期结束后再建立对应 Fastify 路由。`packages/contracts/src/httpSchema.ts` 只通过 `@ai-canvas-cloud/contracts/http-schema` 服务端子路径导出 TypeBox Schema，不进入 Contracts 根导出或 Web bundle。
 
 - `project-graph` 独占节点、连线、change、version/sequence 和当前节点资产引用写入。
 - `project-snapshots` 独占 checkpoint 与 restore。

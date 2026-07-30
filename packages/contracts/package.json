@@ -6,6 +6,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./http": "./dist/http.js",
+    "./http-schema": "./dist/httpSchema.js",
     "./migration-package": "./dist/migrationPackage.js",
     "./site-config": "./dist/siteConfig.js"
   },
@@ -14,6 +15,7 @@
     "test": "node --test src/**/*.test.ts"
   },
   "dependencies": {
-    "@ai-canvas-cloud/shared": "0.1.0"
+    "@ai-canvas-cloud/shared": "0.1.0",
+    "@sinclair/typebox": "^0.34.52"
   }
 }

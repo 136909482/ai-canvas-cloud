@@ -19,6 +19,7 @@ test("API config validates required cloud dependencies", () => {
   const config = loadApiConfig(baseEnv);
 
   assert.equal(config.port, 8787);
+  assert.equal(config.httpAdapter, "legacy");
   assert.equal(config.host, "127.0.0.1");
   assert.equal(config.trustProxy, false);
   assert.equal(config.betterAuthUrl, "http://127.0.0.1:8787");
@@ -36,6 +37,21 @@ test("API config validates required cloud dependencies", () => {
     loadApiConfig({ ...baseEnv, WEB_STATIC_SITE_ROOT: "/app/apps/web/dist" })
       .staticSiteRoot,
     "/app/apps/web/dist",
+  );
+});
+
+test("API config accepts only supported HTTP adapters", () => {
+  assert.equal(
+    loadApiConfig({ ...baseEnv, HTTP_ADAPTER: "fastify" }).httpAdapter,
+    "fastify",
+  );
+  assert.equal(
+    loadApiConfig({ ...baseEnv, API_HTTP_ADAPTER: "fastify" }).httpAdapter,
+    "fastify",
+  );
+  assert.throws(
+    () => loadApiConfig({ ...baseEnv, HTTP_ADAPTER: "express" }),
+    /Invalid HTTP_ADAPTER/,
   );
 });
 
