@@ -7,6 +7,8 @@ import {
   createRequestId,
 } from "@ai-canvas-cloud/shared";
 import { createUnavailablePublicSiteConfigService } from "@ai-canvas-cloud/server/modules/admin";
+import { createUnavailableAuthService } from "@ai-canvas-cloud/server/modules/auth";
+import { createUnavailableWorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
 import {
   HTTP_ADAPTER_CLOSE,
   createApiServer,
@@ -14,7 +16,9 @@ import {
   type ServerOptions,
 } from "../server.js";
 import { registerFastifyFoundation } from "./plugins.js";
+import { createFastifyAuthContextAdapter } from "./authContext.js";
 import { registerSystemRoutes } from "./routes/system.js";
+import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 
 const FASTIFY_OWNED_PATHS = new Set([
   "/metrics",
@@ -23,6 +27,8 @@ const FASTIFY_OWNED_PATHS = new Set([
   "/api/v1/health/live",
   "/api/v1/health/ready",
   "/api/v1/site-config",
+  "/api/v1/workspaces/current",
+  "/api/v1/workspaces/current/usage",
 ]);
 
 function isFastifyOwnedPath(url: string | undefined) {
@@ -35,13 +41,18 @@ export async function createFastifyApiServer(options: ServerOptions) {
     options.logger ??
     createJsonLogger({ level: options.config.logLevel, service: "api" });
   const metrics = options.metrics ?? createMetricsRegistry();
+  const authService = options.authService ?? createUnavailableAuthService();
   const siteConfigService =
     options.siteConfigService ?? createUnavailablePublicSiteConfigService();
+  const workspaceUsageService =
+    options.workspaceUsageService ?? createUnavailableWorkspaceUsageService();
   const legacyServer = createApiServer({
     ...options,
+    authService,
     logger,
     metrics,
     siteConfigService,
+    workspaceUsageService,
   });
   const legacyListener = legacyServer.listeners("request")[0] as
     RequestListener | undefined;
@@ -78,13 +89,21 @@ export async function createFastifyApiServer(options: ServerOptions) {
     });
   }
 
-  registerFastifyFoundation(app, { config: options.config, logger, metrics });
+  const authContext = createFastifyAuthContextAdapter(authService);
+  registerFastifyFoundation(app, {
+    authContext,
+    config: options.config,
+    logger,
+    metrics,
+    rateLimiter: options.rateLimiter,
+  });
   registerSystemRoutes(app, {
     metrics,
     siteConfigService,
     postgresPoolStats: options.postgresPoolStats,
     readinessChecks: options.readinessChecks,
   });
+  registerWorkspaceRoutes(app, { authContext, workspaceUsageService });
 
   if (options.config.env === "development") {
     const { default: swaggerUi } = await import("@fastify/swagger-ui");

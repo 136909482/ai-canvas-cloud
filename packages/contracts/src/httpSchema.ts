@@ -3,8 +3,10 @@ import { apiErrorCodes } from "./index.js";
 import type {
   ApiErrorCode,
   ApiErrorResponse,
+  CurrentWorkspaceResponse,
   HealthResponse,
   PublicSiteConfigResponse,
+  WorkspaceUsageResponse,
 } from "./index.js";
 
 const DependencyFailureSchema = Type.Union([
@@ -151,6 +153,65 @@ export const PublicSiteConfigResponseSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const WorkspaceSummarySchema = Type.Object(
+  {
+    id: Type.String(),
+    type: Type.Union([Type.Literal("personal"), Type.Literal("team")]),
+    name: Type.String(),
+    role: Type.Union([
+      Type.Literal("owner"),
+      Type.Literal("admin"),
+      Type.Literal("editor"),
+      Type.Literal("viewer"),
+    ]),
+    status: Type.Union([
+      Type.Literal("active"),
+      Type.Literal("disabled"),
+      Type.Literal("deleted"),
+    ]),
+    planKey: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+export const CurrentWorkspaceResponseSchema = Type.Object(
+  { workspace: WorkspaceSummarySchema },
+  { additionalProperties: false },
+);
+
+const NonNegativeIntegerSchema = Type.Integer({ minimum: 0 });
+
+export const WorkspaceUsageResponseSchema = Type.Object(
+  {
+    workspaceId: Type.String(),
+    storage: Type.Object(
+      {
+        usedBytes: NonNegativeIntegerSchema,
+        reservedBytes: NonNegativeIntegerSchema,
+        totalBytes: NonNegativeIntegerSchema,
+        quotaBytes: NonNegativeIntegerSchema,
+        availableBytes: NonNegativeIntegerSchema,
+      },
+      { additionalProperties: false },
+    ),
+    projects: Type.Array(
+      Type.Object(
+        {
+          projectId: Type.String(),
+          name: Type.String(),
+          fileCount: NonNegativeIntegerSchema,
+          nodeCount: NonNegativeIntegerSchema,
+          storageBytes: NonNegativeIntegerSchema,
+          archivedAt: NullableStringSchema,
+          updatedAt: Type.String(),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+  },
+  { additionalProperties: false },
+);
+
 type Assert<T extends true> = T;
 type IsMutuallyAssignable<Left, Right> = Left extends Right
   ? Right extends Left
@@ -170,9 +231,23 @@ type PublicSiteConfigSchemaCompatibility = Assert<
     PublicSiteConfigResponse
   >
 >;
+type CurrentWorkspaceSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof CurrentWorkspaceResponseSchema>,
+    CurrentWorkspaceResponse
+  >
+>;
+type WorkspaceUsageSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof WorkspaceUsageResponseSchema>,
+    WorkspaceUsageResponse
+  >
+>;
 
 export type {
   ApiErrorSchemaCompatibility,
+  CurrentWorkspaceSchemaCompatibility,
   HealthSchemaCompatibility,
   PublicSiteConfigSchemaCompatibility,
+  WorkspaceUsageSchemaCompatibility,
 };

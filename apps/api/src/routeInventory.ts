@@ -149,14 +149,14 @@ export const PUBLIC_ROUTE_INVENTORY = [
     path: "/api/v1/workspaces/current",
     operationId: "getCurrentWorkspace",
     group: "workspaces",
-    owner: "legacy",
+    owner: "fastify",
   },
   {
     method: "GET",
     path: "/api/v1/workspaces/current/usage",
     operationId: "getCurrentWorkspaceUsage",
     group: "workspaces",
-    owner: "legacy",
+    owner: "fastify",
   },
   {
     method: "POST",

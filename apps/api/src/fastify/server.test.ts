@@ -3,7 +3,15 @@ import http from "node:http";
 import test from "node:test";
 import { createMetricsRegistry } from "@ai-canvas-cloud/shared";
 import { DEFAULT_SITE_CONFIG } from "@ai-canvas-cloud/contracts/site-config";
+import type { AuthSessionResponse } from "@ai-canvas-cloud/contracts";
+import {
+  createUnavailableAuthService,
+  type AuthRequestContext,
+  type AuthService,
+} from "@ai-canvas-cloud/server/modules/auth";
+import type { WorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
 import type { ApiConfig } from "../config.ts";
+import type { RateLimiter } from "../rateLimit.ts";
 import {
   closeApiServer,
   createApiServer,
@@ -96,6 +104,63 @@ function normalizeHealth(text: string) {
   Reflect.deleteProperty(payload, "checkedAt");
   Reflect.deleteProperty(payload, "uptimeSeconds");
   return payload;
+}
+
+function createWorkspaceServices() {
+  const contexts: AuthRequestContext[] = [];
+  const actors: Array<{ userId: string; workspaceId: string }> = [];
+  const session: AuthSessionResponse = {
+    user: {
+      id: "user_1",
+      userNumber: 10001,
+      username: "Artist_01",
+      email: "artist@example.com",
+      status: "active",
+      emailVerified: true,
+    },
+    workspace: {
+      id: "workspace_1",
+      type: "personal",
+      name: "Artist workspace",
+      role: "owner",
+      status: "active",
+      planKey: "free",
+    },
+  };
+  const authService: AuthService = {
+    ...createUnavailableAuthService(),
+    async getSession(context) {
+      contexts.push(context);
+      return session;
+    },
+  };
+  const workspaceUsageService: WorkspaceUsageService = {
+    async getCurrentUsage(actor) {
+      actors.push(actor);
+      return {
+        workspaceId: actor.workspaceId,
+        storage: {
+          usedBytes: 1024,
+          reservedBytes: 512,
+          totalBytes: 1536,
+          quotaBytes: 10_737_418_240,
+          availableBytes: 10_737_416_704,
+        },
+        projects: [
+          {
+            projectId: "11111111-1111-4111-8111-111111111111",
+            name: "Project A",
+            fileCount: 2,
+            nodeCount: 4,
+            storageBytes: 1024,
+            archivedAt: null,
+            updatedAt: "2026-07-15T00:00:00.000Z",
+          },
+        ],
+      };
+    },
+  };
+  return { actors, authService, contexts, workspaceUsageService };
 }
 
 test("Fastify system routes preserve legacy status, headers, and payloads", async () => {
@@ -241,6 +306,135 @@ test("Fastify site configuration preserves legacy unavailable errors", async () 
   }
 });
 
+test("Fastify workspace routes preserve legacy auth context and trusted actors", async () => {
+  const legacyServices = createWorkspaceServices();
+  const fastifyServices = createWorkspaceServices();
+  const legacy = createApiServer({ config, ...legacyServices });
+  const fastify = await createFastifyApiServer({
+    config,
+    ...fastifyServices,
+  });
+  const legacyPort = await listen(legacy);
+  const fastifyPort = await listen(fastify);
+  const headers = {
+    cookie: "better-auth.session_token=signed_session",
+    "user-agent": "workspace-contract-test",
+  };
+
+  try {
+    const [legacyAnonymous, fastifyAnonymous] = await Promise.all([
+      request(legacyPort, "/api/v1/workspaces/current"),
+      request(fastifyPort, "/api/v1/workspaces/current"),
+    ]);
+    assert.equal(fastifyAnonymous.statusCode, legacyAnonymous.statusCode);
+    assert.deepEqual(
+      normalizeError(fastifyAnonymous.text),
+      normalizeError(legacyAnonymous.text),
+    );
+
+    for (const path of [
+      "/api/v1/workspaces/current?workspaceId=forged",
+      "/api/v1/workspaces/current/usage?workspaceId=forged&userId=forged",
+    ]) {
+      const [before, after] = await Promise.all([
+        request(legacyPort, path, "GET", headers),
+        request(fastifyPort, path, "GET", headers),
+      ]);
+      assert.equal(after.statusCode, before.statusCode, path);
+      assert.equal(
+        after.headers["content-type"],
+        before.headers["content-type"],
+      );
+      assert.equal(after.text, before.text, path);
+    }
+
+    assert.deepEqual(fastifyServices.actors, legacyServices.actors);
+    assert.deepEqual(fastifyServices.actors, [
+      { userId: "user_1", workspaceId: "workspace_1" },
+    ]);
+    assert.equal(fastifyServices.contexts.length, 2);
+    assert.equal(
+      fastifyServices.contexts[0]?.cookieHeader,
+      legacyServices.contexts[0]?.cookieHeader,
+    );
+    assert.equal(
+      fastifyServices.contexts[0]?.userAgent,
+      legacyServices.contexts[0]?.userAgent,
+    );
+    assert.equal(
+      fastifyServices.contexts[0]?.ipAddress,
+      legacyServices.contexts[0]?.ipAddress,
+    );
+    assert.match(fastifyServices.contexts[0]?.requestId ?? "", /^[\w-]+$/);
+  } finally {
+    await Promise.all([
+      closeApiServer(legacy, 1_000),
+      closeApiServer(fastify, 1_000),
+    ]);
+  }
+});
+
+test("Fastify workspace rate limits preserve legacy trusted scopes", async () => {
+  function createRateLimiter() {
+    const calls: Array<{ bucket: string; scopes: string[] }> = [];
+    const rateLimiter: RateLimiter = {
+      async consume(bucket, scopes) {
+        calls.push({ bucket, scopes });
+        return scopes.some((scope) => scope.startsWith("user:"))
+          ? {
+              allowed: false,
+              available: true,
+              retryAfterSeconds: 17,
+              bucket,
+            }
+          : { allowed: true, available: true, retryAfterSeconds: 0, bucket };
+      },
+      async ping() {},
+      async close() {},
+    };
+    return { calls, rateLimiter };
+  }
+
+  const legacyServices = createWorkspaceServices();
+  const fastifyServices = createWorkspaceServices();
+  const legacyLimit = createRateLimiter();
+  const fastifyLimit = createRateLimiter();
+  const legacy = createApiServer({
+    config,
+    ...legacyServices,
+    rateLimiter: legacyLimit.rateLimiter,
+  });
+  const fastify = await createFastifyApiServer({
+    config,
+    ...fastifyServices,
+    rateLimiter: fastifyLimit.rateLimiter,
+  });
+  const legacyPort = await listen(legacy);
+  const fastifyPort = await listen(fastify);
+
+  try {
+    const headers = { cookie: "better-auth.session_token=signed_session" };
+    const [before, after] = await Promise.all([
+      request(legacyPort, "/api/v1/workspaces/current", "GET", headers),
+      request(fastifyPort, "/api/v1/workspaces/current", "GET", headers),
+    ]);
+    assert.equal(after.statusCode, before.statusCode);
+    assert.equal(after.headers["retry-after"], before.headers["retry-after"]);
+    assert.deepEqual(normalizeError(after.text), normalizeError(before.text));
+    assert.deepEqual(fastifyLimit.calls, legacyLimit.calls);
+    assert.deepEqual(fastifyLimit.calls[1], {
+      bucket: "read",
+      scopes: ["user:user_1", "workspace:workspace_1"],
+    });
+    assert.equal(fastifyServices.contexts.length, 1);
+  } finally {
+    await Promise.all([
+      closeApiServer(legacy, 1_000),
+      closeApiServer(fastify, 1_000),
+    ]);
+  }
+});
+
 test("OpenAPI is available only in development Fastify mode", async () => {
   const development = await createFastifyApiServer({
     config: { ...config, env: "development", httpAdapter: "fastify" },
@@ -262,7 +456,7 @@ test("OpenAPI is available only in development Fastify mode", async () => {
         .map((operation) => operation.operationId)
         .filter((value): value is string => Boolean(value)),
     );
-    assert.equal(operationIds.length, 6);
+    assert.equal(operationIds.length, 8);
     assert.equal(new Set(operationIds).size, operationIds.length);
     assert.equal((await request(productionPort, "/docs")).statusCode, 404);
     assert.equal((await request(productionPort, "/docs/json")).statusCode, 404);

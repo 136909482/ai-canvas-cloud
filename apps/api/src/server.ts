@@ -1,6 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import http from "node:http";
-import { isIP } from "node:net";
 import {
   API_V1_PREFIX,
   createServiceUnavailableError,
@@ -40,7 +39,6 @@ import { createStaticSite } from "@ai-canvas-cloud/server";
 import {
   AuthServiceError,
   createUnavailableAuthService,
-  type AuthRequestContext,
   type AuthService,
 } from "@ai-canvas-cloud/server/modules/auth";
 import {
@@ -86,11 +84,14 @@ import {
 } from "@ai-canvas-cloud/shared";
 import type { ApiConfig } from "./config.js";
 import { checkReadinessDependencies } from "./dependencies.js";
-import type {
-  RateLimitBucket,
-  RateLimiter,
-  RateLimitDecision,
-} from "./rateLimit.js";
+import type { RateLimiter, RateLimitDecision } from "./rateLimit.js";
+import {
+  createRequestAuthService,
+  getAuthContext,
+  getControlledNetworkIdentity,
+  getRateLimitBucket,
+  getTrustedRateLimitScopes,
+} from "./requestContext.js";
 import { handleSecurityBoundary } from "./security.js";
 
 export interface ServerOptions {
@@ -693,18 +694,6 @@ async function assertOptionalEmptyBody(request: http.IncomingMessage) {
       message: "Migration cancel body must be an empty object",
     });
   }
-}
-
-function getAuthContext(
-  request: http.IncomingMessage,
-  requestId: string,
-): AuthRequestContext {
-  return {
-    requestId,
-    userAgent: request.headers["user-agent"] ?? null,
-    ipAddress: request.socket.remoteAddress ?? null,
-    cookieHeader: request.headers.cookie ?? null,
-  };
 }
 
 function setCookieHeaders(
@@ -1356,99 +1345,6 @@ async function handleAssetRoute(
   }
 }
 
-function getRateLimitBucket(
-  request: http.IncomingMessage,
-  pathname: string,
-): RateLimitBucket | null {
-  const method = request.method ?? "GET";
-  if (
-    pathname === "/metrics" ||
-    isLivePath(pathname) ||
-    isReadyPath(pathname) ||
-    method === "OPTIONS"
-  ) {
-    return null;
-  }
-  if (
-    pathname === `${API_V1_PREFIX}/auth/login` ||
-    pathname === `${API_V1_PREFIX}/auth/register`
-  ) {
-    return "auth_attempt";
-  }
-  if (
-    pathname.startsWith(`${API_V1_PREFIX}/auth/password/`) ||
-    pathname === `${API_V1_PREFIX}/auth/registration/email-code`
-  ) {
-    return "password_email";
-  }
-  if (
-    pathname === `${API_V1_PREFIX}/migrations/imports/prepare` ||
-    pathname.endsWith("/exports/prepare")
-  ) {
-    return "migration_prepare";
-  }
-  if (
-    pathname.startsWith(`${API_V1_PREFIX}/assets/uploads`) &&
-    method === "POST"
-  ) {
-    return "asset_prepare";
-  }
-  return method === "GET" || method === "HEAD" ? "read" : "write";
-}
-
-function getControlledNetworkIdentity(
-  request: http.IncomingMessage,
-  trustProxy: boolean,
-) {
-  if (trustProxy) {
-    const forwarded = request.headers["x-forwarded-for"];
-    const raw = Array.isArray(forwarded) ? forwarded.at(-1) : forwarded;
-    const candidate = raw?.split(",").at(-1)?.trim();
-    if (candidate && isIP(candidate)) {
-      return candidate;
-    }
-  }
-  const remoteAddress = request.socket.remoteAddress?.trim();
-  return remoteAddress && isIP(remoteAddress)
-    ? remoteAddress
-    : "unknown-network";
-}
-
-function createRequestAuthService(
-  authService: AuthService,
-  requestId: string,
-): AuthService {
-  let sessionPromise: ReturnType<AuthService["getSession"]> | undefined;
-  return {
-    ...authService,
-    getSession(context) {
-      if (context.requestId !== requestId) {
-        return authService.getSession(context);
-      }
-      sessionPromise ??= authService.getSession(context);
-      return sessionPromise;
-    },
-  };
-}
-
-async function getTrustedRateLimitScopes(
-  request: http.IncomingMessage,
-  requestId: string,
-  authService: AuthService,
-) {
-  if (!request.headers.cookie?.trim()) {
-    return [];
-  }
-  try {
-    const session = await authService.getSession(
-      getAuthContext(request, requestId),
-    );
-    return [`user:${session.user.id}`, `workspace:${session.workspace.id}`];
-  } catch {
-    return [];
-  }
-}
-
 function sendRateLimitResponse(
   response: http.ServerResponse,
   decision: RateLimitDecision,
@@ -2094,7 +1990,7 @@ export function createApiServer({
     }
 
     if (rateLimiter) {
-      const bucket = getRateLimitBucket(request, requestUrl.pathname);
+      const bucket = getRateLimitBucket(request.method, requestUrl.pathname);
       if (bucket) {
         const networkDecision = await rateLimiter.consume(bucket, [
           `ip:${getControlledNetworkIdentity(request, config.trustProxy)}`,
