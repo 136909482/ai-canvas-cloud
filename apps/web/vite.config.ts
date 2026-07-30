@@ -7,7 +7,29 @@ export default defineConfig({
   clearScreen: false,
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    alias: {
+      "@ai-canvas-cloud/contracts/http": path.resolve(
+        __dirname,
+        "../../packages/contracts/src/http.ts",
+      ),
+      "@ai-canvas-cloud/contracts/site-config": path.resolve(
+        __dirname,
+        "../../packages/contracts/src/siteConfig.ts",
+      ),
+      "@ai-canvas-cloud/contracts": path.resolve(
+        __dirname,
+        "../../packages/contracts/src/index.ts",
+      ),
+      "@ai-canvas-cloud/project-graph": path.resolve(
+        __dirname,
+        "../../packages/project-graph/src/index.ts",
+      ),
+      "@ai-canvas-cloud/shared": path.resolve(
+        __dirname,
+        "../../packages/shared/src/index.ts",
+      ),
+      "@": path.resolve(__dirname, "./src"),
+    },
   },
   build: {
     target: "chrome120",
