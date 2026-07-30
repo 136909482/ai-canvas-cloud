@@ -43,6 +43,7 @@ test("administrator password reset writes a Better Auth-compatible hash", async 
       },
     },
     auditSecret: "administrator-audit-secret-for-tests",
+    ordinaryAuthSecret: "ordinary-auth-secret-for-user-operation-tests",
   });
   const password = "Recovery 2026!";
 
@@ -148,6 +149,7 @@ test("administrator user ban, unban, and session revocation are transactional an
   const service = createPostgresAdminUserOperationsService(database, {
     adminService,
     auditSecret: "administrator-audit-secret-for-tests",
+    ordinaryAuthSecret: "ordinary-auth-secret-for-user-operation-tests",
     passwordHasher: async (password) => `hashed:${password}`,
   });
   const context = {
@@ -303,6 +305,7 @@ test("administrator user queries keep two accounts isolated across filters, curs
   const service = createPostgresAdminUserOperationsService(database, {
     adminService,
     auditSecret: "administrator-audit-secret-for-tests",
+    ordinaryAuthSecret: "ordinary-auth-secret-for-user-operation-tests",
   });
   const context = { requestId: "query-request" };
 

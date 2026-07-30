@@ -82,6 +82,44 @@ export interface AdminUserPasswordResetResponse {
   resetAt: string;
 }
 
+export interface AdminUserDeletionSuccessor {
+  id: string;
+  userNumber: number;
+  username: string;
+}
+
+export interface AdminUserDeletionOwnedTeam {
+  id: string;
+  name: string;
+  successors: AdminUserDeletionSuccessor[];
+}
+
+export interface AdminUserDeletionPreview {
+  userId: string;
+  userNumber: number;
+  personalWorkspaceCount: number;
+  teamMembershipCount: number;
+  ownedTeams: AdminUserDeletionOwnedTeam[];
+}
+
+export interface AdminUserOwnershipTransfer {
+  workspaceId: string;
+  successorUserId: string;
+}
+
+export interface AdminUserDeletionRequest {
+  reason: string;
+  confirmUserNumber: number;
+  ownershipTransfers: AdminUserOwnershipTransfer[];
+}
+
+export interface AdminUserDeletionResponse {
+  deletedAt: string;
+  purgeAfter: string;
+  personalWorkspaceCount: number;
+  removedTeamMembershipCount: number;
+}
+
 export interface AdminDependencyHealth {
   ok: boolean;
   latencyMs: number;
@@ -283,6 +321,60 @@ export function validateAdminUserPasswordResetRequest(
   return {
     newPassword: input.newPassword,
     reason: validateAdminUserActionRequest({ reason: input.reason }).reason,
+  };
+}
+
+export function validateAdminUserDeletionRequest(
+  value: unknown,
+): AdminUserDeletionRequest {
+  const input = requireRecord(value);
+  rejectUnknownKeys(
+    input,
+    new Set(["reason", "confirmUserNumber", "ownershipTransfers"]),
+  );
+  const confirmUserNumber = input.confirmUserNumber;
+  if (
+    typeof confirmUserNumber !== "number" ||
+    !Number.isSafeInteger(confirmUserNumber) ||
+    Number(confirmUserNumber) < 10001
+  ) {
+    throw new Error("confirmUserNumber is invalid");
+  }
+  if (!Array.isArray(input.ownershipTransfers)) {
+    throw new Error("ownershipTransfers must be an array");
+  }
+  if (input.ownershipTransfers.length > 100) {
+    throw new Error("ownershipTransfers contains too many entries");
+  }
+  const ownershipTransfers = input.ownershipTransfers.map((item) => {
+    const transfer = requireRecord(item);
+    rejectUnknownKeys(
+      transfer,
+      new Set(["workspaceId", "successorUserId"]),
+    );
+    if (
+      typeof transfer.workspaceId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        transfer.workspaceId,
+      )
+    ) {
+      throw new Error("ownershipTransfers workspaceId is invalid");
+    }
+    return {
+      workspaceId: transfer.workspaceId.toLowerCase(),
+      successorUserId: validateAdminManagedUserId(transfer.successorUserId),
+    };
+  });
+  if (
+    new Set(ownershipTransfers.map((transfer) => transfer.workspaceId)).size !==
+    ownershipTransfers.length
+  ) {
+    throw new Error("ownershipTransfers contains duplicate workspaces");
+  }
+  return {
+    reason: validateAdminUserActionRequest({ reason: input.reason }).reason,
+    confirmUserNumber,
+    ownershipTransfers,
   };
 }
 

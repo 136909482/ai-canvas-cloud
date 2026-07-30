@@ -249,6 +249,8 @@ GET  /admin/v1/dashboard
 GET  /admin/v1/audit-events
 GET  /admin/v1/users
 GET  /admin/v1/users/:userId
+GET  /admin/v1/users/:userId/deletion-preview
+POST /admin/v1/users/:userId/delete
 POST /admin/v1/users/:userId/ban
 POST /admin/v1/users/:userId/unban
 POST /admin/v1/users/:userId/revoke-sessions
@@ -304,6 +306,14 @@ SMTP 上游错误只映射为 `SMTP_HOST_NOT_ALLOWED|SMTP_DNS_FAILED|SMTP_CONNEC
 `POST /internal/v1/asset-cleanup` 是普通 API 的部署内部端点，不属于公网平台 API。它只接受 Bearer `ASSET_MAINTENANCE_TOKEN` 和严格 `{ "apply": boolean }` JSON，由 Admin API 在部署私网内调用；无密钥或错误密钥返回 `403 ACCESS_DENIED`。该端点执行引用保护、OSS 操作和数据库状态收敛，但仍只返回上述聚合结构。
 
 site assets 只接受 PNG/JPEG/WebP/ICO、最大 4 MiB、单边最大 4096；完成时复核 metadata、完整 hash、魔数和真实尺寸。site config 保存版本化结构、不可变 revision、current 指针、公开投影和同事务审计，不接受 HTML、JavaScript、任意 CSS 或 URL 凭据/fragment。
+
+### 管理员注销用户
+
+`GET /admin/v1/users/:userId/deletion-preview` 与 `POST /admin/v1/users/:userId/delete` 仅要求 `super_admin` 持有的 `user.delete`。预检只返回用户编号、个人空间与团队成员关系数量，以及目标作为 owner 的团队和其中可接任的活跃成员；不返回项目、资产或 object key。
+
+注销请求严格为 `{ "reason": string, "confirmUserNumber": number, "ownershipTransfers": [{ "workspaceId": string, "successorUserId": string }] }`。原因长度为 3-500，编号必须与目标用户编号精确一致；每个仍有效的团队 owner 必须指定一名现有活跃成员接任。成功响应为 `{ deletedAt, purgeAfter, personalWorkspaceCount, removedTeamMembershipCount }`。
+
+该操作立即撤销普通用户 session、清除身份认证数据并匿名化用户行，团队内容和接任后的成员关系保留。个人空间进入固定 7 天清理期；云端无法删除浏览器本地 Vault，但被注销账号不再能通过可信会话使用它。稳定冲突码为 `USER_DELETION_ALREADY_REQUESTED`、`USER_DELETION_CONFIRMATION_MISMATCH`、`TEAM_OWNERSHIP_TRANSFER_REQUIRED` 和 `TEAM_OWNERSHIP_TRANSFER_INVALID`。
 
 ## 已删除 URL
 

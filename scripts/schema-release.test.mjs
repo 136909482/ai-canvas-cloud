@@ -12,13 +12,13 @@ import {
 
 test("schema release manifest covers every migration with monotonic release phases", () => {
   const result = validateSchemaReleaseManifest(loadSchemaReleaseManifest());
-  assert.equal(result.files.length, 36);
-  assert.equal(result.manifest.migrations.at(-1).version, "0036");
+  assert.equal(result.files.length, 37);
+  assert.equal(result.manifest.migrations.at(-1).version, "0037");
   assert.equal(
     result.manifest.migrations.at(-1).releaseTrain,
-    "p8-storage-quota",
+    "p8-account-erasure",
   );
-  assert.equal(result.manifest.migrations.at(-1).phase, "migrate");
+  assert.equal(result.manifest.migrations.at(-1).phase, "expand");
   assert.equal(result.manifest.migrations.at(-1).oldAppWithNewSchema, true);
   assert.equal(
     result.manifest.migrations.filter((migration) => migration.backupRequired)
@@ -163,6 +163,13 @@ test(
          RETURNING user_no`,
       );
       assert.equal(Number(insertedUser.rows[0]?.user_no), 10001);
+      const erasureSchema = await client.query(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema = $1 AND table_name = 'account_erasure_jobs'
+           AND column_name = ANY($2::text[])`,
+        [schema, ["user_id", "personal_workspace_ids", "purge_after", "status"]],
+      );
+      assert.equal(erasureSchema.rowCount, 4);
     } finally {
       if (client.readyForQuery) {
         await client.query("ROLLBACK").catch(() => undefined);

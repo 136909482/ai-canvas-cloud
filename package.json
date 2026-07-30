@@ -39,6 +39,7 @@
     "db:migrate:compat": "node scripts/check-schema-release.mjs && node --import tsx --test scripts/schema-release.test.mjs",
     "db:repair:checkpoint-assets": "npm run build --workspace @ai-canvas-cloud/server && node scripts/repair-checkpoint-asset-manifests.mjs",
     "db:maintain:assets": "npm run build --workspace @ai-canvas-cloud/server && node scripts/maintain-assets.mjs",
+    "db:maintain:accounts": "npm run build --workspace @ai-canvas-cloud/server && node scripts/maintain-account-erasures.mjs",
     "verify:http-adapters": "npm run build -w @ai-canvas-cloud/shared -w @ai-canvas-cloud/contracts -w @ai-canvas-cloud/project-graph -w @ai-canvas-cloud/server -w @ai-canvas-cloud/api -w @ai-canvas-cloud/admin-api && node scripts/verify-http-adapters.mjs",
     "deploy:staging:check": "npm run build --workspace @ai-canvas-cloud/shared && node scripts/check-deployment-config.mjs --env-file infra/deploy/staging/staging.env",
     "deploy:staging:gate": "npm run test && npm run db:migrate:test && npm run db:migrate:compat && npm run build && node scripts/staging-release-gate.mjs --env-file infra/deploy/staging/staging.env",

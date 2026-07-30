@@ -21,6 +21,7 @@ export interface AdminApiConfig {
   databasePoolMax?: number;
   betterAuthUrl: string;
   betterAuthSecret: string;
+  ordinaryAuthSecret: string;
   webPublicUrl: string;
   allowedOrigins: string[];
   objectStorageEnvironmentFallback: boolean;
@@ -111,7 +112,7 @@ export function loadAdminApiConfig(
   const databaseUrl = readRequiredEnv(env, "ADMIN_DATABASE_URL");
   const ordinaryDatabaseRole = readRequiredEnv(env, "APP_DATABASE_ROLE");
   const betterAuthSecret = readRequiredEnv(env, "ADMIN_BETTER_AUTH_SECRET");
-  const ordinaryAuthSecret = env.BETTER_AUTH_SECRET?.trim();
+  const ordinaryAuthSecret = readRequiredEnv(env, "BETTER_AUTH_SECRET");
   const smtpCredentialKeys = env.SMTP_CREDENTIAL_KEYS?.trim() || undefined;
   const smtpCredentialActiveKeyVersion = Number(
     env.SMTP_CREDENTIAL_ACTIVE_KEY_VERSION ?? 1,
@@ -169,11 +170,11 @@ export function loadAdminApiConfig(
     throw new Error(`Invalid LOG_LEVEL: ${logLevel}`);
   if (
     betterAuthSecret.length < 32 ||
-    (ordinaryAuthSecret !== undefined &&
-      betterAuthSecret === ordinaryAuthSecret)
+    ordinaryAuthSecret.length < 32 ||
+    betterAuthSecret === ordinaryAuthSecret
   ) {
     throw new Error(
-      "ADMIN_BETTER_AUTH_SECRET must be at least 32 characters and independent from BETTER_AUTH_SECRET",
+      "ADMIN_BETTER_AUTH_SECRET and BETTER_AUTH_SECRET must each be at least 32 characters and independent",
     );
   }
   if (
@@ -243,6 +244,7 @@ export function loadAdminApiConfig(
       `http://${host}:${port}`,
     ),
     betterAuthSecret,
+    ordinaryAuthSecret,
     webPublicUrl,
     allowedOrigins,
     objectStorageEnvironmentFallback,

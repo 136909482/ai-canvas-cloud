@@ -527,6 +527,38 @@ export function createAdminApiServer({
         );
         return;
       }
+      const deletionPreview =
+        /^\/admin\/v1\/users\/([^/]+)\/deletion-preview$/.exec(
+          url.pathname,
+        );
+      if (deletionPreview && request.method === "GET") {
+        sendJson(
+          response,
+          200,
+          await userOperationsService.getUserDeletionPreview(
+            decodePathSegment(deletionPreview[1]!),
+            context,
+          ),
+          requestId,
+        );
+        return;
+      }
+      const deleteUser = /^\/admin\/v1\/users\/([^/]+)\/delete$/.exec(
+        url.pathname,
+      );
+      if (deleteUser && request.method === "POST") {
+        sendJson(
+          response,
+          200,
+          await userOperationsService.deleteUser(
+            decodePathSegment(deleteUser[1]!),
+            await readJson(request),
+            context,
+          ),
+          requestId,
+        );
+        return;
+      }
       const userAction =
         /^\/admin\/v1\/users\/([^/]+)\/(ban|unban|revoke-sessions|reset-password)$/.exec(
           url.pathname,

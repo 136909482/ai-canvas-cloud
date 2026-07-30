@@ -67,6 +67,43 @@ export function registerAdminUserRoutes(
       ),
   );
 
+  app.get(
+    "/admin/v1/users/:userId/deletion-preview",
+    {
+      schema: {
+        operationId: adminOperation("getAdminUserDeletionPreview"),
+        tags: ["users"],
+        params: AdminPathIdSchema,
+        response: responses,
+      },
+    },
+    async (request) =>
+      options.userOperationsService.getUserDeletionPreview(
+        request.params.userId,
+        context(request),
+      ),
+  );
+
+  app.post(
+    "/admin/v1/users/:userId/delete",
+    {
+      bodyLimit: 16 * 1024,
+      schema: {
+        operationId: adminOperation("deleteAdminUser"),
+        tags: ["users"],
+        params: AdminPathIdSchema,
+        body: AdminRequestBodySchema,
+        response: responses,
+      },
+    },
+    async (request) =>
+      options.userOperationsService.deleteUser(
+        request.params.userId,
+        bodyRecord(request.body),
+        context(request),
+      ),
+  );
+
   const actions = [
     ["ban", "banAdminUser", "banUser"],
     ["unban", "unbanAdminUser", "unbanUser"],

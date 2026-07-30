@@ -112,6 +112,18 @@ export const ADMIN_ROUTE_INVENTORY = [
     group: "users",
   },
   {
+    method: "GET",
+    path: "/admin/v1/users/:userId/deletion-preview",
+    operationId: "getAdminUserDeletionPreview",
+    group: "users",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/users/:userId/delete",
+    operationId: "deleteAdminUser",
+    group: "users",
+  },
+  {
     method: "POST",
     path: "/admin/v1/users/:userId/ban",
     operationId: "banAdminUser",

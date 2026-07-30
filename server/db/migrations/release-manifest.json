@@ -481,6 +481,20 @@
       "rollback": "transactional rollback before release; after publish restore the prior default and only audited workspaces changed by this migration",
       "forwardRepair": "rerun the idempotent default change and update only personal workspaces that still retain the prior 20 GiB default",
       "backupRequired": true
+    },
+    {
+      "version": "0037",
+      "name": "account_erasure",
+      "releaseTrain": "p8-account-erasure",
+      "phase": "expand",
+      "oldAppReadable": true,
+      "newAppReadable": true,
+      "oldAppWithNewSchema": true,
+      "lockRisk": "low",
+      "statementTimeoutMs": 10000,
+      "rollback": "transactional rollback before a deletion request is accepted; after a request, retain the tombstone and repair forward rather than restoring identity data",
+      "forwardRepair": "rerun the idempotent migration, reapply database roles, and use db:maintain:accounts --apply to retry due object and metadata cleanup",
+      "backupRequired": true
     }
   ]
 }

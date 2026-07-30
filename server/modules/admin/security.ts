@@ -15,6 +15,7 @@ const ROLE_PERMISSIONS: Readonly<
     "user.read",
     "user.write",
     "user.credentials.write",
+    "user.delete",
   ]),
   operator: new Set(["audit.read", "dashboard.read", "site_config.write"]),
   support: new Set(["audit.read", "dashboard.read", "user.read", "user.write"]),
@@ -38,6 +39,10 @@ export class AdminAccessError extends Error {
     | "ADMIN_ACCESS_DENIED"
     | "RESOURCE_NOT_FOUND"
     | "VALIDATION_FAILED"
+    | "USER_DELETION_ALREADY_REQUESTED"
+    | "USER_DELETION_CONFIRMATION_MISMATCH"
+    | "TEAM_OWNERSHIP_TRANSFER_REQUIRED"
+    | "TEAM_OWNERSHIP_TRANSFER_INVALID"
     | "SMTP_CONFIG_CONFLICT"
     | "SMTP_HOST_NOT_ALLOWED"
     | "SMTP_DNS_FAILED"

@@ -11,6 +11,9 @@ import type {
   AdminSiteConfigResponse,
   AdminUsersResponse,
   AdminUserActionRequest,
+  AdminUserDeletionPreview,
+  AdminUserDeletionRequest,
+  AdminUserDeletionResponse,
   AdminUserResponse,
   AdminUserPasswordResetRequest,
   AdminUserPasswordResetResponse,
@@ -200,6 +203,17 @@ export const adminApi = {
   user(userId: string) {
     return request<AdminUserResponse>(
       `/admin/v1/users/${encodeURIComponent(userId)}`,
+    );
+  },
+  userDeletionPreview(userId: string) {
+    return request<AdminUserDeletionPreview>(
+      `/admin/v1/users/${encodeURIComponent(userId)}/deletion-preview`,
+    );
+  },
+  deleteUser(userId: string, input: AdminUserDeletionRequest) {
+    return post<AdminUserDeletionResponse>(
+      `/admin/v1/users/${encodeURIComponent(userId)}/delete`,
+      input as unknown as Record<string, unknown>,
     );
   },
   banUser(userId: string, input: AdminUserActionRequest) {

@@ -104,6 +104,10 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 
 根 `Dockerfile` 构建 Web、API、Admin Web、Admin API、migrate、release、operations 和单机 `single-host-app`。后者把两个已构建前端与两个 API 放进同一镜像，运行时仍以普通应用和后台应用两个容器隔离。staging Compose 不包含 Worker、生成队列、Provider 密钥环或队列恢复。托管 production Compose 只常驻四个应用容器；`infra/deploy/single-host` 则常驻普通应用、后台应用、PostgreSQL 和 Redis。单机程序镜像默认在开发电脑的 Docker Desktop 构建并导出，服务器只加载归档；GitHub Actions/ACR 仅作为可选兼容通道。
 
+### 账户注销与维护
+
+`server/modules/admin/accountDeletionService.ts` 承担管理员注销事务与审计；它不放入 HTTP 路由。`server/modules/admin/accountErasureMaintenance.ts` 仅由应用数据库角色和对象存储实现调用，供 `scripts/maintain-account-erasures.mjs` 的 `db:maintain:accounts` 命令执行到期清理。Admin API 只编排预检和注销请求，不读取项目正文或对象键。
+
 ## 测试放置
 
 - 纯函数测试与被测模块同目录，命名 `*.test.ts`。

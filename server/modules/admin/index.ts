@@ -7,5 +7,7 @@ export * from "./siteConfigService.js";
 export * from "./smtpConfigService.js";
 export * from "./objectStorageConfigService.js";
 export * from "./assetCleanupControlService.js";
+export * from "./accountDeletionService.js";
+export * from "./accountErasureMaintenance.js";
 export * from "./types.js";
 export * from "./userOperationsService.js";

@@ -24,7 +24,7 @@ const connections = {
   app: process.env.DATABASE_URL,
   admin: process.env.ADMIN_DATABASE_URL,
 };
-const expectedMigrationVersions = Array.from({ length: 36 }, (_, index) =>
+const expectedMigrationVersions = Array.from({ length: 37 }, (_, index) =>
   String(index + 1).padStart(4, "0"),
 );
 
@@ -59,6 +59,7 @@ const expectedPermissions = {
     passwordResetEmailChallengeWrite: true,
     generationTelemetryRead: true,
     generationTelemetryAttemptRead: true,
+    accountErasureWrite: true,
   },
   admin: {
     isSuperuser: false,
@@ -82,11 +83,12 @@ const expectedPermissions = {
     objectStoragePublicationRead: true,
     objectStoragePublicationWrite: true,
     registrationEmailChallengeRead: false,
-    registrationEmailChallengeWrite: false,
+    registrationEmailChallengeWrite: true,
     passwordResetEmailChallengeRead: false,
-    passwordResetEmailChallengeWrite: false,
+    passwordResetEmailChallengeWrite: true,
     generationTelemetryRead: true,
     generationTelemetryAttemptRead: false,
+    accountErasureWrite: true,
   },
 };
 
@@ -115,6 +117,7 @@ for (const [connection, connectionString] of Object.entries(connections)) {
     let assetObjectRead = true;
     let generationTelemetryRead = true;
     let generationTelemetryAttemptRead = true;
+    let accountErasureWrite = true;
     try {
       await client.query('SELECT 1 FROM admin."user" LIMIT 1');
     } catch {
@@ -215,6 +218,42 @@ for (const [connection, connectionString] of Object.entries(connections)) {
       );
     } catch {
       generationTelemetryAttemptRead = false;
+    }
+    try {
+      const erasurePermissions = await client.query(`
+        SELECT
+          has_column_privilege(current_user, 'public."user"', 'email', 'UPDATE') AS user_tombstone,
+          has_table_privilege(current_user, 'public."account"', 'DELETE') AS account_delete,
+          has_table_privilege(current_user, 'public.workspace_members', 'DELETE') AS membership_delete,
+          has_column_privilege(current_user, 'public.projects', 'deleted_at', 'UPDATE') AS project_soft_delete,
+          has_column_privilege(current_user, 'public.assets', 'deleted_at', 'UPDATE') AS asset_soft_delete,
+          has_table_privilege(current_user, 'public.account_erasure_jobs', 'INSERT') AS erasure_job_insert
+      `);
+      accountErasureWrite = Object.values(erasurePermissions.rows[0] ?? {}).every(
+        Boolean,
+      );
+      await client.query(
+        `UPDATE public.project_edges pe SET deleted_at = now()
+         FROM public.projects p
+         WHERE pe.project_id = p.id AND false`,
+      );
+      await client.query(
+        `UPDATE public.project_nodes pn SET deleted_at = now()
+         FROM public.projects p
+         WHERE pn.project_id = p.id AND false`,
+      );
+      await client.query(
+        `UPDATE public.migration_imports mi SET created_by_user_id = w.owner_user_id
+         FROM public.workspaces w
+         WHERE mi.workspace_id = w.id AND false`,
+      );
+      await client.query(
+        `UPDATE public.migration_exports me SET created_by_user_id = w.owner_user_id
+         FROM public.workspaces w
+         WHERE me.workspace_id = w.id AND false`,
+      );
+    } catch {
+      accountErasureWrite = false;
     }
     const sitePublicationRead = await client.query(
       `SELECT has_table_privilege(current_user, 'public.site_config_publications', 'SELECT') AS allowed`,
@@ -395,6 +434,7 @@ for (const [connection, connectionString] of Object.entries(connections)) {
         passwordResetEmailChallengeWrite.rows[0]?.allowed,
       generationTelemetryRead,
       generationTelemetryAttemptRead,
+      accountErasureWrite,
     };
     console.log({ connection, role: identity.rows[0]?.role, ...permissions });
     assert.deepEqual(

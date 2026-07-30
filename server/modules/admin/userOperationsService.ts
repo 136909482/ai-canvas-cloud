@@ -15,6 +15,10 @@ import { hashPassword } from "better-auth/crypto";
 import { withTransaction, type DbPool } from "../../db/postgres.js";
 import { insertAdminAuditEvent } from "./adminAudit.js";
 import { AdminAccessError } from "./security.js";
+import {
+  createPostgresAdminAccountDeletionService,
+  type AdminAccountDeletionService,
+} from "./accountDeletionService.js";
 import type { AdminService } from "./service.js";
 import type { AdminRequestContext } from "./types.js";
 
@@ -81,12 +85,22 @@ export interface AdminUserOperationsService {
     input: unknown,
     context: AdminRequestContext,
   ): Promise<AdminUserPasswordResetResponse>;
+  getUserDeletionPreview(
+    userId: unknown,
+    context: AdminRequestContext,
+  ): ReturnType<AdminAccountDeletionService["getDeletionPreview"]>;
+  deleteUser(
+    userId: unknown,
+    input: unknown,
+    context: AdminRequestContext,
+  ): ReturnType<AdminAccountDeletionService["deleteUser"]>;
 }
 
 export interface PostgresAdminUserOperationsOptions {
   adminService: Pick<AdminService, "requirePermission">;
   auditSecret: string;
   passwordHasher?: (password: string) => Promise<string>;
+  ordinaryAuthSecret: string;
 }
 
 export function createUnavailableAdminUserOperationsService(): AdminUserOperationsService {
@@ -100,6 +114,8 @@ export function createUnavailableAdminUserOperationsService(): AdminUserOperatio
     unbanUser: unavailable,
     revokeUserSessions: unavailable,
     resetUserPassword: unavailable,
+    getUserDeletionPreview: unavailable,
+    deleteUser: unavailable,
   };
 }
 
@@ -232,7 +248,19 @@ export function createPostgresAdminUserOperationsService(
   options: PostgresAdminUserOperationsOptions,
 ): AdminUserOperationsService {
   const passwordHasher = options.passwordHasher ?? hashPassword;
+  const accountDeletionService = createPostgresAdminAccountDeletionService(
+    pool,
+    {
+      adminService: options.adminService,
+      auditSecret: options.auditSecret,
+      ordinaryAuthSecret: options.ordinaryAuthSecret,
+    },
+  );
   const service: AdminUserOperationsService = {
+    getUserDeletionPreview: (userId, context) =>
+      accountDeletionService.getDeletionPreview(userId, context),
+    deleteUser: (userId, input, context) =>
+      accountDeletionService.deleteUser(userId, input, context),
     async listUsers(query, context) {
       await options.adminService.requirePermission(context, "user.read");
       let validated;

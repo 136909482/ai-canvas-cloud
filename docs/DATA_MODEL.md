@@ -320,9 +320,15 @@ commit 在一个事务中完成项目策略、资产 UUID 映射、图/引用/ch
 
 回滚边界：必须先部署仍能消费已发验证码的兼容代码，或等待所有 10 分钟挑战过期后，才能移除表。前向修复为幂等重跑 0034、重新应用角色授权、确认 Admin 无法访问挑战表，并复验重置验证码投递、消费和 session 撤销。
 
+### 0037：账户注销与延迟清理
+
+`"user".deleted_at` 记录不可恢复的注销时间，`personal_data_purged_at` 记录个人数据物理清理完成时间。用户行不会物理删除：状态改为 `deleted`，邮箱、用户名、展示名、兼容 `name` 和头像替换为唯一且不可识别的 tombstone，从而释放原登录标识，同时保留外键和不可变审计关联。
+
+`account_erasure_jobs` 每个用户至多一条，保存个人 workspace ID、7 天后的 `purge_after`、尝试次数、受限错误码和完成时间。即时事务锁定用户和团队成员关系，校验用户编号、转移团队 owner、移除团队成员关系、撤销认证、清除个人空间的当前资产引用与检查点，并软删除个人项目、节点、连线和资产。到期维护任务以应用侧对象存储权限先删除对象，随后幂等删除个人空间的项目历史、快照、关系与元数据；对象删除失败时任务回到 `pending`，不标记用户已清理。用户行保留无 PII tombstone 以保证外键和不可变审计有效；团队 workspace、项目、资产与成员数据不进入该任务。
+
 ## 浏览器本地状态
 
-浏览器 Vault 不是 PostgreSQL 数据模型，也不通过 Cloud 同步。当前格式为 `schemaVersion=2`、`cipherVersion=1`：单个版本化文档保存 Provider 配置、按 `providerProfileId` 索引的 API Key 凭据、模型条目和匿名绑定。`ModelEntry.id` 是唯一身份；`modelId` 仅在运行时请求上游，不能作为任何持久化引用身份。设备模式使用不可导出的 WebCrypto AES-256-GCM `CryptoKey`、96 位随机 IV 和 128 位认证标签加密，AAD 绑定 cipher/schema version、当前 Origin 和可信 session 用户 ID。IndexedDB 的密文记录与 Key 记录按可信用户 ID 分区；两个独立浏览器设备各自持有独立数据库与 Key，不存在隐式同步。
+浏览器 Vault 不是 PostgreSQL 数据模型，也不通过 Cloud 同步。当前格式为 `schemaVersion=2`、`cipherVersion=1`：单个版本化文档保存 Provider 配置、按 `providerProfileId` 索引的 API Key 凭据、模型条目和匿名绑定。`ModelEntry.id` 是唯一身份；`modelId` 仅在运行时请求上游，不能作为任何持久化引用身份。设备模式使用不可导出的 WebCrypto AES-256-GCM `CryptoKey`、96 位随机 IV 和 128 位认证标签加密，AAD 绑定 cipher/schema version、当前 Origin 和可信 session 用户 ID。IndexedDB 的密文记录与 Key 记录按可信用户 ID 分区；两个独立浏览器设备各自持有独立数据库与 Key，不存在隐式同步。账户注销无法远程删除任何设备的 Vault 密文或 CryptoKey，但已撤销可信会话使其不能再用于 Cloud 或受控 Provider 操作。
 
 模型发现的导入以单个 Vault 文档写入为边界：Provider、其 `providerProfileId` 凭据槽和选中的新 `ModelEntry` 必须一起写入；取消不创建或更新任何 Vault 内容。再次发现按 `(providerProfileId, modelId)` 精确 reconcile：仅 `source=discovered` 条目可更新 `lastSeenAt/status`，上游缺失为 `missing`、重现为 `available`；`displayName/category/enabled` 和全部 `source=manual` 条目不被覆盖。
 

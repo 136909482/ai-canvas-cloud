@@ -63,11 +63,10 @@ test("Admin API config rejects unsupported HTTP adapters", () => {
   );
 });
 
-test("Admin API runtime can omit ordinary credentials while retaining isolation metadata", () => {
+test("Admin API config requires the ordinary authentication secret for account erasure", () => {
   const runtimeEnv = { ...baseEnv };
   Reflect.deleteProperty(runtimeEnv, "BETTER_AUTH_SECRET");
-  const config = loadAdminApiConfig(runtimeEnv);
-  assert.equal(config.databaseUrl.includes("admin_role"), true);
+  assert.throws(() => loadAdminApiConfig(runtimeEnv), /BETTER_AUTH_SECRET/);
 });
 
 test("Admin API config supports virtual-hosted object storage", () => {

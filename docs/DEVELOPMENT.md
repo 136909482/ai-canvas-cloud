@@ -331,11 +331,14 @@ npm run db:migrate:test
 npm run db:migrate:compat
 npm run db:repair:checkpoint-assets
 npm run db:maintain:assets
+npm run db:maintain:accounts
 npm run deploy:staging:check
 npm run deploy:staging:gate
 npm run deploy:staging:backup
 npm run deploy:staging:restore:drill
 ```
+
+账户注销采用两阶段清理：管理员请求会立即撤销普通会话、清空身份数据并软删除个人空间；7 天后由应用数据库角色运行 `npm run db:maintain:accounts -- --apply` 删除个人项目历史、关系元数据和私有对象。命令默认仅预检，删除对象失败时任务保持可重试状态，且不会写入完成时间。Admin API 必须配置独立于 `ADMIN_BETTER_AUTH_SECRET` 的普通 `BETTER_AUTH_SECRET`，只用于删除按 HMAC 索引的注册和重置邮箱挑战，绝不写入日志、审计或浏览器。
 
 每增加或修改真实命令，必须同步更新 `README.md`、`AGENTS.md` 和本文。
 

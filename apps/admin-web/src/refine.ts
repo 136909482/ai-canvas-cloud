@@ -124,6 +124,7 @@ const PERMISSIONS: Record<AdminRole, ReadonlySet<string>> = {
     "user.read",
     "user.write",
     "user.credentials.write",
+    "user.delete",
   ]),
   operator: new Set(["audit.read", "dashboard.read", "site_config.write"]),
   support: new Set(["audit.read", "dashboard.read", "user.read", "user.write"]),

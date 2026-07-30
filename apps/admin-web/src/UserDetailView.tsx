@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCan } from "@refinedev/core";
 import type {
   AdminManagedWorkspaceSummary,
+  AdminUserDeletionPreview,
   AdminUserResponse,
 } from "@ai-canvas-cloud/contracts";
 import {
@@ -12,6 +13,7 @@ import {
   Modal,
   Skeleton,
   Space,
+  Select,
   Table,
   Tooltip,
   type TableProps,
@@ -31,6 +33,7 @@ import {
   TriangleAlert,
   Unlock,
   UserRound,
+  UserX,
   WandSparkles,
 } from "lucide-react";
 import { adminApi, AdminApiError } from "./api";
@@ -129,6 +132,10 @@ export function UserDetailView({
     resource: "users",
     action: "user.credentials.write",
   });
+  const { data: deletionAccess } = useCan({
+    resource: "users",
+    action: "user.delete",
+  });
   const [detail, setDetail] = useState<AdminUserResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -144,6 +151,16 @@ export function UserDetailView({
   const [resetReason, setResetReason] = useState("");
   const [identityVerified, setIdentityVerified] = useState(false);
   const [passwordResetBusy, setPasswordResetBusy] = useState(false);
+  const [deletionPreview, setDeletionPreview] =
+    useState<AdminUserDeletionPreview | null>(null);
+  const [deletionOpen, setDeletionOpen] = useState(false);
+  const [deletionPreviewBusy, setDeletionPreviewBusy] = useState(false);
+  const [deletionBusy, setDeletionBusy] = useState(false);
+  const [deletionReason, setDeletionReason] = useState("");
+  const [confirmUserNumber, setConfirmUserNumber] = useState("");
+  const [ownershipTransfers, setOwnershipTransfers] = useState<
+    Record<string, string>
+  >({});
 
   const load = useCallback(async () => {
     if (!access?.can) return;
@@ -238,6 +255,70 @@ export function UserDetailView({
       );
     } finally {
       setPasswordResetBusy(false);
+    }
+  }
+
+  function clearDeletion() {
+    setDeletionPreview(null);
+    setDeletionReason("");
+    setConfirmUserNumber("");
+    setOwnershipTransfers({});
+  }
+
+  async function openDeletion() {
+    setDeletionPreviewBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const preview = await adminApi.userDeletionPreview(userId);
+      setDeletionPreview(preview);
+      setOwnershipTransfers({});
+      setDeletionOpen(true);
+    } catch (cause) {
+      setError(
+        cause instanceof AdminApiError
+          ? cause.message
+          : "无法加载注销预检，请稍后重试",
+      );
+    } finally {
+      setDeletionPreviewBusy(false);
+    }
+  }
+
+  const deletionReady =
+    deletionReason.trim().length >= 3 &&
+    confirmUserNumber.trim() === String(detail?.user.userNumber ?? "") &&
+    Boolean(deletionPreview) &&
+    deletionPreview!.ownedTeams.every(
+      (team) => typeof ownershipTransfers[team.id] === "string",
+    );
+
+  async function submitDeletion() {
+    if (!deletionPreview || !deletionReady) return;
+    setDeletionBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await adminApi.deleteUser(userId, {
+        reason: deletionReason.trim(),
+        confirmUserNumber: deletionPreview.userNumber,
+        ownershipTransfers: deletionPreview.ownedTeams.map((team) => ({
+          workspaceId: team.id,
+          successorUserId: ownershipTransfers[team.id]!,
+        })),
+      });
+      setDeletionOpen(false);
+      clearDeletion();
+      setNotice(
+        `注销已提交：已处理 ${result.personalWorkspaceCount} 个个人空间，个人数据将于 ${formatDateTime(result.purgeAfter)} 后清理。`,
+      );
+      window.setTimeout(onBack, 800);
+    } catch (cause) {
+      setError(
+        cause instanceof AdminApiError ? cause.message : "用户注销失败，请稍后重试",
+      );
+    } finally {
+      setDeletionBusy(false);
     }
   }
 
@@ -522,6 +603,16 @@ export function UserDetailView({
                 >
                   撤销全部会话
                 </Button>
+                {deletionAccess?.can ? (
+                  <Button
+                    danger
+                    icon={<UserX size={16} />}
+                    loading={deletionPreviewBusy}
+                    onClick={() => void openDeletion()}
+                  >
+                    注销用户
+                  </Button>
+                ) : null}
               </Space>
             </section>
           ) : null}
@@ -674,6 +765,100 @@ export function UserDetailView({
             reason.length > 0 && reason.trim().length < 3 ? "error" : undefined
           }
         />
+      </Modal>
+
+      <Modal
+        open={deletionOpen}
+        title="注销用户"
+        okText="确认注销"
+        cancelText="取消"
+        confirmLoading={deletionBusy}
+        okButtonProps={{ danger: true, disabled: !deletionReady }}
+        onOk={() => void submitDeletion()}
+        onCancel={() => {
+          if (!deletionBusy) {
+            setDeletionOpen(false);
+            clearDeletion();
+          }
+        }}
+        afterOpenChange={(open) => {
+          if (!open && !deletionBusy) clearDeletion();
+        }}
+      >
+        {deletionPreview ? (
+          <>
+            <p className="password-reset-warning">
+              账号会立即失效并从所有设备退出。团队内容保持不变；{deletionPreview.personalWorkspaceCount} 个个人空间会进入 7 天受控清理期，之后不可恢复。
+            </p>
+            {deletionPreview.ownedTeams.length > 0 ? (
+              <div className="deletion-transfer-list">
+                <label className="modal-field-label">团队所有权交接</label>
+                {deletionPreview.ownedTeams.map((team) => (
+                  <div className="deletion-transfer-row" key={team.id}>
+                    <span>{team.name}</span>
+                    <Select
+                      aria-label={`${team.name} 的接任 owner`}
+                      placeholder="选择接任成员"
+                      value={ownershipTransfers[team.id]}
+                      onChange={(value: string) =>
+                        setOwnershipTransfers((current) => ({
+                          ...current,
+                          [team.id]: value,
+                        }))
+                      }
+                      options={team.successors.map((successor) => ({
+                        value: successor.id,
+                        label: `${successor.username}（${successor.userNumber}）`,
+                      }))}
+                      status={
+                        team.successors.length === 0 ||
+                        !ownershipTransfers[team.id]
+                          ? "error"
+                          : undefined
+                      }
+                      disabled={team.successors.length === 0}
+                    />
+                    {team.successors.length === 0 ? (
+                      <small>没有可接任的活跃成员，无法注销。</small>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <label className="modal-field-label" htmlFor="user-deletion-reason">
+              注销原因
+            </label>
+            <Input.TextArea
+              id="user-deletion-reason"
+              value={deletionReason}
+              onChange={(event) => setDeletionReason(event.target.value)}
+              minLength={3}
+              maxLength={500}
+              rows={3}
+              showCount
+              status={
+                deletionReason.length > 0 && deletionReason.trim().length < 3
+                  ? "error"
+                  : undefined
+              }
+            />
+            <label className="modal-field-label" htmlFor="user-deletion-number">
+              输入用户编号 {deletionPreview.userNumber} 以确认
+            </label>
+            <Input
+              id="user-deletion-number"
+              inputMode="numeric"
+              value={confirmUserNumber}
+              onChange={(event) => setConfirmUserNumber(event.target.value)}
+              status={
+                confirmUserNumber.length > 0 &&
+                confirmUserNumber.trim() !== String(deletionPreview.userNumber)
+                  ? "error"
+                  : undefined
+              }
+            />
+          </>
+        ) : null}
       </Modal>
     </section>
   );

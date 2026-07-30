@@ -1772,6 +1772,42 @@ code {
   font-size: 12px;
 }
 
+.deletion-transfer-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.deletion-transfer-list .modal-field-label {
+  margin: 0;
+}
+
+.deletion-transfer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.9fr);
+  gap: 8px 12px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid #e6d3d3;
+  border-radius: 4px;
+  background: #fffafa;
+  color: #552f2f;
+  font-size: 12px;
+}
+
+.deletion-transfer-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.deletion-transfer-row small {
+  grid-column: 1 / -1;
+  color: #a43f3f;
+}
+
 .site-config-page {
   padding-top: 0;
 }

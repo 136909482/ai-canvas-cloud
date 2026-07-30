@@ -217,6 +217,7 @@ async function createAdminRuntime() {
   const userOperationsService = createPostgresAdminUserOperationsService(pool, {
     adminService,
     auditSecret: config.betterAuthSecret,
+    ordinaryAuthSecret: config.ordinaryAuthSecret,
   });
   const dashboardService = createPostgresAdminDashboardService(pool, {
     adminService,

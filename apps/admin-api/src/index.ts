@@ -109,6 +109,7 @@ const assetCleanupService = createAdminAssetCleanupService({
 const userOperationsService = createPostgresAdminUserOperationsService(pool, {
   adminService,
   auditSecret: config.betterAuthSecret,
+  ordinaryAuthSecret: config.ordinaryAuthSecret,
 });
 const readinessChecks = {
   postgres: () =>

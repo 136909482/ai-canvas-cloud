@@ -121,7 +121,10 @@ npm run db:migrate:test
 npm run db:migrate:compat
 npm run db:repair:checkpoint-assets
 npm run db:maintain:assets
+npm run db:maintain:accounts
 ```
+
+`db:maintain:accounts` 默认只预检到期账户清理任务；使用 `npm run db:maintain:accounts -- --apply` 才会清理已过 7 天保留期的个人空间对象和关系数据。对象删除失败会保留任务并在下一次执行时重试。
 
 格式、构建与 staging：
 

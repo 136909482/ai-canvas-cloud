@@ -7,6 +7,7 @@ import {
   ADMIN_USER_PASSWORD_MIN_LENGTH,
   validateAdminManagedUserId,
   validateAdminUserActionRequest,
+  validateAdminUserDeletionRequest,
   validateAdminUserListQuery,
   validateAdminUserPasswordResetRequest,
 } from "./adminOperations.ts";
@@ -30,6 +31,45 @@ test("administrator user list query normalizes bounded filters and pagination", 
       verification: "unverified",
       search: "10001",
     },
+  );
+});
+
+test("administrator account deletion requires a strict user-number confirmation and ownership transfers", () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  assert.deepEqual(
+    validateAdminUserDeletionRequest({
+      reason: "账号已完成合规注销核验",
+      confirmUserNumber: 10001,
+      ownershipTransfers: [
+        { workspaceId, successorUserId: "member_01" },
+      ],
+    }),
+    {
+      reason: "账号已完成合规注销核验",
+      confirmUserNumber: 10001,
+      ownershipTransfers: [{ workspaceId, successorUserId: "member_01" }],
+    },
+  );
+  assert.throws(
+    () =>
+      validateAdminUserDeletionRequest({
+        reason: "账号已完成合规注销核验",
+        confirmUserNumber: "10001",
+        ownershipTransfers: [],
+      }),
+    /confirmUserNumber is invalid/,
+  );
+  assert.throws(
+    () =>
+      validateAdminUserDeletionRequest({
+        reason: "账号已完成合规注销核验",
+        confirmUserNumber: 10001,
+        ownershipTransfers: [
+          { workspaceId, successorUserId: "member_01" },
+          { workspaceId, successorUserId: "member_02" },
+        ],
+      }),
+    /duplicate workspaces/,
   );
 });
 
