@@ -125,6 +125,8 @@ test("deployment artifacts keep runtime targets non-root and migration explicit"
 
 test("staging environment template contains placeholders and no local defaults", () => {
   assert.match(template, /replace-with-staging-random-secret/);
+  assert.match(template, /^PUBLIC_HTTP_ADAPTER=fastify$/m);
+  assert.match(compose, /HTTP_ADAPTER: \$\{PUBLIC_HTTP_ADAPTER:-fastify\}/);
   assert.doesNotMatch(
     template,
     /WORKER_DATABASE_URL|PROVIDER_CREDENTIAL_KEYS|OFFICIAL_PROVIDER_CREDENTIAL_KEYS/,
@@ -157,6 +159,16 @@ test("staging web and object storage boundaries allow controlled HTTPS providers
 });
 
 test("production deployment stays lightweight and loopback-only", () => {
+  assert.match(productionTemplate, /^PUBLIC_HTTP_ADAPTER=fastify$/m);
+  assert.match(productionTemplate, /^ADMIN_HTTP_ADAPTER=fastify$/m);
+  assert.match(
+    productionCompose,
+    /HTTP_ADAPTER: \$\{PUBLIC_HTTP_ADAPTER:-fastify\}/,
+  );
+  assert.match(
+    productionCompose,
+    /HTTP_ADAPTER: \$\{ADMIN_HTTP_ADAPTER:-fastify\}/,
+  );
   assert.doesNotMatch(
     productionCompose,
     /\n  (postgres|redis|object-storage|minio|prometheus):/,
@@ -185,6 +197,10 @@ test("production deployment stays lightweight and loopback-only", () => {
 });
 
 test("single-host production uses one image, two application containers, and private state", () => {
+  assert.match(singleHostTemplate, /^PUBLIC_HTTP_ADAPTER=fastify$/m);
+  assert.match(singleHostTemplate, /^ADMIN_HTTP_ADAPTER=fastify$/m);
+  assert.match(singleHostSetup, /^PUBLIC_HTTP_ADAPTER=fastify$/m);
+  assert.match(singleHostSetup, /^ADMIN_HTTP_ADAPTER=fastify$/m);
   assert.match(singleHostCompose, /postgres:17\.6-alpine3\.22/);
   assert.match(singleHostCompose, /redis:8\.2\.1-alpine3\.22/);
   assert.match(singleHostCompose, /ai-canvas-cloud-single-host-postgres/);
