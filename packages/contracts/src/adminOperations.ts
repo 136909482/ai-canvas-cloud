@@ -348,10 +348,7 @@ export function validateAdminUserDeletionRequest(
   }
   const ownershipTransfers = input.ownershipTransfers.map((item) => {
     const transfer = requireRecord(item);
-    rejectUnknownKeys(
-      transfer,
-      new Set(["workspaceId", "successorUserId"]),
-    );
+    rejectUnknownKeys(transfer, new Set(["workspaceId", "successorUserId"]));
     if (
       typeof transfer.workspaceId !== "string" ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(

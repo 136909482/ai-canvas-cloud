@@ -1,4 +1,8 @@
-import { withTransaction, type DbClient, type DbPool } from "../../db/postgres.js";
+import {
+  withTransaction,
+  type DbClient,
+  type DbPool,
+} from "../../db/postgres.js";
 import type { AssetMaintenanceObjectStorage } from "../assets/assetMaintenance.js";
 
 export const ACCOUNT_ERASURE_DEFAULT_BATCH_SIZE = 25;

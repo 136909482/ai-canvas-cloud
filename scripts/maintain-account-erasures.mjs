@@ -40,7 +40,8 @@ export function parseAccountErasureMaintenanceArgs(args) {
 
 function requireEnvironment(name) {
   const value = process.env[name];
-  if (!value) throw new Error(`Missing ${name} for account erasure maintenance`);
+  if (!value)
+    throw new Error(`Missing ${name} for account erasure maintenance`);
   return value;
 }
 
@@ -69,7 +70,9 @@ async function main() {
       pool,
       storage,
     ).run(options);
-    console.log(JSON.stringify({ event: "account_erasure_maintenance", ...summary }));
+    console.log(
+      JSON.stringify({ event: "account_erasure_maintenance", ...summary }),
+    );
   } finally {
     await pool.end();
   }

@@ -40,9 +40,7 @@ test("administrator account deletion requires a strict user-number confirmation 
     validateAdminUserDeletionRequest({
       reason: "账号已完成合规注销核验",
       confirmUserNumber: 10001,
-      ownershipTransfers: [
-        { workspaceId, successorUserId: "member_01" },
-      ],
+      ownershipTransfers: [{ workspaceId, successorUserId: "member_01" }],
     }),
     {
       reason: "账号已完成合规注销核验",

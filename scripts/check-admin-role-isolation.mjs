@@ -229,9 +229,9 @@ for (const [connection, connectionString] of Object.entries(connections)) {
           has_column_privilege(current_user, 'public.assets', 'deleted_at', 'UPDATE') AS asset_soft_delete,
           has_table_privilege(current_user, 'public.account_erasure_jobs', 'INSERT') AS erasure_job_insert
       `);
-      accountErasureWrite = Object.values(erasurePermissions.rows[0] ?? {}).every(
-        Boolean,
-      );
+      accountErasureWrite = Object.values(
+        erasurePermissions.rows[0] ?? {},
+      ).every(Boolean);
       await client.query(
         `UPDATE public.project_edges pe SET deleted_at = now()
          FROM public.projects p

@@ -228,10 +228,18 @@ try {
   await client.query(
     `GRANT SELECT (id, workspace_id, byte_size, status, deleted_at) ON public.assets TO ${admin}`,
   );
-  await client.query(`GRANT SELECT (id, workspace_id) ON public.projects TO ${admin}`);
-  await client.query(`GRANT SELECT (project_id) ON public.project_nodes TO ${admin}`);
-  await client.query(`GRANT SELECT (project_id) ON public.project_edges TO ${admin}`);
-  await client.query(`GRANT SELECT (project_id) ON public.project_snapshots TO ${admin}`);
+  await client.query(
+    `GRANT SELECT (id, workspace_id) ON public.projects TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT (project_id) ON public.project_nodes TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT (project_id) ON public.project_edges TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT (project_id) ON public.project_snapshots TO ${admin}`,
+  );
   await client.query(
     `GRANT SELECT (workspace_id, created_by_user_id) ON public.migration_imports TO ${admin}`,
   );
@@ -246,16 +254,28 @@ try {
   );
   await client.query(`GRANT DELETE ON public.auth_devices TO ${admin}`);
   await client.query(`GRANT DELETE ON public."verification" TO ${admin}`);
-  await client.query(`GRANT DELETE ON public.registration_email_challenges TO ${admin}`);
-  await client.query(`GRANT DELETE ON public.password_reset_email_challenges TO ${admin}`);
+  await client.query(
+    `GRANT DELETE ON public.registration_email_challenges TO ${admin}`,
+  );
+  await client.query(
+    `GRANT DELETE ON public.password_reset_email_challenges TO ${admin}`,
+  );
   await client.query(`GRANT DELETE ON public.generation_telemetry TO ${admin}`);
   await client.query(`GRANT DELETE ON public.asset_references TO ${admin}`);
   await client.query(`GRANT DELETE ON public.project_snapshots TO ${admin}`);
   await client.query(`GRANT DELETE ON public.asset_uploads TO ${admin}`);
-  await client.query(`GRANT UPDATE (deleted_at, updated_at) ON public.projects TO ${admin}`);
-  await client.query(`GRANT UPDATE (deleted_at, updated_at) ON public.project_nodes TO ${admin}`);
-  await client.query(`GRANT UPDATE (deleted_at, updated_at) ON public.project_edges TO ${admin}`);
-  await client.query(`GRANT UPDATE (status, deleted_at, updated_at) ON public.assets TO ${admin}`);
+  await client.query(
+    `GRANT UPDATE (deleted_at, updated_at) ON public.projects TO ${admin}`,
+  );
+  await client.query(
+    `GRANT UPDATE (deleted_at, updated_at) ON public.project_nodes TO ${admin}`,
+  );
+  await client.query(
+    `GRANT UPDATE (deleted_at, updated_at) ON public.project_edges TO ${admin}`,
+  );
+  await client.query(
+    `GRANT UPDATE (status, deleted_at, updated_at) ON public.assets TO ${admin}`,
+  );
   await client.query(
     `GRANT UPDATE (created_by_user_id, updated_at) ON public.migration_imports TO ${admin}`,
   );

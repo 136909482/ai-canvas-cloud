@@ -315,7 +315,9 @@ export function UserDetailView({
       window.setTimeout(onBack, 800);
     } catch (cause) {
       setError(
-        cause instanceof AdminApiError ? cause.message : "用户注销失败，请稍后重试",
+        cause instanceof AdminApiError
+          ? cause.message
+          : "用户注销失败，请稍后重试",
       );
     } finally {
       setDeletionBusy(false);
@@ -788,7 +790,9 @@ export function UserDetailView({
         {deletionPreview ? (
           <>
             <p className="password-reset-warning">
-              账号会立即失效并从所有设备退出。团队内容保持不变；{deletionPreview.personalWorkspaceCount} 个个人空间会进入 7 天受控清理期，之后不可恢复。
+              账号会立即失效并从所有设备退出。团队内容保持不变；
+              {deletionPreview.personalWorkspaceCount} 个个人空间会进入 7
+              天受控清理期，之后不可恢复。
             </p>
             {deletionPreview.ownedTeams.length > 0 ? (
               <div className="deletion-transfer-list">

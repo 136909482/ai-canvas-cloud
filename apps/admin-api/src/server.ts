@@ -528,9 +528,7 @@ export function createAdminApiServer({
         return;
       }
       const deletionPreview =
-        /^\/admin\/v1\/users\/([^/]+)\/deletion-preview$/.exec(
-          url.pathname,
-        );
+        /^\/admin\/v1\/users\/([^/]+)\/deletion-preview$/.exec(url.pathname);
       if (deletionPreview && request.method === "GET") {
         sendJson(
           response,

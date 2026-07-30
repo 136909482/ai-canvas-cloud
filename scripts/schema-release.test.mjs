@@ -167,7 +167,10 @@ test(
         `SELECT column_name FROM information_schema.columns
          WHERE table_schema = $1 AND table_name = 'account_erasure_jobs'
            AND column_name = ANY($2::text[])`,
-        [schema, ["user_id", "personal_workspace_ids", "purge_after", "status"]],
+        [
+          schema,
+          ["user_id", "personal_workspace_ids", "purge_after", "status"],
+        ],
       );
       assert.equal(erasureSchema.rowCount, 4);
     } finally {
