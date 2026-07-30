@@ -26,16 +26,28 @@ export function createFastifyAuthContextAdapter(authService: AuthService) {
     return service;
   }
 
+  function requireCookie(request: FastifyRequestIdentity) {
+    const context = getAuthContext(request.raw, request.id);
+    if (!context.cookieHeader) {
+      throw new AuthServiceError({
+        statusCode: 401,
+        apiCode: "AUTH_REQUIRED",
+        message: "Authentication required",
+      });
+    }
+    return context;
+  }
+
   return {
+    getContext(request: FastifyRequestIdentity) {
+      return getAuthContext(request.raw, request.id);
+    },
+    getService(request: FastifyRequestIdentity) {
+      return getRequestService(request);
+    },
+    requireCookie,
     async requireSession(request: FastifyRequestIdentity) {
-      const context = getAuthContext(request.raw, request.id);
-      if (!context.cookieHeader) {
-        throw new AuthServiceError({
-          statusCode: 401,
-          apiCode: "AUTH_REQUIRED",
-          message: "Authentication required",
-        });
-      }
+      const context = requireCookie(request);
       return getRequestService(request).getSession(context);
     },
     getTrustedRateLimitScopes(request: FastifyRequestIdentity) {

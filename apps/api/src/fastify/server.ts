@@ -21,6 +21,7 @@ import { createFastifyAuthContextAdapter } from "./authContext.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerTelemetryRoutes } from "./routes/telemetry.js";
+import { registerAuthRoutes } from "./routes/auth.js";
 
 const FASTIFY_OWNED_PATHS = new Set([
   "/metrics",
@@ -32,11 +33,25 @@ const FASTIFY_OWNED_PATHS = new Set([
   "/api/v1/workspaces/current",
   "/api/v1/workspaces/current/usage",
   "/api/v1/telemetry/generations",
+  "/api/v1/auth/register",
+  "/api/v1/auth/login",
+  "/api/v1/auth/logout",
+  "/api/v1/auth/session",
+  "/api/v1/auth/sessions",
+  "/api/v1/auth/devices",
+  "/api/v1/auth/registration/email-code",
+  "/api/v1/auth/password/forgot",
+  "/api/v1/auth/password/reset",
+  "/api/v1/auth/password/change",
 ]);
 
 function isFastifyOwnedPath(url: string | undefined) {
   const pathname = new URL(url ?? "/", "http://localhost").pathname;
-  return FASTIFY_OWNED_PATHS.has(pathname) || pathname.startsWith("/docs");
+  return (
+    FASTIFY_OWNED_PATHS.has(pathname) ||
+    /^\/api\/v1\/auth\/(?:sessions|devices)\/[^/]+$/.test(pathname) ||
+    pathname.startsWith("/docs")
+  );
 }
 
 export async function createFastifyApiServer(options: ServerOptions) {
@@ -119,6 +134,7 @@ export async function createFastifyApiServer(options: ServerOptions) {
   });
   registerWorkspaceRoutes(app, { authContext, workspaceUsageService });
   registerTelemetryRoutes(app, { authContext, generationTelemetryService });
+  registerAuthRoutes(app, authContext);
 
   if (options.config.env === "development") {
     const { default: swaggerUi } = await import("@fastify/swagger-ui");

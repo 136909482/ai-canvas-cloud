@@ -8,8 +8,9 @@ import {
 import { AuthServiceError } from "@ai-canvas-cloud/server/modules/auth";
 import type { WorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
-import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { FastifyAuthContextAdapter } from "../authContext.js";
+import { sendAuthError } from "../reply.js";
 
 interface WorkspaceRouteOptions {
   authContext: FastifyAuthContextAdapter;
@@ -25,22 +26,6 @@ type PublicFastifyInstance = FastifyInstance<
 >;
 
 const EmptyQuerySchema = Type.Object({}, { additionalProperties: true });
-
-function sendAuthError(
-  reply: FastifyReply,
-  requestId: string,
-  error: AuthServiceError,
-) {
-  return reply.code(error.statusCode).send({
-    error: {
-      code: error.apiCode,
-      message: error.message,
-      retryable: error.retryable,
-      requestId,
-      details: error.details,
-    },
-  });
-}
 
 export function registerWorkspaceRoutes(
   app: PublicFastifyInstance,

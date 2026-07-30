@@ -3,11 +3,27 @@ import { apiErrorCodes } from "./index.js";
 import type {
   ApiErrorCode,
   ApiErrorResponse,
+  AuthDevicesResponse,
+  AuthSessionResponse,
+  AuthSessionsResponse,
+  AuthSuccessResponse,
   CurrentWorkspaceResponse,
   GenerationTelemetryRequest,
   GenerationTelemetryResponse,
   HealthResponse,
+  LoginRequest,
+  LogoutResponse,
+  PasswordChangeRequest,
+  PasswordChangeResponse,
+  PasswordForgotRequest,
+  PasswordResetRequest,
+  PasswordResetResponse,
   PublicSiteConfigResponse,
+  RegisterRequest,
+  RegistrationEmailCodeRequest,
+  RegistrationEmailCodeResponse,
+  RemoveDeviceResponse,
+  RevokeSessionResponse,
   WorkspaceUsageResponse,
 } from "./index.js";
 
@@ -176,6 +192,131 @@ const WorkspaceSummarySchema = Type.Object(
   { additionalProperties: false },
 );
 
+const UserSummarySchema = Type.Object(
+  {
+    id: Type.String(),
+    userNumber: Type.Integer(),
+    username: Type.String(),
+    email: Type.String(),
+    status: Type.Union([
+      Type.Literal("active"),
+      Type.Literal("disabled"),
+      Type.Literal("deleted"),
+    ]),
+    emailVerified: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+
+export const AuthSessionResponseSchema = Type.Object(
+  { user: UserSummarySchema, workspace: WorkspaceSummarySchema },
+  { additionalProperties: false },
+);
+
+export const AuthSuccessResponseSchema = Type.Object(
+  {
+    user: UserSummarySchema,
+    workspace: WorkspaceSummarySchema,
+    session: Type.Object(
+      { expiresAt: Type.String() },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+export const RegisterRequestSchema = Type.Object(
+  {
+    username: Type.String(),
+    email: Type.String(),
+    password: Type.String(),
+    acceptedTermsAndPrivacy: Type.Boolean(),
+    emailVerificationCode: Type.Optional(Type.String()),
+    deviceId: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+
+export const LoginRequestSchema = Type.Object(
+  {
+    identifier: Type.String(),
+    password: Type.String(),
+    deviceId: Type.Optional(Type.String()),
+    force: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
+export const RegistrationEmailCodeRequestSchema = Type.Object(
+  { email: Type.String() },
+  { additionalProperties: false },
+);
+
+export const PasswordForgotRequestSchema = RegistrationEmailCodeRequestSchema;
+
+export const PasswordResetRequestSchema = Type.Object(
+  {
+    email: Type.String(),
+    code: Type.String(),
+    password: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+export const PasswordChangeRequestSchema = Type.Object(
+  { currentPassword: Type.String(), newPassword: Type.String() },
+  { additionalProperties: false },
+);
+
+const OkResponseSchema = Type.Object(
+  { ok: Type.Literal(true) },
+  { additionalProperties: false },
+);
+
+export const RegistrationEmailCodeResponseSchema = Type.Object(
+  { ok: Type.Literal(true), resendAfterSeconds: Type.Number() },
+  { additionalProperties: false },
+);
+
+const SessionSummarySchema = Type.Object(
+  {
+    id: Type.String(),
+    deviceLabel: NullableStringSchema,
+    createdAt: Type.String(),
+    lastUsedAt: Type.String(),
+    expiresAt: Type.String(),
+    current: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+
+export const AuthSessionsResponseSchema = Type.Object(
+  { sessions: Type.Array(SessionSummarySchema) },
+  { additionalProperties: false },
+);
+
+const DeviceSummarySchema = Type.Object(
+  {
+    id: Type.String(),
+    deviceLabel: NullableStringSchema,
+    firstSeenAt: Type.String(),
+    lastSeenAt: Type.String(),
+    current: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+
+export const AuthDevicesResponseSchema = Type.Object(
+  { devices: Type.Array(DeviceSummarySchema) },
+  { additionalProperties: false },
+);
+
+export const LogoutResponseSchema = OkResponseSchema;
+export const PasswordResetResponseSchema = OkResponseSchema;
+export const PasswordChangeResponseSchema = OkResponseSchema;
+export const RevokeSessionResponseSchema = OkResponseSchema;
+export const RemoveDeviceResponseSchema = OkResponseSchema;
+
 export const CurrentWorkspaceResponseSchema = Type.Object(
   { workspace: WorkspaceSummarySchema },
   { additionalProperties: false },
@@ -328,13 +469,116 @@ type GenerationTelemetryResponseSchemaCompatibility = Assert<
     GenerationTelemetryResponse
   >
 >;
+type AuthSessionSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof AuthSessionResponseSchema>,
+    AuthSessionResponse
+  >
+>;
+type AuthSuccessSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof AuthSuccessResponseSchema>,
+    AuthSuccessResponse
+  >
+>;
+type RegisterSchemaCompatibility = Assert<
+  IsMutuallyAssignable<Static<typeof RegisterRequestSchema>, RegisterRequest>
+>;
+type LoginSchemaCompatibility = Assert<
+  IsMutuallyAssignable<Static<typeof LoginRequestSchema>, LoginRequest>
+>;
+type RegistrationEmailCodeRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof RegistrationEmailCodeRequestSchema>,
+    RegistrationEmailCodeRequest
+  >
+>;
+type RegistrationEmailCodeResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof RegistrationEmailCodeResponseSchema>,
+    RegistrationEmailCodeResponse
+  >
+>;
+type PasswordForgotSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof PasswordForgotRequestSchema>,
+    PasswordForgotRequest
+  >
+>;
+type PasswordResetRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof PasswordResetRequestSchema>,
+    PasswordResetRequest
+  >
+>;
+type PasswordResetResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof PasswordResetResponseSchema>,
+    PasswordResetResponse
+  >
+>;
+type PasswordChangeRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof PasswordChangeRequestSchema>,
+    PasswordChangeRequest
+  >
+>;
+type PasswordChangeResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof PasswordChangeResponseSchema>,
+    PasswordChangeResponse
+  >
+>;
+type AuthSessionsSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof AuthSessionsResponseSchema>,
+    AuthSessionsResponse
+  >
+>;
+type AuthDevicesSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof AuthDevicesResponseSchema>,
+    AuthDevicesResponse
+  >
+>;
+type LogoutSchemaCompatibility = Assert<
+  IsMutuallyAssignable<Static<typeof LogoutResponseSchema>, LogoutResponse>
+>;
+type RevokeSessionSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof RevokeSessionResponseSchema>,
+    RevokeSessionResponse
+  >
+>;
+type RemoveDeviceSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof RemoveDeviceResponseSchema>,
+    RemoveDeviceResponse
+  >
+>;
 
 export type {
   ApiErrorSchemaCompatibility,
+  AuthDevicesSchemaCompatibility,
+  AuthSessionSchemaCompatibility,
+  AuthSessionsSchemaCompatibility,
+  AuthSuccessSchemaCompatibility,
   CurrentWorkspaceSchemaCompatibility,
   GenerationTelemetryRequestSchemaCompatibility,
   GenerationTelemetryResponseSchemaCompatibility,
   HealthSchemaCompatibility,
+  LoginSchemaCompatibility,
+  LogoutSchemaCompatibility,
+  PasswordChangeRequestSchemaCompatibility,
+  PasswordChangeResponseSchemaCompatibility,
+  PasswordForgotSchemaCompatibility,
+  PasswordResetRequestSchemaCompatibility,
+  PasswordResetResponseSchemaCompatibility,
   PublicSiteConfigSchemaCompatibility,
+  RegisterSchemaCompatibility,
+  RegistrationEmailCodeRequestSchemaCompatibility,
+  RegistrationEmailCodeResponseSchemaCompatibility,
+  RemoveDeviceSchemaCompatibility,
+  RevokeSessionSchemaCompatibility,
   WorkspaceUsageSchemaCompatibility,
 };

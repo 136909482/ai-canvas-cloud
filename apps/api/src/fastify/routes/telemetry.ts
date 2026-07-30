@@ -7,8 +7,9 @@ import {
 import { AuthServiceError } from "@ai-canvas-cloud/server/modules/auth";
 import type { GenerationTelemetryService } from "@ai-canvas-cloud/server/modules/generation-telemetry";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
-import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { FastifyAuthContextAdapter } from "../authContext.js";
+import { sendAuthError } from "../reply.js";
 
 interface TelemetryRouteOptions {
   authContext: FastifyAuthContextAdapter;
@@ -22,22 +23,6 @@ type PublicFastifyInstance = FastifyInstance<
   FastifyBaseLogger,
   TypeBoxTypeProvider
 >;
-
-function sendAuthError(
-  reply: FastifyReply,
-  requestId: string,
-  error: AuthServiceError,
-) {
-  return reply.code(error.statusCode).send({
-    error: {
-      code: error.apiCode,
-      message: error.message,
-      retryable: error.retryable,
-      requestId,
-      details: error.details,
-    },
-  });
-}
 
 export function registerTelemetryRoutes(
   app: PublicFastifyInstance,
