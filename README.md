@@ -50,7 +50,7 @@ npm run dev:admin-api
 
 生产配置从 `infra/deploy/production/production.env.example` 复制为同目录未跟踪的 `production.env`。首次发布、宝塔反向代理、迁移、升级和回滚顺序见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#docker-生产部署)。安全组只需开放 `22`、`80` 和 `443`，`8787`、`8788`、PostgreSQL 与 Redis 端口不得暴露公网。
 
-[`infra/deploy/single-host`](infra/deploy/single-host) 提供面向宝塔单机的简化部署：长期只运行普通应用、后台应用、PostgreSQL 和 Redis 四个容器。本地 Docker Desktop 一次构建并导出程序镜像，上传服务器后由 `setup.sh`/`deploy.sh` 直接加载；服务器不构建源码，也不要求购买 ACR。PostgreSQL 和 Redis 继续使用 Compose 中固定版本的官方镜像，服务器已有时不会重复上传。单机首次安装、离线镜像构建、备份和故障处理见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#单机-docker-生产部署)。
+[`infra/deploy/single-host`](infra/deploy/single-host) 提供面向宝塔单机的简化部署：长期只运行普通应用、后台应用、PostgreSQL 和 Redis 四个容器。本地 Docker Desktop 一次构建并导出程序镜像，上传服务器后由 `setup.sh`/`deploy.sh` 直接加载；服务器不构建源码，也不要求购买 ACR。PostgreSQL 和 Redis 继续使用 Compose 中固定版本的官方镜像，服务器已有时不会重复上传。`setup.sh` 只用于首次安装；以后更新重新构建并上传镜像和部署文件，再运行 `deploy.sh`，不得覆盖服务器的 `secrets/`、`backups/` 或 Docker volumes。单机首次安装、离线镜像构建、更新、备份和故障处理见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#单机-docker-生产部署)。
 
 普通站点的公开首页、登录、注册、密码重置、帮助和法律页面只加载认证与基础界面。会话确认已登录后才动态下载画布、工具栏、项目管理、编辑器、任务运行器、React Flow 和全景预览；Chunk 加载失败会显示刷新恢复界面。`npm run build` 会检查 `apps/web/dist/index.html` 没有 preload 登录后、工具栏、React Flow、编辑器、Three.js 或全景 Chunk，并要求匿名入口实际引用的 JS/CSS Gzip 总量不超过 200 KiB。
 

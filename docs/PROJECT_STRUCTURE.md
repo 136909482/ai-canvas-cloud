@@ -100,7 +100,7 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 
 `server/db/migrations` 保存有序 SQL 和 `release-manifest.json`。应用启动不自动迁移，发布显式运行 migrate。数据库运行角色只有普通 API 和 Admin API；旧 Worker 角色只允许出现在清理与兼容测试中。
 
-根 `Dockerfile` 构建 Web、API、Admin Web、Admin API、migrate、release、operations 和单机 `single-host-app`。后者把两个已构建前端与两个 API 放进同一镜像，运行时仍以普通应用和后台应用两个容器隔离。staging Compose 不包含 Worker、生成队列、Provider 密钥环或队列恢复。托管 production Compose 只常驻四个应用容器；`infra/deploy/single-host` 则常驻普通应用、后台应用、PostgreSQL 和 Redis，所有单机镜像在 GitHub Actions/ACR 构建，服务器只拉取镜像。
+根 `Dockerfile` 构建 Web、API、Admin Web、Admin API、migrate、release、operations 和单机 `single-host-app`。后者把两个已构建前端与两个 API 放进同一镜像，运行时仍以普通应用和后台应用两个容器隔离。staging Compose 不包含 Worker、生成队列、Provider 密钥环或队列恢复。托管 production Compose 只常驻四个应用容器；`infra/deploy/single-host` 则常驻普通应用、后台应用、PostgreSQL 和 Redis。单机程序镜像默认在开发电脑的 Docker Desktop 构建并导出，服务器只加载归档；GitHub Actions/ACR 仅作为可选兼容通道。
 
 ## 测试放置
 

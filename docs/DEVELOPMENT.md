@@ -110,6 +110,24 @@ docker compose --env-file production.env ps
 
 2 GB 机器必须启用至少 2 GB swap。四个常驻容器的内存上限合计为 896 MB，给 Linux、宝塔和 Docker 留出余量；出现持续 swap、OOM、readiness 失败或明显延迟后必须升级到至少 2 核 4 GB。宝塔已安装的 PostgreSQL/Redis 服务应停止，避免端口、内存和数据来源混淆。
 
+### 当前推荐拓扑
+
+单机方案固定为四个 Docker 容器，程序镜像只构建和上传一次，普通站点与管理站点分别复用它：
+
+| 位置         | 组件            | 是否为 Docker 容器 | 作用                                          |
+| ------------ | --------------- | ------------------ | --------------------------------------------- |
+| 服务器       | `public`        | 是                 | 普通 Web 与普通 API，监听 `127.0.0.1:8080`    |
+| 服务器       | `admin`         | 是                 | Admin Web 与 Admin API，监听 `127.0.0.1:8081` |
+| 服务器       | `postgres`      | 是                 | 账号、项目图、资产元数据和后台数据            |
+| 服务器       | `redis`         | 是                 | 普通 API 安全限流与 readiness                 |
+| 阿里云       | 私有 OSS Bucket | 否                 | 图片和视频文件，不占服务器 Docker 容器        |
+| 服务器宿主机 | 宝塔 Nginx      | 否                 | HTTPS 站点和反向代理                          |
+| 公网         | Cloudflare      | 否                 | DNS、代理与边缘 HTTPS                         |
+
+访问链路固定为 `Cloudflare -> 宝塔 HTTPS 站点 -> 127.0.0.1:8080/8081 -> 应用容器`。公网只开放 `22`、`80`、`443`；`8080`、`8081`、PostgreSQL 和 Redis 都不得直接暴露公网。Cloudflare DNS 分别把普通域名和 Admin 域名指向服务器；宝塔已经安装有效证书时，Cloudflare SSL/TLS 模式使用 `Full (strict)`。
+
+开发电脑与生产服务器使用两套独立配置。本地未跟踪的 `.env` 可以连接 NAS 上的 PostgreSQL、Redis 和 MinIO，用于开发与测试；生产服务器只读取 `secrets/release.env` 和两个生成的 runtime env，并使用服务器 Docker PostgreSQL/Redis 与后台发布的阿里云 OSS。禁止把本地 `.env`、NAS 地址或 NAS 密钥上传到生产服务器。
+
 ### 镜像构建
 
 默认发布源是开发电脑上的 Docker Desktop。在 Windows PowerShell 中进入仓库根目录并执行：
@@ -138,11 +156,50 @@ sudo bash setup.sh
 
 宝塔普通站点反向代理到 `http://127.0.0.1:8080`，管理站点反向代理到 `http://127.0.0.1:8081`；使用目录中的 `baota-public.location.conf.example` 和 `baota-admin.location.conf.example`。安全组只开放 `22`、`80` 和 `443`。
 
+首次安装按以下顺序验收：
+
+1. `sudo bash status.sh` 显示四个容器运行，`public service` 与 `admin service` 均为 `running`。
+2. 宝塔建立两个独立站点，普通域名代理到 `127.0.0.1:8080`，Admin 域名代理到 `127.0.0.1:8081`。
+3. 两个站点分别申请并启用 HTTPS，Cloudflare SSL/TLS 使用 `Full (strict)`。
+4. 登录 Admin，在“对象存储”填写 OSS Endpoint、Region、Bucket、访问 Origin 和 RAM AccessKey，先测试连接，再保存启用。
+5. 阿里云 OSS CORS 至少允许普通站点 Origin，方法包含 `GET`、`PUT`、`HEAD`，允许请求头可设为 `*`，暴露响应头包含 `ETag`。不要把 Origin 写成带路径的 URL。
+6. `sudo bash status.sh` 显示两个应用的 dependencies 均为 `ready`。
+7. 用普通账号上传一张测试图片，刷新画布后仍可显示；再确认登录、项目保存和 Admin 登录正常。
+
+`setup.sh` 只用于第一次安装。服务器已经存在 `secrets/release.env` 后禁止再次运行 `setup.sh`，否则脚本会拒绝覆盖；日常更新统一使用 `deploy.sh`。
+
 ### 日常发布与故障处理
 
-升级时先在本地更新代码并重新运行 PowerShell 构建脚本，再用宝塔上传并覆盖服务器同目录的 `ai-canvas-cloud-single-host-image.tar`。服务器进入单机目录执行：
+升级时先在本地更新代码并重新运行 PowerShell 构建脚本：
+
+```powershell
+npm run check
+powershell -ExecutionPolicy Bypass -File scripts/build-single-host-offline-image.ps1
+```
+
+构建成功后记录脚本输出的 SHA256。通过宝塔上传并覆盖服务器同目录的 `ai-canvas-cloud-single-host-image.tar`。为避免服务器部署脚本落后，每次更新同时用仓库当前版本覆盖以下文件：
+
+- `deploy.sh`
+- `docker-compose.yml`
+- `status.sh`
+- `setup.sh`
+- `release.env.example`
+- `baota-public.location.conf.example`
+- `baota-admin.location.conf.example`
+
+只覆盖上述部署文件和镜像归档，绝不能删除或覆盖服务器的 `secrets/`、`backups/` 和 Docker volumes。`secrets/` 保存数据库密码、认证密钥、配置加密密钥和当前部署状态；丢失后不能靠重新运行安装脚本恢复原站点。
+
+在服务器核对上传文件的 SHA256 与本地构建输出一致：
 
 ```bash
+cd /www/wwwroot/ai-canvas-cloud-single-host
+sha256sum ai-canvas-cloud-single-host-image.tar
+```
+
+确认一致后执行更新：
+
+```bash
+cd /www/wwwroot/ai-canvas-cloud-single-host
 sudo bash deploy.sh
 sudo bash status.sh
 ```
@@ -150,6 +207,10 @@ sudo bash status.sh
 `deploy.sh` 加载归档，并按实际 Image ID 创建不可变本地标签，等待 PostgreSQL 和 Redis healthcheck 通过后创建 PostgreSQL 自包含备份，再校验配置、运行迁移和数据库角色校验、刷新两个运行时环境文件、重建两个应用并等待存活检查。普通站点和 Admin 全部存活后，脚本通过 release 容器读取 `/app/apps/web/dist` 与 `/app/apps/admin-web/dist`，先真实 `GET` 两个正式域名的 HTML，再枚举两套 `/assets/*` 通过对应正式域名预热 EdgeOne，包括懒加载 Chunk。预热固定并发 4、单请求超时 15 秒、失败最多重试 2 次；日志只包含域名、无查询参数的资源路径、状态码和成功/失败汇总。个别资源失败只产生警告，不回滚健康版本；预热无需 Cookie、Token、腾讯云 SecretId/SecretKey 或 EdgeOne 管理 API。
 
 发布脚本不会在服务器构建源码，也不会自动回滚 SQL；迁移后的失败保留备份和失败状态，必须按 `DATA_MODEL.md` 的前向修复或隔离恢复流程处理。备份必须复制到另一台设备或独立 OSS Bucket，同机备份不能覆盖整机故障。`status.sh` 分别显示应用是否运行和 PostgreSQL、Redis、OSS 是否全部 ready。正式发布后还应连续请求同一 Hash 资源两次，确认一年 `immutable` 响应头且第二次由 EdgeOne 命中；该项必须在真实域名和真实 EdgeOne 响应头上验收，本地模拟不能代替。
+
+更新完成后依次打开普通域名和 Admin 域名，检查登录、已有项目、图片显示和新图片上传。Admin“对象存储”应保持原配置，无需重复填写；`deploy.sh` 不删除 PostgreSQL volume、Redis volume、OSS 文件或服务器密钥。
+
+如果 `deploy.sh` 失败，不要重新运行 `setup.sh`，不要删除容器、volume、`secrets/` 或 `backups/`。保留终端错误信息和本次自动生成的 `.dump` 备份；数据库迁移已经执行时优先做前向修复，不能直接换回旧程序镜像。确认迁移未执行或旧镜像与新 schema 兼容后，才能按 `secrets/release-state.env` 记录的镜像与备份制定回退操作。
 
 ## 分层职责
 
