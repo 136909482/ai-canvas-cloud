@@ -4,6 +4,7 @@ import type {
   ApiErrorCode,
   ApiErrorResponse,
   HealthResponse,
+  PublicSiteConfigResponse,
 } from "./index.js";
 
 const DependencyFailureSchema = Type.Union([
@@ -58,6 +59,98 @@ export const HealthResponseSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const NullableStringSchema = Type.Union([Type.String(), Type.Null()]);
+
+const SiteConfigDocumentSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(2),
+    siteName: Type.String(),
+    shortName: Type.String(),
+    home: Type.Object(
+      {
+        headline: Type.String(),
+        lead: Type.String(),
+        description: Type.String(),
+        primaryActionLabel: Type.String(),
+      },
+      { additionalProperties: false },
+    ),
+    footer: Type.Object(
+      {
+        description: Type.String(),
+        copyright: Type.String(),
+      },
+      { additionalProperties: false },
+    ),
+    records: Type.Object(
+      {
+        companyName: NullableStringSchema,
+        icpNumber: NullableStringSchema,
+        publicSecurityNumber: NullableStringSchema,
+      },
+      { additionalProperties: false },
+    ),
+    links: Type.Object(
+      {
+        helpUrl: NullableStringSchema,
+        feedbackUrl: NullableStringSchema,
+        termsUrl: NullableStringSchema,
+        privacyUrl: NullableStringSchema,
+        accountDeletionUrl: NullableStringSchema,
+      },
+      { additionalProperties: false },
+    ),
+    themePreset: Type.Union([
+      Type.Literal("system"),
+      Type.Literal("light"),
+      Type.Literal("dark"),
+    ]),
+    navigation: Type.Array(
+      Type.Union([
+        Type.Literal("home"),
+        Type.Literal("help"),
+        Type.Literal("legal"),
+      ]),
+    ),
+    features: Type.Object(
+      {
+        registrationEnabled: Type.Boolean(),
+        registrationEmailVerificationRequired: Type.Boolean(),
+        feedbackEnabled: Type.Boolean(),
+      },
+      { additionalProperties: false },
+    ),
+    logoAssetId: NullableStringSchema,
+    faviconAssetId: NullableStringSchema,
+  },
+  { additionalProperties: false },
+);
+
+const PublicSiteAssetSchema = Type.Object(
+  {
+    assetId: Type.String(),
+    mimeType: Type.String(),
+    url: Type.String(),
+    expiresAt: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+export const PublicSiteConfigResponseSchema = Type.Object(
+  {
+    etag: Type.String(),
+    config: SiteConfigDocumentSchema,
+    assets: Type.Object(
+      {
+        logo: Type.Union([PublicSiteAssetSchema, Type.Null()]),
+        favicon: Type.Union([PublicSiteAssetSchema, Type.Null()]),
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
 type Assert<T extends true> = T;
 type IsMutuallyAssignable<Left, Right> = Left extends Right
   ? Right extends Left
@@ -71,5 +164,15 @@ type ApiErrorSchemaCompatibility = Assert<
 type HealthSchemaCompatibility = Assert<
   IsMutuallyAssignable<Static<typeof HealthResponseSchema>, HealthResponse>
 >;
+type PublicSiteConfigSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof PublicSiteConfigResponseSchema>,
+    PublicSiteConfigResponse
+  >
+>;
 
-export type { ApiErrorSchemaCompatibility, HealthSchemaCompatibility };
+export type {
+  ApiErrorSchemaCompatibility,
+  HealthSchemaCompatibility,
+  PublicSiteConfigSchemaCompatibility,
+};

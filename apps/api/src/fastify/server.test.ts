@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import test from "node:test";
 import { createMetricsRegistry } from "@ai-canvas-cloud/shared";
+import { DEFAULT_SITE_CONFIG } from "@ai-canvas-cloud/contracts/site-config";
 import type { ApiConfig } from "../config.ts";
 import {
   closeApiServer,
@@ -53,14 +54,19 @@ function listen(server: http.Server) {
   });
 }
 
-function request(port: number, path: string, method = "GET") {
+function request(
+  port: number,
+  path: string,
+  method = "GET",
+  headers: http.OutgoingHttpHeaders = {},
+) {
   return new Promise<{
     statusCode: number;
     headers: http.IncomingHttpHeaders;
     text: string;
   }>((resolve, reject) => {
     const outgoing = http.request(
-      { host: "127.0.0.1", port, path, method },
+      { host: "127.0.0.1", port, path, method, headers },
       (incoming) => {
         const chunks: Buffer[] = [];
         incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -78,6 +84,12 @@ function request(port: number, path: string, method = "GET") {
   });
 }
 
+function normalizeError(text: string) {
+  const payload = JSON.parse(text) as { error: Record<string, unknown> };
+  Reflect.deleteProperty(payload.error, "requestId");
+  return payload;
+}
+
 function normalizeHealth(text: string) {
   const payload = JSON.parse(text) as Record<string, unknown>;
   Reflect.deleteProperty(payload, "requestId");
@@ -87,8 +99,18 @@ function normalizeHealth(text: string) {
 }
 
 test("Fastify system routes preserve legacy status, headers, and payloads", async () => {
+  const etag = `"${"a".repeat(64)}"`;
   const baseOptions: ServerOptions = {
     config,
+    siteConfigService: {
+      async getCurrent() {
+        return {
+          etag,
+          config: DEFAULT_SITE_CONFIG,
+          assets: { logo: null, favicon: null },
+        };
+      },
+    },
     readinessChecks: {
       async postgres() {},
       async redis() {},
@@ -130,6 +152,38 @@ test("Fastify system routes preserve legacy status, headers, and payloads", asyn
       );
     }
 
+    const [legacySiteConfig, fastifySiteConfig] = await Promise.all([
+      request(legacyPort, "/api/v1/site-config"),
+      request(fastifyPort, "/api/v1/site-config"),
+    ]);
+    assert.equal(fastifySiteConfig.statusCode, legacySiteConfig.statusCode);
+    assert.equal(fastifySiteConfig.text, legacySiteConfig.text);
+    assert.equal(
+      fastifySiteConfig.headers["content-type"],
+      legacySiteConfig.headers["content-type"],
+    );
+    assert.equal(fastifySiteConfig.headers.etag, legacySiteConfig.headers.etag);
+    assert.equal(
+      fastifySiteConfig.headers["cache-control"],
+      legacySiteConfig.headers["cache-control"],
+    );
+
+    const [legacyCached, fastifyCached] = await Promise.all([
+      request(legacyPort, "/api/v1/site-config", "GET", {
+        "if-none-match": etag,
+      }),
+      request(fastifyPort, "/api/v1/site-config", "GET", {
+        "if-none-match": etag,
+      }),
+    ]);
+    assert.equal(fastifyCached.statusCode, legacyCached.statusCode);
+    assert.equal(fastifyCached.text, legacyCached.text);
+    assert.equal(fastifyCached.headers.etag, legacyCached.headers.etag);
+    assert.equal(
+      fastifyCached.headers["cache-control"],
+      legacyCached.headers["cache-control"],
+    );
+
     const wrongMethod = await request(fastifyPort, "/health/live", "POST");
     assert.equal(wrongMethod.statusCode, 404);
     assert.equal(
@@ -149,6 +203,36 @@ test("Fastify system routes preserve legacy status, headers, and payloads", asyn
       metrics.text,
       /ai_canvas_api_requests_total\{method="OPTIONS",route="\/health\/live",status_class="2xx"\} 1/,
     );
+  } finally {
+    await Promise.all([
+      closeApiServer(legacy, 1_000),
+      closeApiServer(fastify, 1_000),
+    ]);
+  }
+});
+
+test("Fastify site configuration preserves legacy unavailable errors", async () => {
+  const options: ServerOptions = {
+    config,
+    siteConfigService: {
+      async getCurrent() {
+        throw new Error("unavailable");
+      },
+    },
+  };
+  const legacy = createApiServer(options);
+  const fastify = await createFastifyApiServer(options);
+  const legacyPort = await listen(legacy);
+  const fastifyPort = await listen(fastify);
+
+  try {
+    const [before, after] = await Promise.all([
+      request(legacyPort, "/api/v1/site-config"),
+      request(fastifyPort, "/api/v1/site-config"),
+    ]);
+    assert.equal(after.statusCode, before.statusCode);
+    assert.equal(after.headers["content-type"], before.headers["content-type"]);
+    assert.deepEqual(normalizeError(after.text), normalizeError(before.text));
   } finally {
     await Promise.all([
       closeApiServer(legacy, 1_000),
@@ -178,7 +262,7 @@ test("OpenAPI is available only in development Fastify mode", async () => {
         .map((operation) => operation.operationId)
         .filter((value): value is string => Boolean(value)),
     );
-    assert.equal(operationIds.length, 5);
+    assert.equal(operationIds.length, 6);
     assert.equal(new Set(operationIds).size, operationIds.length);
     assert.equal((await request(productionPort, "/docs")).statusCode, 404);
     assert.equal((await request(productionPort, "/docs/json")).statusCode, 404);

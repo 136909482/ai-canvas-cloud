@@ -6,6 +6,7 @@ import {
   createMetricsRegistry,
   createRequestId,
 } from "@ai-canvas-cloud/shared";
+import { createUnavailablePublicSiteConfigService } from "@ai-canvas-cloud/server/modules/admin";
 import {
   HTTP_ADAPTER_CLOSE,
   createApiServer,
@@ -21,6 +22,7 @@ const FASTIFY_OWNED_PATHS = new Set([
   "/health/ready",
   "/api/v1/health/live",
   "/api/v1/health/ready",
+  "/api/v1/site-config",
 ]);
 
 function isFastifyOwnedPath(url: string | undefined) {
@@ -33,7 +35,14 @@ export async function createFastifyApiServer(options: ServerOptions) {
     options.logger ??
     createJsonLogger({ level: options.config.logLevel, service: "api" });
   const metrics = options.metrics ?? createMetricsRegistry();
-  const legacyServer = createApiServer({ ...options, logger, metrics });
+  const siteConfigService =
+    options.siteConfigService ?? createUnavailablePublicSiteConfigService();
+  const legacyServer = createApiServer({
+    ...options,
+    logger,
+    metrics,
+    siteConfigService,
+  });
   const legacyListener = legacyServer.listeners("request")[0] as
     RequestListener | undefined;
   if (!legacyListener) {
@@ -72,6 +81,7 @@ export async function createFastifyApiServer(options: ServerOptions) {
   registerFastifyFoundation(app, { config: options.config, logger, metrics });
   registerSystemRoutes(app, {
     metrics,
+    siteConfigService,
     postgresPoolStats: options.postgresPoolStats,
     readinessChecks: options.readinessChecks,
   });

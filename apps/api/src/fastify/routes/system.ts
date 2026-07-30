@@ -1,13 +1,19 @@
 import type http from "node:http";
 import { Type } from "@sinclair/typebox";
-import { HealthResponseSchema } from "@ai-canvas-cloud/contracts/http-schema";
+import {
+  ApiErrorResponseSchema,
+  HealthResponseSchema,
+  PublicSiteConfigResponseSchema,
+} from "@ai-canvas-cloud/contracts/http-schema";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { checkReadinessDependencies } from "../../dependencies.js";
 import type { MetricsRegistry } from "@ai-canvas-cloud/shared";
+import type { PublicSiteConfigService } from "@ai-canvas-cloud/server/modules/admin";
 
 interface SystemRouteOptions {
   metrics: MetricsRegistry;
+  siteConfigService: PublicSiteConfigService;
   postgresPoolStats?: () => { total: number; idle: number; waiting: number };
   readinessChecks?: {
     postgres?: () => Promise<void>;
@@ -135,6 +141,41 @@ export function registerSystemRoutes(
       return reply
         .header("content-type", "text/plain; version=0.0.4; charset=utf-8")
         .send(options.metrics.renderPrometheus());
+    },
+  );
+
+  app.get(
+    "/api/v1/site-config",
+    {
+      schema: {
+        operationId: operation("getPublicSiteConfig"),
+        tags: ["system"],
+        response: {
+          200: PublicSiteConfigResponseSchema,
+          304: Type.Null(),
+          503: ApiErrorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const payload = await options.siteConfigService.getCurrent();
+        reply.header("etag", payload.etag);
+        reply.header("cache-control", "public, max-age=60, stale-if-error=300");
+        if (request.headers["if-none-match"] === payload.etag) {
+          return reply.code(304).send(null);
+        }
+        return reply.send(payload);
+      } catch {
+        return reply.code(503).send({
+          error: {
+            code: "SERVICE_UNAVAILABLE",
+            message: "Site configuration is unavailable",
+            retryable: true,
+            requestId: request.id,
+          },
+        });
+      }
     },
   );
 }

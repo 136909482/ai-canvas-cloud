@@ -5,6 +5,10 @@ import { dirname } from "node:path";
 import { resolve } from "node:path";
 import { closeApiServer } from "../apps/api/dist/server.js";
 import { createFastifyApiServer } from "../apps/api/dist/fastify/server.js";
+import {
+  PUBLIC_ROUTE_INVENTORY,
+  openApiPath,
+} from "../apps/api/dist/routeInventory.js";
 
 const config = {
   env: "development",
@@ -55,6 +59,7 @@ try {
   );
   const document = await response.json();
   const operationIds = [];
+  const documentedRoutes = new Map();
 
   for (const [path, pathItem] of Object.entries(document.paths ?? {})) {
     for (const [method, operation] of Object.entries(pathItem)) {
@@ -69,6 +74,10 @@ try {
         `${method.toUpperCase()} ${path} is missing response schemas`,
       );
       operationIds.push(operation.operationId);
+      documentedRoutes.set(
+        `${method.toUpperCase()} ${path}`,
+        operation.operationId,
+      );
     }
   }
   assert(operationIds.length > 0, "public OpenAPI contains no operations");
@@ -76,6 +85,19 @@ try {
     new Set(operationIds).size,
     operationIds.length,
     "public OpenAPI operationId values must be unique",
+  );
+  const expectedRoutes = new Map(
+    PUBLIC_ROUTE_INVENTORY.filter((route) => route.owner === "fastify").map(
+      (route) => [
+        `${route.method} ${openApiPath(route.path)}`,
+        route.operationId,
+      ],
+    ),
+  );
+  assert.deepEqual(
+    [...documentedRoutes].sort(([left], [right]) => left.localeCompare(right)),
+    [...expectedRoutes].sort(([left], [right]) => left.localeCompare(right)),
+    "public OpenAPI routes and operationId values must exactly match the Fastify-owned inventory",
   );
 
   const destination = resolve(
