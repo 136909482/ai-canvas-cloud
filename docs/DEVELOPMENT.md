@@ -280,6 +280,8 @@ HTTP 接入层使用临时双适配结构渐进迁移。两个服务分别从自
 
 Fastify JSON parser 必须使用 fatal UTF-8 解码，拒绝重复键、无效 Unicode、超过 64 层或 100,000 entries 的结构，并由路由声明独立 body limit。AJV 不得删除字段、强转类型或注入默认值；TypeBox 描述传输结构，现有领域验证器继续接收原始解析结果并作为复杂语义的权威。TypeBox Schema 只从 `@ai-canvas-cloud/contracts/http-schema` 服务端子路径导入，Contracts 根入口和浏览器入口不得重新导出。开发 Fastify 模式注册 `/docs` 与 `/docs/json`；production/staging 不注册 OpenAPI 路由。API build 生成并检查当前公共 OpenAPI 产物，Schema 或 `operationId` 缺失及重复都会失败。
 
+公共 API adapter 契约测试必须覆盖路由清单中的全部方法和路径，并对照状态码、响应头、响应体、可信 actor、错误结构和请求体边界。真实 PostgreSQL/对象存储 E2E 对 Legacy 与 Fastify 分别创建隔离 Schema、账号和资源，禁止把同一写请求同时发送到两个 adapter 或共享一套可变测试数据。
+
 普通 API readiness 检查 PostgreSQL、Redis 和对象存储；Admin API 只检查 PostgreSQL 和对象存储。指标只使用低基数标签，不包含用户、workspace、project、动态 URL、主机、邮箱、正文或凭据；邮件指标只按 `verification|password_reset|test`、结果、失败类别和配置来源区分。
 
 生产应用启动不自动迁移。`0029_remove_server_generation.sql` 已删除旧 Provider 密文、服务器任务/队列/用量、官方目录/积分和任务资产引用；`0030_user_usernames.sql` 已把普通账号升级为必填且不可修改的用户名契约；`0031_generation_telemetry.sql` 增加不可执行的脱敏运营表；`0032_managed_smtp_configuration.sql` 增加版本化加密 SMTP 配置与最小发布投影；`0033_registration_email_codes.sql` 增加只保存 HMAC 哈希的注册邮箱验证码挑战表，并扩展站点配置 schema；`0034_password_reset_email_codes.sql` 增加保存 HMAC 和 AES-256-GCM token 密文的密码重置验证码挑战表；`0036_personal_workspace_storage_quota.sql` 保留现有数据并把旧默认个人空间配额调整为 10 GiB。执行 contract 前必须备份并停止不兼容写入方，所有迁移后重新应用数据库角色并完成约束审计；回滚与前向修复详细语义只在 [`DATA_MODEL.md`](DATA_MODEL.md) 维护。
