@@ -17,6 +17,10 @@ import type {
   CommitMigrationImportRequest,
   CompleteMigrationImportAssetPartRequest,
   CompleteMigrationImportAssetUploadRequest,
+  ApplyProjectGraphOperationsRequest,
+  ApplyProjectGraphOperationsResponse,
+  CreateProjectCheckpointRequest,
+  CreateProjectRequest,
   CreateAssetUploadRequest,
   GenerationTelemetryRequest,
   GenerationTelemetryResponse,
@@ -36,10 +40,21 @@ import type {
   PublicSiteConfigResponse,
   PrepareMigrationExportRequest,
   PrepareMigrationImportRequest,
+  ProjectCheckpointResponse,
+  ProjectGraphChangesResponse,
+  ProjectGraphResponse,
+  ProjectResponse,
+  ProjectRevisionResponse,
+  ProjectRevisionRestoreResponse,
+  ProjectRevisionsResponse,
+  ProjectsResponse,
   RegisterRequest,
   RegistrationEmailCodeRequest,
   RegistrationEmailCodeResponse,
   RemoveDeviceResponse,
+  RenameProjectRequest,
+  RestoreProjectRevisionRequest,
+  DeleteProjectResponse,
   RevokeSessionResponse,
   WorkspaceUsageResponse,
 } from "./index.js";
@@ -897,6 +912,282 @@ export const MigrationExportDownloadResponseSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const ProjectSummarySchema = Type.Object(
+  {
+    id: Type.String(),
+    name: Type.String(),
+    version: Type.Number(),
+    lastSequence: Type.Number(),
+    nodeCount: Type.Number(),
+    edgeCount: Type.Number(),
+    taskCount: Type.Number(),
+    archivedAt: NullableStringSchema,
+    createdAt: Type.String(),
+    updatedAt: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+export const ProjectResponseSchema = Type.Object(
+  { project: ProjectSummarySchema },
+  { additionalProperties: false },
+);
+
+export const ProjectsResponseSchema = Type.Object(
+  {
+    projects: Type.Array(ProjectSummarySchema),
+    nextCursor: NullableStringSchema,
+  },
+  { additionalProperties: false },
+);
+
+export const CreateProjectRequestSchema = Type.Unsafe<CreateProjectRequest>({
+  type: "object",
+  properties: { id: { type: "string" }, name: { type: "string" } },
+  required: ["name"],
+  additionalProperties: true,
+});
+
+export const RenameProjectRequestSchema = Type.Unsafe<RenameProjectRequest>({
+  type: "object",
+  properties: { name: { type: "string" } },
+  required: ["name"],
+  additionalProperties: true,
+});
+
+export const DeleteProjectResponseSchema = OkResponseSchema;
+
+const ProjectGraphNodeSchema = Type.Object(
+  {
+    id: Type.String(),
+    nodeType: Type.String(),
+    position: Type.Object(
+      { x: Type.Number(), y: Type.Number() },
+      { additionalProperties: false },
+    ),
+    size: Type.Optional(
+      Type.Object(
+        { width: Type.Number(), height: Type.Number() },
+        { additionalProperties: false },
+      ),
+    ),
+    zIndex: Type.Optional(Type.Number()),
+    parentNodeId: Type.Optional(NullableStringSchema),
+    dataSchemaVersion: Type.Number(),
+    data: Type.Record(Type.String(), Type.Unknown()),
+    presentation: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  },
+  { additionalProperties: false },
+);
+
+const ProjectGraphEdgeSchema = Type.Object(
+  {
+    id: Type.String(),
+    source: Type.String(),
+    target: Type.String(),
+    sourceHandle: Type.Optional(NullableStringSchema),
+    targetHandle: Type.Optional(NullableStringSchema),
+    edgeType: Type.Optional(NullableStringSchema),
+    data: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  },
+  { additionalProperties: false },
+);
+
+const ProjectGraphOperationSchema = Type.Union([
+  Type.Object(
+    { type: Type.Literal("upsertNode"), node: ProjectGraphNodeSchema },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { type: Type.Literal("deleteNode"), nodeId: Type.String() },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { type: Type.Literal("upsertEdge"), edge: ProjectGraphEdgeSchema },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { type: Type.Literal("deleteEdge"), edgeId: Type.String() },
+    { additionalProperties: false },
+  ),
+]);
+
+export const ProjectGraphResponseSchema = Type.Object(
+  {
+    projectId: Type.String(),
+    version: Type.Number(),
+    sequence: Type.Number(),
+    nodes: Type.Array(ProjectGraphNodeSchema),
+    edges: Type.Array(ProjectGraphEdgeSchema),
+  },
+  { additionalProperties: false },
+);
+
+const ProjectGraphChangeSchema = Type.Object(
+  {
+    sequence: Type.Number(),
+    baseVersion: Type.Number(),
+    resultVersion: Type.Number(),
+    clientId: NullableStringSchema,
+    batchId: Type.String(),
+    source: Type.Union([
+      Type.Literal("user"),
+      Type.Literal("worker"),
+      Type.Literal("import"),
+      Type.Literal("restore"),
+      Type.Literal("system"),
+    ]),
+    operations: Type.Array(ProjectGraphOperationSchema),
+    createdAt: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+export const ProjectGraphChangesResponseSchema = Type.Object(
+  {
+    projectId: Type.String(),
+    version: Type.Number(),
+    sequence: Type.Number(),
+    after: Type.Number(),
+    changes: Type.Array(ProjectGraphChangeSchema),
+    hasMore: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+
+export const ApplyProjectGraphOperationsRequestSchema =
+  Type.Unsafe<ApplyProjectGraphOperationsRequest>({
+    type: "object",
+    properties: {
+      baseVersion: { type: "number" },
+      clientId: { type: "string" },
+      batchId: { type: "string" },
+      idempotencyKey: { type: "string" },
+      operations: { type: "array", items: ProjectGraphOperationSchema },
+    },
+    required: [
+      "baseVersion",
+      "clientId",
+      "batchId",
+      "idempotencyKey",
+      "operations",
+    ],
+    additionalProperties: true,
+  });
+
+export const ApplyProjectGraphOperationsResponseSchema = Type.Object(
+  {
+    projectId: Type.String(),
+    version: Type.Number(),
+    sequence: Type.Number(),
+    acceptedBatchId: Type.String(),
+    updatedAt: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+const ProjectCheckpointSummarySchema = Type.Object(
+  {
+    id: Type.String(),
+    projectId: Type.String(),
+    projectVersion: Type.Number(),
+    lastSequence: Type.Number(),
+    snapshotType: Type.Union([
+      Type.Literal("manual"),
+      Type.Literal("periodic"),
+      Type.Literal("import"),
+      Type.Literal("pre_restore"),
+    ]),
+    schemaVersion: Type.Number(),
+    byteSize: Type.Number(),
+    isValid: Type.Boolean(),
+    createdAt: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+export const CreateProjectCheckpointRequestSchema =
+  Type.Unsafe<CreateProjectCheckpointRequest>({
+    type: "object",
+    properties: {
+      expectedVersion: { type: "number" },
+      expectedSequence: { type: "number" },
+      checkpointType: { enum: ["manual", "periodic"] },
+    },
+    required: ["expectedVersion", "expectedSequence"],
+    additionalProperties: true,
+  });
+
+export const ProjectCheckpointResponseSchema = Type.Object(
+  { checkpoint: ProjectCheckpointSummarySchema, project: ProjectSummarySchema },
+  { additionalProperties: false },
+);
+
+export const ProjectRevisionsResponseSchema = Type.Object(
+  {
+    revisions: Type.Array(ProjectCheckpointSummarySchema),
+    nextCursor: NullableStringSchema,
+  },
+  { additionalProperties: false },
+);
+
+const ProjectRevisionRecordSchema = Type.Object(
+  {
+    schemaVersion: Type.Number(),
+    project: Type.Object(
+      {
+        id: Type.String(),
+        name: Type.String(),
+        version: Type.Number(),
+        lastSequence: Type.Number(),
+      },
+      { additionalProperties: false },
+    ),
+    canvas: Type.Object(
+      {
+        nodes: Type.Array(ProjectGraphNodeSchema),
+        edges: Type.Array(ProjectGraphEdgeSchema),
+      },
+      { additionalProperties: false },
+    ),
+    taskQueue: Type.Object(
+      { tasks: Type.Array(Type.Unknown()) },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+export const ProjectRevisionResponseSchema = Type.Object(
+  {
+    checkpoint: ProjectCheckpointSummarySchema,
+    record: ProjectRevisionRecordSchema,
+  },
+  { additionalProperties: false },
+);
+
+export const RestoreProjectRevisionRequestSchema =
+  Type.Unsafe<RestoreProjectRevisionRequest>({
+    type: "object",
+    properties: {
+      expectedVersion: { type: "number" },
+      expectedSequence: { type: "number" },
+    },
+    required: ["expectedVersion", "expectedSequence"],
+    additionalProperties: true,
+  });
+
+export const ProjectRevisionRestoreResponseSchema = Type.Object(
+  {
+    restoredCheckpoint: ProjectCheckpointSummarySchema,
+    preRestoreCheckpoint: ProjectCheckpointSummarySchema,
+    project: ProjectSummarySchema,
+    version: Type.Number(),
+    sequence: Type.Number(),
+  },
+  { additionalProperties: false },
+);
+
 type Assert<T extends true> = T;
 type IsMutuallyAssignable<Left, Right> = [Left] extends [Right]
   ? [Right] extends [Left]
@@ -1036,6 +1327,90 @@ type MigrationExportDownloadResponseSchemaCompatibility = Assert<
     MigrationExportDownloadResponse
   >
 >;
+type ProjectResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<Static<typeof ProjectResponseSchema>, ProjectResponse>
+>;
+type ProjectsResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<Static<typeof ProjectsResponseSchema>, ProjectsResponse>
+>;
+type CreateProjectRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof CreateProjectRequestSchema>,
+    CreateProjectRequest
+  >
+>;
+type RenameProjectRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof RenameProjectRequestSchema>,
+    RenameProjectRequest
+  >
+>;
+type DeleteProjectResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof DeleteProjectResponseSchema>,
+    DeleteProjectResponse
+  >
+>;
+type ProjectGraphResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof ProjectGraphResponseSchema>,
+    ProjectGraphResponse
+  >
+>;
+type ProjectGraphChangesResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof ProjectGraphChangesResponseSchema>,
+    ProjectGraphChangesResponse
+  >
+>;
+type ApplyProjectGraphOperationsRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof ApplyProjectGraphOperationsRequestSchema>,
+    ApplyProjectGraphOperationsRequest
+  >
+>;
+type ApplyProjectGraphOperationsResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof ApplyProjectGraphOperationsResponseSchema>,
+    ApplyProjectGraphOperationsResponse
+  >
+>;
+type CreateProjectCheckpointRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof CreateProjectCheckpointRequestSchema>,
+    CreateProjectCheckpointRequest
+  >
+>;
+type ProjectCheckpointResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof ProjectCheckpointResponseSchema>,
+    ProjectCheckpointResponse
+  >
+>;
+type ProjectRevisionsResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof ProjectRevisionsResponseSchema>,
+    ProjectRevisionsResponse
+  >
+>;
+type ProjectRevisionResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof ProjectRevisionResponseSchema>,
+    ProjectRevisionResponse
+  >
+>;
+type RestoreProjectRevisionRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof RestoreProjectRevisionRequestSchema>,
+    RestoreProjectRevisionRequest
+  >
+>;
+type ProjectRevisionRestoreResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof ProjectRevisionRestoreResponseSchema>,
+    ProjectRevisionRestoreResponse
+  >
+>;
 type AuthSessionSchemaCompatibility = Assert<
   IsMutuallyAssignable<
     Static<typeof AuthSessionResponseSchema>,
@@ -1141,6 +1516,9 @@ export type {
   CompleteMigrationImportAssetPartRequestSchemaCompatibility,
   CompleteMigrationImportAssetUploadRequestSchemaCompatibility,
   CreateAssetUploadRequestSchemaCompatibility,
+  CreateProjectCheckpointRequestSchemaCompatibility,
+  CreateProjectRequestSchemaCompatibility,
+  DeleteProjectResponseSchemaCompatibility,
   GenerationTelemetryRequestSchemaCompatibility,
   GenerationTelemetryResponseSchemaCompatibility,
   HealthSchemaCompatibility,
@@ -1159,10 +1537,22 @@ export type {
   PublicSiteConfigSchemaCompatibility,
   PrepareMigrationExportRequestSchemaCompatibility,
   PrepareMigrationImportRequestSchemaCompatibility,
+  ProjectCheckpointResponseSchemaCompatibility,
+  ProjectGraphChangesResponseSchemaCompatibility,
+  ProjectGraphResponseSchemaCompatibility,
+  ProjectResponseSchemaCompatibility,
+  ProjectRevisionResponseSchemaCompatibility,
+  ProjectRevisionRestoreResponseSchemaCompatibility,
+  ProjectRevisionsResponseSchemaCompatibility,
+  ProjectsResponseSchemaCompatibility,
+  ApplyProjectGraphOperationsRequestSchemaCompatibility,
+  ApplyProjectGraphOperationsResponseSchemaCompatibility,
   RegisterSchemaCompatibility,
   RegistrationEmailCodeRequestSchemaCompatibility,
   RegistrationEmailCodeResponseSchemaCompatibility,
   RemoveDeviceSchemaCompatibility,
+  RenameProjectRequestSchemaCompatibility,
+  RestoreProjectRevisionRequestSchemaCompatibility,
   RevokeSessionSchemaCompatibility,
   WorkspaceUsageSchemaCompatibility,
 };

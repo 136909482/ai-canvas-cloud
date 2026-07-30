@@ -13,6 +13,14 @@ import type {
   MigrationExportResponse,
   MigrationImportAssetUploadResponse,
   MigrationImportResponse,
+  ProjectCheckpointResponse,
+  ProjectGraphChangesResponse,
+  ProjectGraphResponse,
+  ProjectResponse,
+  ProjectRevisionResponse,
+  ProjectRevisionRestoreResponse,
+  ProjectRevisionsResponse,
+  ProjectsResponse,
 } from "@ai-canvas-cloud/contracts";
 import type {
   AssetCleanupService,
@@ -30,6 +38,12 @@ import type {
   MigrationExportService,
   MigrationImportService,
 } from "@ai-canvas-cloud/server/modules/migrations";
+import type { ProjectGraphService } from "@ai-canvas-cloud/server/modules/project-graph";
+import type { ProjectSnapshotService } from "@ai-canvas-cloud/server/modules/project-snapshots";
+import type {
+  ProjectActor,
+  ProjectService,
+} from "@ai-canvas-cloud/server/modules/projects";
 import {
   validateGenerationTelemetryRequest,
   type GenerationTelemetryService,
@@ -526,6 +540,207 @@ function createMigrationServices() {
     migrationExportService,
     migrationImportService,
     projectId,
+  };
+}
+
+function createProjectServices() {
+  const auth = createWorkspaceServices();
+  const projectId = "11111111-1111-4111-8111-111111111111";
+  const checkpointId = "33333333-3333-4333-8333-333333333333";
+  const calls: Array<{
+    method: string;
+    input?: unknown;
+    actor: ProjectActor;
+  }> = [];
+  const capture = (method: string, actor: ProjectActor, input?: unknown) =>
+    calls.push({ method, actor, input });
+  const project = (overrides: Partial<ProjectResponse["project"]> = {}) => ({
+    id: projectId,
+    name: "Project",
+    version: 2,
+    lastSequence: 3,
+    nodeCount: 0,
+    edgeCount: 0,
+    taskCount: 0,
+    archivedAt: null,
+    createdAt: "2026-07-30T00:00:00.000Z",
+    updatedAt: "2026-07-30T01:00:00.000Z",
+    ...overrides,
+  });
+  const checkpoint = (version = 2) => ({
+    id: checkpointId,
+    projectId,
+    projectVersion: version,
+    lastSequence: 3,
+    snapshotType: "manual" as const,
+    schemaVersion: 1,
+    byteSize: 128,
+    isValid: true,
+    createdAt: "2026-07-30T02:00:00.000Z",
+  });
+  const graphNode = {
+    id: "node-1",
+    nodeType: "text",
+    position: { x: 12, y: 24 },
+    size: { width: 320, height: 180 },
+    zIndex: 2,
+    parentNodeId: null,
+    dataSchemaVersion: 1,
+    data: { text: "hello", nested: { visible: true } },
+    presentation: { selected: false },
+  };
+  const graphEdge = {
+    id: "edge-1",
+    source: "node-1",
+    target: "node-2",
+    sourceHandle: null,
+    targetHandle: "input",
+    edgeType: "default",
+    data: { animated: true },
+  };
+
+  const projectService: ProjectService = {
+    async listProjects(input, actor): Promise<ProjectsResponse> {
+      capture("project.list", actor, input);
+      return { projects: [project()], nextCursor: "next-project" };
+    },
+    async createProject(input, actor): Promise<ProjectResponse> {
+      capture("project.create", actor, input);
+      return {
+        project: project({ id: input.id ?? projectId, name: input.name }),
+      };
+    },
+    async getProject(id, actor): Promise<ProjectResponse> {
+      capture("project.get", actor, id);
+      return { project: project() };
+    },
+    async renameProject(id, input, actor): Promise<ProjectResponse> {
+      capture("project.rename", actor, { id, input });
+      return { project: project({ name: input.name }) };
+    },
+    async archiveProject(id, actor): Promise<ProjectResponse> {
+      capture("project.archive", actor, id);
+      return { project: project({ archivedAt: "2026-07-30T03:00:00.000Z" }) };
+    },
+    async restoreProject(id, actor): Promise<ProjectResponse> {
+      capture("project.restore", actor, id);
+      return { project: project() };
+    },
+    async deleteProject(id, actor) {
+      capture("project.delete", actor, id);
+      return { ok: true };
+    },
+  };
+
+  const projectGraphService: ProjectGraphService = {
+    async getGraph(id, actor): Promise<ProjectGraphResponse> {
+      capture("graph.get", actor, id);
+      return {
+        projectId,
+        version: 2,
+        sequence: 3,
+        nodes: [graphNode],
+        edges: [graphEdge],
+      };
+    },
+    async getChanges(id, after, actor): Promise<ProjectGraphChangesResponse> {
+      capture("graph.changes", actor, { id, after });
+      return {
+        projectId,
+        version: 2,
+        sequence: 3,
+        after,
+        changes: [
+          {
+            sequence: 3,
+            baseVersion: 1,
+            resultVersion: 2,
+            clientId: "client-1",
+            batchId: "batch-1",
+            source: "user",
+            operations: [{ type: "upsertNode", node: graphNode }],
+            createdAt: "2026-07-30T01:00:00.000Z",
+          },
+        ],
+        hasMore: false,
+      };
+    },
+    async applyOperations(id, input, actor) {
+      capture("graph.apply", actor, { id, input });
+      if (input.baseVersion === 99) {
+        throw new AuthServiceError({
+          statusCode: 409,
+          apiCode: "PROJECT_VERSION_CONFLICT",
+          message: "Project was updated by another client",
+          details: { currentVersion: 2, currentSequence: 3 },
+        });
+      }
+      return {
+        projectId,
+        version: 3,
+        sequence: 4,
+        acceptedBatchId: input.batchId,
+        updatedAt: "2026-07-30T04:00:00.000Z",
+      };
+    },
+  };
+
+  const projectSnapshotService: ProjectSnapshotService = {
+    async listRevisions(id, input, actor): Promise<ProjectRevisionsResponse> {
+      capture("revision.list", actor, { id, input });
+      return { revisions: [checkpoint()], nextCursor: "next-revision" };
+    },
+    async getRevision(id, version, actor): Promise<ProjectRevisionResponse> {
+      capture("revision.get", actor, { id, version });
+      return {
+        checkpoint: checkpoint(version),
+        record: {
+          schemaVersion: 1,
+          project: { id: projectId, name: "Project", version, lastSequence: 3 },
+          canvas: { nodes: [graphNode], edges: [graphEdge] },
+          taskQueue: { tasks: [] },
+        },
+      };
+    },
+    async createCheckpoint(
+      id,
+      input,
+      actor,
+    ): Promise<ProjectCheckpointResponse> {
+      capture("revision.checkpoint", actor, { id, input });
+      return {
+        checkpoint: checkpoint(input.expectedVersion),
+        project: project(),
+      };
+    },
+    async restoreRevision(
+      id,
+      version,
+      input,
+      actor,
+    ): Promise<ProjectRevisionRestoreResponse> {
+      capture("revision.restore", actor, { id, version, input });
+      return {
+        restoredCheckpoint: checkpoint(version),
+        preRestoreCheckpoint: {
+          ...checkpoint(2),
+          id: "44444444-4444-4444-8444-444444444444",
+          snapshotType: "pre_restore",
+        },
+        project: project({ version: 3, lastSequence: 4 }),
+        version: 3,
+        sequence: 4,
+      };
+    },
+  };
+
+  return {
+    ...auth,
+    calls,
+    projectGraphService,
+    projectId,
+    projectService,
+    projectSnapshotService,
   };
 }
 
@@ -1636,6 +1851,119 @@ test("Fastify migration routes preserve legacy bodies, actors, and export errors
   }
 });
 
+test("Fastify project routes preserve legacy queries, actors, limits, and domain errors", async () => {
+  const legacyServices = createProjectServices();
+  const fastifyServices = createProjectServices();
+  const legacy = createApiServer({ config, ...legacyServices });
+  const fastify = await createFastifyApiServer({ config, ...fastifyServices });
+  const legacyPort = await listen(legacy);
+  const fastifyPort = await listen(fastify);
+  const cookie = "better-auth.session_token=signed_session";
+
+  async function compare(
+    path: string,
+    method = "GET",
+    body?: string,
+    authenticated = true,
+  ) {
+    const headers = {
+      ...(body === undefined ? {} : jsonHeaders(body)),
+      ...(authenticated ? { cookie } : {}),
+    };
+    const [before, after] = await Promise.all([
+      request(legacyPort, path, method, headers, body),
+      request(fastifyPort, path, method, headers, body),
+    ]);
+    assert.equal(after.statusCode, before.statusCode, `${method} ${path}`);
+    if (after.statusCode >= 400) {
+      assert.deepEqual(normalizeError(after.text), normalizeError(before.text));
+    } else {
+      assert.deepEqual(JSON.parse(after.text), JSON.parse(before.text));
+    }
+  }
+
+  const projectPath = `/api/v1/projects/${legacyServices.projectId}`;
+  const graphBody = (baseVersion: number, padding = "") =>
+    JSON.stringify({
+      baseVersion,
+      clientId: "client-1",
+      batchId: `batch-${baseVersion}`,
+      idempotencyKey: `idempotency-${baseVersion}`,
+      operations: [
+        {
+          type: "upsertNode",
+          node: {
+            id: "node-1",
+            nodeType: "text",
+            position: { x: 0, y: 0 },
+            dataSchemaVersion: 1,
+            data: { padding },
+          },
+        },
+      ],
+    });
+
+  try {
+    await compare("/api/v1/projects", "POST", "{", false);
+    await compare(
+      "/api/v1/projects?status=archived&cursor=cursor-1&limit=10&limit=20&userId=forged",
+    );
+    await compare(
+      "/api/v1/projects",
+      "POST",
+      JSON.stringify({ id: legacyServices.projectId, name: "Created" }),
+    );
+    await compare(`${projectPath}?workspaceId=forged`);
+    await compare(projectPath, "PATCH", JSON.stringify({ name: "Renamed" }));
+    await compare(`${projectPath}/archive`, "POST");
+    await compare(`${projectPath}/restore`, "POST");
+    await compare(projectPath, "DELETE");
+    await compare(`${projectPath}/graph`);
+    await compare(
+      `${projectPath}/graph`,
+      "PATCH",
+      graphBody(2, "x".repeat(1_100_000)),
+    );
+    await compare(`${projectPath}/changes?after=7&after=9&workspaceId=forged`);
+    await compare(
+      `${projectPath}/checkpoints`,
+      "POST",
+      JSON.stringify({
+        expectedVersion: 2,
+        expectedSequence: 3,
+        checkpointType: "manual",
+      }),
+    );
+    await compare(`${projectPath}/revisions?cursor=cursor-2&limit=1&limit=2`);
+    await compare(`${projectPath}/revisions/2`);
+    await compare(
+      `${projectPath}/revisions/2/restore`,
+      "POST",
+      JSON.stringify({ expectedVersion: 2, expectedSequence: 3 }),
+    );
+    await compare(`${projectPath}/graph`, "PATCH", graphBody(99));
+    await compare(
+      `${projectPath}/graph`,
+      "PATCH",
+      graphBody(2, "x".repeat(2 * 1024 * 1024)),
+    );
+    await compare(`${projectPath}/graph`, "POST", undefined, false);
+
+    assert.deepEqual(fastifyServices.calls, legacyServices.calls);
+    assert(
+      fastifyServices.calls.every(
+        ({ actor }) =>
+          actor.userId === "user_1" && actor.workspaceId === "workspace_1",
+      ),
+    );
+  } finally {
+    await Promise.all([
+      closeApiServer(legacy, 1_000),
+      closeApiServer(fastify, 1_000),
+    ]);
+  }
+});
+
 test("OpenAPI is available only in development Fastify mode", async () => {
   const development = await createFastifyApiServer({
     config: { ...config, env: "development", httpAdapter: "fastify" },
@@ -1657,7 +1985,7 @@ test("OpenAPI is available only in development Fastify mode", async () => {
         .map((operation) => operation.operationId)
         .filter((value): value is string => Boolean(value)),
     );
-    assert.equal(operationIds.length, 40);
+    assert.equal(operationIds.length, 54);
     assert.equal(new Set(operationIds).size, operationIds.length);
     assert.equal((await request(productionPort, "/docs")).statusCode, 404);
     assert.equal((await request(productionPort, "/docs/json")).statusCode, 404);

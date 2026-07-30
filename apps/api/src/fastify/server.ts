@@ -16,6 +16,9 @@ import {
   createUnavailableMigrationExportService,
   createUnavailableMigrationImportService,
 } from "@ai-canvas-cloud/server/modules/migrations";
+import { createUnavailableProjectGraphService } from "@ai-canvas-cloud/server/modules/project-graph";
+import { createUnavailableProjectSnapshotService } from "@ai-canvas-cloud/server/modules/project-snapshots";
+import { createUnavailableProjectService } from "@ai-canvas-cloud/server/modules/projects";
 import {
   HTTP_ADAPTER_CLOSE,
   createApiServer,
@@ -30,6 +33,7 @@ import { registerTelemetryRoutes } from "./routes/telemetry.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerAssetRoutes } from "./routes/assets.js";
 import { registerMigrationRoutes } from "./routes/migrations.js";
+import { registerProjectRoutes } from "./routes/projects.js";
 
 const FASTIFY_OWNED_PATHS = new Set([
   "/metrics",
@@ -54,6 +58,18 @@ const FASTIFY_OWNED_PATHS = new Set([
   "/internal/v1/asset-cleanup",
   "/api/v1/assets/uploads",
 ]);
+
+const PROJECT_ROUTE_METHODS: ReadonlyArray<[RegExp, readonly string[]]> = [
+  [/^\/api\/v1\/projects$/, ["GET", "POST"]],
+  [/^\/api\/v1\/projects\/[^/]+$/, ["GET", "PATCH", "DELETE"]],
+  [/^\/api\/v1\/projects\/[^/]+\/(?:archive|restore)$/, ["POST"]],
+  [/^\/api\/v1\/projects\/[^/]+\/graph$/, ["GET", "PATCH"]],
+  [/^\/api\/v1\/projects\/[^/]+\/changes$/, ["GET"]],
+  [/^\/api\/v1\/projects\/[^/]+\/checkpoints$/, ["POST"]],
+  [/^\/api\/v1\/projects\/[^/]+\/revisions$/, ["GET"]],
+  [/^\/api\/v1\/projects\/[^/]+\/revisions\/[^/]+$/, ["GET"]],
+  [/^\/api\/v1\/projects\/[^/]+\/revisions\/[^/]+\/restore$/, ["POST"]],
+];
 
 function isFastifyOwnedPath(
   url: string | undefined,
@@ -93,6 +109,15 @@ function isFastifyOwnedPath(
     importMethods.some(
       ([pattern, expected]) => pattern.test(pathname) && method === expected,
     )
+  ) {
+    return true;
+  }
+  const projectRoute = PROJECT_ROUTE_METHODS.find(([pattern]) =>
+    pattern.test(pathname),
+  );
+  if (
+    projectRoute &&
+    (method === "OPTIONS" || projectRoute[1].includes(method ?? ""))
   ) {
     return true;
   }
@@ -145,6 +170,12 @@ export async function createFastifyApiServer(options: ServerOptions) {
     createUnavailableMigrationAssetUploadService();
   const migrationExportService =
     options.migrationExportService ?? createUnavailableMigrationExportService();
+  const projectGraphService =
+    options.projectGraphService ?? createUnavailableProjectGraphService();
+  const projectSnapshotService =
+    options.projectSnapshotService ?? createUnavailableProjectSnapshotService();
+  const projectService =
+    options.projectService ?? createUnavailableProjectService();
   const legacyServer = createApiServer({
     ...options,
     authService,
@@ -152,6 +183,9 @@ export async function createFastifyApiServer(options: ServerOptions) {
     migrationAssetUploadService,
     migrationExportService,
     migrationImportService,
+    projectGraphService,
+    projectSnapshotService,
+    projectService,
     generationTelemetryService,
     logger,
     metrics,
@@ -228,6 +262,12 @@ export async function createFastifyApiServer(options: ServerOptions) {
     migrationAssetUploadService,
     migrationExportService,
     migrationImportService,
+  });
+  registerProjectRoutes(app, {
+    authContext,
+    projectGraphService,
+    projectSnapshotService,
+    projectService,
   });
 
   if (options.config.env === "development") {
