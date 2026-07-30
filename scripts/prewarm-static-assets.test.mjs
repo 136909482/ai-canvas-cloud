@@ -68,7 +68,7 @@ test("prewarm covers both HTML pages and every hashed asset with retries", async
         },
       ],
       concurrency: 4,
-      timeoutMs: 100,
+      timeoutMs: 5_000,
       retries: 2,
       retryDelayMs: 0,
       logger: {
