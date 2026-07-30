@@ -14,18 +14,28 @@ import type {
   AuthSuccessResponse,
   CurrentWorkspaceResponse,
   CompleteAssetUploadResponse,
+  CommitMigrationImportRequest,
+  CompleteMigrationImportAssetPartRequest,
+  CompleteMigrationImportAssetUploadRequest,
   CreateAssetUploadRequest,
   GenerationTelemetryRequest,
   GenerationTelemetryResponse,
   HealthResponse,
   LoginRequest,
   LogoutResponse,
+  MigrationExportDownloadResponse,
+  MigrationExportResponse,
+  MigrationImportAssetUploadResponse,
+  MigrationImportCommitResponse,
+  MigrationImportResponse,
   PasswordChangeRequest,
   PasswordChangeResponse,
   PasswordForgotRequest,
   PasswordResetRequest,
   PasswordResetResponse,
   PublicSiteConfigResponse,
+  PrepareMigrationExportRequest,
+  PrepareMigrationImportRequest,
   RegisterRequest,
   RegistrationEmailCodeRequest,
   RegistrationEmailCodeResponse,
@@ -580,6 +590,313 @@ export const AssetCleanupSummarySchema = Type.Object(
   { additionalProperties: false },
 );
 
+const MigrationStatusErrorSchema = Type.Union([
+  Type.Object(
+    { code: Type.String(), message: Type.String() },
+    { additionalProperties: false },
+  ),
+  Type.Null(),
+]);
+const MigrationProjectSchema = Type.Object(
+  {
+    id: Type.String(),
+    name: Type.String(),
+    version: Type.Number(),
+    sequence: Type.Number(),
+  },
+  { additionalProperties: false },
+);
+const MigrationAssetKindSchema = AssetKindSchema;
+
+export const PrepareMigrationImportRequestSchema =
+  Type.Unsafe<PrepareMigrationImportRequest>({
+    type: "object",
+    properties: {
+      idempotencyKey: { type: "string" },
+      manifest: { type: "object" },
+      projectRecord: { type: "object" },
+      graph: { type: "object" },
+      assetManifest: { type: "object" },
+      checkpoint: { anyOf: [{ type: "object" }, { type: "null" }] },
+      archiveEntries: { type: "array", items: { type: "object" } },
+    },
+    required: [
+      "idempotencyKey",
+      "manifest",
+      "projectRecord",
+      "graph",
+      "assetManifest",
+      "checkpoint",
+      "archiveEntries",
+    ],
+    additionalProperties: false,
+  });
+
+const MigrationImportUploadItemSchema = Type.Object(
+  {
+    logicalAssetId: Type.String(),
+    filePath: Type.String(),
+    originalFileName: NullableStringSchema,
+    mimeType: Type.String(),
+    byteSize: Type.Number(),
+    sha256: Type.String(),
+    width: Type.Union([Type.Number(), Type.Null()]),
+    height: Type.Union([Type.Number(), Type.Null()]),
+    assetKind: MigrationAssetKindSchema,
+    required: Type.Literal(true),
+  },
+  { additionalProperties: false },
+);
+const MigrationImportStatusSchema = Type.Union([
+  Type.Literal("prepared"),
+  Type.Literal("uploading"),
+  Type.Literal("validating"),
+  Type.Literal("ready"),
+  Type.Literal("committing"),
+  Type.Literal("completed"),
+  Type.Literal("failed"),
+  Type.Literal("canceled"),
+  Type.Literal("expired"),
+]);
+export const MigrationImportResponseSchema = Type.Object(
+  {
+    import: Type.Object(
+      {
+        id: Type.String(),
+        status: MigrationImportStatusSchema,
+        packageId: Type.String(),
+        sourcePlatform: Type.Union([
+          Type.Literal("web"),
+          Type.Literal("electron"),
+          Type.Literal("cloud"),
+        ]),
+        project: Type.Object(
+          {
+            sourceId: Type.String(),
+            name: Type.String(),
+            version: Type.Number(),
+            sequence: Type.Number(),
+          },
+          { additionalProperties: false },
+        ),
+        conflict: Type.Object(
+          {
+            type: Type.Union([
+              Type.Literal("none"),
+              Type.Literal("project_exists"),
+              Type.Literal("project_id_unavailable"),
+              Type.Literal("source_id_incompatible"),
+            ]),
+            requiresResolution: Type.Boolean(),
+            targetProject: Type.Union([
+              Type.Object(
+                {
+                  id: Type.String(),
+                  name: Type.String(),
+                  expectedVersion: Type.Number(),
+                  expectedSequence: Type.Number(),
+                  archivedAt: NullableStringSchema,
+                },
+                { additionalProperties: false },
+              ),
+              Type.Null(),
+            ]),
+          },
+          { additionalProperties: false },
+        ),
+        allowedStrategies: Type.Array(
+          Type.Union([Type.Literal("copy"), Type.Literal("replace")]),
+        ),
+        estimates: Type.Object(
+          {
+            assetCount: Type.Number(),
+            fileCount: Type.Number(),
+            totalBytes: Type.Number(),
+            estimatedStorageBytes: Type.Number(),
+            availableBytesAtPrepare: Type.Number(),
+          },
+          { additionalProperties: false },
+        ),
+        progress: Type.Object(
+          {
+            completedFileCount: Type.Number(),
+            completedBytes: Type.Number(),
+            retryCount: Type.Number(),
+          },
+          { additionalProperties: false },
+        ),
+        uploads: Type.Array(MigrationImportUploadItemSchema),
+        error: MigrationStatusErrorSchema,
+        cancelRequestedAt: NullableStringSchema,
+        expiresAt: Type.String(),
+        createdAt: Type.String(),
+        updatedAt: Type.String(),
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+export const CommitMigrationImportRequestSchema = Type.Object(
+  {
+    idempotencyKey: Type.String(),
+    strategy: Type.Union([Type.Literal("copy"), Type.Literal("replace")]),
+    expectedVersion: Type.Optional(Type.Number()),
+    expectedSequence: Type.Optional(Type.Number()),
+    confirmReplace: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+export const MigrationImportCommitResponseSchema = Type.Object(
+  {
+    importId: Type.String(),
+    status: Type.Literal("completed"),
+    strategy: Type.Union([Type.Literal("copy"), Type.Literal("replace")]),
+    project: MigrationProjectSchema,
+    assetCount: Type.Number(),
+    checkpoint: Type.Union([
+      Type.Object(
+        {
+          id: Type.String(),
+          projectVersion: Type.Number(),
+          sequence: Type.Number(),
+        },
+        { additionalProperties: false },
+      ),
+      Type.Null(),
+    ]),
+  },
+  { additionalProperties: false },
+);
+
+export const CompleteMigrationImportAssetPartRequestSchema = Type.Object(
+  { etag: Type.String(), byteSize: Type.Number() },
+  { additionalProperties: false },
+);
+export const CompleteMigrationImportAssetUploadRequestSchema = Type.Object(
+  {
+    parts: Type.Optional(
+      Type.Record(Type.String(), CompleteMigrationImportAssetPartRequestSchema),
+    ),
+  },
+  { additionalProperties: false },
+);
+const MigrationUploadStatusSchema = Type.Union([
+  Type.Literal("pending"),
+  Type.Literal("uploading"),
+  Type.Literal("validating"),
+  Type.Literal("completed"),
+  Type.Literal("failed"),
+  Type.Literal("canceled"),
+  Type.Literal("expired"),
+]);
+const MigrationUploadPartSchema = Type.Object(
+  {
+    partNumber: Type.Number(),
+    byteSize: Type.Number(),
+    url: Type.String(),
+    headers: Type.Record(Type.String(), Type.String()),
+    expiresAt: Type.String(),
+  },
+  { additionalProperties: false },
+);
+export const MigrationImportAssetUploadResponseSchema = Type.Object(
+  {
+    upload: Type.Object(
+      {
+        id: Type.String(),
+        importId: Type.String(),
+        logicalAssetId: Type.String(),
+        status: MigrationUploadStatusSchema,
+        mode: Type.Union([Type.Literal("single"), Type.Literal("multipart")]),
+        expectedMimeType: Type.String(),
+        expectedByteSize: Type.Number(),
+        expectedSha256: Type.String(),
+        partSize: Type.Number(),
+        partCount: Type.Number(),
+        completedParts: Type.Array(Type.Number()),
+        uploadedByteSize: Type.Number(),
+        retryCount: Type.Number(),
+        directUpload: Type.Union([
+          Type.Object(
+            {
+              method: Type.Literal("PUT"),
+              url: Type.String(),
+              headers: Type.Record(Type.String(), Type.String()),
+              expiresAt: Type.String(),
+            },
+            { additionalProperties: false },
+          ),
+          Type.Null(),
+        ]),
+        parts: Type.Array(MigrationUploadPartSchema),
+        expiresAt: Type.String(),
+        createdAt: Type.String(),
+        updatedAt: Type.String(),
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+export const PrepareMigrationExportRequestSchema = Type.Object(
+  {
+    idempotencyKey: Type.String(),
+    expectedVersion: Type.Optional(Type.Number()),
+    expectedSequence: Type.Optional(Type.Number()),
+  },
+  { additionalProperties: false },
+);
+const MigrationExportStatusSchema = Type.Union([
+  Type.Literal("prepared"),
+  Type.Literal("generating"),
+  Type.Literal("completed"),
+  Type.Literal("failed"),
+  Type.Literal("canceled"),
+  Type.Literal("expired"),
+]);
+export const MigrationExportResponseSchema = Type.Object(
+  {
+    export: Type.Object(
+      {
+        id: Type.String(),
+        status: MigrationExportStatusSchema,
+        project: MigrationProjectSchema,
+        progress: Type.Object(
+          {
+            fileCount: Type.Number(),
+            completedFileCount: Type.Number(),
+            totalBytes: Type.Number(),
+            completedBytes: Type.Number(),
+            retryCount: Type.Number(),
+          },
+          { additionalProperties: false },
+        ),
+        archive: Type.Union([
+          Type.Object(
+            { byteSize: Type.Number(), sha256: Type.String() },
+            { additionalProperties: false },
+          ),
+          Type.Null(),
+        ]),
+        error: MigrationStatusErrorSchema,
+        cancelRequestedAt: NullableStringSchema,
+        expiresAt: Type.String(),
+        createdAt: Type.String(),
+        updatedAt: Type.String(),
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+export const MigrationExportDownloadResponseSchema = Type.Object(
+  { exportId: Type.String(), url: Type.String(), expiresAt: Type.String() },
+  { additionalProperties: false },
+);
+
 type Assert<T extends true> = T;
 type IsMutuallyAssignable<Left, Right> = [Left] extends [Right]
   ? [Right] extends [Left]
@@ -657,6 +974,66 @@ type AssetCleanupSummarySchemaCompatibility = Assert<
   IsMutuallyAssignable<
     Static<typeof AssetCleanupSummarySchema>,
     AssetCleanupSummary
+  >
+>;
+type PrepareMigrationImportRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof PrepareMigrationImportRequestSchema>,
+    PrepareMigrationImportRequest
+  >
+>;
+type MigrationImportResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof MigrationImportResponseSchema>,
+    MigrationImportResponse
+  >
+>;
+type CommitMigrationImportRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof CommitMigrationImportRequestSchema>,
+    CommitMigrationImportRequest
+  >
+>;
+type MigrationImportCommitResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof MigrationImportCommitResponseSchema>,
+    MigrationImportCommitResponse
+  >
+>;
+type CompleteMigrationImportAssetPartRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof CompleteMigrationImportAssetPartRequestSchema>,
+    CompleteMigrationImportAssetPartRequest
+  >
+>;
+type CompleteMigrationImportAssetUploadRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof CompleteMigrationImportAssetUploadRequestSchema>,
+    CompleteMigrationImportAssetUploadRequest
+  >
+>;
+type MigrationImportAssetUploadResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof MigrationImportAssetUploadResponseSchema>,
+    MigrationImportAssetUploadResponse
+  >
+>;
+type PrepareMigrationExportRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof PrepareMigrationExportRequestSchema>,
+    PrepareMigrationExportRequest
+  >
+>;
+type MigrationExportResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof MigrationExportResponseSchema>,
+    MigrationExportResponse
+  >
+>;
+type MigrationExportDownloadResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof MigrationExportDownloadResponseSchema>,
+    MigrationExportDownloadResponse
   >
 >;
 type AuthSessionSchemaCompatibility = Assert<
@@ -760,18 +1137,28 @@ export type {
   AuthSuccessSchemaCompatibility,
   CurrentWorkspaceSchemaCompatibility,
   CompleteAssetUploadResponseSchemaCompatibility,
+  CommitMigrationImportRequestSchemaCompatibility,
+  CompleteMigrationImportAssetPartRequestSchemaCompatibility,
+  CompleteMigrationImportAssetUploadRequestSchemaCompatibility,
   CreateAssetUploadRequestSchemaCompatibility,
   GenerationTelemetryRequestSchemaCompatibility,
   GenerationTelemetryResponseSchemaCompatibility,
   HealthSchemaCompatibility,
   LoginSchemaCompatibility,
   LogoutSchemaCompatibility,
+  MigrationExportDownloadResponseSchemaCompatibility,
+  MigrationExportResponseSchemaCompatibility,
+  MigrationImportAssetUploadResponseSchemaCompatibility,
+  MigrationImportCommitResponseSchemaCompatibility,
+  MigrationImportResponseSchemaCompatibility,
   PasswordChangeRequestSchemaCompatibility,
   PasswordChangeResponseSchemaCompatibility,
   PasswordForgotSchemaCompatibility,
   PasswordResetRequestSchemaCompatibility,
   PasswordResetResponseSchemaCompatibility,
   PublicSiteConfigSchemaCompatibility,
+  PrepareMigrationExportRequestSchemaCompatibility,
+  PrepareMigrationImportRequestSchemaCompatibility,
   RegisterSchemaCompatibility,
   RegistrationEmailCodeRequestSchemaCompatibility,
   RegistrationEmailCodeResponseSchemaCompatibility,

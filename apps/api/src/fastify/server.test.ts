@@ -10,6 +10,9 @@ import type {
   AssetUrlResponse,
   AuthSessionResponse,
   CompleteAssetUploadResponse,
+  MigrationExportResponse,
+  MigrationImportAssetUploadResponse,
+  MigrationImportResponse,
 } from "@ai-canvas-cloud/contracts";
 import type {
   AssetCleanupService,
@@ -22,6 +25,11 @@ import {
 } from "@ai-canvas-cloud/server/modules/auth";
 import { AuthServiceError } from "@ai-canvas-cloud/server/modules/auth";
 import type { WorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
+import type {
+  MigrationAssetUploadService,
+  MigrationExportService,
+  MigrationImportService,
+} from "@ai-canvas-cloud/server/modules/migrations";
 import {
   validateGenerationTelemetryRequest,
   type GenerationTelemetryService,
@@ -314,6 +322,211 @@ function createAssetCleanupServices() {
     },
   };
   return { assetCleanupService, calls };
+}
+
+function createMigrationServices() {
+  const auth = createWorkspaceServices();
+  const calls: Array<{
+    method: string;
+    input?: unknown;
+    actor: { userId: string; workspaceId: string };
+  }> = [];
+  const importId = "99999999-9999-4999-8999-999999999999";
+  const projectId = "11111111-1111-4111-8111-111111111111";
+  const exportId = "88888888-8888-4888-8888-888888888888";
+  const logicalAssetId = "asset-1";
+  const importResponse = (): MigrationImportResponse => ({
+    import: {
+      id: importId,
+      status: "prepared",
+      packageId: "package-1",
+      sourcePlatform: "electron",
+      project: {
+        sourceId: projectId,
+        name: "Imported project",
+        version: 2,
+        sequence: 3,
+      },
+      conflict: {
+        type: "none",
+        requiresResolution: false,
+        targetProject: null,
+      },
+      allowedStrategies: [],
+      estimates: {
+        assetCount: 1,
+        fileCount: 4,
+        totalBytes: 128,
+        estimatedStorageBytes: 16,
+        availableBytesAtPrepare: 1024,
+      },
+      progress: { completedFileCount: 0, completedBytes: 0, retryCount: 0 },
+      uploads: [],
+      error: null,
+      cancelRequestedAt: null,
+      expiresAt: "2026-07-31T00:00:00.000Z",
+      createdAt: "2026-07-30T00:00:00.000Z",
+      updatedAt: "2026-07-30T00:00:00.000Z",
+    },
+  });
+  const uploadResponse = (): MigrationImportAssetUploadResponse => ({
+    upload: {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      importId,
+      logicalAssetId,
+      status: "uploading",
+      mode: "multipart",
+      expectedMimeType: "video/mp4",
+      expectedByteSize: 16,
+      expectedSha256: "a".repeat(64),
+      partSize: 8,
+      partCount: 2,
+      completedParts: [],
+      uploadedByteSize: 0,
+      retryCount: 0,
+      directUpload: null,
+      parts: [
+        {
+          partNumber: 1,
+          byteSize: 8,
+          url: "https://storage.invalid/part/1",
+          headers: { "content-length": "8" },
+          expiresAt: "2026-07-31T00:00:00.000Z",
+        },
+      ],
+      expiresAt: "2026-07-31T00:00:00.000Z",
+      createdAt: "2026-07-30T00:00:00.000Z",
+      updatedAt: "2026-07-30T00:00:00.000Z",
+    },
+  });
+  const exportResponse = (): MigrationExportResponse => ({
+    export: {
+      id: exportId,
+      status: "prepared",
+      project: {
+        id: projectId,
+        name: "Export project",
+        version: 2,
+        sequence: 3,
+      },
+      progress: {
+        fileCount: 4,
+        completedFileCount: 0,
+        totalBytes: 512,
+        completedBytes: 0,
+        retryCount: 0,
+      },
+      archive: null,
+      error: null,
+      cancelRequestedAt: null,
+      expiresAt: "2026-07-31T00:00:00.000Z",
+      createdAt: "2026-07-30T00:00:00.000Z",
+      updatedAt: "2026-07-30T00:00:00.000Z",
+    },
+  });
+  const capture = (
+    method: string,
+    actor: { userId: string; workspaceId: string },
+    input?: unknown,
+  ) => calls.push({ method, actor, input });
+  const migrationImportService: MigrationImportService = {
+    async prepareImport(input, actor) {
+      capture("import.prepare", actor, input);
+      return importResponse();
+    },
+    async getImport(id, actor) {
+      capture("import.get", actor, id);
+      return importResponse();
+    },
+    async cancelImport(id, actor) {
+      capture("import.cancel", actor, id);
+      return importResponse();
+    },
+    async commitImport(id, input, actor) {
+      capture("import.commit", actor, { id, input });
+      return {
+        importId: id,
+        status: "completed",
+        strategy: "copy",
+        project: {
+          id: projectId,
+          name: "Imported project",
+          version: 1,
+          sequence: 1,
+        },
+        assetCount: 1,
+        checkpoint: null,
+      };
+    },
+  };
+  const migrationAssetUploadService: MigrationAssetUploadService = {
+    async prepareAssetUpload(id, assetId, actor) {
+      capture("asset.prepare", actor, { id, assetId });
+      return uploadResponse();
+    },
+    async getAssetUpload(id, assetId, actor) {
+      capture("asset.get", actor, { id, assetId });
+      return uploadResponse();
+    },
+    async completeAssetPart(id, assetId, part, input, actor) {
+      capture("asset.part", actor, { id, assetId, part, input });
+      return uploadResponse();
+    },
+    async completeAssetUpload(id, assetId, input, actor) {
+      capture("asset.complete", actor, { id, assetId, input });
+      return uploadResponse();
+    },
+    async cancelAssetUpload(id, assetId, actor) {
+      capture("asset.cancel", actor, { id, assetId });
+      return uploadResponse();
+    },
+    async maintainStagingObjects() {
+      return 0;
+    },
+  };
+  const migrationExportService: MigrationExportService = {
+    async prepareExport(id, input, actor) {
+      capture("export.prepare", actor, { id, input });
+      return exportResponse();
+    },
+    async getExport(id, value, actor) {
+      if (value === "explode") throw new Error("private export failure");
+      capture("export.get", actor, { id, value });
+      return exportResponse();
+    },
+    async downloadExport(id, value, actor) {
+      capture("export.download", actor, { id, value });
+      return {
+        exportId: value,
+        url: "https://storage.invalid/signed-export",
+        expiresAt: "2026-07-30T00:05:00.000Z",
+      };
+    },
+    async cancelExport(id, value, actor) {
+      capture("export.cancel", actor, { id, value });
+      return exportResponse();
+    },
+    async retryExport(id, value, actor) {
+      capture("export.retry", actor, { id, value });
+      return exportResponse();
+    },
+    async processExport() {},
+    async recoverExports() {},
+    async maintainExports() {
+      return 0;
+    },
+  };
+  return {
+    ...auth,
+    calls,
+    exportId,
+    importId,
+    logicalAssetId,
+    migrationAssetUploadService,
+    migrationExportService,
+    migrationImportService,
+    projectId,
+  };
 }
 
 function createAuthLifecycleServices() {
@@ -1309,6 +1522,120 @@ test("Fastify asset routes preserve legacy actors, bodies, and domain errors", a
   }
 });
 
+test("Fastify migration routes preserve legacy bodies, actors, and export errors", async () => {
+  const legacyServices = createMigrationServices();
+  const fastifyServices = createMigrationServices();
+  const legacy = createApiServer({ config, ...legacyServices });
+  const fastify = await createFastifyApiServer({ config, ...fastifyServices });
+  const legacyPort = await listen(legacy);
+  const fastifyPort = await listen(fastify);
+  const cookie = "better-auth.session_token=signed_session";
+
+  async function compare(
+    path: string,
+    method = "GET",
+    body?: string,
+    authenticated = true,
+  ) {
+    const headers = {
+      ...(body === undefined ? {} : jsonHeaders(body)),
+      ...(authenticated ? { cookie } : {}),
+    };
+    const [before, after] = await Promise.all([
+      request(legacyPort, path, method, headers, body),
+      request(fastifyPort, path, method, headers, body),
+    ]);
+    assert.equal(after.statusCode, before.statusCode, path);
+    if (after.statusCode >= 400) {
+      assert.deepEqual(normalizeError(after.text), normalizeError(before.text));
+    } else {
+      assert.equal(after.text, before.text, path);
+    }
+  }
+
+  const importPath = `/api/v1/migrations/imports/${legacyServices.importId}`;
+  const assetPath = `${importPath}/assets/${legacyServices.logicalAssetId}`;
+  const exportPath = `/api/v1/projects/${legacyServices.projectId}/exports`;
+
+  try {
+    await compare("/api/v1/migrations/imports/prepare", "POST", "{", false);
+    await compare(
+      "/api/v1/migrations/imports/prepare",
+      "POST",
+      JSON.stringify({ idempotencyKey: "prepare-1" }),
+    );
+    await compare(`${importPath}?workspaceId=forged`);
+    await compare(
+      `${importPath}/commit`,
+      "POST",
+      JSON.stringify({ idempotencyKey: "commit-1", strategy: "copy" }),
+    );
+    await compare(
+      `${importPath}/cancel`,
+      "POST",
+      JSON.stringify({ forged: true }),
+    );
+    await compare(`${importPath}/cancel`, "POST", JSON.stringify({}));
+
+    await compare(`${assetPath}/upload`, "POST", JSON.stringify({}));
+    await compare(`${assetPath}/upload`);
+    await compare(
+      `${assetPath}/parts/1/complete`,
+      "POST",
+      JSON.stringify({ etag: "etag-1", byteSize: 8 }),
+    );
+    await compare(`${assetPath}/complete`, "POST");
+    await compare(
+      `${assetPath}/complete`,
+      "POST",
+      JSON.stringify({ parts: {} }),
+    );
+    await compare(`${assetPath}/cancel`, "POST", JSON.stringify({}));
+
+    await compare(
+      `${exportPath}/prepare`,
+      "POST",
+      JSON.stringify({
+        idempotencyKey: "export-1",
+        expectedVersion: 2,
+        expectedSequence: 3,
+      }),
+    );
+    await compare(`${exportPath}/${legacyServices.exportId}`);
+    await compare(`${exportPath}/${legacyServices.exportId}/download`);
+    await compare(
+      `${exportPath}/${legacyServices.exportId}/cancel`,
+      "POST",
+      JSON.stringify({}),
+    );
+    await compare(
+      `${exportPath}/${legacyServices.exportId}/retry`,
+      "POST",
+      JSON.stringify({}),
+    );
+    await compare(`${exportPath}/explode`);
+    await compare(
+      `${exportPath}/${legacyServices.exportId}/retry`,
+      "GET",
+      undefined,
+      false,
+    );
+
+    assert.deepEqual(fastifyServices.calls, legacyServices.calls);
+    assert(
+      fastifyServices.calls.every(
+        ({ actor }) =>
+          actor.userId === "user_1" && actor.workspaceId === "workspace_1",
+      ),
+    );
+  } finally {
+    await Promise.all([
+      closeApiServer(legacy, 1_000),
+      closeApiServer(fastify, 1_000),
+    ]);
+  }
+});
+
 test("OpenAPI is available only in development Fastify mode", async () => {
   const development = await createFastifyApiServer({
     config: { ...config, env: "development", httpAdapter: "fastify" },
@@ -1330,7 +1657,7 @@ test("OpenAPI is available only in development Fastify mode", async () => {
         .map((operation) => operation.operationId)
         .filter((value): value is string => Boolean(value)),
     );
-    assert.equal(operationIds.length, 26);
+    assert.equal(operationIds.length, 40);
     assert.equal(new Set(operationIds).size, operationIds.length);
     assert.equal((await request(productionPort, "/docs")).statusCode, 404);
     assert.equal((await request(productionPort, "/docs/json")).statusCode, 404);

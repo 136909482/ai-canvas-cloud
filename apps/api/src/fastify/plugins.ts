@@ -39,6 +39,22 @@ function pathGroup(pathname: string) {
   return "/unmatched";
 }
 
+function migrationPhase(pathname: string) {
+  const isImport = pathname.startsWith("/api/v1/migrations/");
+  const isExport = /^\/api\/v1\/projects\/[^/]+\/exports(?:\/|$)/.test(
+    pathname,
+  );
+  if (!isImport && !isExport) return null;
+  if (pathname.endsWith("/prepare"))
+    return isExport ? "export_prepare" : "import_prepare";
+  if (pathname.endsWith("/commit")) return "import_commit";
+  if (pathname.endsWith("/download")) return "export_download";
+  if (pathname.endsWith("/retry")) return "export_retry";
+  if (pathname.endsWith("/cancel")) return "cancel";
+  if (pathname.includes("/assets/")) return "asset_upload";
+  return isExport ? "export_status" : "import_status";
+}
+
 function sendError(
   reply: FastifyReply,
   requestId: string,
@@ -154,6 +170,13 @@ export function registerFastifyFoundation(
       }
       if (reply.raw.statusCode === 429) {
         options.metrics.increment("api_rate_limited_total", 1, { route });
+      }
+      const phase = migrationPhase(pathname);
+      if (phase) {
+        options.metrics.increment("migration_operations_total", 1, {
+          phase,
+          outcome: reply.raw.statusCode < 400 ? "success" : "failure",
+        });
       }
     });
     options.logger.info("request.received", {

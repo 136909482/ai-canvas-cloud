@@ -12,6 +12,11 @@ import { createUnavailableWorkspaceUsageService } from "@ai-canvas-cloud/server/
 import { createUnavailableGenerationTelemetryService } from "@ai-canvas-cloud/server/modules/generation-telemetry";
 import { createUnavailableAssetService } from "@ai-canvas-cloud/server/modules/assets";
 import {
+  createUnavailableMigrationAssetUploadService,
+  createUnavailableMigrationExportService,
+  createUnavailableMigrationImportService,
+} from "@ai-canvas-cloud/server/modules/migrations";
+import {
   HTTP_ADAPTER_CLOSE,
   createApiServer,
   type AdapterHttpServer,
@@ -24,6 +29,7 @@ import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerTelemetryRoutes } from "./routes/telemetry.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerAssetRoutes } from "./routes/assets.js";
+import { registerMigrationRoutes } from "./routes/migrations.js";
 
 const FASTIFY_OWNED_PATHS = new Set([
   "/metrics",
@@ -66,6 +72,51 @@ function isFastifyOwnedPath(
   if (/^\/api\/v1\/assets\/[^/]+(?:\/url)?$/.test(pathname)) {
     return method === "GET" || method === "OPTIONS";
   }
+  const importMethods: Array<[RegExp, string]> = [
+    [/^\/api\/v1\/migrations\/imports\/prepare$/, "POST"],
+    [/^\/api\/v1\/migrations\/imports\/[^/]+$/, "GET"],
+    [/^\/api\/v1\/migrations\/imports\/[^/]+\/(?:cancel|commit)$/, "POST"],
+    [
+      /^\/api\/v1\/migrations\/imports\/[^/]+\/assets\/[^/]+\/upload$/,
+      method === "GET" ? "GET" : "POST",
+    ],
+    [
+      /^\/api\/v1\/migrations\/imports\/[^/]+\/assets\/[^/]+\/(?:complete|cancel)$/,
+      "POST",
+    ],
+    [
+      /^\/api\/v1\/migrations\/imports\/[^/]+\/assets\/[^/]+\/parts\/[^/]+\/complete$/,
+      "POST",
+    ],
+  ];
+  if (
+    importMethods.some(
+      ([pattern, expected]) => pattern.test(pathname) && method === expected,
+    )
+  ) {
+    return true;
+  }
+  const exportMethod =
+    pathname.endsWith("/prepare") ||
+    pathname.endsWith("/cancel") ||
+    pathname.endsWith("/retry")
+      ? "POST"
+      : "GET";
+  if (
+    /^\/api\/v1\/projects\/[^/]+\/exports\/(?:prepare|[^/]+(?:\/download|\/cancel|\/retry)?)$/.test(
+      pathname,
+    ) &&
+    method === exportMethod
+  ) {
+    return true;
+  }
+  if (
+    (pathname.startsWith("/api/v1/migrations/") ||
+      /^\/api\/v1\/projects\/[^/]+\/exports(?:\/|$)/.test(pathname)) &&
+    method === "OPTIONS"
+  ) {
+    return true;
+  }
   return (
     FASTIFY_OWNED_PATHS.has(pathname) ||
     /^\/api\/v1\/auth\/(?:sessions|devices)\/[^/]+$/.test(pathname) ||
@@ -87,10 +138,20 @@ export async function createFastifyApiServer(options: ServerOptions) {
     options.generationTelemetryService ??
     createUnavailableGenerationTelemetryService();
   const assetService = options.assetService ?? createUnavailableAssetService();
+  const migrationImportService =
+    options.migrationImportService ?? createUnavailableMigrationImportService();
+  const migrationAssetUploadService =
+    options.migrationAssetUploadService ??
+    createUnavailableMigrationAssetUploadService();
+  const migrationExportService =
+    options.migrationExportService ?? createUnavailableMigrationExportService();
   const legacyServer = createApiServer({
     ...options,
     authService,
     assetService,
+    migrationAssetUploadService,
+    migrationExportService,
+    migrationImportService,
     generationTelemetryService,
     logger,
     metrics,
@@ -161,6 +222,12 @@ export async function createFastifyApiServer(options: ServerOptions) {
     assetService,
     authContext,
     config: options.config,
+  });
+  registerMigrationRoutes(app, {
+    authContext,
+    migrationAssetUploadService,
+    migrationExportService,
+    migrationImportService,
   });
 
   if (options.config.env === "development") {
