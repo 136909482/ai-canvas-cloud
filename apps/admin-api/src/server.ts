@@ -38,7 +38,7 @@ import {
   handleAdminSecurityBoundary,
 } from "./security.js";
 
-interface AdminServerOptions {
+export interface AdminServerOptions {
   config: AdminApiConfig;
   adminService: AdminService;
   dashboardService?: AdminDashboardService;
@@ -54,6 +54,12 @@ interface AdminServerOptions {
     objectStorage?: () => Promise<MeasuredDependencyStatus>;
   };
 }
+
+export const ADMIN_HTTP_ADAPTER_CLOSE = Symbol("adminHttpAdapterClose");
+
+export type AdminAdapterHttpServer = http.Server & {
+  [ADMIN_HTTP_ADAPTER_CLOSE]?: () => Promise<void>;
+};
 
 function isAdminApiOwnedPath(pathname: string) {
   return (
@@ -793,9 +799,14 @@ export function createAdminApiServer({
 }
 
 export async function closeAdminApiServer(
-  server: http.Server,
+  server: AdminAdapterHttpServer,
   timeoutMs: number,
 ) {
+  const adapterClose = server[ADMIN_HTTP_ADAPTER_CLOSE];
+  if (adapterClose) {
+    await adapterClose();
+    return;
+  }
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(
       () => reject(new Error("Timed out closing Admin API server")),

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import http from "node:http";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { createMetricsRegistry } from "@ai-canvas-cloud/shared";
 import { DEFAULT_SITE_CONFIG } from "@ai-canvas-cloud/contracts/site-config";
@@ -1994,5 +1997,49 @@ test("OpenAPI is available only in development Fastify mode", async () => {
       closeApiServer(development, 1_000),
       closeApiServer(production, 1_000),
     ]);
+  }
+});
+
+test("Fastify serves the static SPA without intercepting API 404 responses", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ai-canvas-fastify-static-"));
+  mkdirSync(join(root, "assets"));
+  writeFileSync(join(root, "index.html"), "<main>fastify canvas</main>");
+  writeFileSync(join(root, "assets", "app.12345678.js"), "export {};");
+  const server = await createFastifyApiServer({
+    config: { ...config, staticSiteRoot: root },
+  });
+  const port = await listen(server);
+
+  try {
+    const asset = await request(port, "/assets/app.12345678.js");
+    assert.equal(asset.statusCode, 200);
+    assert.equal(
+      asset.headers["cache-control"],
+      "public, max-age=31536000, immutable",
+    );
+    assert.equal(asset.text, "export {};");
+
+    const applicationRoute = await request(port, "/projects/project-1");
+    assert.equal(applicationRoute.statusCode, 200);
+    assert.equal(applicationRoute.headers["cache-control"], "no-store");
+    assert.equal(applicationRoute.text, "<main>fastify canvas</main>");
+
+    const missingAsset = await request(port, "/assets/missing.js");
+    assert.equal(missingAsset.statusCode, 404);
+    assert.equal(
+      missingAsset.headers["content-type"],
+      "text/plain; charset=utf-8",
+    );
+
+    const missingApi = await request(port, "/api/v1/not-real");
+    assert.equal(missingApi.statusCode, 404);
+    assert.match(missingApi.headers["content-type"] ?? "", /application\/json/);
+    assert.equal(
+      (JSON.parse(missingApi.text) as { error: { code: string } }).error.code,
+      "SERVICE_UNAVAILABLE",
+    );
+  } finally {
+    await closeApiServer(server, 1_000);
+    rmSync(root, { recursive: true, force: true });
   }
 });

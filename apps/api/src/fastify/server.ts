@@ -1,4 +1,4 @@
-import http, { type RequestListener } from "node:http";
+import http from "node:http";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import Fastify from "fastify";
 import {
@@ -6,6 +6,7 @@ import {
   createMetricsRegistry,
   createRequestId,
 } from "@ai-canvas-cloud/shared";
+import { createStaticSite } from "@ai-canvas-cloud/server";
 import { createUnavailablePublicSiteConfigService } from "@ai-canvas-cloud/server/modules/admin";
 import { createUnavailableAuthService } from "@ai-canvas-cloud/server/modules/auth";
 import { createUnavailableWorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
@@ -21,7 +22,6 @@ import { createUnavailableProjectSnapshotService } from "@ai-canvas-cloud/server
 import { createUnavailableProjectService } from "@ai-canvas-cloud/server/modules/projects";
 import {
   HTTP_ADAPTER_CLOSE,
-  createApiServer,
   type AdapterHttpServer,
   type ServerOptions,
 } from "../server.js";
@@ -35,119 +35,8 @@ import { registerAssetRoutes } from "./routes/assets.js";
 import { registerMigrationRoutes } from "./routes/migrations.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 
-const FASTIFY_OWNED_PATHS = new Set([
-  "/metrics",
-  "/health/live",
-  "/health/ready",
-  "/api/v1/health/live",
-  "/api/v1/health/ready",
-  "/api/v1/site-config",
-  "/api/v1/workspaces/current",
-  "/api/v1/workspaces/current/usage",
-  "/api/v1/telemetry/generations",
-  "/api/v1/auth/register",
-  "/api/v1/auth/login",
-  "/api/v1/auth/logout",
-  "/api/v1/auth/session",
-  "/api/v1/auth/sessions",
-  "/api/v1/auth/devices",
-  "/api/v1/auth/registration/email-code",
-  "/api/v1/auth/password/forgot",
-  "/api/v1/auth/password/reset",
-  "/api/v1/auth/password/change",
-  "/internal/v1/asset-cleanup",
-  "/api/v1/assets/uploads",
-]);
-
-const PROJECT_ROUTE_METHODS: ReadonlyArray<[RegExp, readonly string[]]> = [
-  [/^\/api\/v1\/projects$/, ["GET", "POST"]],
-  [/^\/api\/v1\/projects\/[^/]+$/, ["GET", "PATCH", "DELETE"]],
-  [/^\/api\/v1\/projects\/[^/]+\/(?:archive|restore)$/, ["POST"]],
-  [/^\/api\/v1\/projects\/[^/]+\/graph$/, ["GET", "PATCH"]],
-  [/^\/api\/v1\/projects\/[^/]+\/changes$/, ["GET"]],
-  [/^\/api\/v1\/projects\/[^/]+\/checkpoints$/, ["POST"]],
-  [/^\/api\/v1\/projects\/[^/]+\/revisions$/, ["GET"]],
-  [/^\/api\/v1\/projects\/[^/]+\/revisions\/[^/]+$/, ["GET"]],
-  [/^\/api\/v1\/projects\/[^/]+\/revisions\/[^/]+\/restore$/, ["POST"]],
-];
-
-function isFastifyOwnedPath(
-  url: string | undefined,
-  method: string | undefined,
-) {
-  const pathname = new URL(url ?? "/", "http://localhost").pathname;
-  if (pathname === "/internal/v1/asset-cleanup") {
-    return method === "POST" || method === "OPTIONS";
-  }
-  if (pathname === "/api/v1/assets/uploads") {
-    return method === "POST" || method === "OPTIONS";
-  }
-  if (/^\/api\/v1\/assets\/uploads\/[^/]+\/complete$/.test(pathname)) {
-    return method === "POST" || method === "OPTIONS";
-  }
-  if (/^\/api\/v1\/assets\/[^/]+(?:\/url)?$/.test(pathname)) {
-    return method === "GET" || method === "OPTIONS";
-  }
-  const importMethods: Array<[RegExp, string]> = [
-    [/^\/api\/v1\/migrations\/imports\/prepare$/, "POST"],
-    [/^\/api\/v1\/migrations\/imports\/[^/]+$/, "GET"],
-    [/^\/api\/v1\/migrations\/imports\/[^/]+\/(?:cancel|commit)$/, "POST"],
-    [
-      /^\/api\/v1\/migrations\/imports\/[^/]+\/assets\/[^/]+\/upload$/,
-      method === "GET" ? "GET" : "POST",
-    ],
-    [
-      /^\/api\/v1\/migrations\/imports\/[^/]+\/assets\/[^/]+\/(?:complete|cancel)$/,
-      "POST",
-    ],
-    [
-      /^\/api\/v1\/migrations\/imports\/[^/]+\/assets\/[^/]+\/parts\/[^/]+\/complete$/,
-      "POST",
-    ],
-  ];
-  if (
-    importMethods.some(
-      ([pattern, expected]) => pattern.test(pathname) && method === expected,
-    )
-  ) {
-    return true;
-  }
-  const projectRoute = PROJECT_ROUTE_METHODS.find(([pattern]) =>
-    pattern.test(pathname),
-  );
-  if (
-    projectRoute &&
-    (method === "OPTIONS" || projectRoute[1].includes(method ?? ""))
-  ) {
-    return true;
-  }
-  const exportMethod =
-    pathname.endsWith("/prepare") ||
-    pathname.endsWith("/cancel") ||
-    pathname.endsWith("/retry")
-      ? "POST"
-      : "GET";
-  if (
-    /^\/api\/v1\/projects\/[^/]+\/exports\/(?:prepare|[^/]+(?:\/download|\/cancel|\/retry)?)$/.test(
-      pathname,
-    ) &&
-    method === exportMethod
-  ) {
-    return true;
-  }
-  if (
-    (pathname.startsWith("/api/v1/migrations/") ||
-      /^\/api\/v1\/projects\/[^/]+\/exports(?:\/|$)/.test(pathname)) &&
-    method === "OPTIONS"
-  ) {
-    return true;
-  }
-  return (
-    FASTIFY_OWNED_PATHS.has(pathname) ||
-    /^\/api\/v1\/auth\/(?:sessions|devices)\/[^/]+$/.test(pathname) ||
-    pathname.startsWith("/docs")
-  );
-}
+const PUBLIC_SITE_CONTENT_SECURITY_POLICY =
+  "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https:; worker-src 'self' blob:; manifest-src 'self'; form-action 'self'";
 
 export async function createFastifyApiServer(options: ServerOptions) {
   const logger =
@@ -176,27 +65,13 @@ export async function createFastifyApiServer(options: ServerOptions) {
     options.projectSnapshotService ?? createUnavailableProjectSnapshotService();
   const projectService =
     options.projectService ?? createUnavailableProjectService();
-  const legacyServer = createApiServer({
-    ...options,
-    authService,
-    assetService,
-    migrationAssetUploadService,
-    migrationExportService,
-    migrationImportService,
-    projectGraphService,
-    projectSnapshotService,
-    projectService,
-    generationTelemetryService,
-    logger,
-    metrics,
-    siteConfigService,
-    workspaceUsageService,
-  });
-  const legacyListener = legacyServer.listeners("request")[0] as
-    RequestListener | undefined;
-  if (!legacyListener) {
-    throw new Error("Legacy API request handler is unavailable");
-  }
+  const staticSite = options.config.staticSiteRoot
+    ? createStaticSite({
+        root: options.config.staticSiteRoot,
+        contentSecurityPolicy: PUBLIC_SITE_CONTENT_SECURITY_POLICY,
+        environment: options.config.env,
+      })
+    : undefined;
 
   const app = Fastify<http.Server>({
     logger: false,
@@ -211,15 +86,6 @@ export async function createFastifyApiServer(options: ServerOptions) {
     requestIdHeader: false,
     genReqId: () => createRequestId(),
     trustProxy: options.config.trustProxy,
-    serverFactory(fastifyHandler) {
-      return http.createServer((request, response) => {
-        if (isFastifyOwnedPath(request.url, request.method)) {
-          fastifyHandler(request, response);
-          return;
-        }
-        legacyListener(request, response);
-      });
-    },
   }).withTypeProvider<TypeBoxTypeProvider>();
 
   if (options.config.env === "development") {
@@ -241,6 +107,7 @@ export async function createFastifyApiServer(options: ServerOptions) {
     logger,
     metrics,
     rateLimiter: options.rateLimiter,
+    staticSite,
   });
   registerSystemRoutes(app, {
     metrics,
@@ -283,11 +150,6 @@ export async function createFastifyApiServer(options: ServerOptions) {
   const server = app.server as AdapterHttpServer;
   server[HTTP_ADAPTER_CLOSE] = async () => {
     await app.close();
-    if (server.listening) {
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      });
-    }
   };
   return server;
 }

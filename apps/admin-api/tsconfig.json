@@ -7,6 +7,9 @@
     "types": ["node"],
     "paths": {
       "@ai-canvas-cloud/contracts": ["../../packages/contracts/src/index.ts"],
+      "@ai-canvas-cloud/contracts/admin-http-schema": [
+        "../../packages/contracts/src/adminHttpSchema.ts"
+      ],
       "@ai-canvas-cloud/server": ["../../server/index.ts"],
       "@ai-canvas-cloud/server/modules/admin": [
         "../../server/modules/admin/index.ts"

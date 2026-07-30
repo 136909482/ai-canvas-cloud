@@ -276,11 +276,11 @@ Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户�
 
 普通 API 统一处理精确 Origin、Cookie CSRF、安全响应头、严格 JSON、固定路由组和 Redis Lua 原子限流。Redis 故障时普通读可 fail-open，高风险认证和写请求必须 fail-closed。
 
-HTTP 接入层使用临时双适配结构渐进迁移。两个服务分别从自身运行环境读取 `HTTP_ADAPTER=legacy|fastify`，默认 `legacy`，非法值必须在建立监听前失败；本地共享 `.env` 时使用 `API_HTTP_ADAPTER` 和 `ADMIN_API_HTTP_ADAPTER` 分别覆盖。Fastify 只接管已迁移的完整路由，未迁移请求直接进入原 Node HTTP handler，不复制写请求或请求体。请求 ID、安全头、CORS/CSRF、严格 JSON、限流、指标和稳定错误映射属于接入层共用约束；Cookie、User-Agent、客户端 IP 和请求 ID 通过共用请求上下文适配器传给认证服务，同一请求的会话只解析一次。领域服务依赖仍由服务启动入口一次组装并注入，路由不得直接访问 PostgreSQL、Redis 或对象存储。
+HTTP 接入层使用临时双适配结构渐进迁移。两个服务分别从自身运行环境读取 `HTTP_ADAPTER=legacy|fastify`，缺少配置时回退 `legacy`，非法值必须在建立监听前失败；本地 `.env.example` 通过 `API_HTTP_ADAPTER=fastify` 和 `ADMIN_API_HTTP_ADAPTER=fastify` 启用两个 Fastify 入口，staging/production 部署模板仍默认 `legacy`。公共与 Admin 路由均已完整迁移，Fastify 不再把未匹配请求转发给原 Node HTTP handler；旧入口只作为服务级回滚 adapter 保留，不复制写请求或请求体。请求 ID、安全头、CORS/CSRF、严格 JSON、限流、指标和稳定错误映射属于接入层共用约束；Cookie、User-Agent、客户端 IP 和请求 ID 通过共用请求上下文适配器传给认证服务，同一请求的会话只解析一次。领域服务依赖仍由服务启动入口一次组装并注入，路由不得直接访问 PostgreSQL、Redis 或对象存储。
 
-Fastify JSON parser 必须使用 fatal UTF-8 解码，拒绝重复键、无效 Unicode、超过 64 层或 100,000 entries 的结构，并由路由声明独立 body limit。AJV 不得删除字段、强转类型或注入默认值；TypeBox 描述传输结构，现有领域验证器继续接收原始解析结果并作为复杂语义的权威。TypeBox Schema 只从 `@ai-canvas-cloud/contracts/http-schema` 服务端子路径导入，Contracts 根入口和浏览器入口不得重新导出。开发 Fastify 模式注册 `/docs` 与 `/docs/json`；production/staging 不注册 OpenAPI 路由。API build 生成并检查当前公共 OpenAPI 产物，Schema 或 `operationId` 缺失及重复都会失败。
+Fastify JSON parser 必须使用 fatal UTF-8 解码，拒绝重复键、无效 Unicode、超过 64 层或 100,000 entries 的结构，并由路由声明独立 body limit。AJV 不得删除字段、强转类型或注入默认值；TypeBox 描述传输结构，现有领域验证器继续接收原始解析结果并作为复杂语义的权威。TypeBox Schema 只从 `@ai-canvas-cloud/contracts/http-schema` 和 `@ai-canvas-cloud/contracts/admin-http-schema` 服务端子路径导入，Contracts 根入口和浏览器入口不得重新导出。开发 Fastify 模式注册 `/docs` 与 `/docs/json`；production/staging 不注册 OpenAPI 路由。普通 API 与 Admin API build 分别生成并检查 OpenAPI 产物，Schema 或 `operationId` 缺失及重复都会失败。
 
-公共 API adapter 契约测试必须覆盖路由清单中的全部方法和路径，并对照状态码、响应头、响应体、可信 actor、错误结构和请求体边界。真实 PostgreSQL/对象存储 E2E 对 Legacy 与 Fastify 分别创建隔离 Schema、账号和资源，禁止把同一写请求同时发送到两个 adapter 或共享一套可变测试数据。
+公共 API 与 Admin API adapter 契约测试必须覆盖各自路由清单中的全部方法和路径，并对照状态码、响应头、响应体、可信 actor、错误结构和请求体边界。真实 PostgreSQL/对象存储 E2E 对 Legacy 与 Fastify 分别创建隔离 Schema、账号和资源，禁止把同一写请求同时发送到两个 adapter 或共享一套可变测试数据。
 
 普通 API readiness 检查 PostgreSQL、Redis 和对象存储；Admin API 只检查 PostgreSQL 和对象存储。指标只使用低基数标签，不包含用户、workspace、project、动态 URL、主机、邮箱、正文或凭据；邮件指标只按 `verification|password_reset|test`、结果、失败类别和配置来源区分。
 

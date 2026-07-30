@@ -8,9 +8,12 @@ import {
   getRateLimitBucket,
 } from "../requestContext.js";
 import { handleSecurityBoundary } from "../security.js";
+import { PUBLIC_ROUTE_INVENTORY } from "../routeInventory.js";
 import type { FastifyAuthContextAdapter } from "./authContext.js";
+import { sendAuthError } from "./reply.js";
 import { StrictJsonError, parseStrictJson } from "./strictJson.js";
 import type { Logger, MetricsRegistry } from "@ai-canvas-cloud/shared";
+import { AuthServiceError } from "@ai-canvas-cloud/server/modules/auth";
 
 const API_ROUTE_GROUPS = new Set([
   "account",
@@ -24,6 +27,30 @@ const API_ROUTE_GROUPS = new Set([
   "telemetry",
   "workspaces",
 ]);
+
+const SESSION_PROTECTED_ROUTE_GROUPS = new Set([
+  "assets",
+  "migrations",
+  "projects",
+  "telemetry",
+  "workspaces",
+]);
+const SESSION_PROTECTED_PATHS = PUBLIC_ROUTE_INVENTORY.filter((route) =>
+  SESSION_PROTECTED_ROUTE_GROUPS.has(route.group),
+).map((route) => ({ group: route.group, segments: route.path.split("/") }));
+
+function getKnownSessionProtectedGroup(pathname: string) {
+  const segments = pathname.split("/");
+  return SESSION_PROTECTED_PATHS.find(
+    (route) =>
+      route.segments.length === segments.length &&
+      route.segments.every(
+        (segment, index) =>
+          (segment.startsWith(":") && segments[index]?.length !== 0) ||
+          segment === segments[index],
+      ),
+  )?.group;
+}
 
 function pathGroup(pathname: string) {
   if (pathname === "/metrics") return "/metrics";
@@ -124,6 +151,13 @@ export function registerFastifyFoundation(
     logger: Logger;
     metrics: MetricsRegistry;
     rateLimiter?: RateLimiter;
+    staticSite?: {
+      handle: (
+        request: http.IncomingMessage,
+        response: http.ServerResponse,
+        pathname: string,
+      ) => Promise<boolean>;
+    };
   },
 ) {
   app.removeContentTypeParser("application/json");
@@ -220,16 +254,60 @@ export function registerFastifyFoundation(
     return payload;
   });
 
-  app.setNotFoundHandler(async (request, reply) =>
-    reply.code(404).send({
+  app.setNotFoundHandler(async (request, reply) => {
+    const pathname = new URL(request.raw.url ?? "/", "http://localhost")
+      .pathname;
+    const apiOwned =
+      pathname === "/metrics" ||
+      pathname === "/api" ||
+      pathname.startsWith("/api/") ||
+      pathname === "/internal" ||
+      pathname.startsWith("/internal/") ||
+      pathname === "/health" ||
+      pathname.startsWith("/health/") ||
+      pathname.startsWith("/docs");
+    const protectedGroup = getKnownSessionProtectedGroup(pathname);
+    if (protectedGroup) {
+      try {
+        if (
+          protectedGroup === "migrations" &&
+          /^\/api\/v1\/projects\/[^/]+\/exports(?:\/|$)/.test(pathname)
+        ) {
+          await options.authContext
+            .getService(request)
+            .getSession(options.authContext.getContext(request));
+        } else {
+          await options.authContext.requireSession(request);
+        }
+      } catch (error) {
+        if (error instanceof AuthServiceError) {
+          return sendAuthError(reply, request.id, error);
+        }
+        throw error;
+      }
+      return reply.code(404).send({
+        error: {
+          code: "RESOURCE_NOT_FOUND",
+          message: "Route not found",
+          retryable: false,
+          requestId: request.id,
+        },
+      });
+    }
+    if (options.staticSite && !apiOwned) {
+      reply.hijack();
+      await options.staticSite.handle(request.raw, reply.raw, pathname);
+      return;
+    }
+    return reply.code(404).send({
       error: {
         code: "SERVICE_UNAVAILABLE",
         message: "Route not found",
         retryable: true,
         requestId: request.id,
       },
-    }),
-  );
+    });
+  });
 
   app.setErrorHandler(async (error, request, reply) => {
     const fastifyError = error as Error & {

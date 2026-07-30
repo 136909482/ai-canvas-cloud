@@ -20,15 +20,11 @@ import {
 } from "@ai-canvas-cloud/server";
 import { loadAdminApiConfig } from "./config.js";
 import { closeAdminApiServer, createAdminApiServer } from "./server.js";
+import { createFastifyAdminApiServer } from "./fastify/server.js";
 
 loadDotEnv();
 
 const config = loadAdminApiConfig();
-if (config.httpAdapter === "fastify") {
-  throw new Error(
-    "Admin API Fastify adapter is unavailable until the public API observation period completes",
-  );
-}
 const logger = createJsonLogger({
   level: config.logLevel,
   service: "admin-api",
@@ -130,7 +126,7 @@ const dashboardService = createPostgresAdminDashboardService(pool, {
     return { postgres, objectStorage: objectStorageHealth };
   },
 });
-const server = createAdminApiServer({
+const serverOptions = {
   config,
   adminService,
   dashboardService,
@@ -142,7 +138,11 @@ const server = createAdminApiServer({
   logger,
   metrics,
   readinessChecks,
-});
+};
+const server =
+  config.httpAdapter === "fastify"
+    ? await createFastifyAdminApiServer(serverOptions)
+    : createAdminApiServer(serverOptions);
 
 let closing = false;
 async function shutdown(signal: NodeJS.Signals) {
@@ -172,5 +172,6 @@ server.listen(config.port, config.host, () => {
     host: config.host,
     port: config.port,
     env: config.env,
+    httpAdapter: config.httpAdapter,
   });
 });

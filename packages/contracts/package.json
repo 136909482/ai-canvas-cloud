@@ -7,6 +7,7 @@
     ".": "./dist/index.js",
     "./http": "./dist/http.js",
     "./http-schema": "./dist/httpSchema.js",
+    "./admin-http-schema": "./dist/adminHttpSchema.js",
     "./migration-package": "./dist/migrationPackage.js",
     "./site-config": "./dist/siteConfig.js"
   },

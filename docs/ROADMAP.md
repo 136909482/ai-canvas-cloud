@@ -6,7 +6,7 @@
 
 当前处于 **P8-8 用户运营与最终安全验收**。P8-1 至 P8-7 已完成；用户管理与运营功能已落地，剩余工作是浏览器真实账号验收和真实 staging 恢复演练。P9 尚未开始。
 
-HTTP 接入层 Fastify 渐进迁移同步进行：Node 20 门禁、双 adapter 配置、服务端 TypeBox/OpenAPI 基础、严格 JSON parser、公共路由清单门禁、完整公共路由组以及 Legacy/Fastify 全量契约对照和隔离真实依赖 E2E 已落地，默认仍为 `legacy`。性能、多实例验收和 staging 切换尚未完成；公共 API 切换后必须连续观察至少 7 个自然日，才能开始 Admin API 迁移，两个观察期结束前不得删除旧入口和临时开关。
+HTTP 接入层 Fastify 渐进迁移同步进行：Node 20 门禁、双 adapter 配置、服务端 TypeBox/OpenAPI、严格 JSON parser、公共与 Admin 路由清单门禁、两个服务的完整 Fastify 路由组、Legacy/Fastify 契约对照以及公共 API 隔离真实依赖 E2E 已落地；本地开发默认运行两个 Fastify 入口且不转发旧 handler，staging/production 部署仍默认 `legacy`。性能、多实例、Admin 隔离真实依赖 E2E 和 staging 切换尚未完成；生产仍须先切公共 API 并连续观察至少 7 个自然日，再验收和切换 Admin API，两个观察期结束前不得删除旧入口和临时开关。
 
 | 阶段                  | 状态             | 长期结果                                                                    |
 | --------------------- | ---------------- | --------------------------------------------------------------------------- |

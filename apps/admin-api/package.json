@@ -8,12 +8,19 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node ../../scripts/generate-admin-openapi.mjs",
     "start": "node dist/index.js"
   },
   "dependencies": {
     "@ai-canvas-cloud/contracts": "0.1.0",
     "@ai-canvas-cloud/server": "0.1.0",
-    "@ai-canvas-cloud/shared": "0.1.0"
+    "@ai-canvas-cloud/shared": "0.1.0",
+    "@fastify/type-provider-typebox": "^6.1.0",
+    "@sinclair/typebox": "^0.34.52",
+    "fastify": "^5.10.0"
+  },
+  "devDependencies": {
+    "@fastify/swagger": "^9.8.1",
+    "@fastify/swagger-ui": "^5.2.6"
   }
 }

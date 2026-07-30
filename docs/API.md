@@ -18,7 +18,7 @@
 
 API 响应发送 nosniff、frame deny、Referrer/Permissions/COOP/CORP 及 `default-src 'none'` 的 API CSP；protected 环境发送 HSTS。Web HTML 的页面 CSP 由 Nginx 单独负责。
 
-HTTP adapter 不属于业务契约。开发环境使用 Fastify adapter 时，`GET /docs` 和 `GET /docs/json` 只描述已经迁移并注册 Schema 的公共路由；production/staging 完全不注册这两个 OpenAPI 路由并返回 404。切换 adapter 不得改变本文件中的路径、状态码、响应头、Cookie、错误结构或领域副作用。
+HTTP adapter 不属于业务契约。本地开发的普通 API 与 Admin API 均使用 Fastify；各自在本服务的 `GET /docs` 和 `GET /docs/json` 提供已注册 Schema 的 OpenAPI 文档。production/staging 完全不注册这些 OpenAPI 路由并返回 404。切换 adapter 不得改变本文件中的路径、状态码、响应头、Cookie、错误结构或领域副作用。
 
 ## 浏览器 Vault 与 API 边界
 

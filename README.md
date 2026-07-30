@@ -36,7 +36,7 @@ npm run dev:admin-api
 
 默认地址为 Web `http://127.0.0.1:5173`、API `http://127.0.0.1:8787`、Admin Web `http://127.0.0.1:5174`、Admin API `http://127.0.0.1:8788`。后台进程记录和脱敏日志位于已忽略的 `.codex-run/`。
 
-HTTP 接入层迁移期间，普通 API 与 Admin API 默认都使用 `legacy`。本地只切换普通 API 时设置 `API_HTTP_ADAPTER=fastify`，不要修改 `ADMIN_API_HTTP_ADAPTER=legacy`；Fastify 开发模式在 `http://127.0.0.1:8787/docs` 提供当前已迁移路由的 OpenAPI UI。生产和 staging 通过各服务容器内的 `HTTP_ADAPTER` 独立选择，非法值会阻止启动。
+HTTP 接入层迁移期间，本地 `.env.example` 默认让普通 API 与 Admin API 都使用 `fastify`；开发 OpenAPI UI 分别位于 `http://127.0.0.1:8787/docs` 和 `http://127.0.0.1:8788/docs`。服务在缺少 adapter 配置时仍以 `legacy` 作为受控回退，生产和 staging 的部署模板也继续默认 `legacy`，必须完成性能、多实例和 staging 门禁后再分别切换；非法值会阻止启动。
 
 本地需要自动创建普通开发账号时，在未跟踪的 `.env` 中设置 `DEV_SEED_ADMIN=true`、`DEV_SEED_ADMIN_USERNAME`、`DEV_SEED_ADMIN_EMAIL` 和 `DEV_SEED_ADMIN_PASSWORD`；默认用户名为 `admin_user`。该账号属于普通用户体系，与独立 Admin 账号完全隔离。
 
