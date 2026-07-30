@@ -9,6 +9,7 @@ import {
 import { createUnavailablePublicSiteConfigService } from "@ai-canvas-cloud/server/modules/admin";
 import { createUnavailableAuthService } from "@ai-canvas-cloud/server/modules/auth";
 import { createUnavailableWorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
+import { createUnavailableGenerationTelemetryService } from "@ai-canvas-cloud/server/modules/generation-telemetry";
 import {
   HTTP_ADAPTER_CLOSE,
   createApiServer,
@@ -19,6 +20,7 @@ import { registerFastifyFoundation } from "./plugins.js";
 import { createFastifyAuthContextAdapter } from "./authContext.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
+import { registerTelemetryRoutes } from "./routes/telemetry.js";
 
 const FASTIFY_OWNED_PATHS = new Set([
   "/metrics",
@@ -29,6 +31,7 @@ const FASTIFY_OWNED_PATHS = new Set([
   "/api/v1/site-config",
   "/api/v1/workspaces/current",
   "/api/v1/workspaces/current/usage",
+  "/api/v1/telemetry/generations",
 ]);
 
 function isFastifyOwnedPath(url: string | undefined) {
@@ -46,9 +49,13 @@ export async function createFastifyApiServer(options: ServerOptions) {
     options.siteConfigService ?? createUnavailablePublicSiteConfigService();
   const workspaceUsageService =
     options.workspaceUsageService ?? createUnavailableWorkspaceUsageService();
+  const generationTelemetryService =
+    options.generationTelemetryService ??
+    createUnavailableGenerationTelemetryService();
   const legacyServer = createApiServer({
     ...options,
     authService,
+    generationTelemetryService,
     logger,
     metrics,
     siteConfigService,
@@ -62,6 +69,13 @@ export async function createFastifyApiServer(options: ServerOptions) {
 
   const app = Fastify<http.Server>({
     logger: false,
+    ajv: {
+      customOptions: {
+        coerceTypes: false,
+        removeAdditional: false,
+        useDefaults: false,
+      },
+    },
     exposeHeadRoutes: false,
     requestIdHeader: false,
     genReqId: () => createRequestId(),
@@ -104,6 +118,7 @@ export async function createFastifyApiServer(options: ServerOptions) {
     readinessChecks: options.readinessChecks,
   });
   registerWorkspaceRoutes(app, { authContext, workspaceUsageService });
+  registerTelemetryRoutes(app, { authContext, generationTelemetryService });
 
   if (options.config.env === "development") {
     const { default: swaggerUi } = await import("@fastify/swagger-ui");

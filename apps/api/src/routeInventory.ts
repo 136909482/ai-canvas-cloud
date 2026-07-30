@@ -163,7 +163,7 @@ export const PUBLIC_ROUTE_INVENTORY = [
     path: "/api/v1/telemetry/generations",
     operationId: "createGenerationTelemetry",
     group: "telemetry",
-    owner: "legacy",
+    owner: "fastify",
   },
 
   {

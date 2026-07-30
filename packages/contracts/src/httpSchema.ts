@@ -4,6 +4,8 @@ import type {
   ApiErrorCode,
   ApiErrorResponse,
   CurrentWorkspaceResponse,
+  GenerationTelemetryRequest,
+  GenerationTelemetryResponse,
   HealthResponse,
   PublicSiteConfigResponse,
   WorkspaceUsageResponse,
@@ -212,9 +214,80 @@ export const WorkspaceUsageResponseSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const GenerationCategorySchema = Type.Union([
+  Type.Literal("text"),
+  Type.Literal("image"),
+  Type.Literal("video"),
+]);
+const GenerationFailureCategorySchema = Type.Union([
+  Type.Literal("network"),
+  Type.Literal("authentication"),
+  Type.Literal("rate_limited"),
+  Type.Literal("upstream"),
+  Type.Literal("invalid_response"),
+  Type.Literal("asset_upload"),
+  Type.Literal("unknown"),
+]);
+const GenerationAttemptIdSchema = Type.String();
+const GenerationDurationSchema = Type.Number();
+
+export const GenerationTelemetryRequestSchema = Type.Union([
+  Type.Object(
+    {
+      attemptId: GenerationAttemptIdSchema,
+      category: GenerationCategorySchema,
+      status: Type.Literal("started"),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      attemptId: GenerationAttemptIdSchema,
+      category: GenerationCategorySchema,
+      status: Type.Literal("succeeded"),
+      durationMs: GenerationDurationSchema,
+      resultCount: Type.Number(),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      attemptId: GenerationAttemptIdSchema,
+      category: GenerationCategorySchema,
+      status: Type.Literal("failed"),
+      durationMs: GenerationDurationSchema,
+      failureCategory: GenerationFailureCategorySchema,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      attemptId: GenerationAttemptIdSchema,
+      category: GenerationCategorySchema,
+      status: Type.Literal("canceled"),
+      durationMs: GenerationDurationSchema,
+    },
+    { additionalProperties: false },
+  ),
+]);
+
+export const GenerationTelemetryResponseSchema = Type.Object(
+  {
+    accepted: Type.Literal(true),
+    attemptId: Type.String(),
+    status: Type.Union([
+      Type.Literal("started"),
+      Type.Literal("succeeded"),
+      Type.Literal("failed"),
+      Type.Literal("canceled"),
+    ]),
+  },
+  { additionalProperties: false },
+);
+
 type Assert<T extends true> = T;
-type IsMutuallyAssignable<Left, Right> = Left extends Right
-  ? Right extends Left
+type IsMutuallyAssignable<Left, Right> = [Left] extends [Right]
+  ? [Right] extends [Left]
     ? true
     : false
   : false;
@@ -243,10 +316,24 @@ type WorkspaceUsageSchemaCompatibility = Assert<
     WorkspaceUsageResponse
   >
 >;
+type GenerationTelemetryRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof GenerationTelemetryRequestSchema>,
+    GenerationTelemetryRequest
+  >
+>;
+type GenerationTelemetryResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof GenerationTelemetryResponseSchema>,
+    GenerationTelemetryResponse
+  >
+>;
 
 export type {
   ApiErrorSchemaCompatibility,
   CurrentWorkspaceSchemaCompatibility,
+  GenerationTelemetryRequestSchemaCompatibility,
+  GenerationTelemetryResponseSchemaCompatibility,
   HealthSchemaCompatibility,
   PublicSiteConfigSchemaCompatibility,
   WorkspaceUsageSchemaCompatibility,

@@ -82,6 +82,16 @@ function sendRateLimitError(
   });
 }
 
+function strictJsonResponseMessage(error: StrictJsonError) {
+  if (
+    error.message === "Request body is required" ||
+    error.message === "Request body must use valid UTF-8 JSON"
+  ) {
+    return error.message;
+  }
+  return "Request body must be valid JSON";
+}
+
 export function registerFastifyFoundation(
   app: FastifyInstance<
     http.Server,
@@ -213,7 +223,11 @@ export function registerFastifyFoundation(
         request.id,
         tooLarge ? 413 : 400,
         "VALIDATION_FAILED",
-        tooLarge ? "Request body is too large" : fastifyError.message,
+        tooLarge
+          ? "Request body is too large"
+          : error instanceof StrictJsonError
+            ? strictJsonResponseMessage(error)
+            : fastifyError.message,
       );
     }
     options.logger.error("request.failed", {

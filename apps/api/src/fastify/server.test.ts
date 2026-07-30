@@ -10,6 +10,10 @@ import {
   type AuthService,
 } from "@ai-canvas-cloud/server/modules/auth";
 import type { WorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
+import {
+  validateGenerationTelemetryRequest,
+  type GenerationTelemetryService,
+} from "@ai-canvas-cloud/server/modules/generation-telemetry";
 import type { ApiConfig } from "../config.ts";
 import type { RateLimiter } from "../rateLimit.ts";
 import {
@@ -67,6 +71,7 @@ function request(
   path: string,
   method = "GET",
   headers: http.OutgoingHttpHeaders = {},
+  body?: string | Buffer,
 ) {
   return new Promise<{
     statusCode: number;
@@ -88,8 +93,15 @@ function request(
       },
     );
     outgoing.on("error", reject);
-    outgoing.end();
+    outgoing.end(body);
   });
+}
+
+function jsonHeaders(body: string | Buffer) {
+  return {
+    "content-type": "application/json",
+    "content-length": Buffer.byteLength(body),
+  };
 }
 
 function normalizeError(text: string) {
@@ -103,6 +115,11 @@ function normalizeHealth(text: string) {
   Reflect.deleteProperty(payload, "requestId");
   Reflect.deleteProperty(payload, "checkedAt");
   Reflect.deleteProperty(payload, "uptimeSeconds");
+  const dependencies = payload.dependencies as
+    Record<string, Record<string, unknown>> | undefined;
+  for (const dependency of Object.values(dependencies ?? {})) {
+    Reflect.deleteProperty(dependency, "latencyMs");
+  }
   return payload;
 }
 
@@ -161,6 +178,26 @@ function createWorkspaceServices() {
     },
   };
   return { actors, authService, contexts, workspaceUsageService };
+}
+
+function createTelemetryServices() {
+  const auth = createWorkspaceServices();
+  const calls: Array<{
+    input: unknown;
+    actor: { userId: string; workspaceId: string };
+  }> = [];
+  const generationTelemetryService: GenerationTelemetryService = {
+    async record(rawInput, actor) {
+      const input = validateGenerationTelemetryRequest(rawInput);
+      calls.push({ input, actor });
+      return {
+        accepted: true,
+        attemptId: input.attemptId,
+        status: input.status,
+      };
+    },
+  };
+  return { ...auth, calls, generationTelemetryService };
 }
 
 test("Fastify system routes preserve legacy status, headers, and payloads", async () => {
@@ -435,6 +472,206 @@ test("Fastify workspace rate limits preserve legacy trusted scopes", async () =>
   }
 });
 
+test("Fastify telemetry preserves legacy auth, JSON, and domain validation", async () => {
+  const legacyServices = createTelemetryServices();
+  const fastifyServices = createTelemetryServices();
+  const legacy = createApiServer({ config, ...legacyServices });
+  const fastify = await createFastifyApiServer({
+    config,
+    ...fastifyServices,
+  });
+  const legacyPort = await listen(legacy);
+  const fastifyPort = await listen(fastify);
+  const path = "/api/v1/telemetry/generations?userId=forged&workspaceId=forged";
+  const cookie = "better-auth.session_token=signed_session";
+  const validBody = JSON.stringify({
+    attemptId: "11111111-1111-4111-8111-111111111111",
+    category: "image",
+    status: "started",
+  });
+
+  try {
+    const invalidJson = "{";
+    const [legacyAnonymous, fastifyAnonymous] = await Promise.all([
+      request(legacyPort, path, "POST", jsonHeaders(invalidJson), invalidJson),
+      request(fastifyPort, path, "POST", jsonHeaders(invalidJson), invalidJson),
+    ]);
+    assert.equal(fastifyAnonymous.statusCode, legacyAnonymous.statusCode);
+    assert.deepEqual(
+      normalizeError(fastifyAnonymous.text),
+      normalizeError(legacyAnonymous.text),
+    );
+
+    const validHeaders = { ...jsonHeaders(validBody), cookie };
+    const [before, after] = await Promise.all([
+      request(legacyPort, path, "POST", validHeaders, validBody),
+      request(fastifyPort, path, "POST", validHeaders, validBody),
+    ]);
+    assert.equal(after.statusCode, before.statusCode);
+    assert.equal(after.text, before.text);
+    assert.deepEqual(fastifyServices.calls, legacyServices.calls);
+    assert.deepEqual(fastifyServices.calls[0]?.actor, {
+      userId: "user_1",
+      workspaceId: "workspace_1",
+    });
+
+    for (const invalidBody of [
+      "{",
+      '{"status":"started","status":"failed"}',
+      Buffer.from([0xc3, 0x28]),
+      `${"[".repeat(65)}0${"]".repeat(65)}`,
+    ]) {
+      const invalidHeaders = { ...jsonHeaders(invalidBody), cookie };
+      const [legacyInvalid, fastifyInvalid] = await Promise.all([
+        request(legacyPort, path, "POST", invalidHeaders, invalidBody),
+        request(fastifyPort, path, "POST", invalidHeaders, invalidBody),
+      ]);
+      assert.equal(fastifyInvalid.statusCode, legacyInvalid.statusCode);
+      assert.deepEqual(
+        normalizeError(fastifyInvalid.text),
+        normalizeError(legacyInvalid.text),
+      );
+    }
+
+    const privateBody = JSON.stringify({
+      ...JSON.parse(validBody),
+      model: "private-model",
+    });
+    const privateHeaders = { ...jsonHeaders(privateBody), cookie };
+    const [legacyPrivate, fastifyPrivate] = await Promise.all([
+      request(legacyPort, path, "POST", privateHeaders, privateBody),
+      request(fastifyPort, path, "POST", privateHeaders, privateBody),
+    ]);
+    assert.equal(fastifyPrivate.statusCode, legacyPrivate.statusCode);
+    assert.deepEqual(
+      normalizeError(fastifyPrivate.text),
+      normalizeError(legacyPrivate.text),
+    );
+    assert.equal(fastifyServices.calls.length, 1);
+
+    const oversizedBody = JSON.stringify({ value: "x".repeat(2 * 1024) });
+    const oversizedHeaders = { ...jsonHeaders(oversizedBody), cookie };
+    const [legacyOversized, fastifyOversized] = await Promise.all([
+      request(legacyPort, path, "POST", oversizedHeaders, oversizedBody),
+      request(fastifyPort, path, "POST", oversizedHeaders, oversizedBody),
+    ]);
+    assert.equal(fastifyOversized.statusCode, legacyOversized.statusCode);
+    assert.deepEqual(
+      normalizeError(fastifyOversized.text),
+      normalizeError(legacyOversized.text),
+    );
+  } finally {
+    await Promise.all([
+      closeApiServer(legacy, 1_000),
+      closeApiServer(fastify, 1_000),
+    ]);
+  }
+});
+
+test("Fastify telemetry preserves legacy CSRF and fail-closed rate limiting order", async () => {
+  function unavailableRateLimiter(): RateLimiter {
+    return {
+      async consume(bucket) {
+        return {
+          allowed: false,
+          available: false,
+          retryAfterSeconds: 1,
+          bucket,
+        };
+      },
+      async ping() {},
+      async close() {},
+    };
+  }
+
+  const legacyServices = createTelemetryServices();
+  const fastifyServices = createTelemetryServices();
+  const legacy = createApiServer({
+    config,
+    ...legacyServices,
+    rateLimiter: unavailableRateLimiter(),
+  });
+  const fastify = await createFastifyApiServer({
+    config,
+    ...fastifyServices,
+    rateLimiter: unavailableRateLimiter(),
+  });
+  const legacyPort = await listen(legacy);
+  const fastifyPort = await listen(fastify);
+  const invalidJson = "{";
+  const headers = jsonHeaders(invalidJson);
+
+  try {
+    const [before, after] = await Promise.all([
+      request(
+        legacyPort,
+        "/api/v1/telemetry/generations",
+        "POST",
+        headers,
+        invalidJson,
+      ),
+      request(
+        fastifyPort,
+        "/api/v1/telemetry/generations",
+        "POST",
+        headers,
+        invalidJson,
+      ),
+    ]);
+    assert.equal(after.statusCode, before.statusCode);
+    assert.equal(after.headers["retry-after"], before.headers["retry-after"]);
+    assert.deepEqual(normalizeError(after.text), normalizeError(before.text));
+    assert.equal(fastifyServices.contexts.length, 0);
+    assert.equal(fastifyServices.calls.length, 0);
+  } finally {
+    await Promise.all([
+      closeApiServer(legacy, 1_000),
+      closeApiServer(fastify, 1_000),
+    ]);
+  }
+
+  const productionConfig = { ...config, env: "production" as const };
+  const legacyCsrf = createApiServer({
+    config: productionConfig,
+    ...createTelemetryServices(),
+  });
+  const fastifyCsrf = await createFastifyApiServer({
+    config: productionConfig,
+    ...createTelemetryServices(),
+  });
+  const legacyCsrfPort = await listen(legacyCsrf);
+  const fastifyCsrfPort = await listen(fastifyCsrf);
+  const cookieHeaders = {
+    ...headers,
+    cookie: "better-auth.session_token=signed_session",
+  };
+  try {
+    const [before, after] = await Promise.all([
+      request(
+        legacyCsrfPort,
+        "/api/v1/telemetry/generations",
+        "POST",
+        cookieHeaders,
+        invalidJson,
+      ),
+      request(
+        fastifyCsrfPort,
+        "/api/v1/telemetry/generations",
+        "POST",
+        cookieHeaders,
+        invalidJson,
+      ),
+    ]);
+    assert.equal(after.statusCode, before.statusCode);
+    assert.deepEqual(normalizeError(after.text), normalizeError(before.text));
+  } finally {
+    await Promise.all([
+      closeApiServer(legacyCsrf, 1_000),
+      closeApiServer(fastifyCsrf, 1_000),
+    ]);
+  }
+});
+
 test("OpenAPI is available only in development Fastify mode", async () => {
   const development = await createFastifyApiServer({
     config: { ...config, env: "development", httpAdapter: "fastify" },
@@ -456,7 +693,7 @@ test("OpenAPI is available only in development Fastify mode", async () => {
         .map((operation) => operation.operationId)
         .filter((value): value is string => Boolean(value)),
     );
-    assert.equal(operationIds.length, 8);
+    assert.equal(operationIds.length, 9);
     assert.equal(new Set(operationIds).size, operationIds.length);
     assert.equal((await request(productionPort, "/docs")).statusCode, 404);
     assert.equal((await request(productionPort, "/docs/json")).statusCode, 404);
