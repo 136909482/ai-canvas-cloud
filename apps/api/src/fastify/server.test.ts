@@ -3,7 +3,18 @@ import http from "node:http";
 import test from "node:test";
 import { createMetricsRegistry } from "@ai-canvas-cloud/shared";
 import { DEFAULT_SITE_CONFIG } from "@ai-canvas-cloud/contracts/site-config";
-import type { AuthSessionResponse } from "@ai-canvas-cloud/contracts";
+import type {
+  AssetCleanupSummary,
+  AssetResponse,
+  AssetUploadResponse,
+  AssetUrlResponse,
+  AuthSessionResponse,
+  CompleteAssetUploadResponse,
+} from "@ai-canvas-cloud/contracts";
+import type {
+  AssetCleanupService,
+  AssetService,
+} from "@ai-canvas-cloud/server/modules/assets";
 import {
   createUnavailableAuthService,
   type AuthRequestContext,
@@ -199,6 +210,110 @@ function createTelemetryServices() {
     },
   };
   return { ...auth, calls, generationTelemetryService };
+}
+
+function createAssetServices() {
+  const auth = createWorkspaceServices();
+  const calls: Array<{
+    method: string;
+    input: unknown;
+    actor: { userId: string; workspaceId: string };
+  }> = [];
+  const uploadId = "55555555-5555-4555-8555-555555555555";
+  const assetId = "66666666-6666-4666-8666-666666666666";
+  const asset = (status: "pending" | "completed") => ({
+    id: assetId,
+    projectId: "11111111-1111-4111-8111-111111111111",
+    originalFileName: "reference.png",
+    mimeType: "image/png",
+    byteSize: 2048,
+    sha256: null,
+    width: null,
+    height: null,
+    assetKind: "upload" as const,
+    status,
+    createdAt: "2026-07-15T00:00:00.000Z",
+    updatedAt: "2026-07-15T00:10:00.000Z",
+  });
+  const upload = (status: "pending" | "completed") => ({
+    id: uploadId,
+    assetId,
+    projectId: "11111111-1111-4111-8111-111111111111",
+    originalFileName: "reference.png",
+    expectedMimeType: "image/png",
+    expectedByteSize: 2048,
+    expectedSha256: null,
+    assetKind: "upload" as const,
+    status,
+    expiresAt: "2026-07-15T00:15:00.000Z",
+    createdAt: "2026-07-15T00:00:00.000Z",
+  });
+  const assetService: AssetService = {
+    async createUpload(input, actor): Promise<AssetUploadResponse> {
+      calls.push({ method: "create", input, actor });
+      if (input.originalFileName === "quota.png") {
+        throw new AuthServiceError({
+          statusCode: 409,
+          apiCode: "QUOTA_EXCEEDED",
+          message: "Workspace storage quota exceeded",
+          details: { availableBytes: 0, requestedBytes: input.byteSize },
+        });
+      }
+      return {
+        upload: upload("pending"),
+        asset: asset("pending"),
+        directUpload: {
+          method: "PUT",
+          url: "http://localhost:9000/presigned-upload",
+          headers: { "content-type": input.mimeType },
+          expiresAt: "2026-07-15T00:15:00.000Z",
+        },
+      };
+    },
+    async completeUpload(input, actor): Promise<CompleteAssetUploadResponse> {
+      calls.push({ method: "complete", input, actor });
+      return { upload: upload("completed"), asset: asset("completed") };
+    },
+    async getAsset(input, actor): Promise<AssetResponse> {
+      calls.push({ method: "get", input, actor });
+      return { asset: { ...asset("completed"), id: input } };
+    },
+    async getAssetUrl(input, actor): Promise<AssetUrlResponse> {
+      calls.push({ method: "url", input, actor });
+      return {
+        assetId: input,
+        url: "http://localhost:9000/presigned-read",
+        expiresAt: "2026-07-15T00:15:00.000Z",
+      };
+    },
+  };
+  return { ...auth, assetId, assetService, calls, uploadId };
+}
+
+function createAssetCleanupServices() {
+  const calls: boolean[] = [];
+  const assetCleanupService: AssetCleanupService = {
+    async run(input): Promise<AssetCleanupSummary> {
+      calls.push(input.apply);
+      if (input.apply) throw new Error("cleanup failed");
+      return {
+        mode: "preview",
+        graceHours: 168,
+        cutoff: "2026-07-22T00:00:00.000Z",
+        scannedAssetCount: 2,
+        reclaimableObjectCount: 1,
+        reclaimableBytes: 42,
+        deletedObjectCount: 0,
+        deletedBytes: 0,
+        missingObjectCount: 0,
+        finalizedMissingAssetCount: 0,
+        retainedAssetCount: 1,
+        truncated: false,
+        completedAt: "2026-07-29T00:00:00.000Z",
+      };
+    },
+  };
+  return { assetCleanupService, calls };
 }
 
 function createAuthLifecycleServices() {
@@ -1036,6 +1151,164 @@ test("Fastify auth preserves legacy protected-body order and domain errors", asy
   }
 });
 
+test("Fastify internal asset cleanup preserves legacy access and failure boundaries", async () => {
+  const legacyServices = createAssetCleanupServices();
+  const fastifyServices = createAssetCleanupServices();
+  const legacy = createApiServer({ config, ...legacyServices });
+  const fastify = await createFastifyApiServer({ config, ...fastifyServices });
+  const legacyPort = await listen(legacy);
+  const fastifyPort = await listen(fastify);
+  const tokenHeaders = {
+    authorization: `Bearer ${config.assetMaintenanceToken}`,
+  };
+
+  try {
+    const cases = [
+      { headers: {}, body: "{" },
+      {
+        headers: { authorization: "Bearer wrong-token" },
+        body: JSON.stringify({ apply: false }),
+      },
+      { headers: tokenHeaders, body: JSON.stringify({ apply: false }) },
+      {
+        headers: tokenHeaders,
+        body: JSON.stringify({ apply: false, objectKey: "private/key" }),
+      },
+      { headers: tokenHeaders, body: JSON.stringify({ apply: true }) },
+      {
+        headers: tokenHeaders,
+        body: JSON.stringify({ apply: false, padding: "x".repeat(1_024) }),
+      },
+    ];
+    for (const testCase of cases) {
+      const headers = { ...jsonHeaders(testCase.body), ...testCase.headers };
+      const [before, after] = await Promise.all([
+        request(
+          legacyPort,
+          "/internal/v1/asset-cleanup",
+          "POST",
+          headers,
+          testCase.body,
+        ),
+        request(
+          fastifyPort,
+          "/internal/v1/asset-cleanup",
+          "POST",
+          headers,
+          testCase.body,
+        ),
+      ]);
+      assert.equal(after.statusCode, before.statusCode);
+      if (after.statusCode >= 400) {
+        assert.deepEqual(
+          normalizeError(after.text),
+          normalizeError(before.text),
+        );
+      } else {
+        assert.equal(after.text, before.text);
+      }
+    }
+    assert.deepEqual(fastifyServices.calls, legacyServices.calls);
+  } finally {
+    await Promise.all([
+      closeApiServer(legacy, 1_000),
+      closeApiServer(fastify, 1_000),
+    ]);
+  }
+});
+
+test("Fastify asset routes preserve legacy actors, bodies, and domain errors", async () => {
+  const legacyServices = createAssetServices();
+  const fastifyServices = createAssetServices();
+  const legacy = createApiServer({ config, ...legacyServices });
+  const fastify = await createFastifyApiServer({ config, ...fastifyServices });
+  const legacyPort = await listen(legacy);
+  const fastifyPort = await listen(fastify);
+  const cookie = "better-auth.session_token=signed_session";
+
+  async function compare(
+    path: string,
+    method = "GET",
+    body?: string,
+    authenticated = true,
+  ) {
+    const headers = {
+      ...(body === undefined ? {} : jsonHeaders(body)),
+      ...(authenticated ? { cookie } : {}),
+    };
+    const [before, after] = await Promise.all([
+      request(legacyPort, path, method, headers, body),
+      request(fastifyPort, path, method, headers, body),
+    ]);
+    assert.equal(after.statusCode, before.statusCode, path);
+    if (after.statusCode >= 400) {
+      assert.deepEqual(normalizeError(after.text), normalizeError(before.text));
+    } else {
+      assert.equal(after.text, before.text);
+    }
+  }
+
+  try {
+    await compare("/api/v1/assets/uploads", "POST", "{", false);
+    await compare("/api/v1/assets/uploads", "POST", "{");
+
+    const createBody = JSON.stringify({
+      projectId: "11111111-1111-4111-8111-111111111111",
+      originalFileName: "reference.png",
+      mimeType: "image/png",
+      byteSize: 2048,
+      assetKind: "upload",
+      idempotencyKey: "asset_upload_1",
+      userId: "forged-user",
+      workspaceId: "forged-workspace",
+    });
+    await compare("/api/v1/assets/uploads", "POST", createBody);
+
+    const quotaBody = JSON.stringify({
+      originalFileName: "quota.png",
+      mimeType: "image/png",
+      byteSize: 1,
+      assetKind: "upload",
+      idempotencyKey: "quota-error",
+    });
+    await compare("/api/v1/assets/uploads", "POST", quotaBody);
+
+    const oversizedBody = JSON.stringify({
+      originalFileName: "x".repeat(64 * 1024),
+      mimeType: "image/png",
+      byteSize: 1,
+      assetKind: "upload",
+      idempotencyKey: "oversized",
+    });
+    await compare("/api/v1/assets/uploads", "POST", oversizedBody);
+
+    await compare(
+      `/api/v1/assets/uploads/${legacyServices.uploadId}/complete?workspaceId=forged`,
+      "POST",
+      "{",
+    );
+    await compare(
+      `/api/v1/assets/${legacyServices.assetId}?workspaceId=forged`,
+    );
+    await compare(`/api/v1/assets/${legacyServices.assetId}/url?userId=forged`);
+    await compare("/api/v1/assets/uploads/url");
+    await compare("/api/v1/assets/uploads", "GET", undefined, false);
+
+    assert.deepEqual(fastifyServices.calls, legacyServices.calls);
+    assert(
+      fastifyServices.calls.every(
+        ({ actor }) =>
+          actor.userId === "user_1" && actor.workspaceId === "workspace_1",
+      ),
+    );
+  } finally {
+    await Promise.all([
+      closeApiServer(legacy, 1_000),
+      closeApiServer(fastify, 1_000),
+    ]);
+  }
+});
+
 test("OpenAPI is available only in development Fastify mode", async () => {
   const development = await createFastifyApiServer({
     config: { ...config, env: "development", httpAdapter: "fastify" },
@@ -1057,7 +1330,7 @@ test("OpenAPI is available only in development Fastify mode", async () => {
         .map((operation) => operation.operationId)
         .filter((value): value is string => Boolean(value)),
     );
-    assert.equal(operationIds.length, 21);
+    assert.equal(operationIds.length, 26);
     assert.equal(new Set(operationIds).size, operationIds.length);
     assert.equal((await request(productionPort, "/docs")).statusCode, 404);
     assert.equal((await request(productionPort, "/docs/json")).statusCode, 404);

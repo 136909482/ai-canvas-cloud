@@ -3,11 +3,18 @@ import { apiErrorCodes } from "./index.js";
 import type {
   ApiErrorCode,
   ApiErrorResponse,
+  AssetCleanupRequest,
+  AssetCleanupSummary,
+  AssetResponse,
+  AssetUploadResponse,
+  AssetUrlResponse,
   AuthDevicesResponse,
   AuthSessionResponse,
   AuthSessionsResponse,
   AuthSuccessResponse,
   CurrentWorkspaceResponse,
+  CompleteAssetUploadResponse,
+  CreateAssetUploadRequest,
   GenerationTelemetryRequest,
   GenerationTelemetryResponse,
   HealthResponse,
@@ -426,6 +433,153 @@ export const GenerationTelemetryResponseSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const AssetKindSchema = Type.Union([
+  Type.Literal("upload"),
+  Type.Literal("generated"),
+  Type.Literal("edit"),
+  Type.Literal("crop"),
+  Type.Literal("thumbnail"),
+  Type.Literal("preview"),
+  Type.Literal("video"),
+]);
+const AssetReferenceRoleSchema = Type.Union([
+  Type.Literal("source"),
+  Type.Literal("result"),
+  Type.Literal("thumbnail"),
+  Type.Literal("preview"),
+  Type.Literal("mask"),
+  Type.Literal("attachment"),
+]);
+const AssetStatusSchema = Type.Union([
+  Type.Literal("pending"),
+  Type.Literal("completed"),
+  Type.Literal("failed"),
+  Type.Literal("quarantined"),
+  Type.Literal("deleted"),
+]);
+const AssetUploadStatusSchema = Type.Union([
+  Type.Literal("pending"),
+  Type.Literal("completed"),
+  Type.Literal("expired"),
+  Type.Literal("failed"),
+]);
+
+const AssetSummarySchema = Type.Object(
+  {
+    id: Type.String(),
+    projectId: NullableStringSchema,
+    originalFileName: NullableStringSchema,
+    mimeType: Type.String(),
+    byteSize: Type.Number(),
+    sha256: NullableStringSchema,
+    width: Type.Union([Type.Number(), Type.Null()]),
+    height: Type.Union([Type.Number(), Type.Null()]),
+    assetKind: AssetKindSchema,
+    status: AssetStatusSchema,
+    createdAt: Type.String(),
+    updatedAt: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+const AssetUploadSummarySchema = Type.Object(
+  {
+    id: Type.String(),
+    assetId: Type.String(),
+    projectId: NullableStringSchema,
+    originalFileName: Type.String(),
+    expectedMimeType: Type.String(),
+    expectedByteSize: Type.Number(),
+    expectedSha256: NullableStringSchema,
+    assetKind: AssetKindSchema,
+    status: AssetUploadStatusSchema,
+    expiresAt: Type.String(),
+    createdAt: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+export const CreateAssetUploadRequestSchema =
+  Type.Unsafe<CreateAssetUploadRequest>({
+    type: "object",
+    properties: {
+      projectId: { type: ["string", "null"] },
+      originalFileName: { type: "string" },
+      mimeType: { type: "string" },
+      byteSize: { type: "number" },
+      sha256: { type: ["string", "null"] },
+      width: { type: ["number", "null"] },
+      height: { type: ["number", "null"] },
+      assetKind: AssetKindSchema,
+      referenceRole: { anyOf: [AssetReferenceRoleSchema, { type: "null" }] },
+      idempotencyKey: { type: "string" },
+    },
+    required: [
+      "originalFileName",
+      "mimeType",
+      "byteSize",
+      "assetKind",
+      "idempotencyKey",
+    ],
+    additionalProperties: true,
+  });
+
+export const AssetUploadResponseSchema = Type.Object(
+  {
+    upload: AssetUploadSummarySchema,
+    asset: AssetSummarySchema,
+    directUpload: Type.Object(
+      {
+        method: Type.Union([Type.Literal("PUT"), Type.Literal("POST")]),
+        url: Type.String(),
+        headers: Type.Record(Type.String(), Type.String()),
+        expiresAt: Type.String(),
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+export const CompleteAssetUploadResponseSchema = Type.Object(
+  { upload: AssetUploadSummarySchema, asset: AssetSummarySchema },
+  { additionalProperties: false },
+);
+
+export const AssetResponseSchema = Type.Object(
+  { asset: AssetSummarySchema },
+  { additionalProperties: false },
+);
+
+export const AssetUrlResponseSchema = Type.Object(
+  { assetId: Type.String(), url: Type.String(), expiresAt: Type.String() },
+  { additionalProperties: false },
+);
+
+export const AssetCleanupRequestSchema = Type.Object(
+  { apply: Type.Boolean() },
+  { additionalProperties: false },
+);
+
+export const AssetCleanupSummarySchema = Type.Object(
+  {
+    mode: Type.Union([Type.Literal("preview"), Type.Literal("apply")]),
+    graceHours: NonNegativeIntegerSchema,
+    cutoff: Type.String(),
+    scannedAssetCount: NonNegativeIntegerSchema,
+    reclaimableObjectCount: NonNegativeIntegerSchema,
+    reclaimableBytes: NonNegativeIntegerSchema,
+    deletedObjectCount: NonNegativeIntegerSchema,
+    deletedBytes: NonNegativeIntegerSchema,
+    missingObjectCount: NonNegativeIntegerSchema,
+    finalizedMissingAssetCount: NonNegativeIntegerSchema,
+    retainedAssetCount: NonNegativeIntegerSchema,
+    truncated: Type.Boolean(),
+    completedAt: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
 type Assert<T extends true> = T;
 type IsMutuallyAssignable<Left, Right> = [Left] extends [Right]
   ? [Right] extends [Left]
@@ -467,6 +621,42 @@ type GenerationTelemetryResponseSchemaCompatibility = Assert<
   IsMutuallyAssignable<
     Static<typeof GenerationTelemetryResponseSchema>,
     GenerationTelemetryResponse
+  >
+>;
+type CreateAssetUploadRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof CreateAssetUploadRequestSchema>,
+    CreateAssetUploadRequest
+  >
+>;
+type AssetUploadResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof AssetUploadResponseSchema>,
+    AssetUploadResponse
+  >
+>;
+type CompleteAssetUploadResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof CompleteAssetUploadResponseSchema>,
+    CompleteAssetUploadResponse
+  >
+>;
+type AssetResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<Static<typeof AssetResponseSchema>, AssetResponse>
+>;
+type AssetUrlResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<Static<typeof AssetUrlResponseSchema>, AssetUrlResponse>
+>;
+type AssetCleanupRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof AssetCleanupRequestSchema>,
+    AssetCleanupRequest
+  >
+>;
+type AssetCleanupSummarySchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof AssetCleanupSummarySchema>,
+    AssetCleanupSummary
   >
 >;
 type AuthSessionSchemaCompatibility = Assert<
@@ -559,11 +749,18 @@ type RemoveDeviceSchemaCompatibility = Assert<
 
 export type {
   ApiErrorSchemaCompatibility,
+  AssetCleanupRequestSchemaCompatibility,
+  AssetCleanupSummarySchemaCompatibility,
+  AssetResponseSchemaCompatibility,
+  AssetUploadResponseSchemaCompatibility,
+  AssetUrlResponseSchemaCompatibility,
   AuthDevicesSchemaCompatibility,
   AuthSessionSchemaCompatibility,
   AuthSessionsSchemaCompatibility,
   AuthSuccessSchemaCompatibility,
   CurrentWorkspaceSchemaCompatibility,
+  CompleteAssetUploadResponseSchemaCompatibility,
+  CreateAssetUploadRequestSchemaCompatibility,
   GenerationTelemetryRequestSchemaCompatibility,
   GenerationTelemetryResponseSchemaCompatibility,
   HealthSchemaCompatibility,

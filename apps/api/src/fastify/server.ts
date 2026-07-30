@@ -10,6 +10,7 @@ import { createUnavailablePublicSiteConfigService } from "@ai-canvas-cloud/serve
 import { createUnavailableAuthService } from "@ai-canvas-cloud/server/modules/auth";
 import { createUnavailableWorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
 import { createUnavailableGenerationTelemetryService } from "@ai-canvas-cloud/server/modules/generation-telemetry";
+import { createUnavailableAssetService } from "@ai-canvas-cloud/server/modules/assets";
 import {
   HTTP_ADAPTER_CLOSE,
   createApiServer,
@@ -22,6 +23,7 @@ import { registerSystemRoutes } from "./routes/system.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerTelemetryRoutes } from "./routes/telemetry.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerAssetRoutes } from "./routes/assets.js";
 
 const FASTIFY_OWNED_PATHS = new Set([
   "/metrics",
@@ -43,10 +45,27 @@ const FASTIFY_OWNED_PATHS = new Set([
   "/api/v1/auth/password/forgot",
   "/api/v1/auth/password/reset",
   "/api/v1/auth/password/change",
+  "/internal/v1/asset-cleanup",
+  "/api/v1/assets/uploads",
 ]);
 
-function isFastifyOwnedPath(url: string | undefined) {
+function isFastifyOwnedPath(
+  url: string | undefined,
+  method: string | undefined,
+) {
   const pathname = new URL(url ?? "/", "http://localhost").pathname;
+  if (pathname === "/internal/v1/asset-cleanup") {
+    return method === "POST" || method === "OPTIONS";
+  }
+  if (pathname === "/api/v1/assets/uploads") {
+    return method === "POST" || method === "OPTIONS";
+  }
+  if (/^\/api\/v1\/assets\/uploads\/[^/]+\/complete$/.test(pathname)) {
+    return method === "POST" || method === "OPTIONS";
+  }
+  if (/^\/api\/v1\/assets\/[^/]+(?:\/url)?$/.test(pathname)) {
+    return method === "GET" || method === "OPTIONS";
+  }
   return (
     FASTIFY_OWNED_PATHS.has(pathname) ||
     /^\/api\/v1\/auth\/(?:sessions|devices)\/[^/]+$/.test(pathname) ||
@@ -67,9 +86,11 @@ export async function createFastifyApiServer(options: ServerOptions) {
   const generationTelemetryService =
     options.generationTelemetryService ??
     createUnavailableGenerationTelemetryService();
+  const assetService = options.assetService ?? createUnavailableAssetService();
   const legacyServer = createApiServer({
     ...options,
     authService,
+    assetService,
     generationTelemetryService,
     logger,
     metrics,
@@ -97,7 +118,7 @@ export async function createFastifyApiServer(options: ServerOptions) {
     trustProxy: options.config.trustProxy,
     serverFactory(fastifyHandler) {
       return http.createServer((request, response) => {
-        if (isFastifyOwnedPath(request.url)) {
+        if (isFastifyOwnedPath(request.url, request.method)) {
           fastifyHandler(request, response);
           return;
         }
@@ -135,6 +156,12 @@ export async function createFastifyApiServer(options: ServerOptions) {
   registerWorkspaceRoutes(app, { authContext, workspaceUsageService });
   registerTelemetryRoutes(app, { authContext, generationTelemetryService });
   registerAuthRoutes(app, authContext);
+  registerAssetRoutes(app, {
+    assetCleanupService: options.assetCleanupService,
+    assetService,
+    authContext,
+    config: options.config,
+  });
 
   if (options.config.env === "development") {
     const { default: swaggerUi } = await import("@fastify/swagger-ui");

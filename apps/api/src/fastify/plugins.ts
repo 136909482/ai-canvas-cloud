@@ -27,6 +27,8 @@ const API_ROUTE_GROUPS = new Set([
 
 function pathGroup(pathname: string) {
   if (pathname === "/metrics") return "/metrics";
+  if (pathname === "/internal/v1/asset-cleanup")
+    return "/internal/v1/asset-cleanup";
   if (pathname.endsWith("/health/live")) return "/health/live";
   if (pathname.endsWith("/health/ready")) return "/health/ready";
   if (pathname.startsWith("/docs")) return "/docs";

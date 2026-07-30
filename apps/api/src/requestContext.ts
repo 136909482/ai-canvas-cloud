@@ -65,6 +65,7 @@ export function getRateLimitBucket(
     pathname === "/health/ready" ||
     pathname === "/api/v1/health/ready" ||
     pathname === "/api/v1/site-config" ||
+    pathname === "/internal/v1/asset-cleanup" ||
     pathname === "/docs" ||
     pathname.startsWith("/docs/") ||
     requestMethod === "OPTIONS"
