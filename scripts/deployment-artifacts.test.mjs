@@ -75,6 +75,13 @@ test("server generation runtime paths remain removed", () => {
 });
 
 test("deployment artifacts keep runtime targets non-root and migration explicit", () => {
+  assert.equal(packageJson.packageManager, "npm@11.16.0");
+  assert.match(singleHostWorkflow, /actions\/checkout@v5/);
+  assert.match(singleHostWorkflow, /actions\/setup-node@v5/);
+  assert.match(
+    singleHostWorkflow,
+    /npm install --global npm@11\.16\.0[\s\S]*npm ci/,
+  );
   assert.match(dockerfile, /FROM node:24\.13\.0-alpine3\.22 AS api/);
   assert.match(
     dockerfile,
