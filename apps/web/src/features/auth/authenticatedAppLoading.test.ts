@@ -60,3 +60,15 @@ test("anonymous application entry has no static canvas imports", async () => {
     /@xyflow|components\/(?:Canvas|Toolbar|ProjectBootstrap|TaskQueueRunner)|store\/useProjectStore/,
   );
 });
+
+test("authentication dialog keeps readable dark controls under the public light theme", async () => {
+  const css = await readFile("apps/web/src/index.css", "utf8");
+  const authModal = css.match(/\.auth-modal\s*\{([\s\S]*?)\}/)?.[1];
+
+  assert.ok(authModal, "authentication dialog styles must exist");
+  assert.match(authModal, /color-scheme:\s*dark/);
+  assert.match(authModal, /--text-primary:\s*#f7f7f4/);
+  assert.match(authModal, /--text-secondary:\s*#d8d8d4/);
+  assert.match(authModal, /--text-muted:\s*#a1a1aa/);
+  assert.match(authModal, /--control-bg:\s*rgba\(255, 255, 255, 0\.06\)/);
+});

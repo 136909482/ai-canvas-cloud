@@ -1256,6 +1256,19 @@ textarea::-webkit-scrollbar-thumb:hover {
 }
 
 .auth-modal {
+  color-scheme: dark;
+  --panel-bg-strong: #0d0f10;
+  --border-subtle: rgba(255, 255, 255, 0.14);
+  --text-primary: #f7f7f4;
+  --text-secondary: #d8d8d4;
+  --text-muted: #a1a1aa;
+  --control-bg: rgba(255, 255, 255, 0.06);
+  --control-bg-hover: rgba(255, 255, 255, 0.1);
+  --accent-violet: #8b5cf6;
+  --accent-violet-strong: #c4b5fd;
+  --accent-violet-soft: rgba(139, 92, 246, 0.16);
+  --accent-violet-muted: rgba(167, 139, 250, 0.45);
+  --accent-violet-glow: rgba(167, 139, 250, 0.22);
   position: relative;
   width: min(100%, 430px);
   max-height: calc(100svh - 40px);
@@ -1311,7 +1324,7 @@ textarea::-webkit-scrollbar-thumb:hover {
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.52);
+  color: rgba(255, 255, 255, 0.68);
 }
 
 .auth-modal__close:hover {
@@ -1353,7 +1366,7 @@ textarea::-webkit-scrollbar-thumb:hover {
 
 .auth-modal__header p {
   margin: 4px 0 0;
-  color: rgba(255, 255, 255, 0.48);
+  color: rgba(255, 255, 255, 0.66);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -1395,7 +1408,7 @@ textarea::-webkit-scrollbar-thumb:hover {
   z-index: 1;
   border-radius: 4px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.48);
+  color: rgba(255, 255, 255, 0.64);
   font-size: 12px;
   transition: color 200ms ease;
 }
@@ -1480,13 +1493,13 @@ textarea::-webkit-scrollbar-thumb:hover {
   align-items: center;
   justify-content: center;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.38);
+  color: rgba(255, 255, 255, 0.56);
   font-size: 11px;
   text-align: center;
 }
 
 .auth-modal__footer button {
-  color: rgba(255, 255, 255, 0.68);
+  color: rgba(255, 255, 255, 0.78);
   font-weight: 500;
 }
 
