@@ -191,6 +191,14 @@ test("production deployment stays lightweight and loopback-only", () => {
 });
 
 test("single-host production uses one image, two application containers, and private state", () => {
+  for (const [name, script] of [
+    ["setup.sh", singleHostSetup],
+    ["deploy.sh", singleHostDeploy],
+    ["reset-prelaunch.sh", singleHostPrelaunchReset],
+    ["status.sh", singleHostStatus],
+  ]) {
+    assert.doesNotMatch(script, /\r/, `${name} must use LF line endings`);
+  }
   assert.match(singleHostCompose, /postgres:17\.6-alpine3\.22/);
   assert.match(singleHostCompose, /redis:8\.2\.1-alpine3\.22/);
   assert.match(singleHostCompose, /ai-canvas-cloud-single-host-postgres/);

@@ -53,6 +53,7 @@ const adminKeys = [
   "NODE_ENV",
   "DEPLOYMENT_ENV",
   "LOG_LEVEL",
+  "BETTER_AUTH_SECRET",
   "APP_DATABASE_ROLE",
   "ADMIN_DATABASE_URL",
   "ADMIN_BETTER_AUTH_URL",
@@ -183,7 +184,10 @@ test("single-host runtime rendering isolates public and admin credentials", () =
     assert.doesNotMatch(publicRuntime, /^ADMIN_DATABASE_URL=/m);
     assert.doesNotMatch(publicRuntime, /^ADMIN_BETTER_AUTH_SECRET=/m);
     assert.doesNotMatch(adminRuntime, /^DATABASE_URL=/m);
-    assert.doesNotMatch(adminRuntime, /^BETTER_AUTH_SECRET=/m);
+    assert.match(
+      adminRuntime,
+      /^BETTER_AUTH_SECRET=public-auth-secret-value$/m,
+    );
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
