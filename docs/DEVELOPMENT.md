@@ -180,6 +180,7 @@ sudo bash setup.sh
 npm run check
 $gitSha = git rev-parse --short=12 HEAD
 docker build --platform linux/amd64 --target single-host-app `
+  --build-arg CONTAINER_REGISTRY=docker.1ms.run `
   --tag "hao136909482/ai-canvas-cloud:$gitSha" `
   --tag "hao136909482/ai-canvas-cloud:stable" .
 docker run --rm --platform linux/amd64 --entrypoint node `

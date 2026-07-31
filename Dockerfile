@@ -1,6 +1,6 @@
-# syntax=docker/dockerfile:1.7
+ARG CONTAINER_REGISTRY=docker.io
 
-FROM node:24.13.0-alpine3.22 AS workspace
+FROM ${CONTAINER_REGISTRY}/library/node:24.13.0-alpine3.22 AS workspace
 ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org
 ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}
 WORKDIR /app
@@ -15,7 +15,7 @@ COPY packages/shared/package.json packages/shared/package.json
 COPY server/package.json server/package.json
 RUN npm ci
 
-FROM minio/mc:RELEASE.2025-04-16T18-13-26Z AS minio-client
+FROM ${CONTAINER_REGISTRY}/minio/mc:RELEASE.2025-04-16T18-13-26Z AS minio-client
 
 FROM workspace AS build
 COPY . .
@@ -24,7 +24,7 @@ RUN npm run build
 FROM workspace AS production-dependencies
 RUN npm ci --omit=dev
 
-FROM node:24.13.0-alpine3.22 AS api
+FROM ${CONTAINER_REGISTRY}/library/node:24.13.0-alpine3.22 AS api
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
@@ -42,7 +42,7 @@ USER node
 EXPOSE 8787
 CMD ["node", "apps/api/dist/index.js"]
 
-FROM node:24.13.0-alpine3.22 AS admin-api
+FROM ${CONTAINER_REGISTRY}/library/node:24.13.0-alpine3.22 AS admin-api
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
@@ -60,7 +60,7 @@ USER node
 EXPOSE 8788
 CMD ["node", "apps/admin-api/dist/index.js"]
 
-FROM node:24.13.0-alpine3.22 AS single-host-app
+FROM ${CONTAINER_REGISTRY}/library/node:24.13.0-alpine3.22 AS single-host-app
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
@@ -86,7 +86,7 @@ EXPOSE 8080
 EXPOSE 8081
 CMD ["node", "apps/api/dist/index.js"]
 
-FROM node:24.13.0-alpine3.22 AS migrate
+FROM ${CONTAINER_REGISTRY}/library/node:24.13.0-alpine3.22 AS migrate
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
@@ -103,7 +103,7 @@ COPY --from=build --chown=node:node /app/scripts/check-deployment-config.mjs scr
 USER node
 CMD ["node", "scripts/apply-migrations.mjs"]
 
-FROM node:24.13.0-alpine3.22 AS operations
+FROM ${CONTAINER_REGISTRY}/library/node:24.13.0-alpine3.22 AS operations
 ENV NODE_ENV=production
 WORKDIR /app
 RUN apk add --no-cache postgresql17-client
@@ -139,12 +139,12 @@ COPY --from=build --chown=node:node /app/scripts scripts
 USER node
 CMD ["node", "scripts/check-deployment-config.mjs"]
 
-FROM nginxinc/nginx-unprivileged:1.29.1-alpine AS web
+FROM ${CONTAINER_REGISTRY}/nginxinc/nginx-unprivileged:1.29.1-alpine AS web
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 COPY infra/deploy/staging/web.nginx.conf /etc/nginx/templates/default.conf.template
 EXPOSE 8080
 
-FROM nginxinc/nginx-unprivileged:1.29.1-alpine AS admin-web
+FROM ${CONTAINER_REGISTRY}/nginxinc/nginx-unprivileged:1.29.1-alpine AS admin-web
 COPY --from=build /app/apps/admin-web/dist /usr/share/nginx/html
 COPY infra/deploy/production/admin.nginx.conf /etc/nginx/templates/default.conf.template
 EXPOSE 8080

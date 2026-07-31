@@ -74,7 +74,11 @@ test("deployment artifacts keep runtime targets non-root and migration explicit"
     singleHostWorkflow,
     /npm install --global npm@11\.16\.0[\s\S]*npm ci/,
   );
-  assert.match(dockerfile, /FROM node:24\.13\.0-alpine3\.22 AS api/);
+  assert.match(dockerfile, /ARG CONTAINER_REGISTRY=docker\.io/);
+  assert.match(
+    dockerfile,
+    /FROM \$\{CONTAINER_REGISTRY\}\/library\/node:24\.13\.0-alpine3\.22 AS api/,
+  );
   assert.match(
     dockerfile,
     /ARG NPM_CONFIG_REGISTRY=https:\/\/registry\.npmjs\.org/,
@@ -82,17 +86,20 @@ test("deployment artifacts keep runtime targets non-root and migration explicit"
   assert.doesNotMatch(dockerfile, / AS worker/);
   assert.match(
     dockerfile,
-    /FROM nginxinc\/nginx-unprivileged:1\.29\.1-alpine AS web/,
+    /FROM \$\{CONTAINER_REGISTRY\}\/nginxinc\/nginx-unprivileged:1\.29\.1-alpine AS web/,
   );
-  assert.match(dockerfile, /FROM node:24\.13\.0-alpine3\.22 AS admin-api/);
   assert.match(
     dockerfile,
-    /FROM nginxinc\/nginx-unprivileged:1\.29\.1-alpine AS admin-web/,
+    /FROM \$\{CONTAINER_REGISTRY\}\/library\/node:24\.13\.0-alpine3\.22 AS admin-api/,
+  );
+  assert.match(
+    dockerfile,
+    /FROM \$\{CONTAINER_REGISTRY\}\/nginxinc\/nginx-unprivileged:1\.29\.1-alpine AS admin-web/,
   );
   assert.match(dockerfile, /FROM workspace AS release/);
   assert.match(
     dockerfile,
-    /FROM node:24\.13\.0-alpine3\.22 AS single-host-app/,
+    /FROM \$\{CONTAINER_REGISTRY\}\/library\/node:24\.13\.0-alpine3\.22 AS single-host-app/,
   );
   assert.equal(
     (
@@ -291,6 +298,10 @@ test("single-host production uses one image, two application containers, and pri
   assert.match(singleHostWorkflow, /:stable/);
   assert.match(singleHostWorkflow, /linux\/amd64/);
   assert.match(singleHostOfflineBuild, /"--target", "single-host-app"/);
+  assert.match(
+    singleHostOfflineBuild,
+    /"--build-arg", "CONTAINER_REGISTRY=\$ContainerRegistry"/,
+  );
   assert.match(singleHostOfflineBuild, /"run", "--rm"/);
   assert.match(singleHostOfflineBuild, /"save"/);
 });
@@ -312,7 +323,10 @@ test("staging monitoring scrapes API and keeps alerts low-cardinality", () => {
 });
 
 test("staging recovery keeps encrypted backups and restore resources isolated", () => {
-  assert.match(dockerfile, /FROM node:24\.13\.0-alpine3\.22 AS operations/);
+  assert.match(
+    dockerfile,
+    /FROM \$\{CONTAINER_REGISTRY\}\/library\/node:24\.13\.0-alpine3\.22 AS operations/,
+  );
   assert.match(dockerfile, /USER node[\s\S]*VOLUME \["\/backups"\]/);
   assert.match(compose, /backup-scheduler:/);
   assert.match(compose, /restore-postgres:/);

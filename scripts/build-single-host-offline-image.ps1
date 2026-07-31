@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-  [string]$OutputPath = ""
+  [string]$OutputPath = "",
+  [string]$ContainerRegistry = "docker.1ms.run"
 )
 
 Set-StrictMode -Version Latest
@@ -111,6 +112,7 @@ try {
   Invoke-Docker $dockerExecutable @(
     "build",
     "--platform", "linux/amd64",
+    "--build-arg", "CONTAINER_REGISTRY=$ContainerRegistry",
     "--target", "single-host-app",
     "--tag", $appImage,
     "."
