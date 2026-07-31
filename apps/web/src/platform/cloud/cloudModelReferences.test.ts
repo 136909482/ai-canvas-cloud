@@ -23,7 +23,6 @@ test("Cloud graph replaces private model identity and removes local task/provide
           apiUrl: "https://provider.example/v1",
           apiKey: "private-key-value",
           activeTaskId: "task-1",
-          generationResults: { "task-1": { remoteTaskId: "remote-1" } },
           status: "generating",
           errorMsg: "upstream private failure",
           prompt: "keep this prompt",
@@ -58,7 +57,6 @@ test("Cloud graph replaces private model identity and removes local task/provide
   assert.equal("apiProfileName" in data, false);
   assert.equal("apiKey" in data, false);
   assert.equal("activeTaskId" in data, false);
-  assert.equal("generationResults" in data, false);
   assert.equal(JSON.stringify(cloud).includes("private-image-model"), false);
   assert.equal(JSON.stringify(cloud).includes("private-provider-id"), false);
   assert.equal(JSON.stringify(cloud).includes("private-key-value"), false);

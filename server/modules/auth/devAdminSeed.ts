@@ -70,6 +70,7 @@ export async function seedDevelopmentAdminAccount(
         email,
         password: options.password,
         acceptedTermsAndPrivacy: true,
+        deviceId: "dev-admin-seed",
       },
       {
         requestId: "dev_admin_seed",

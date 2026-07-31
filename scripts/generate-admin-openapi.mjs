@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createUnavailableAdminService } from "../server/dist/modules/admin/index.js";
-import { closeAdminApiServer } from "../apps/admin-api/dist/server.js";
+import { closeAdminApiServer } from "../apps/admin-api/dist/serverLifecycle.js";
 import { createFastifyAdminApiServer } from "../apps/admin-api/dist/fastify/server.js";
 import {
   ADMIN_ROUTE_INVENTORY,
@@ -12,7 +12,6 @@ import {
 
 const config = {
   env: "development",
-  httpAdapter: "fastify",
   host: "127.0.0.1",
   port: 0,
   logLevel: "error",
@@ -35,7 +34,6 @@ const config = {
   objectStorageCredentialActiveKeyVersion: 1,
   assetMaintenanceApiUrl: "http://127.0.0.1:8787",
   smtpCredentialActiveKeyVersion: 1,
-  smtpSecure: false,
 };
 
 const logger = { debug() {}, info() {}, warn() {}, error() {} };

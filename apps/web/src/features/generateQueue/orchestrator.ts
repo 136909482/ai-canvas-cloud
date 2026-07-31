@@ -50,8 +50,6 @@ type EnqueueGenerateTaskInput = {
   referenceImages?: GenerateTaskImageSource[];
   editImageSource?: GenerateTaskImageSource | null;
   maskImageSource?: GenerateTaskImageSource | null;
-  /** Legacy caller compatibility. */
-  referenceImageUrls?: string[];
   inputFidelity?: ImageInputFidelity | null;
   quality?: GptImageQuality | null;
   googleSearch?: boolean;
@@ -91,13 +89,7 @@ function getImageSourceFromNode(
 }
 
 function enrichTaskImageSourcesFromCanvas(task: GenerateTask) {
-  const taskReferenceImages = Array.isArray(task.referenceImages)
-    ? task.referenceImages
-    : (task.referenceImageUrls ?? []).map((imageUrl) => ({
-        sourceNodeId: null,
-        imageUrl,
-        assetRelativePath: null,
-      }));
+  const taskReferenceImages = task.referenceImages;
 
   if (task.kind !== "image") {
     return {
@@ -380,13 +372,7 @@ export function enqueueGenerateTask(input: EnqueueGenerateTaskInput) {
       ? input.sourceImageNodeId
       : null;
   const maskImageUrl = input.maskImageUrl ?? null;
-  const referenceImages =
-    input.referenceImages ??
-    (input.referenceImageUrls ?? []).map((imageUrl) => ({
-      sourceNodeId: null,
-      imageUrl,
-      assetRelativePath: null,
-    }));
+  const referenceImages = input.referenceImages ?? [];
   const operationType =
     input.operationType === "image-edit" && sourceImageNodeId && maskImageUrl
       ? "image-edit"
@@ -536,13 +522,7 @@ export function enqueueImageEditTask(input: EnqueueGenerateTaskInput) {
     return null;
   }
 
-  const referenceImages =
-    input.referenceImages ??
-    (input.referenceImageUrls ?? []).map((imageUrl) => ({
-      sourceNodeId: null,
-      imageUrl,
-      assetRelativePath: null,
-    }));
+  const referenceImages = input.referenceImages ?? [];
   const previewNodeId = createQueuedPreview(
     input.sourceNodeId,
     prompt,

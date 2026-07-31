@@ -34,7 +34,6 @@ function task(referenceImages: GenerateTaskImageSource[]): GenerateTask {
     apiProfileName: null,
     provider: "openai",
     referenceImages,
-    referenceImageUrls: referenceImages.map((source) => source.imageUrl),
     status: "running",
     errorMsg: "",
     remoteTaskId: null,

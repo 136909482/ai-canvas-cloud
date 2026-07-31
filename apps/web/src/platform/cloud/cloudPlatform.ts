@@ -22,10 +22,9 @@ import type {
   WorkflowTemplateLibrary,
   WorkspaceConfigFile,
   WorkspaceData,
-  WorkspaceImageAsset,
 } from "@/types";
 import { CloudApiError, requestCloudJson } from "@/api/cloudApiClient";
-import { CURRENT_PROJECT_SNAPSHOT_SCHEMA_VERSION } from "@/features/projectManager/migrations";
+import { CURRENT_PROJECT_SNAPSHOT_SCHEMA_VERSION } from "@/features/projectManager/snapshotSchema";
 import {
   extractProjectSearchDocuments,
   searchWorkspaceDocuments,
@@ -40,7 +39,6 @@ import {
 } from "@/platform/cloud/cloudProjectGraph";
 import {
   createCloudAssetUrlCache,
-  createCloudAssetRelativePath,
   getCloudAssetIdFromRelativePath,
 } from "@/platform/cloud/cloudAssetUrlCache";
 import { createCloudAssetUploader } from "@/platform/cloud/cloudAssetUpload";
@@ -196,78 +194,6 @@ function emptyProjectSnapshot(
   };
 }
 
-function getWorkerResultAsset(data: Record<string, unknown>) {
-  const results = data.generationResults;
-  if (!results || typeof results !== "object" || Array.isArray(results))
-    return null;
-  const entries = Object.entries(results as Record<string, unknown>);
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const [taskId, result] = entries[index]!;
-    if (!result || typeof result !== "object" || Array.isArray(result))
-      continue;
-    const assets = (result as Record<string, unknown>).assets;
-    const first = Array.isArray(assets) ? assets[0] : null;
-    if (!first || typeof first !== "object" || Array.isArray(first)) continue;
-    const asset = first as Record<string, unknown>;
-    if (
-      typeof asset.assetId !== "string" ||
-      (asset.assetKind !== "generated" && asset.assetKind !== "video")
-    )
-      continue;
-    return { taskId, assetId: asset.assetId, assetKind: asset.assetKind };
-  }
-  return null;
-}
-
-async function hydrateWorkerResultUrls(
-  canvas: CanvasSnapshot,
-  projectId: string,
-) {
-  await Promise.all(
-    canvas.nodes.map(async (node) => {
-      const data =
-        node.data && typeof node.data === "object" && !Array.isArray(node.data)
-          ? (node.data as Record<string, unknown>)
-          : null;
-      if (!data) return;
-      const result = getWorkerResultAsset(data);
-      if (!result) return;
-      const expectsVideo = node.type === "videoNode";
-      if ((result.assetKind === "video") !== expectsVideo) return;
-      try {
-        const relativePath = createCloudAssetRelativePath(result.assetId);
-        const url = await cloudAssetUrlCache.resolve(result.assetId);
-        const asset: WorkspaceImageAsset = {
-          assetId: result.assetId,
-          projectId,
-          assetKind: result.assetKind as WorkspaceImageAsset["assetKind"],
-          relativePath,
-          mimeType: result.assetKind === "video" ? "video/mp4" : "image/png",
-          fileName:
-            result.assetKind === "video"
-              ? `result-${result.taskId}.mp4`
-              : `result-${result.taskId}.png`,
-        };
-        node.data = {
-          ...data,
-          ...(result.assetKind === "video"
-            ? { videoAsset: asset, videoUrl: url, status: "done", errorMsg: "" }
-            : {
-                imageAsset: asset,
-                imageUrl: url,
-                taskId: result.taskId,
-                status: "done",
-                errorMsg: "",
-              }),
-        };
-      } catch {
-        // A signed URL refresh failure must not prevent graph restoration.
-      }
-    }),
-  );
-  return canvas;
-}
-
 async function toProjectRecord(
   summary: ProjectSummary,
   graph: ProjectGraphResponse,
@@ -277,7 +203,6 @@ async function toProjectRecord(
     (reference) =>
       useSettingsStore.getState().resolveLocalModelReference(reference),
   );
-  await hydrateWorkerResultUrls(canvas, summary.id);
   const snapshot = emptyProjectSnapshot(canvas);
   const localTaskQueue = await useSettingsStore
     .getState()

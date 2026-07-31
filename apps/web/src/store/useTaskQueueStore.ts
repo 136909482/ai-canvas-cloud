@@ -108,7 +108,7 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
           resolution: input.resolution ?? "1K",
           operationType:
             input.operationType ??
-            (input.referenceImages?.length || input.referenceImageUrls?.length
+            (input.referenceImages?.length
               ? "image-to-image"
               : "text-to-image"),
           sourceImageNodeId: input.sourceImageNodeId ?? null,
@@ -116,19 +116,9 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
           apiProfileId: input.apiProfileId ?? null,
           apiProfileName: input.apiProfileName ?? null,
           provider: input.provider ?? null,
-          referenceImages:
-            input.referenceImages ??
-            (input.referenceImageUrls ?? []).map((imageUrl) => ({
-              sourceNodeId: null,
-              imageUrl,
-              assetRelativePath: null,
-            })),
+          referenceImages: input.referenceImages ?? [],
           editImageSource: input.editImageSource ?? null,
           maskImageSource: input.maskImageSource ?? null,
-          referenceImageUrls:
-            input.referenceImages?.map((source) => source.imageUrl) ??
-            input.referenceImageUrls ??
-            [],
           inputFidelity: input.inputFidelity ?? null,
           quality: input.quality ?? null,
           googleSearch: Boolean(input.googleSearch),

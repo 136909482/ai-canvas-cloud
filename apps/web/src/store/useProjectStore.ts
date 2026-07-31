@@ -1,10 +1,9 @@
 import { create } from "zustand";
 import { restoreTaskQueueAfterSnapshotLoad } from "@/features/generateQueue/taskExecution";
-import { readLegacyWorkspaceData } from "@/features/projectManager/legacyStorage";
 import {
-  migrateProjectRecordSnapshots,
-  migrateWorkspaceDataSnapshots,
-} from "@/features/projectManager/migrations";
+  parseProjectRecordSnapshots,
+  parseWorkspaceDataSnapshots,
+} from "@/features/projectManager/snapshotSchema";
 import {
   resolveProjectPersistenceStatus,
   type ProjectPersistenceMeta,
@@ -31,7 +30,7 @@ import { useHistoryStore } from "@/store/useHistoryStore";
 import { reportDiagnostic } from "@/store/useDiagnosticsStore";
 import {
   isStorageConfigured,
-  migrateSnapshotEmbeddedImageAssets,
+  prepareSnapshotAssetMetadata,
   resolveWorkspaceNodeAssetUrls,
 } from "@/store/projectAssetMigration";
 import {
@@ -143,7 +142,7 @@ async function loadWorkspaceProjectForStore(projectId: string) {
     .loadWorkspaceProject(projectId)
     .catch(() => null);
   return project
-    ? cloneLoadedProjectRecord(migrateProjectRecordSnapshots(project))
+    ? cloneLoadedProjectRecord(parseProjectRecordSnapshots(project))
     : null;
 }
 
@@ -218,7 +217,7 @@ function setProjectPersistenceError(
 }
 
 export const useProjectStore = create<ProjectStore>()((set, get) => {
-  const hydrateProjectsFromWorkspace = async (allowLegacyFallback: boolean) => {
+  const hydrateProjectsFromWorkspace = async () => {
     set({ isReady: false });
 
     const workspaceProjectIndex = await platformBridge
@@ -280,13 +279,12 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
     const workspaceData = await platformBridge
       .loadWorkspaceData()
       .catch(() => null);
-    const initialData = migrateWorkspaceDataSnapshots(
-      workspaceData ??
-        (allowLegacyFallback ? readLegacyWorkspaceData() : null) ?? {
-          projects: [],
-          activeProjectId: null,
-          lastOpenedProjectId: null,
-        },
+    const initialData = parseWorkspaceDataSnapshots(
+      workspaceData ?? {
+        projects: [],
+        activeProjectId: null,
+        lastOpenedProjectId: null,
+      },
     );
 
     const fallbackProject = getFallbackProject(initialData);
@@ -379,7 +377,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
         return;
       }
 
-      await hydrateProjectsFromWorkspace(true);
+      await hydrateProjectsFromWorkspace();
     },
 
     syncActiveWorkingSnapshot: () => {
@@ -404,7 +402,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
     },
 
     reloadFromWorkspace: async () => {
-      await hydrateProjectsFromWorkspace(false);
+      await hydrateProjectsFromWorkspace();
     },
 
     resolveActiveProjectAssetUrls: async () => {
@@ -433,8 +431,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
       try {
         const stats = { thumbnailBackfillCount: 0 };
         const snapshot = sanitizeProjectSnapshotForPersistence(
-          await migrateSnapshotEmbeddedImageAssets(takeWorkspaceSnapshot(), {
-            projectId,
+          await prepareSnapshotAssetMetadata(takeWorkspaceSnapshot(), {
             updateLiveCanvas: true,
             stats,
           }),
@@ -523,8 +520,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
         try {
           const stats = { thumbnailBackfillCount: 0 };
           const snapshot = sanitizeProjectSnapshotForPersistence(
-            await migrateSnapshotEmbeddedImageAssets(takeWorkspaceSnapshot(), {
-              projectId: state.activeProjectId,
+            await prepareSnapshotAssetMetadata(takeWorkspaceSnapshot(), {
               updateLiveCanvas: true,
               stats,
             }),

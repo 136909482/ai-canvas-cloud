@@ -21,10 +21,10 @@ import { createUnavailableProjectGraphService } from "@ai-canvas-cloud/server/mo
 import { createUnavailableProjectSnapshotService } from "@ai-canvas-cloud/server/modules/project-snapshots";
 import { createUnavailableProjectService } from "@ai-canvas-cloud/server/modules/projects";
 import {
-  HTTP_ADAPTER_CLOSE,
-  type AdapterHttpServer,
-  type ServerOptions,
-} from "../server.js";
+  FASTIFY_SERVER_CLOSE,
+  type FastifyHttpServer,
+} from "../serverLifecycle.js";
+import type { ServerOptions } from "../serverOptions.js";
 import { registerFastifyFoundation } from "./plugins.js";
 import { createFastifyAuthContextAdapter } from "./authContext.js";
 import { registerSystemRoutes } from "./routes/system.js";
@@ -147,8 +147,8 @@ export async function createFastifyApiServer(options: ServerOptions) {
   }
 
   await app.ready();
-  const server = app.server as AdapterHttpServer;
-  server[HTTP_ADAPTER_CLOSE] = async () => {
+  const server = app.server as FastifyHttpServer;
+  server[FASTIFY_SERVER_CLOSE] = async () => {
     await app.close();
   };
   return server;

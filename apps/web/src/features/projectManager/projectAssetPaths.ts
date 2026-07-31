@@ -31,8 +31,7 @@ export function buildWorkspaceThumbnailPath(pathSegments: string[]) {
       ...normalizedSegments.slice(2),
     ];
   }
-
-  return [PROJECT_THUMBNAIL_DIRECTORY, ...normalizedSegments];
+  throw new Error("项目资产路径格式无效");
 }
 
 export function getWorkspaceAssetPathParts(

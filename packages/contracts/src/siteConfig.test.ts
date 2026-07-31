@@ -21,22 +21,6 @@ test("site configuration runtime schema normalizes the complete safe document", 
   });
 });
 
-test("site configuration upgrades schema version 1 feature flags safely", () => {
-  const legacy = structuredClone(DEFAULT_SITE_CONFIG) as Record<
-    string,
-    unknown
-  >;
-  legacy.schemaVersion = 1;
-  legacy.features = {
-    registrationEnabled: true,
-    feedbackEnabled: false,
-  };
-
-  const config = validateSiteConfigDocument(legacy);
-  assert.equal(config.schemaVersion, 2);
-  assert.equal(config.features.registrationEmailVerificationRequired, false);
-});
-
 test("site configuration rejects executable content, unknown fields, and credential URLs", () => {
   assert.throws(() =>
     validateSiteConfigDocument({

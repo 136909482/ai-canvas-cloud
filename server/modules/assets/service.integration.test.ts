@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import pg from "pg";
+import { isolateCurrentSchemaSql } from "../../dist/db/schemaBaseline.js";
 import { loadDotEnv } from "../../dist/env/loadDotEnv.js";
 import {
   createPostgresAssetService,
@@ -38,27 +39,26 @@ test(
       const migrationFiles = (
         await readdir(join(process.cwd(), "server", "db", "migrations"))
       )
-        .filter(
-          (fileName) =>
-            fileName.endsWith(".sql") &&
-            !/^(?:002[5-9]|0030|003[235])_/.test(fileName),
-        )
+        .filter((fileName) => fileName.endsWith(".sql"))
         .sort();
       for (const fileName of migrationFiles) {
         await pool.query(
-          await readFile(
-            join(process.cwd(), "server", "db", "migrations", fileName),
-            "utf8",
+          isolateCurrentSchemaSql(
+            await readFile(
+              join(process.cwd(), "server", "db", "migrations", fileName),
+              "utf8",
+            ),
+            schemaName,
           ),
         );
       }
 
       await pool.query(`
-      INSERT INTO "user" (id, name, email, email_verified)
+      INSERT INTO "user" (id, name, email, email_verified, username, display_username)
       VALUES
-        ('asset-user-a', 'A', 'a-asset-test@example.com', true),
-        ('asset-viewer-a', 'A viewer', 'a-viewer-asset-test@example.com', true),
-        ('asset-user-b', 'B', 'b-asset-test@example.com', true)
+        ('asset-user-a', 'A', 'a-asset-test@example.com', true, 'asset_a', 'asset_a'),
+        ('asset-viewer-a', 'A viewer', 'a-viewer-asset-test@example.com', true, 'asset_viewer', 'asset_viewer'),
+        ('asset-user-b', 'B', 'b-asset-test@example.com', true, 'asset_b', 'asset_b')
     `);
       await pool.query(`
       INSERT INTO workspaces (id, name, owner_user_id)

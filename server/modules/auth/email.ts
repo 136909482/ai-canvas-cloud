@@ -1,5 +1,4 @@
 import type { Logger, MetricsRegistry } from "@ai-canvas-cloud/shared";
-import nodemailer from "nodemailer";
 import type { DbPool } from "../../db/postgres.js";
 import {
   decryptSmtpPassword,
@@ -76,7 +75,6 @@ export function createManagedSmtpAuthEmailService(
   pool: DbPool,
   options: {
     keyring: SmtpCredentialKeyring;
-    fallbackConfig?: SmtpRuntimeConfig;
     metrics?: MetricsRegistry;
     sendMessage?: typeof sendSmtpMessage;
   },
@@ -94,10 +92,7 @@ export function createManagedSmtpAuthEmailService(
       WHERE singleton_id = 1
     `);
     const row = result.rows[0];
-    if (!row) {
-      if (options.fallbackConfig) return options.fallbackConfig;
-      throw new AuthEmailDeliveryError("not_configured");
-    }
+    if (!row) throw new AuthEmailDeliveryError("not_configured");
     if (!row.enabled) throw new AuthEmailDeliveryError("disabled");
     if (cached?.revisionId === row.revision_id) return cached;
     cached = {
@@ -122,10 +117,9 @@ export function createManagedSmtpAuthEmailService(
     operation: "registration_code" | "password_reset",
     input: RegistrationEmailCodeInput | PasswordResetEmailInput,
   ) {
-    let source: "managed" | "environment" = "managed";
+    const source = "managed";
     try {
       const config = await currentConfig();
-      source = config.source;
       const minutes = Math.round(input.expiresInSeconds / 60);
       const isRegistrationCode = operation === "registration_code";
       const text = isRegistrationCode
@@ -173,43 +167,6 @@ export function createManagedSmtpAuthEmailService(
     },
     sendPasswordResetEmail(input) {
       return send("password_reset", input);
-    },
-  };
-}
-
-export function createSmtpAuthEmailService(options: {
-  host: string;
-  port: number;
-  secure: boolean;
-  from: string;
-  username: string;
-  password: string;
-}): AuthEmailService {
-  const transporter = nodemailer.createTransport({
-    host: options.host,
-    port: options.port,
-    secure: options.secure,
-    auth: { user: options.username, pass: options.password },
-    disableFileAccess: true,
-    disableUrlAccess: true,
-  });
-
-  return {
-    async sendRegistrationEmailCode(input) {
-      await transporter.sendMail({
-        from: options.from,
-        to: input.to,
-        subject: "AI Canvas registration email code",
-        text: `Your AI Canvas registration code is: ${input.code}\nThis code expires in ${Math.round(input.expiresInSeconds / 60)} minutes.`,
-      });
-    },
-    async sendPasswordResetEmail(input) {
-      await transporter.sendMail({
-        from: options.from,
-        to: input.to,
-        subject: "Reset your AI Canvas Cloud password",
-        text: `Your AI Canvas password reset code is: ${input.code}\nThis code expires in ${Math.round(input.expiresInSeconds / 60)} minutes.`,
-      });
     },
   };
 }

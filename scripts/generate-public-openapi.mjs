@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { resolve } from "node:path";
-import { closeApiServer } from "../apps/api/dist/server.js";
+import { closeApiServer } from "../apps/api/dist/serverLifecycle.js";
 import { createFastifyApiServer } from "../apps/api/dist/fastify/server.js";
 import {
   PUBLIC_ROUTE_INVENTORY,
@@ -12,7 +12,6 @@ import {
 
 const config = {
   env: "development",
-  httpAdapter: "fastify",
   logLevel: "error",
   host: "127.0.0.1",
   port: 0,
@@ -38,7 +37,6 @@ const config = {
   devSeedAdminUsername: "admin_user",
   devSeedAdminEmail: "admin@example.com",
   authEmailTransport: "development",
-  smtpSecure: false,
   smtpCredentialActiveKeyVersion: 1,
 };
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -87,17 +85,15 @@ try {
     "public OpenAPI operationId values must be unique",
   );
   const expectedRoutes = new Map(
-    PUBLIC_ROUTE_INVENTORY.filter((route) => route.owner === "fastify").map(
-      (route) => [
-        `${route.method} ${openApiPath(route.path)}`,
-        route.operationId,
-      ],
-    ),
+    PUBLIC_ROUTE_INVENTORY.map((route) => [
+      `${route.method} ${openApiPath(route.path)}`,
+      route.operationId,
+    ]),
   );
   assert.deepEqual(
     [...documentedRoutes].sort(([left], [right]) => left.localeCompare(right)),
     [...expectedRoutes].sort(([left], [right]) => left.localeCompare(right)),
-    "public OpenAPI routes and operationId values must exactly match the Fastify-owned inventory",
+    "public OpenAPI routes and operationId values must exactly match the route inventory",
   );
 
   const destination = resolve(

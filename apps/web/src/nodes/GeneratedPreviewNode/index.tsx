@@ -13,11 +13,11 @@ import {
 import { CanvasImagePreview } from "@/components/CanvasImagePreview";
 import { StableNodeToolbar } from "@/components/StableNodeToolbar";
 import { ZoomableImagePreview } from "@/components/ZoomableImagePreview";
-import { getPreviewNodeSizeAtWidth } from "@/features/generateQueue/previewUtils";
 import { useCanvasStore } from "@/store/useCanvasStore";
 import { useHistoryStore } from "@/store/useHistoryStore";
 import { useImageEditorStore } from "@/store/useImageEditorStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
+import { platformBridge } from "@/platform";
 import type { AppNodeProps } from "@/types";
 import { themeClasses } from "@/styles/themeClasses";
 import { recordComponentRender } from "@/utils/performanceDiagnostics";
@@ -30,6 +30,7 @@ import {
 } from "../nodeShell";
 import { getNodeShellClassName } from "../nodeShellClassName";
 import { areNodeContentPropsEqual } from "../nodePropComparators";
+import { downloadPreviewImage } from "./downloadImage";
 
 type GeneratedPreviewNodeProps = AppNodeProps<"generatedPreviewNode">;
 
@@ -202,8 +203,6 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
   data,
   selected,
   dragging,
-  width,
-  height,
 }: GeneratedPreviewNodeProps) {
   recordComponentRender("GeneratedPreviewNode");
   const deleteNode = useCanvasStore((s) => s.deleteNode);
@@ -264,33 +263,6 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
   const nodeTitle = hasImage ? previewMeta : UI_TEXT.previewTitle;
 
   useEffect(() => {
-    if (typeof width !== "number" || typeof height !== "number") {
-      return;
-    }
-
-    const isImageEditorOutput =
-      data.model === "manual-edit" || data.model === "manual-mask";
-    const hasLegacyDefaultSize =
-      Math.round(width) === 300 && Math.round(height) === 260;
-    if (!isImageEditorOutput || !hasLegacyDefaultSize) {
-      return;
-    }
-
-    updateNodeData(
-      id,
-      getPreviewNodeSizeAtWidth(data.imageWidth, data.imageHeight, width),
-    );
-  }, [
-    data.imageHeight,
-    data.imageWidth,
-    data.model,
-    height,
-    id,
-    updateNodeData,
-    width,
-  ]);
-
-  useEffect(() => {
     if (!showPreview) {
       return;
     }
@@ -314,7 +286,14 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
     setSaveError("");
 
     try {
-      const blob = await imageUrlToBlob(data.imageUrl);
+      const blob = await downloadPreviewImage({
+        imageUrl: data.imageUrl,
+        relativePath: data.imageAsset?.relativePath,
+        resolveAssetUrl: (relativePath) =>
+          platformBridge.resolveWorkspaceAssetUrl(relativePath),
+        clearAssetUrlCache: () => platformBridge.clearWorkspaceAssetUrlCache(),
+        download: imageUrlToBlob,
+      });
       const mimeType =
         blob.type || data.imageAsset?.mimeType || inferMimeType(data.imageUrl);
       const extension = IMAGE_MIME_EXTENSIONS[mimeType] || "png";

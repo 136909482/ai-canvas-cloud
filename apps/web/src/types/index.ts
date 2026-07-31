@@ -54,7 +54,6 @@ export interface ModelEntry {
   createdAt: number;
   updatedAt: number;
   lastSeenAt?: number;
-  legacyLabel?: string;
 }
 
 export interface RuntimeModelConfig extends ModelEntry {
@@ -372,8 +371,6 @@ export interface GenerateTask {
   referenceImages: GenerateTaskImageSource[];
   editImageSource?: GenerateTaskImageSource | null;
   maskImageSource?: GenerateTaskImageSource | null;
-  /** Legacy snapshot compatibility. Runtime execution uses referenceImages. */
-  referenceImageUrls: string[];
   inputFidelity?: ImageInputFidelity | null;
   quality?: GptImageQuality | null;
   googleSearch?: boolean;

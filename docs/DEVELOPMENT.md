@@ -130,27 +130,29 @@ docker compose --env-file production.env ps
 
 ### 镜像构建
 
-默认发布源是开发电脑上的 Docker Desktop。在 Windows PowerShell 中进入仓库根目录并执行：
+默认发布源是 Docker Hub 公共仓库 `hao136909482/ai-canvas-cloud`。发布前在 Windows PowerShell 中进入仓库根目录，以当前 Git SHA 和 `stable` 同时标记并推送 `linux/amd64` 镜像；服务器的 `deploy.sh` 会把 `stable` 解析成不可变 digest 后再启动。
+
+无法访问公共仓库时，在开发电脑上执行离线构建：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build-single-host-offline-image.ps1
 ```
 
-脚本会自动寻找并启动 Docker Desktop，构建 `linux/amd64` 的 `single-host-app`，实际运行一次服务端依赖导入冒烟检查，再把程序镜像写入 `.tmp/ai-canvas-cloud-single-host-image.tar`，并输出文件大小和 SHA256。这个归档不包含 PostgreSQL、Redis、服务器密钥或本地 `.env`。服务器不构建源码，也不需要 ACR；arm64 电脑同样必须保留脚本中的 `linux/amd64` 目标，供 x86_64 ECS 使用。
+脚本会自动寻找并启动 Docker Desktop，构建 `linux/amd64` 的 `single-host-app`，实际运行一次服务端依赖导入冒烟检查，再把程序镜像写入 `.tmp/ai-canvas-cloud-single-host-image.tar`，并输出文件大小和 SHA256。这个归档不包含 PostgreSQL、Redis、服务器密钥或本地 `.env`。服务器不构建源码；arm64 电脑同样必须保留脚本中的 `linux/amd64` 目标，供 x86_64 ECS 使用。
 
 PostgreSQL 与 Redis 继续使用 Compose 中固定版本的 Docker 官方镜像。服务器已经存在 `postgres:17.6-alpine3.22` 和 `redis:8.2.1-alpine3.22` 时不需要本地重复导出；缺少时首次启动会从 Docker Hub 拉取，因此国内服务器需要可用的 Docker 镜像加速。
 
-仓库中的 GitHub Actions ACR 工作流保留为可选的兼容发布通道。已有服务器可继续使用 `APP_IMAGE_SOURCE=registry`、`APP_REPOSITORY=<registry>/<namespace>/<image>`；新安装默认使用 `archive`，不需要配置 GitHub ACR Variables 或 Secrets。
+单机新安装默认使用 `APP_IMAGE_SOURCE=registry` 和 `APP_REPOSITORY=hao136909482/ai-canvas-cloud`，公共仓库不要求服务器登录。离线安装时把 `release.env.example` 改为 `APP_IMAGE_SOURCE=archive`，并把镜像 tar 上传到部署目录。仓库中的 GitHub Actions ACR 工作流仍可作为其他环境的可选发布通道。
 
 ### 单机首次发布
 
-先创建两个 DNS 记录和宝塔 HTTPS 站点；OSS Bucket 可以在安装前或安装后创建。把 `infra/deploy/single-host` 中的部署文件上传到服务器固定目录，例如 `/www/wwwroot/ai-canvas-cloud-single-host`，再把本地生成的 `ai-canvas-cloud-single-host-image.tar` 上传到同一目录。目录中必须直接看到 `setup.sh`、`deploy.sh`、`docker-compose.yml`、`release.env.example` 和镜像归档，不能再多套一层文件夹。进入目录后执行：
+先创建两个 DNS 记录和宝塔 HTTPS 站点；OSS Bucket 可以在安装前或安装后创建。把 `infra/deploy/single-host` 中的部署文件上传到服务器固定目录，例如 `/www/wwwroot/ai-canvas-cloud-single-host`。目录中必须直接看到 `setup.sh`、`deploy.sh`、`docker-compose.yml` 和 `release.env.example`，不能再多套一层文件夹；只有离线安装才需要同时上传镜像归档。进入目录后执行：
 
 ```bash
 sudo bash setup.sh
 ```
 
-脚本只询问普通站点和 Admin 站点两个域名；镜像文件名、端口、数据库名称和资源标识来自仓库默认配置，数据库、Redis、认证、加密密钥与内部资产维护密钥在服务器自动生成。master 配置保存在 `secrets/release.env`，普通/后台使用两个独立运行时环境文件。旧安装升级时 `deploy.sh` 会在缺少 `ASSET_MAINTENANCE_TOKEN` 时自动补齐，不要求人工填写。脚本加载本地归档、确认程序镜像为 `linux/amd64`、创建数据库角色和首个 `super_admin`，并等待两个应用进程启动。一个程序镜像会被普通应用和后台应用两个容器复用，加上 PostgreSQL、Redis，最终仍是四个常驻容器。`secrets/` 与 `backups/` 均为本机私有目录，权限必须保持为 `700`/`600`。
+脚本只询问普通站点和 Admin 站点两个域名；镜像仓库、端口、数据库名称和资源标识来自仓库默认配置，数据库、Redis、认证、加密密钥与内部资产维护密钥在服务器自动生成。master 配置保存在 `secrets/release.env`，普通/后台使用两个独立运行时环境文件。旧安装升级时 `deploy.sh` 会在缺少 `ASSET_MAINTENANCE_TOKEN` 时自动补齐，不要求人工填写。脚本拉取公共镜像并固定 digest；离线模式则加载归档并确认镜像为 `linux/amd64`。随后脚本创建数据库角色和首个 `super_admin`，并等待两个应用进程启动。一个程序镜像会被普通应用和后台应用两个容器复用，加上 PostgreSQL、Redis，最终仍是四个常驻容器。`secrets/` 与 `backups/` 均为本机私有目录，权限必须保持为 `700`/`600`。
 
 首次登录 Admin 后进入“对象存储”，填写 Endpoint、签名 Endpoint、Bucket Origin、Region、Bucket 和 RAM AccessKey，先执行读写删除测试，再保存启用。发布前普通站点和 Admin 均可登录，但依赖 readiness 显示 degraded，图片和视频上传不可用；发布后无需重启容器。单机模式没有环境 OSS 回退，因此后台不会提供“恢复环境配置”操作。
 
@@ -168,18 +170,29 @@ sudo bash setup.sh
 
 `setup.sh` 只用于第一次安装。服务器已经存在 `secrets/release.env` 后禁止再次运行 `setup.sh`，否则脚本会拒绝覆盖；日常更新统一使用 `deploy.sh`。
 
+服务器已经部署过旧开发迁移链、但尚未正式运营且确认可以丢弃全部数据库数据时，先发布当前镜像并上传全部单机部署文件，再执行 `sudo bash reset-prelaunch.sh --confirm-empty-database`。脚本停止两个应用，启动 PostgreSQL 完成最终自包含备份，校验备份非空并通过 `pg_restore --list` 解析，再核对固定 volume 名、Compose 项目标记和 volume key；只有全部检查通过才停止整套 Compose、删除 `ai-canvas-cloud-single-host-postgres`，随后调用当前 `deploy.sh` 创建单一基线、配置和校验角色、重建应用，并交互创建首个 `super_admin`。任一步骤在删卷前失败会尝试恢复原服务；删卷后失败必须从脚本打印的备份恢复或修复后继续，不自动回滚。该脚本不删除 Redis volume、OSS 对象、`secrets/` 或旧备份；重建后需要在 Admin 重新配置对象存储、Managed SMTP 和网站设置。正式运营后严禁运行该脚本，只能通过追加迁移和常规 `deploy.sh` 更新。
+
 ### 日常发布与故障处理
 
-升级时先在本地更新代码并重新运行 PowerShell 构建脚本：
+升级时先在本地更新代码、完成验证，再以 Git SHA 和 `stable` 两个标签发布镜像：
 
 ```powershell
 npm run check
-powershell -ExecutionPolicy Bypass -File scripts/build-single-host-offline-image.ps1
+$gitSha = git rev-parse --short=12 HEAD
+docker build --platform linux/amd64 --target single-host-app `
+  --tag "hao136909482/ai-canvas-cloud:$gitSha" `
+  --tag "hao136909482/ai-canvas-cloud:stable" .
+docker run --rm --platform linux/amd64 --entrypoint node `
+  "hao136909482/ai-canvas-cloud:$gitSha" `
+  -e "import('./server/dist/modules/admin/postgresAdminService.js')"
+docker push "hao136909482/ai-canvas-cloud:$gitSha"
+docker push "hao136909482/ai-canvas-cloud:stable"
 ```
 
-构建成功后记录脚本输出的 SHA256。通过宝塔上传并覆盖服务器同目录的 `ai-canvas-cloud-single-host-image.tar`。为避免服务器部署脚本落后，每次更新同时用仓库当前版本覆盖以下文件：
+镜像推送完成后记录 Docker Hub 返回的 digest。部署脚本有变化时，用仓库当前版本覆盖服务器同目录的以下文件：
 
 - `deploy.sh`
+- `reset-prelaunch.sh`
 - `docker-compose.yml`
 - `status.sh`
 - `setup.sh`
@@ -187,16 +200,16 @@ powershell -ExecutionPolicy Bypass -File scripts/build-single-host-offline-image
 - `baota-public.location.conf.example`
 - `baota-admin.location.conf.example`
 
-只覆盖上述部署文件和镜像归档，绝不能删除或覆盖服务器的 `secrets/`、`backups/` 和 Docker volumes。`secrets/` 保存数据库密码、认证密钥、配置加密密钥和当前部署状态；丢失后不能靠重新运行安装脚本恢复原站点。
+只覆盖上述部署文件，绝不能删除或覆盖服务器的 `secrets/`、`backups/` 和 Docker volumes。`secrets/` 保存数据库密码、认证密钥、配置加密密钥和当前部署状态；丢失后不能靠重新运行安装脚本恢复原站点。
 
-在服务器核对上传文件的 SHA256 与本地构建输出一致：
+旧安装首次切换到公共仓库时，只修改服务器已有的 `secrets/release.env`：
 
 ```bash
-cd /www/wwwroot/ai-canvas-cloud-single-host
-sha256sum ai-canvas-cloud-single-host-image.tar
+APP_IMAGE_SOURCE=registry
+APP_REPOSITORY=hao136909482/ai-canvas-cloud
 ```
 
-确认一致后执行更新：
+随后执行更新：
 
 ```bash
 cd /www/wwwroot/ai-canvas-cloud-single-host
@@ -204,7 +217,7 @@ sudo bash deploy.sh
 sudo bash status.sh
 ```
 
-`deploy.sh` 加载归档，并按实际 Image ID 创建不可变本地标签，等待 PostgreSQL 和 Redis healthcheck 通过后创建 PostgreSQL 自包含备份，再校验配置、运行迁移和数据库角色校验、刷新两个运行时环境文件、重建两个应用并等待存活检查。普通站点和 Admin 全部存活后，脚本通过 release 容器读取 `/app/apps/web/dist` 与 `/app/apps/admin-web/dist`，先真实 `GET` 两个正式域名的 HTML，再枚举两套 `/assets/*` 通过对应正式域名预热 EdgeOne，包括懒加载 Chunk。预热固定并发 4、单请求超时 15 秒、失败最多重试 2 次；日志只包含域名、无查询参数的资源路径、状态码和成功/失败汇总。个别资源失败只产生警告，不回滚健康版本；预热无需 Cookie、Token、腾讯云 SecretId/SecretKey 或 EdgeOne 管理 API。
+`deploy.sh` 拉取 `stable` 并按仓库 digest 固定本次部署，等待 PostgreSQL 和 Redis healthcheck 通过后创建 PostgreSQL 自包含备份，再校验配置、运行迁移和数据库角色校验、刷新两个运行时环境文件、重建两个应用并等待存活检查。离线模式则加载归档并按实际 Image ID 固定本次部署。普通站点和 Admin 全部存活后，脚本通过 release 容器读取 `/app/apps/web/dist` 与 `/app/apps/admin-web/dist`，先真实 `GET` 两个正式域名的 HTML，再枚举两套 `/assets/*` 通过对应正式域名预热 EdgeOne，包括懒加载 Chunk。预热固定并发 4、单请求超时 15 秒、失败最多重试 2 次；日志只包含域名、无查询参数的资源路径、状态码和成功/失败汇总。个别资源失败只产生警告，不回滚健康版本；预热无需 Cookie、Token、腾讯云 SecretId/SecretKey 或 EdgeOne 管理 API。
 
 发布脚本不会在服务器构建源码，也不会自动回滚 SQL；迁移后的失败保留备份和失败状态，必须按 `DATA_MODEL.md` 的前向修复或隔离恢复流程处理。备份必须复制到另一台设备或独立 OSS Bucket，同机备份不能覆盖整机故障。`status.sh` 分别显示应用是否运行和 PostgreSQL、Redis、OSS 是否全部 ready。正式发布后还应连续请求同一 Hash 资源两次，确认一年 `immutable` 响应头且第二次由 EdgeOne 命中；该项必须在真实域名和真实 EdgeOne 响应头上验收，本地模拟不能代替。
 
@@ -237,7 +250,7 @@ Web 不得 import `server/`、数据库驱动、Redis 或对象存储管理 SDK�
 
 Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户名、邮箱、UID、状态、session 时间、workspace 与存储聚合，不读取兼容 `name`、密码哈希、session token、项目正文、资产 object key 或浏览器 Provider 配置。仅 `super_admin` 可通过账号恢复入口写入新的 Better Auth 密码哈希；输入密码只在请求内存中短期存在，更新与 session 撤销、脱敏审计同事务提交，响应和审计不返回密码或哈希。
 
-认证邮件支持 `development|smtp|managed` 三种传输模式。`managed` 每次发送前读取 `public.smtp_config_publications`，按 revision 缓存解密后的运行配置和 Nodemailer transporter，并在每次发送前重新校验 DNS；后台新 revision 或公网目标变化后下一封邮件立即替换缓存，不要求重启。尚无后台 revision 时可回退旧 SMTP 环境变量，管理员明确停用后不得回退。注册邮箱验证码仅在站点设置开启后发送，发送与已有账号均保持不披露账号状态的响应语义；注册与密码重置验证码均由 PostgreSQL 挑战记录一次性消费，10 分钟有效、60 秒冷却、连续 5 次错误失效。密码重置表不保存 Better Auth token 明文，只保存 AES-256-GCM 密文；SMTP `sendMail` 不自动重试。
+认证邮件只支持 `development|managed` 两种传输模式。`managed` 每次发送前读取 `public.smtp_config_publications`，按 revision 缓存解密后的运行配置和 Nodemailer transporter，并在每次发送前重新校验 DNS；后台新 revision 或公网目标变化后下一封邮件立即替换缓存，不要求重启。没有已启用的后台 revision 时邮件服务不可用，不读取环境 SMTP 配置。注册邮箱验证码仅在站点设置开启后发送，发送与已有账号均保持不披露账号状态的响应语义；注册与密码重置验证码均由 PostgreSQL 挑战记录一次性消费，10 分钟有效、60 秒冷却、连续 5 次错误失效。密码重置表不保存 Better Auth token 明文，只保存 AES-256-GCM 密文；SMTP `sendMail` 不自动重试。
 
 只有 `super_admin` 拥有 `smtp_config.write`。后台测试和发布只接受用户名/密码 SMTP、`SSL/TLS` 或强制 `STARTTLS`，证书校验和 TLS 1.2 不可关闭；每次连接先解析全部 DNS 结果并拒绝本机、私网、链路本地和保留地址。密码只以 AES-256-GCM 信封密文进入数据库，`SMTP_CREDENTIAL_KEYS` 与活动 key version 只能由 API/Admin API 服务器环境提供，不能从后台填写或返回前端。
 
@@ -276,15 +289,15 @@ Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户�
 
 普通 API 统一处理精确 Origin、Cookie CSRF、安全响应头、严格 JSON、固定路由组和 Redis Lua 原子限流。Redis 故障时普通读可 fail-open，高风险认证和写请求必须 fail-closed。
 
-HTTP 接入层使用临时双适配结构保留应用级回滚能力。两个服务分别从自身运行环境读取 `HTTP_ADAPTER=legacy|fastify`，缺少配置时仍由应用配置回退 `legacy`，非法值必须在建立监听前失败；本地、staging、production 和 single-host 部署模板均显式配置公共与 Admin Fastify 入口。公共与 Admin 路由均已完整迁移，Fastify 不再把未匹配请求转发给原 Node HTTP handler；旧入口只作为显式服务级回滚 adapter 保留，不复制写请求或请求体。请求 ID、安全头、CORS/CSRF、严格 JSON、限流、指标和稳定错误映射属于接入层共用约束；Cookie、User-Agent、客户端 IP 和请求 ID 通过共用请求上下文适配器传给认证服务，同一请求的会话只解析一次。领域服务依赖仍由服务启动入口一次组装并注入，路由不得直接访问 PostgreSQL、Redis 或对象存储。
+HTTP 接入层仅使用 Fastify，普通 API 与 Admin API 均不提供旧 Node HTTP handler、双适配配置或运行时切换开关。请求 ID、安全头、CORS/CSRF、严格 JSON、限流、指标和稳定错误映射属于接入层共用约束；Cookie、User-Agent、客户端 IP 和请求 ID 通过共用请求上下文适配器传给认证服务，同一请求的会话只解析一次。领域服务依赖仍由服务启动入口一次组装并注入，路由不得直接访问 PostgreSQL、Redis 或对象存储。
 
 Fastify JSON parser 必须使用 fatal UTF-8 解码，拒绝重复键、无效 Unicode、超过 64 层或 100,000 entries 的结构，并由路由声明独立 body limit。AJV 不得删除字段、强转类型或注入默认值；TypeBox 描述传输结构，现有领域验证器继续接收原始解析结果并作为复杂语义的权威。TypeBox Schema 只从 `@ai-canvas-cloud/contracts/http-schema` 和 `@ai-canvas-cloud/contracts/admin-http-schema` 服务端子路径导入，Contracts 根入口和浏览器入口不得重新导出。开发 Fastify 模式注册 `/docs` 与 `/docs/json`；production/staging 不注册 OpenAPI 路由。普通 API 与 Admin API build 分别生成并检查 OpenAPI 产物，Schema 或 `operationId` 缺失及重复都会失败。
 
-公共 API 与 Admin API adapter 契约测试必须覆盖各自路由清单中的全部方法和路径，并对照状态码、响应头、响应体、可信 actor、错误结构和请求体边界。真实 PostgreSQL/对象存储 E2E 对 Legacy 与 Fastify 分别创建隔离 Schema、账号和资源，禁止把同一写请求同时发送到两个 adapter 或共享一套可变测试数据。
+公共 API 与 Admin API 契约测试必须覆盖各自路由清单中的全部方法和路径，并验证状态码、响应头、响应体、可信 actor、错误结构和请求体边界。真实 PostgreSQL/对象存储 E2E 使用独立 Schema、账号和资源验证 Fastify 路径，不共享可变测试数据。
 
 普通 API readiness 检查 PostgreSQL、Redis 和对象存储；Admin API 只检查 PostgreSQL 和对象存储。指标只使用低基数标签，不包含用户、workspace、project、动态 URL、主机、邮箱、正文或凭据；邮件指标只按 `verification|password_reset|test`、结果、失败类别和配置来源区分。
 
-生产应用启动不自动迁移。`0029_remove_server_generation.sql` 已删除旧 Provider 密文、服务器任务/队列/用量、官方目录/积分和任务资产引用；`0030_user_usernames.sql` 已把普通账号升级为必填且不可修改的用户名契约；`0031_generation_telemetry.sql` 增加不可执行的脱敏运营表；`0032_managed_smtp_configuration.sql` 增加版本化加密 SMTP 配置与最小发布投影；`0033_registration_email_codes.sql` 增加只保存 HMAC 哈希的注册邮箱验证码挑战表，并扩展站点配置 schema；`0034_password_reset_email_codes.sql` 增加保存 HMAC 和 AES-256-GCM token 密文的密码重置验证码挑战表；`0036_personal_workspace_storage_quota.sql` 保留现有数据并把旧默认个人空间配额调整为 10 GiB。执行 contract 前必须备份并停止不兼容写入方，所有迁移后重新应用数据库角色并完成约束审计；回滚与前向修复详细语义只在 [`DATA_MODEL.md`](DATA_MODEL.md) 维护。
+生产应用启动不自动迁移。当前数据库只从 `0001_current_schema.sql` 创建，首次正式运营前必须重建空库、应用基线并重新配置数据库角色。基线不提供开发期数据库的原地升级；正式运营后所有 schema 变更必须追加显式迁移。回滚与前向修复详细语义只在 [`DATA_MODEL.md`](DATA_MODEL.md) 维护。
 
 ## 开发命令
 
@@ -299,10 +312,7 @@ npm run dev:start
 npm run dev:stop
 npm run dev:restart
 npm run dev:status
-npm run verify:http-adapters
 ```
-
-`verify:http-adapters` 必须连接真实 PostgreSQL、Redis 和对象存储，且 `MIGRATION_DATABASE_URL` 对应角色必须具有 `CREATEDB` 权限。命令迁移一个临时基线库，再克隆 Legacy/Fastify 两个相同快照；写入使用各自数据库中的独立项目和唯一幂等键，适配器按轮交替采样，结束后删除临时对象和数据库。正式验收固定使用 25/100/250 并发、15 秒预热、60 秒采样和 3 次重复，混合覆盖会话、项目列表/详情、图读写、资产元数据和 Admin 用户查询；Legacy 基线出现 5xx 或传输错误时环境无效，Fastify 中位吞吐不得低于 Legacy 的 95%，P95 不得高于 Legacy 的 110%，不得出现非预期非 2xx。随后以 2 个公共 API 和 2 个 Admin API 实例验证轮询、共享会话、Redis 全局限流、跨实例资产上传、图幂等、稳定 409 和单实例重启。
 
 代码验证：
 

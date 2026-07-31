@@ -38,7 +38,6 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 8787
       API_TRUST_PROXY: "true"
-      HTTP_ADAPTER: ${PUBLIC_HTTP_ADAPTER:-fastify}
       NODE_OPTIONS: --max-old-space-size=256
     expose:
       - "8787"
@@ -83,7 +82,6 @@ services:
       ADMIN_API_HOST: 0.0.0.0
       ADMIN_API_PORT: 8788
       ADMIN_API_TRUST_PROXY: "true"
-      HTTP_ADAPTER: ${ADMIN_HTTP_ADAPTER:-fastify}
       NODE_OPTIONS: --max-old-space-size=160
     expose:
       - "8788"

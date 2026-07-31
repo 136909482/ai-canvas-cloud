@@ -38,7 +38,7 @@ export function validateSchemaReleaseManifest(
       "Schema release manifest does not cover every SQL migration",
     );
   let previousPhase = 0;
-  let previousTrain = "legacy";
+  let previousTrain = "initial";
   const completedTrains = new Set();
   const seen = new Set();
   for (const [index, migration] of manifest.migrations.entries()) {
@@ -57,7 +57,7 @@ export function validateSchemaReleaseManifest(
     )
       throw new Error(`Invalid schema release entry ${migration.version}`);
     seen.add(migration.version);
-    const releaseTrain = migration.releaseTrain ?? "legacy";
+    const releaseTrain = migration.releaseTrain ?? "initial";
     if (!/^[a-z][a-z0-9_-]{0,31}$/.test(releaseTrain))
       throw new Error(`Invalid schema release train at ${migration.version}`);
     if (releaseTrain !== previousTrain) {

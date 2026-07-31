@@ -109,6 +109,7 @@ test("register delegates credentials to Better Auth and creates workspace data",
       email: " Artist@Example.COM ",
       password: "long-enough-password",
       acceptedTermsAndPrivacy: true,
+      deviceId: "device-a",
     },
     { requestId: "req_1", userAgent: "agent", ipAddress: "127.0.0.1" },
   );
@@ -180,6 +181,7 @@ test("registration requires a valid email code when the site setting is enabled"
           email: "artist@example.com",
           password: "long-enough-password",
           acceptedTermsAndPrivacy: true,
+          deviceId: "device-a",
         },
         { requestId: "registration-code-required" },
       ),
@@ -334,13 +336,6 @@ test("confirmed login revokes the old session and records the new device", async
     calls.some(
       (call) =>
         call.text.includes("INSERT INTO auth_devices") &&
-        call.values?.[1] === "device-b",
-    ),
-  );
-  assert(
-    calls.some(
-      (call) =>
-        call.text.includes("device_key LIKE 'legacy-session:%'") &&
         call.values?.[1] === "device-b",
     ),
   );
@@ -627,6 +622,7 @@ test("register maps Better Auth duplicate email errors to validation conflicts",
           email: "artist@example.com",
           password: "long-enough-password",
           acceptedTermsAndPrivacy: true,
+          deviceId: "device-a",
         },
         { requestId: "req_1" },
       ),
@@ -678,7 +674,11 @@ test("login routes mixed-case usernames through Better Auth normalization", asyn
   });
 
   const result = await authService.login(
-    { identifier: " ArTiSt_01 ", password: "long-enough-password" },
+    {
+      identifier: " ArTiSt_01 ",
+      password: "long-enough-password",
+      deviceId: "device-a",
+    },
     { requestId: "username-login" },
   );
 
@@ -708,6 +708,7 @@ test("register maps username conflicts to the stable unavailable error", async (
           email: "artist@example.com",
           password: "long-enough-password",
           acceptedTermsAndPrivacy: true,
+          deviceId: "device-a",
         },
         { requestId: "username-conflict" },
       ),

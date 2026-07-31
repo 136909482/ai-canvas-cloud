@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import pg from "pg";
+import { isolateCurrentSchemaSql } from "../../dist/db/schemaBaseline.js";
 import { loadDotEnv } from "../../dist/env/loadDotEnv.js";
 import { AuthServiceError } from "../../dist/modules/auth/service.js";
 import { createPostgresProjectService } from "../../dist/modules/projects/postgresProjectService.js";
@@ -25,25 +26,27 @@ test(
       await pool.query(`CREATE SCHEMA "${schemaName}"`);
       await pool.query(`SET search_path TO "${schemaName}", public`);
 
-      for (const fileName of [
-        "0001_schema_migrations.sql",
-        "0002_auth_workspaces.sql",
-        "0003_project_graph.sql",
-        "0004_project_snapshot_scope.sql",
-      ]) {
-        await pool.query(
+      await pool.query(
+        isolateCurrentSchemaSql(
           await readFile(
-            join(process.cwd(), "server", "db", "migrations", fileName),
+            join(
+              process.cwd(),
+              "server",
+              "db",
+              "migrations",
+              "0001_current_schema.sql",
+            ),
             "utf8",
           ),
-        );
-      }
+          schemaName,
+        ),
+      );
 
       await pool.query(`
-      INSERT INTO "user" (id, name, email, email_verified)
+      INSERT INTO "user" (id, name, email, email_verified, username, display_username)
       VALUES
-        ('user-a', 'A', 'a-project-test@example.com', true),
-        ('user-b', 'B', 'b-project-test@example.com', true)
+        ('user-a', 'A', 'a-project-test@example.com', true, 'project_a', 'project_a'),
+        ('user-b', 'B', 'b-project-test@example.com', true, 'project_b', 'project_b')
     `);
       await pool.query(`
       INSERT INTO workspaces (id, name, owner_user_id)

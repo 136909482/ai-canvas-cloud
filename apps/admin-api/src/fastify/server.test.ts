@@ -11,12 +11,11 @@ import type {
   AdminUserOperationsService,
 } from "@ai-canvas-cloud/server/modules/admin";
 import { ADMIN_ROUTE_INVENTORY } from "../routeInventory.ts";
-import { closeAdminApiServer, createAdminApiServer } from "../server.ts";
+import { closeAdminApiServer } from "../serverLifecycle.ts";
 import { createFastifyAdminApiServer } from "./server.ts";
 
 const config = {
   env: "development",
-  httpAdapter: "fastify" as const,
   host: "127.0.0.1",
   port: 8788,
   logLevel: "error" as const,
@@ -41,7 +40,6 @@ const config = {
   assetMaintenanceApiUrl: "http://127.0.0.1:8787",
   assetMaintenanceToken: "asset-maintenance-token-for-tests-123456",
   smtpCredentialActiveKeyVersion: 1,
-  smtpSecure: false,
 };
 
 const logger = { debug() {}, info() {}, warn() {}, error() {} };
@@ -160,38 +158,6 @@ async function listen(options: { env?: string } = {}) {
   return { server, port: address.port };
 }
 
-async function listenLegacy() {
-  const server = createAdminApiServer({
-    config,
-    adminService,
-    dashboardService: serviceProxy<AdminDashboardService>(),
-    siteConfigService: serviceProxy<AdminSiteConfigService>(),
-    smtpConfigService: serviceProxy<AdminSmtpConfigService>(),
-    objectStorageConfigService: serviceProxy<AdminObjectStorageConfigService>(),
-    assetCleanupService: serviceProxy<AdminAssetCleanupService>(),
-    userOperationsService: serviceProxy<AdminUserOperationsService>(),
-    logger,
-    readinessChecks: {
-      postgres: async () => ({ ok: true, latencyMs: 1 }),
-      objectStorage: async () => ({ ok: true, latencyMs: 1 }),
-    },
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  assert(address && typeof address === "object");
-  return { server, port: address.port };
-}
-
-function normalizedJson(text: string) {
-  const value = JSON.parse(text) as Record<string, unknown>;
-  if (value.error && typeof value.error === "object") {
-    delete (value.error as Record<string, unknown>).requestId;
-  }
-  delete value.requestId;
-  delete value.checkedAt;
-  return value;
-}
-
 test("Admin Fastify registers and serves the complete route inventory", async () => {
   const { server, port } = await listen();
   try {
@@ -252,75 +218,5 @@ test("Admin Fastify keeps writes behind CSRF and docs outside production", async
     );
   } finally {
     await closeAdminApiServer(production.server, 1_000);
-  }
-});
-
-test("Admin Fastify preserves legacy route payload and header contracts", async () => {
-  const legacy = await listenLegacy();
-  const fastify = await listen();
-  try {
-    const legacyCsrf = await request(legacy.port, {
-      path: "/admin/v1/auth/csrf",
-    });
-    const fastifyCsrf = await request(fastify.port, {
-      path: "/admin/v1/auth/csrf",
-    });
-    const legacyToken = JSON.parse(legacyCsrf.text).token as string;
-    const fastifyToken = JSON.parse(fastifyCsrf.text).token as string;
-    const legacyCookie = legacyCsrf.headers["set-cookie"]?.[0]?.split(";")[0];
-    const fastifyCookie = fastifyCsrf.headers["set-cookie"]?.[0]?.split(";")[0];
-    assert(legacyCookie && fastifyCookie);
-
-    const comparableRoutes = ADMIN_ROUTE_INVENTORY.filter(
-      (route) =>
-        ![
-          "getAdminPrometheusMetrics",
-          "getAdminHealthLive",
-          "getAdminHealthReady",
-          "getAdminCsrfToken",
-        ].includes(route.operationId),
-    );
-    for (const route of comparableRoutes) {
-      const common = {
-        path: concretePath(route.path),
-        method: route.method,
-        ...(route.method === "POST"
-          ? { origin: "http://localhost:5174", body: bodyFor(route.path) }
-          : {}),
-      };
-      const legacyResponse = await request(legacy.port, {
-        ...common,
-        ...(route.method === "POST"
-          ? { cookie: legacyCookie, csrf: legacyToken }
-          : {}),
-      });
-      const fastifyResponse = await request(fastify.port, {
-        ...common,
-        ...(route.method === "POST"
-          ? { cookie: fastifyCookie, csrf: fastifyToken }
-          : {}),
-      });
-      assert.equal(
-        fastifyResponse.status,
-        legacyResponse.status,
-        route.operationId,
-      );
-      assert.deepEqual(
-        normalizedJson(fastifyResponse.text),
-        normalizedJson(legacyResponse.text),
-        route.operationId,
-      );
-      assert.equal(
-        fastifyResponse.headers["content-type"],
-        legacyResponse.headers["content-type"],
-        route.operationId,
-      );
-      assert.equal(fastifyResponse.headers["cache-control"], "no-store");
-    }
-  } finally {
-    await Promise.all([
-      closeAdminApiServer(legacy.server, 1_000),
-      closeAdminApiServer(fastify.server, 1_000),
-    ]);
   }
 });

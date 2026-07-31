@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import pg from "pg";
+import { isolateCurrentSchemaSql } from "../../dist/db/schemaBaseline.js";
 import { loadDotEnv } from "../../dist/env/loadDotEnv.js";
 import { AuthServiceError } from "../../dist/modules/auth/service.js";
 import { createPostgresMigrationAssetUploadService } from "../../dist/modules/migrations/migrationAssetUploadService.js";
@@ -124,24 +125,23 @@ test(
       const migrations = (
         await readdir(join(process.cwd(), "server", "db", "migrations"))
       )
-        .filter(
-          (fileName) =>
-            fileName.endsWith(".sql") &&
-            !/^(?:002[5-9]|0030|003[235])_/.test(fileName),
-        )
+        .filter((fileName) => fileName.endsWith(".sql"))
         .sort();
       for (const fileName of migrations) {
         await pool.query(
-          await readFile(
-            join(process.cwd(), "server", "db", "migrations", fileName),
-            "utf8",
+          isolateCurrentSchemaSql(
+            await readFile(
+              join(process.cwd(), "server", "db", "migrations", fileName),
+              "utf8",
+            ),
+            schemaName,
           ),
         );
       }
       await pool.query(`
-      INSERT INTO "user" (id, name, email, email_verified)
-      VALUES ('migration-upload-a', 'Upload A', 'migration-upload-a@example.com', true),
-             ('migration-upload-b', 'Upload B', 'migration-upload-b@example.com', true)
+      INSERT INTO "user" (id, name, email, email_verified, username, display_username)
+      VALUES ('migration-upload-a', 'Upload A', 'migration-upload-a@example.com', true, 'migration_upload_a', 'migration_upload_a'),
+             ('migration-upload-b', 'Upload B', 'migration-upload-b@example.com', true, 'migration_upload_b', 'migration_upload_b')
     `);
       await pool.query(
         `
@@ -199,7 +199,7 @@ test(
         available_bytes_at_prepare, manifest_json, project_record_json, graph_json,
         asset_manifest_json, expires_at
       ) VALUES (
-        $1, $2, 'migration-upload-a', 1, 'upload-package', 'electron', 'legacy-upload', 0, 0,
+        $1, $2, 'migration-upload-a', 1, 'upload-package', 'electron', 'current-upload', 0, 0,
         'Upload package', repeat('a', 64), repeat('b', 64), 'upload-import', 2, 6, $3, $3,
         33554432, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $4::jsonb, now() + interval '1 day'
       )

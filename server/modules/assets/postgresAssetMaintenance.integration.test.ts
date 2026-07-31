@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import pg from "pg";
+import { isolateCurrentSchemaSql } from "../../dist/db/schemaBaseline.js";
 import { loadDotEnv } from "../../dist/env/loadDotEnv.js";
 import type { AssetMaintenanceObjectStorage } from "../../dist/modules/assets/assetMaintenance.js";
 import { createPostgresAssetMaintenanceService } from "../../dist/modules/assets/postgresAssetMaintenance.js";
@@ -50,25 +51,24 @@ test(
       const migrationFiles = (
         await readdir(join(process.cwd(), "server", "db", "migrations"))
       )
-        .filter(
-          (fileName) =>
-            fileName.endsWith(".sql") &&
-            !/^(?:002[5-9]|0030|003[235])_/.test(fileName),
-        )
+        .filter((fileName) => fileName.endsWith(".sql"))
         .sort();
       for (const fileName of migrationFiles) {
         await pool.query(
-          await readFile(
-            join(process.cwd(), "server", "db", "migrations", fileName),
-            "utf8",
+          isolateCurrentSchemaSql(
+            await readFile(
+              join(process.cwd(), "server", "db", "migrations", fileName),
+              "utf8",
+            ),
+            schemaName,
           ),
         );
       }
 
       await pool.query(`
-      INSERT INTO "user" (id, name, email, email_verified)
-      VALUES ('maintenance-user-a', 'A', 'maintenance-a@example.com', true),
-             ('maintenance-user-b', 'B', 'maintenance-b@example.com', true)
+      INSERT INTO "user" (id, name, email, email_verified, username, display_username)
+      VALUES ('maintenance-user-a', 'A', 'maintenance-a@example.com', true, 'maintenance_a', 'maintenance_a'),
+             ('maintenance-user-b', 'B', 'maintenance-b@example.com', true, 'maintenance_b', 'maintenance_b')
     `);
       await pool.query(
         `

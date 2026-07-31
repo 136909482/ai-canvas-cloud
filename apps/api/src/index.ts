@@ -1,9 +1,7 @@
 import {
   createDevelopmentAuthEmailService,
   createManagedSmtpAuthEmailService,
-  createSmtpAuthEmailService,
   createSmtpCredentialKeyring,
-  legacySmtpRuntimeConfig,
   createPostgresAssetService,
   createPostgresAssetMaintenanceService,
   createAssetCleanupService,
@@ -29,7 +27,7 @@ import {
   createMetricsRegistry,
 } from "@ai-canvas-cloud/shared";
 import { loadApiConfig } from "./config.js";
-import { closeApiServer, createApiServer } from "./server.js";
+import { closeApiServer } from "./serverLifecycle.js";
 import { createFastifyApiServer } from "./fastify/server.js";
 import { createRedisRateLimiter } from "./rateLimit.js";
 
@@ -43,48 +41,21 @@ const dbPool = createPostgresPool({
   max: config.databasePoolMax,
 });
 const rateLimiter = createRedisRateLimiter(config.redisUrl, config.env);
-const legacySmtpConfig =
-  config.smtpHost &&
-  config.smtpPort &&
-  config.smtpFrom &&
-  config.smtpUsername &&
-  config.smtpPassword
-    ? legacySmtpRuntimeConfig({
-        host: config.smtpHost,
-        port: config.smtpPort,
-        secure: config.smtpSecure,
-        from: config.smtpFrom,
-        username: config.smtpUsername,
-        password: config.smtpPassword,
-      })
-    : undefined;
 const authEmailService =
-  config.authEmailTransport === "smtp"
-    ? createSmtpAuthEmailService({
-        host: config.smtpHost!,
-        port: config.smtpPort!,
-        secure: config.smtpSecure,
-        from: config.smtpFrom!,
-        username: config.smtpUsername!,
-        password: config.smtpPassword!,
+  config.authEmailTransport === "managed"
+    ? createManagedSmtpAuthEmailService(dbPool, {
+        keyring: createSmtpCredentialKeyring({
+          serializedKeys: config.smtpCredentialKeys,
+          activeVersion: config.smtpCredentialActiveKeyVersion,
+          developmentSecret:
+            config.env === "development" ? config.betterAuthSecret : undefined,
+        }),
+        metrics,
       })
-    : config.authEmailTransport === "managed"
-      ? createManagedSmtpAuthEmailService(dbPool, {
-          keyring: createSmtpCredentialKeyring({
-            serializedKeys: config.smtpCredentialKeys,
-            activeVersion: config.smtpCredentialActiveKeyVersion,
-            developmentSecret:
-              config.env === "development"
-                ? config.betterAuthSecret
-                : undefined,
-          }),
-          fallbackConfig: legacySmtpConfig,
-          metrics,
-        })
-      : createDevelopmentAuthEmailService({
-          env: config.env,
-          logger,
-        });
+    : createDevelopmentAuthEmailService({
+        env: config.env,
+        logger,
+      });
 const workspaceAuthorizationService =
   createWorkspaceAuthorizationService(dbPool);
 const generationTelemetryService = createPostgresGenerationTelemetryService(
@@ -191,10 +162,7 @@ const serverOptions = {
     redis: rateLimiter.ping,
   },
 };
-const server =
-  config.httpAdapter === "fastify"
-    ? await createFastifyApiServer(serverOptions)
-    : createApiServer(serverOptions);
+const server = await createFastifyApiServer(serverOptions);
 void migrationExportService.recoverExports().catch(() => undefined);
 void migrationAssetUploadService
   .maintainStagingObjects()
@@ -256,6 +224,5 @@ server.listen(config.port, config.host, () => {
     host: config.host,
     port: config.port,
     env: config.env,
-    httpAdapter: config.httpAdapter,
   });
 });

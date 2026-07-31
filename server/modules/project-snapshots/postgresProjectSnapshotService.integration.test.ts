@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import pg from "pg";
+import { isolateCurrentSchemaSql } from "../../dist/db/schemaBaseline.js";
 import { loadDotEnv } from "../../dist/env/loadDotEnv.js";
 import { AuthServiceError } from "../../dist/modules/auth/service.js";
 import { createPostgresProjectGraphService } from "../../dist/modules/project-graph/postgresProjectGraphService.js";
@@ -36,26 +37,25 @@ test(
       const migrationFiles = (
         await readdir(join(process.cwd(), "server", "db", "migrations"))
       )
-        .filter(
-          (fileName) =>
-            fileName.endsWith(".sql") &&
-            !/^(?:002[5-9]|0030|003[235])_/.test(fileName),
-        )
+        .filter((fileName) => fileName.endsWith(".sql"))
         .sort();
       for (const fileName of migrationFiles) {
         await pool.query(
-          await readFile(
-            join(process.cwd(), "server", "db", "migrations", fileName),
-            "utf8",
+          isolateCurrentSchemaSql(
+            await readFile(
+              join(process.cwd(), "server", "db", "migrations", fileName),
+              "utf8",
+            ),
+            schemaName,
           ),
         );
       }
 
       await pool.query(`
-      INSERT INTO "user" (id, name, email, email_verified)
+      INSERT INTO "user" (id, name, email, email_verified, username, display_username)
       VALUES
-        ('snapshot-user-a', 'A', 'a-snapshot-test@example.com', true),
-        ('snapshot-user-b', 'B', 'b-snapshot-test@example.com', true)
+        ('snapshot-user-a', 'A', 'a-snapshot-test@example.com', true, 'snapshot_a', 'snapshot_a'),
+        ('snapshot-user-b', 'B', 'b-snapshot-test@example.com', true, 'snapshot_b', 'snapshot_b')
     `);
       await pool.query(`
       INSERT INTO workspaces (id, name, owner_user_id)

@@ -149,7 +149,7 @@ test(
       const published = await service.publish(
         {
           config: {
-            schemaVersion: 1,
+            schemaVersion: 2,
             siteName: "Integration Canvas",
             shortName: "Canvas",
             home: {
@@ -176,7 +176,11 @@ test(
             },
             themePreset: "system",
             navigation: ["home", "help", "legal"],
-            features: { registrationEnabled: true, feedbackEnabled: false },
+            features: {
+              registrationEnabled: true,
+              registrationEmailVerificationRequired: false,
+              feedbackEnabled: false,
+            },
             logoAssetId: upload.asset.id,
             faviconAssetId: null,
           },

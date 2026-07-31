@@ -18,11 +18,11 @@
 
 API 响应发送 nosniff、frame deny、Referrer/Permissions/COOP/CORP 及 `default-src 'none'` 的 API CSP；protected 环境发送 HSTS。Web HTML 的页面 CSP 由 Nginx 单独负责。
 
-HTTP adapter 不属于业务契约。本地开发的普通 API 与 Admin API 均使用 Fastify；各自在本服务的 `GET /docs` 和 `GET /docs/json` 提供已注册 Schema 的 OpenAPI 文档。production/staging 完全不注册这些 OpenAPI 路由并返回 404。切换 adapter 不得改变本文件中的路径、状态码、响应头、Cookie、错误结构或领域副作用。
+普通 API 与 Admin API 均使用 Fastify；各自在开发环境的 `GET /docs` 和 `GET /docs/json` 提供已注册 Schema 的 OpenAPI 文档。production/staging 完全不注册这些 OpenAPI 路由并返回 404。本文件中的路径、状态码、响应头、Cookie、错误结构和领域副作用是稳定业务契约。
 
 ## 浏览器 Vault 与 API 边界
 
-浏览器 Vault、任务缓存和临时生成结果没有 Cloud HTTP 资源。配置 Vault 使用 `schemaVersion=2`，任务缓存使用 `schemaVersion=3` 并兼容解密迁移 v2，二者的 `cipherVersion=1`；IndexedDB 数据库版本为 3。设备存储使用不可导出的 WebCrypto AES-256-GCM `CryptoKey`，AAD 绑定版本、Origin 和可信 session 用户 ID，任务缓存额外绑定项目 ID，临时结果额外绑定任务 ID。Provider 配置不含 Key，Key 按 `providerProfileId` 存在独立凭据槽，模型条目以 `modelEntryId` 为唯一身份。Provider 与模型配置保存后固定把密文与 Key 写入当前 Origin 的 IndexedDB，不提供 persistence 或单独删除入口；登出/session 失效/换账号清空内存但不删除设备记录；清除当前网站数据会由浏览器删除密文、Key、模型绑定、任务缓存和临时结果。当前内测环境不读取历史 localStorage、旧 Vault 或 v1 任务缓存。
+浏览器 Vault、任务缓存和临时生成结果没有 Cloud HTTP 资源。配置 Vault 只接受 `schemaVersion=2`，任务缓存只接受 `schemaVersion=3`，二者的 `cipherVersion=1`；IndexedDB 数据库版本为 3。设备存储使用不可导出的 WebCrypto AES-256-GCM `CryptoKey`，AAD 绑定版本、Origin 和可信 session 用户 ID，任务缓存额外绑定项目 ID，临时结果额外绑定任务 ID。Provider 配置不含 Key，Key 按 `providerProfileId` 存在独立凭据槽，模型条目以 `modelEntryId` 为唯一身份。Provider 与模型配置保存后固定把密文与 Key 写入当前 Origin 的 IndexedDB，不提供 persistence 或单独删除入口；登出/session 失效/换账号清空内存但不删除设备记录；清除当前网站数据会由浏览器删除密文、Key、模型绑定、任务缓存和临时结果。当前运行时只读取当前版本的 IndexedDB 记录。
 
 `GET /v1/models` 是浏览器到用户 Provider 的直接受控请求，不是 Cloud HTTP 契约：平台 API 不接收其 URL、Key、请求或响应。请求固定为 Bearer/Accept、无 Cookie、无 Referrer、禁止重定向、CORS、15 秒超时和 2 MiB 响应限制；弹窗取消不写入 Vault，确认把 Provider、凭据槽和模型条目作为同一次本地 Vault 更新保存。
 
@@ -151,7 +151,7 @@ DELETE /api/v1/projects/:projectId
 
 读取要求 workspace 成员，写操作要求 owner/admin/editor。列表支持 `status=active|archived`、`limit=1..100` 和不透明 cursor。创建只接受可选客户端 UUID 与 name；同工作区同 ID/name 幂等返回，不允许提交租户或所有者。
 
-项目摘要包含 ID、name、version、lastSequence、nodeCount、edgeCount、兼容 `taskCount`、archive/创建/更新时间。当前 `taskCount` 正常为 0，只是历史契约兼容字段，不代表存在服务器任务 API。删除为软删除并清理 workspace user state 引用。
+项目摘要包含 ID、name、version、lastSequence、nodeCount、edgeCount、archive/创建/更新时间。删除为软删除并清理 workspace user state 引用。
 
 ## 项目图
 
@@ -314,26 +314,6 @@ site assets 只接受 PNG/JPEG/WebP/ICO、最大 4 MiB、单边最大 4096；完
 注销请求严格为 `{ "reason": string, "confirmUserNumber": number, "ownershipTransfers": [{ "workspaceId": string, "successorUserId": string }] }`。原因长度为 3-500，编号必须与目标用户编号精确一致；每个仍有效的团队 owner 必须指定一名现有活跃成员接任。成功响应为 `{ deletedAt, purgeAfter, personalWorkspaceCount, removedTeamMembershipCount }`。
 
 该操作立即撤销普通用户 session、清除身份认证数据并匿名化用户行，团队内容和接任后的成员关系保留。个人空间进入固定 7 天清理期；云端无法删除浏览器本地 Vault，但被注销账号不再能通过可信会话使用它。稳定冲突码为 `USER_DELETION_ALREADY_REQUESTED`、`USER_DELETION_CONFIRMATION_MISMATCH`、`TEAM_OWNERSHIP_TRANSFER_REQUIRED` 和 `TEAM_OWNERSHIP_TRANSFER_INVALID`。
-
-## 已删除 URL
-
-下列服务器生成、Provider、官方模型和积分路径必须返回 404，不提供兼容空响应、重定向或空壳写接口：
-
-```text
-/api/v1/tasks
-/api/v1/tasks/*
-/api/v1/settings/providers
-/api/v1/settings/providers/*
-/api/v1/models/official
-/api/v1/workspaces/current/official-credits
-/admin/v1/providers
-/admin/v1/providers/*
-/admin/v1/models
-/admin/v1/models/*
-/admin/v1/workspaces/:workspaceId/credits/adjust
-```
-
-Worker `/health/live`、`/health/ready`、`/metrics` 和开发进程管理入口也不存在。普通 API 不代理或接收浏览器 Provider 请求。
 
 ## 主要错误码
 

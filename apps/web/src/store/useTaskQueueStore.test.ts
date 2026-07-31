@@ -27,7 +27,6 @@ function createTask(overrides: Partial<GenerateTask>): GenerateTask {
     apiProfileId: null,
     apiProfileName: null,
     provider: "openai",
-    referenceImageUrls: [],
     inputFidelity: null,
     quality: null,
     googleSearch: false,
@@ -180,19 +179,6 @@ function runTaskQueueRecoveryTests() {
   assert(
     reassignedTask.projectId === "opened-project",
     "loaded tasks should belong to the project that contains the snapshot",
-  );
-
-  const legacyTask = createTask({
-    operationType: "image-to-image",
-    referenceImageUrls: ["https://legacy/reference.png"],
-  });
-  (legacyTask as unknown as Record<string, unknown>).referenceImages =
-    undefined;
-  const migratedLegacyTask = recoverTasksAfterSnapshotLoad([legacyTask])[0];
-  assert(
-    migratedLegacyTask.referenceImages[0]?.imageUrl ===
-      "https://legacy/reference.png",
-    "legacy URL-only task snapshots should migrate to structured image inputs",
   );
 }
 

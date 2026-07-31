@@ -7,9 +7,10 @@ import {
   decryptLocalTaskQueueDocument,
   decryptPendingTaskResult,
   decryptLocalVaultDocument,
+  encryptLocalTaskQueueDocument,
   encryptPendingTaskResult,
   encryptLocalVaultDocument,
-  migrateLocalTaskQueueDocument,
+  type LocalTaskQueueDocument,
   type LocalVaultDocument,
 } from "./localVault.ts";
 
@@ -72,76 +73,28 @@ test("v2 Vault encrypts provider credentials separately from profiles", async ()
   assert.equal(LOCAL_TASK_CACHE_SCHEMA_VERSION, 3);
 });
 
-test("v2 task cache documents migrate to v3 without changing task data", () => {
-  const taskQueue = { tasks: [] };
-  const migrated = migrateLocalTaskQueueDocument({
-    schemaVersion: 2,
-    userId: "user-a",
-    projectId: "project-a",
-    taskQueue,
-    updatedAt: 42,
-  });
-
-  assert.deepEqual(migrated, {
-    schemaVersion: 3,
-    userId: "user-a",
-    projectId: "project-a",
-    taskQueue,
-    updatedAt: 42,
-  });
-});
-
-test("encrypted v2 task cache records decrypt and migrate to v3", async () => {
+test("encrypted current task cache records round-trip", async () => {
   const key = await createLocalVaultKey();
   const origin = "https://cloud.example";
   const userId = "user-a";
   const projectId = "project-a";
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const legacyDocument = {
-    schemaVersion: 2,
+  const document: LocalTaskQueueDocument = {
+    schemaVersion: LOCAL_TASK_CACHE_SCHEMA_VERSION,
     userId,
     projectId,
     taskQueue: { tasks: [] },
     updatedAt: 42,
   };
-  const ciphertext = await crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv,
-      additionalData: new TextEncoder().encode(
-        [
-          "ai-canvas-cloud:local-task-cache",
-          "cipher=1",
-          "schema=2",
-          `origin=${origin}`,
-          `user=${userId}`,
-          `project=${projectId}`,
-        ].join("\n"),
-      ),
-      tagLength: 128,
-    },
-    key,
-    new TextEncoder().encode(JSON.stringify(legacyDocument)),
-  );
-
-  const migrated = await decryptLocalTaskQueueDocument(
-    {
-      id: `user:${userId}:project:${projectId}`,
-      ownerId: `user:${userId}`,
-      cipherVersion: 1,
-      schemaVersion: 2,
-      iv: iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength),
-      ciphertext,
-      updatedAt: 42,
-    },
+  const encrypted = await encryptLocalTaskQueueDocument(document, key, origin);
+  const decrypted = await decryptLocalTaskQueueDocument(
+    encrypted,
     key,
     userId,
     projectId,
     origin,
   );
 
-  assert.equal(migrated.schemaVersion, 3);
-  assert.deepEqual(migrated.taskQueue, { tasks: [] });
+  assert.deepEqual(decrypted, document);
 });
 
 test("pending image results are encrypted and isolated by user, project, and task", async () => {

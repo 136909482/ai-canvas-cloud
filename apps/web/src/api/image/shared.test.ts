@@ -40,7 +40,7 @@ test("generate ratio options match the documented provider ratios", () => {
   ]);
 });
 
-test("legacy and invalid generate ratios normalize to Auto", () => {
+test("unsupported and invalid generate ratios normalize to Auto", () => {
   assert.equal(normalizeGenerateRatio("16:9"), "16:9");
   assert.equal(normalizeGenerateRatio("8:1"), DEFAULT_GENERATE_RATIO);
   assert.equal(normalizeGenerateRatio("1:4"), DEFAULT_GENERATE_RATIO);
@@ -56,7 +56,7 @@ test("Auto snaps a prompt ratio to the closest documented ratio", async () => {
   );
 });
 
-test("a legacy explicit ratio follows Auto compatibility behavior", async () => {
+test("an unsupported explicit ratio follows Auto behavior", async () => {
   assert.equal(
     await resolveEffectiveRatio(
       createParams({ ratio: "8:1", prompt: "portrait at 9:21" }),

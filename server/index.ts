@@ -1,4 +1,5 @@
 export * from "./db/postgres.js";
+export * from "./db/schemaBaseline.js";
 export * from "./env/loadDotEnv.js";
 export * from "./staticSite.js";
 export * from "./modules/assets/index.js";

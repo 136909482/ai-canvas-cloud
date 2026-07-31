@@ -1,11 +1,5 @@
-import {
-  writeWorkspaceImageAsset,
-  writeWorkspaceImageThumbnailAsset,
-} from "@/features/imageAssets/runtime";
-import {
-  buildProjectAssetPath,
-  getWorkspaceAssetPathParts,
-} from "@/features/projectManager/projectAssetPaths";
+import { writeWorkspaceImageThumbnailAsset } from "@/features/imageAssets/runtime";
+import { getWorkspaceAssetPathParts } from "@/features/projectManager/projectAssetPaths";
 import { isVolatileCloudMemoryAssetPath } from "@/features/projectManager/volatileCloudAssetPath";
 import { platformBridge, platformRuntime } from "@/platform";
 import { useCanvasStore } from "@/store/useCanvasStore";
@@ -21,54 +15,6 @@ export function isStorageConfigured() {
   return useSettingsStore.getState().runtime.workspaceConfigured;
 }
 
-function isEmbeddedImageUrl(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(value)
-  );
-}
-
-function isEmbeddedVideoUrl(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /^data:video\/[a-zA-Z0-9.+-]+;base64,/.test(value)
-  );
-}
-
-async function embeddedMediaUrlToBlob(mediaUrl: string) {
-  const response = await fetch(mediaUrl);
-
-  if (!response.ok) {
-    throw new Error("绱犳潗缂撳瓨杩佺Щ澶辫触");
-  }
-
-  return response.blob();
-}
-
-function getMigratedImageFileName(
-  node: ProjectSnapshot["canvas"]["nodes"][number],
-) {
-  const rawName =
-    typeof node.data?.name === "string" && node.data.name.trim()
-      ? node.data.name.trim()
-      : typeof node.data?.label === "string" && node.data.label.trim()
-        ? node.data.label.trim()
-        : `${node.id}.png`;
-
-  return /\.[a-zA-Z0-9]+$/.test(rawName) ? rawName : `${rawName}.png`;
-}
-
-function getMigratedVideoFileName(
-  node: ProjectSnapshot["canvas"]["nodes"][number],
-) {
-  const rawName =
-    typeof node.data?.name === "string" && node.data.name.trim()
-      ? node.data.name.trim()
-      : `${node.id}.mp4`;
-
-  return /\.[a-zA-Z0-9]+$/.test(rawName) ? rawName : `${rawName}.mp4`;
-}
-
 function getImageAssetFileName(asset: {
   relativePath?: unknown;
   fileName?: unknown;
@@ -76,13 +22,11 @@ function getImageAssetFileName(asset: {
   if (typeof asset.fileName === "string" && asset.fileName.trim()) {
     return asset.fileName;
   }
-
   if (typeof asset.relativePath === "string" && asset.relativePath.trim()) {
     return (
       asset.relativePath.replace(/\\+/g, "/").split("/").pop() || "image.png"
     );
   }
-
   return "image.png";
 }
 
@@ -99,14 +43,9 @@ async function enrichWorkspaceImageAssetThumbnail(
   cache: Map<string, Promise<WorkspaceImageAsset>>,
   stats?: { thumbnailBackfillCount: number },
 ) {
-  if (asset.thumbnailRelativePath || !asset.relativePath) {
-    return asset;
-  }
-
+  if (asset.thumbnailRelativePath || !asset.relativePath) return asset;
   const cached = cache.get(asset.relativePath);
-  if (cached) {
-    return cached;
-  }
+  if (cached) return cached;
 
   const request = (async () => {
     try {
@@ -114,10 +53,7 @@ async function enrichWorkspaceImageAssetThumbnail(
         asset.relativePath,
       );
       const response = await fetch(imageUrl);
-      if (!response.ok) {
-        return asset;
-      }
-
+      if (!response.ok) return asset;
       const blob = await response.blob();
       const pathParts = getWorkspaceAssetPathParts(
         asset.relativePath,
@@ -133,11 +69,7 @@ async function enrichWorkspaceImageAssetThumbnail(
       if (thumbnailMeta.thumbnailRelativePath && stats) {
         stats.thumbnailBackfillCount += 1;
       }
-
-      return {
-        ...asset,
-        ...thumbnailMeta,
-      };
+      return { ...asset, ...thumbnailMeta };
     } catch {
       return asset;
     }
@@ -147,133 +79,39 @@ async function enrichWorkspaceImageAssetThumbnail(
   return request;
 }
 
-export async function migrateSnapshotEmbeddedImageAssets(
+export async function prepareSnapshotAssetMetadata(
   snapshot: ProjectSnapshot,
   options?: {
-    projectId?: string | null;
     updateLiveCanvas?: boolean;
     thumbnailCache?: Map<string, Promise<WorkspaceImageAsset>>;
     stats?: { thumbnailBackfillCount: number };
   },
 ) {
-  if (!isStorageConfigured()) {
-    return snapshot;
-  }
-
+  if (!isStorageConfigured()) return snapshot;
   const thumbnailCache =
     options?.thumbnailCache ?? new Map<string, Promise<WorkspaceImageAsset>>();
-  const migratedNodes = await Promise.all(
+  const nodes = await Promise.all(
     snapshot.canvas.nodes.map(async (node) => {
-      if (node.type === "videoNode") {
-        if (node.data?.videoAsset) {
-          return node;
-        }
-
-        const videoUrl = node.data?.videoUrl;
-        if (!isEmbeddedVideoUrl(videoUrl)) {
-          return node;
-        }
-
-        const blob = await embeddedMediaUrlToBlob(videoUrl);
-        const videoAsset = await platformBridge.writeWorkspaceAsset({
-          pathSegments: buildProjectAssetPath(
-            options?.projectId,
-            "migrated",
-            "videos",
-          ),
-          fileName: getMigratedVideoFileName(node),
-          blob,
-        });
-
-        if (options?.updateLiveCanvas) {
-          const resolvedVideoUrl =
-            await platformBridge.resolveWorkspaceAssetUrl(
-              videoAsset.relativePath,
-            );
-          useCanvasStore.getState().updateNodeData(node.id, {
-            videoAsset,
-            videoUrl: resolvedVideoUrl,
-          });
-        }
-
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            videoAsset,
-            videoUrl: null,
-          },
-        };
-      }
-
-      if (!isWorkspaceAssetNodeType(node.type)) {
+      if (!isWorkspaceAssetNodeType(node.type) || node.type === "videoNode") {
         return node;
       }
-
-      if (isWorkspaceImageAsset(node.data?.imageAsset)) {
-        const imageAsset = await enrichWorkspaceImageAssetThumbnail(
-          node.data.imageAsset,
-          thumbnailCache,
-          options?.stats,
-        );
-        if (options?.updateLiveCanvas && imageAsset !== node.data.imageAsset) {
-          useCanvasStore.getState().updateNodeData(node.id, { imageAsset });
-        }
-
-        return imageAsset === node.data.imageAsset
-          ? node
-          : {
-              ...node,
-              data: {
-                ...node.data,
-                imageAsset,
-              },
-            };
+      if (!isWorkspaceImageAsset(node.data?.imageAsset)) return node;
+      const imageAsset = await enrichWorkspaceImageAssetThumbnail(
+        node.data.imageAsset,
+        thumbnailCache,
+        options?.stats,
+      );
+      if (options?.updateLiveCanvas && imageAsset !== node.data.imageAsset) {
+        useCanvasStore.getState().updateNodeData(node.id, { imageAsset });
       }
-
-      const imageUrl = node.data?.imageUrl;
-      if (!isEmbeddedImageUrl(imageUrl)) {
-        return node;
-      }
-
-      const blob = await embeddedMediaUrlToBlob(imageUrl);
-      const imageAsset = await writeWorkspaceImageAsset({
-        pathSegments: buildProjectAssetPath(
-          options?.projectId,
-          "migrated",
-          "images",
-        ),
-        fileName: getMigratedImageFileName(node),
-        blob,
-      });
-
-      if (options?.updateLiveCanvas) {
-        const resolvedImageUrl = await platformBridge.resolveWorkspaceAssetUrl(
-          imageAsset.relativePath,
-        );
-        useCanvasStore.getState().updateNodeData(node.id, {
-          imageAsset,
-          imageUrl: resolvedImageUrl,
-        });
-      }
-
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          imageAsset,
-          imageUrl: null,
-        },
-      };
+      return imageAsset === node.data.imageAsset
+        ? node
+        : { ...node, data: { ...node.data, imageAsset } };
     }),
   );
-
-  const migratedTasks = await Promise.all(
-    (snapshot.taskQueue.tasks ?? []).map(async (task) => {
-      if (!isWorkspaceImageAsset(task.resultImageAsset)) {
-        return task;
-      }
-
+  const tasks = await Promise.all(
+    snapshot.taskQueue.tasks.map(async (task) => {
+      if (!isWorkspaceImageAsset(task.resultImageAsset)) return task;
       const resultImageAsset = await enrichWorkspaceImageAssetThumbnail(
         task.resultImageAsset,
         thumbnailCache,
@@ -281,97 +119,55 @@ export async function migrateSnapshotEmbeddedImageAssets(
       );
       return resultImageAsset === task.resultImageAsset
         ? task
-        : {
-            ...task,
-            resultImageAsset,
-          };
+        : { ...task, resultImageAsset };
     }),
   );
-
   return {
     ...snapshot,
-    canvas: {
-      ...snapshot.canvas,
-      nodes: migratedNodes,
-    },
-    taskQueue: {
-      ...snapshot.taskQueue,
-      tasks: migratedTasks,
-    },
+    canvas: { ...snapshot.canvas, nodes },
+    taskQueue: { ...snapshot.taskQueue, tasks },
   };
 }
 
 export async function resolveWorkspaceNodeAssetUrls() {
   const { nodes, updateNodeData } = useCanvasStore.getState();
-
   await Promise.all(
     nodes.map(async (node) => {
-      if (!isWorkspaceAssetNodeType(node.type)) {
-        return;
-      }
-
-      if (node.type === "videoNode") {
-        const asset = node.data?.videoAsset as
-          { relativePath?: unknown } | null | undefined;
-        const relativePath =
-          typeof asset?.relativePath === "string" ? asset.relativePath : null;
-
-        if (!relativePath) {
-          return;
-        }
-
-        if (
-          platformRuntime === "cloud" &&
-          isVolatileCloudMemoryAssetPath(relativePath)
-        ) {
-          updateNodeData(node.id, { videoAsset: null, videoUrl: "" });
-          return;
-        }
-
-        try {
-          const videoUrl =
-            await platformBridge.resolveWorkspaceAssetUrl(relativePath);
-          updateNodeData(node.id, { videoUrl });
-        } catch (error) {
-          reportDiagnostic({
-            area: "resource",
-            title: "视频资源恢复失败",
-            error,
-            code: "VIDEO_ASSET_RESTORE_FAILED",
-            retryable: false,
-            context: { nodeId: node.id, relativePath },
-          });
-        }
-        return;
-      }
-
-      const asset = node.data?.imageAsset as
-        { relativePath?: unknown } | null | undefined;
+      if (!isWorkspaceAssetNodeType(node.type)) return;
+      const media = node.type === "videoNode" ? "video" : "image";
+      const asset = (
+        media === "video" ? node.data?.videoAsset : node.data?.imageAsset
+      ) as { relativePath?: unknown } | null | undefined;
       const relativePath =
         typeof asset?.relativePath === "string" ? asset.relativePath : null;
-
-      if (!relativePath) {
-        return;
-      }
-
+      if (!relativePath) return;
       if (
         platformRuntime === "cloud" &&
         isVolatileCloudMemoryAssetPath(relativePath)
       ) {
-        updateNodeData(node.id, { imageAsset: null, imageUrl: "" });
+        updateNodeData(
+          node.id,
+          media === "video"
+            ? { videoAsset: null, videoUrl: "" }
+            : { imageAsset: null, imageUrl: "" },
+        );
         return;
       }
-
       try {
-        const imageUrl =
-          await platformBridge.resolveWorkspaceAssetUrl(relativePath);
-        updateNodeData(node.id, { imageUrl });
+        const url = await platformBridge.resolveWorkspaceAssetUrl(relativePath);
+        updateNodeData(
+          node.id,
+          media === "video" ? { videoUrl: url } : { imageUrl: url },
+        );
       } catch (error) {
         reportDiagnostic({
           area: "resource",
-          title: "图片资源恢复失败",
+          title: media === "video" ? "视频资源恢复失败" : "图片资源恢复失败",
           error,
-          code: "IMAGE_ASSET_RESTORE_FAILED",
+          code:
+            media === "video"
+              ? "VIDEO_ASSET_RESTORE_FAILED"
+              : "IMAGE_ASSET_RESTORE_FAILED",
           retryable: false,
           context: { nodeId: node.id, relativePath },
         });

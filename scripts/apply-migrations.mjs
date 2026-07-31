@@ -74,7 +74,7 @@ function loadMigrations() {
 
 async function ensureMigrationTable(client) {
   await client.query(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
+    CREATE TABLE IF NOT EXISTS public.schema_migrations (
       version text PRIMARY KEY,
       name text NOT NULL,
       applied_at timestamptz NOT NULL DEFAULT now()
@@ -84,7 +84,7 @@ async function ensureMigrationTable(client) {
 
 async function isApplied(client, version) {
   const result = await client.query(
-    "SELECT 1 FROM schema_migrations WHERE version = $1",
+    "SELECT 1 FROM public.schema_migrations WHERE version = $1",
     [version],
   );
 
@@ -113,7 +113,7 @@ async function applyMigration(client, migration) {
 
     await client.query(migration.sql);
     await client.query(
-      "INSERT INTO schema_migrations (version, name) VALUES ($1, $2)",
+      "INSERT INTO public.schema_migrations (version, name) VALUES ($1, $2)",
       [migration.version, migration.name],
     );
     await client.query("COMMIT");

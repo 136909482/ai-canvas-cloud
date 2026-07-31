@@ -27,13 +27,11 @@ function baseEnv() {
       1: Buffer.alloc(32, 6).toString("base64"),
     }),
     OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION: "1",
-    AUTH_EMAIL_TRANSPORT: "smtp",
-    SMTP_HOST: "smtp.staging.example.com",
-    SMTP_PORT: "465",
-    SMTP_SECURE: "true",
-    SMTP_FROM: "no-reply@staging.example.com",
-    SMTP_USERNAME: "staging-smtp-user",
-    SMTP_PASSWORD: "staging-smtp-password",
+    AUTH_EMAIL_TRANSPORT: "managed",
+    SMTP_CREDENTIAL_KEYS: JSON.stringify({
+      1: Buffer.alloc(32, 7).toString("base64"),
+    }),
+    SMTP_CREDENTIAL_ACTIVE_KEY_VERSION: "1",
     DEPLOYMENT_RESOURCE_NAMESPACE: "ai-canvas-cloud-staging",
     DEPLOYMENT_CREDENTIAL_NAMESPACE: "ai-canvas-cloud-staging-credentials",
   };
@@ -97,19 +95,13 @@ test("protected deployment accepts virtual-hosted object storage origins", () =>
   );
 });
 
-test("protected deployment accepts managed SMTP without legacy credentials", () => {
+test("protected deployment accepts managed SMTP", () => {
   const env = baseEnv();
   env.AUTH_EMAIL_TRANSPORT = "managed";
   env.SMTP_CREDENTIAL_KEYS = JSON.stringify({
     1: Buffer.alloc(32, 7).toString("base64"),
   });
   env.SMTP_CREDENTIAL_ACTIVE_KEY_VERSION = "1";
-  delete env.SMTP_HOST;
-  delete env.SMTP_PORT;
-  delete env.SMTP_SECURE;
-  delete env.SMTP_FROM;
-  delete env.SMTP_USERNAME;
-  delete env.SMTP_PASSWORD;
   assert.doesNotThrow(() => validateProtectedDeploymentEnvironment(env));
 });
 

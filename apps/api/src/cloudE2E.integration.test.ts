@@ -5,8 +5,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import pg from "pg";
-import { closeApiServer, createApiServer } from "../dist/server.js";
 import { createFastifyApiServer } from "../dist/fastify/server.js";
+import { closeApiServer } from "../dist/serverLifecycle.js";
 import {
   createPostgresAssetService,
   createPostgresAuthService,
@@ -19,6 +19,7 @@ import {
   createPostgresWorkspaceUsageService,
   createS3ObjectStorage,
   createWorkspaceAuthorizationService,
+  isolateCurrentSchemaSql,
   loadDotEnv,
   type AuthEmailService,
 } from "@ai-canvas-cloud/server";
@@ -168,7 +169,7 @@ function errorCode(response: JsonResponse) {
   return (response.body as { error?: { code?: string } }).error?.code;
 }
 
-async function runCloudE2E(httpAdapter: "legacy" | "fastify") {
+async function runCloudE2E() {
   const runId = randomUUID().replaceAll("-", "");
   const schemaName = `cloud_e2e_${runId}`;
   const admin = new pg.Client({ connectionString: databaseUrl });
@@ -187,17 +188,16 @@ async function runCloudE2E(httpAdapter: "legacy" | "fastify") {
     const migrations = (
       await readdir(join(process.cwd(), "server", "db", "migrations"))
     )
-      .filter(
-        (fileName) =>
-          fileName.endsWith(".sql") &&
-          !/^(?:002[5-9]|003[235])_/.test(fileName),
-      )
+      .filter((fileName) => fileName.endsWith(".sql"))
       .sort();
     for (const fileName of migrations) {
       await pool.query(
-        await readFile(
-          join(process.cwd(), "server", "db", "migrations", fileName),
-          "utf8",
+        isolateCurrentSchemaSql(
+          await readFile(
+            join(process.cwd(), "server", "db", "migrations", fileName),
+            "utf8",
+          ),
+          schemaName,
         ),
       );
     }
@@ -252,7 +252,6 @@ async function runCloudE2E(httpAdapter: "legacy" | "fastify") {
 
     const config: ApiConfig = {
       env: "test",
-      httpAdapter,
       logLevel: "error",
       host: "127.0.0.1",
       port: 0,
@@ -273,7 +272,6 @@ async function runCloudE2E(httpAdapter: "legacy" | "fastify") {
       devSeedAdmin: false,
       devSeedAdminEmail: "disabled@example.invalid",
       authEmailTransport: "development",
-      smtpSecure: false,
     };
 
     const createServer = () => {
@@ -290,9 +288,7 @@ async function runCloudE2E(httpAdapter: "legacy" | "fastify") {
         migrationExportService,
         rateLimiter: createMemoryRateLimiter(),
       };
-      return httpAdapter === "fastify"
-        ? createFastifyApiServer(options)
-        : createApiServer(options);
+      return createFastifyApiServer(options);
     };
     server = await createServer();
     let port = await listen(server);
@@ -535,16 +531,6 @@ async function runCloudE2E(httpAdapter: "legacy" | "fastify") {
       404,
     );
 
-    assert.equal(
-      (await accountA.request(port, "GET", "/api/v1/settings/providers"))
-        .statusCode,
-      404,
-    );
-    assert.equal(
-      (await accountA.request(port, "GET", "/api/v1/tasks")).statusCode,
-      404,
-    );
-
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     const asset = await accountA.request(
       port,
@@ -771,10 +757,8 @@ const cloudE2ESkip =
     ? false
     : "DATABASE_URL and S3 test dependencies are not configured";
 
-for (const httpAdapter of ["legacy", "fastify"] as const) {
-  test(
-    `cloud API ${httpAdapter} two-account E2E keeps projects, graph, assets, sessions and devices isolated`,
-    { skip: cloudE2ESkip },
-    () => runCloudE2E(httpAdapter),
-  );
-}
+test(
+  "cloud API two-account E2E keeps projects, graph, assets, sessions and devices isolated",
+  { skip: cloudE2ESkip },
+  runCloudE2E,
+);

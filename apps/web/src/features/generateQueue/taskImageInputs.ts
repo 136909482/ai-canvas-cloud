@@ -12,15 +12,7 @@ interface TaskImageInputDependencies {
 }
 
 function getReferenceImages(task: GenerateTask) {
-  if (Array.isArray(task.referenceImages) && task.referenceImages.length > 0) {
-    return task.referenceImages;
-  }
-
-  return (task.referenceImageUrls ?? []).map((imageUrl) => ({
-    sourceNodeId: null,
-    imageUrl,
-    assetRelativePath: null,
-  }));
+  return task.referenceImages;
 }
 
 async function resolveImageSource(

@@ -26,18 +26,8 @@ function parseEnv(text) {
 
 function updateEnv(text, updates) {
   const remaining = new Map(Object.entries(updates));
-  const removed = new Set([
-    "WORKER_DATABASE_ROLE",
-    "WORKER_DATABASE_PASSWORD",
-    "WORKER_DATABASE_URL",
-    "PROVIDER_CREDENTIAL_KEYS",
-    "PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION",
-    "OFFICIAL_PROVIDER_CREDENTIAL_KEYS",
-    "OFFICIAL_PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION",
-  ]);
   const lines = text.split(/\r?\n/).flatMap((line) => {
     const match = /^([A-Z][A-Z0-9_]*)=/.exec(line.trim());
-    if (match && removed.has(match[1])) return [];
     if (!match || !remaining.has(match[1])) return line;
     const value = remaining.get(match[1]);
     remaining.delete(match[1]);
@@ -87,9 +77,6 @@ const adminRole = safeRole(
   env.get("ADMIN_DATABASE_ROLE"),
   "ai_canvas_cloud_admin",
 );
-const legacyWorkerRole = env.get("WORKER_DATABASE_ROLE")
-  ? safeRole(env.get("WORKER_DATABASE_ROLE"), "ai_canvas_cloud_worker")
-  : "ai_canvas_cloud_worker";
 if (appRole === adminRole)
   throw new Error("Application and Admin database roles must be different");
 const appPassword = env.get("APP_DATABASE_PASSWORD") || secret();
@@ -199,6 +186,7 @@ try {
   await client.query(
     `GRANT SELECT (id, user_no, username, display_username, email, email_verified, status, created_at, updated_at) ON public."user" TO ${admin}`,
   );
+  await client.query(`GRANT SELECT (deleted_at) ON public."user" TO ${admin}`);
   await client.query(
     `GRANT UPDATE (status, deleted_at, personal_data_purged_at, email, email_verified, username, display_username, name, image, updated_at) ON public."user" TO ${admin}`,
   );
@@ -253,17 +241,48 @@ try {
     `GRANT SELECT (user_id, category, status, failure_category, result_count, duration_ms, started_at, completed_at) ON public.generation_telemetry TO ${admin}`,
   );
   await client.query(`GRANT DELETE ON public.auth_devices TO ${admin}`);
+  await client.query(
+    `GRANT SELECT (user_id) ON public.auth_devices TO ${admin}`,
+  );
   await client.query(`GRANT DELETE ON public."verification" TO ${admin}`);
+  await client.query(
+    `GRANT SELECT (identifier) ON public."verification" TO ${admin}`,
+  );
   await client.query(
     `GRANT DELETE ON public.registration_email_challenges TO ${admin}`,
   );
   await client.query(
+    `GRANT SELECT (email_hash) ON public.registration_email_challenges TO ${admin}`,
+  );
+  await client.query(
     `GRANT DELETE ON public.password_reset_email_challenges TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT (email_hash) ON public.password_reset_email_challenges TO ${admin}`,
   );
   await client.query(`GRANT DELETE ON public.generation_telemetry TO ${admin}`);
   await client.query(`GRANT DELETE ON public.asset_references TO ${admin}`);
+  await client.query(
+    `GRANT SELECT (workspace_id) ON public.asset_references TO ${admin}`,
+  );
   await client.query(`GRANT DELETE ON public.project_snapshots TO ${admin}`);
   await client.query(`GRANT DELETE ON public.asset_uploads TO ${admin}`);
+  await client.query(
+    `GRANT SELECT (workspace_id) ON public.asset_uploads TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT (workspace_id, user_id) ON public.workspace_user_state TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT (deleted_at, created_at) ON public.projects TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT (deleted_at, created_at) ON public.project_nodes TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT (deleted_at, created_at) ON public.project_edges TO ${admin}`,
+  );
+  await client.query(`GRANT SELECT (created_at) ON public.assets TO ${admin}`);
   await client.query(
     `GRANT UPDATE (deleted_at, updated_at) ON public.projects TO ${admin}`,
   );
@@ -291,23 +310,6 @@ try {
   );
   await client.query(`ALTER ROLE ${app} SET search_path = public`);
   await client.query(`ALTER ROLE ${admin} SET search_path = admin`);
-  const legacyWorker = await client.query(
-    "SELECT 1 FROM pg_roles WHERE rolname = $1",
-    [legacyWorkerRole],
-  );
-  if (
-    legacyWorker.rowCount > 0 &&
-    legacyWorkerRole !== appRole &&
-    legacyWorkerRole !== adminRole &&
-    legacyWorkerRole !== ownerRole
-  ) {
-    const worker = quoteIdentifier(legacyWorkerRole);
-    await client.query(
-      `REVOKE CONNECT ON DATABASE ${databaseIdentifier} FROM ${worker}`,
-    );
-    await client.query(`DROP OWNED BY ${worker}`);
-    await client.query(`DROP ROLE ${worker}`);
-  }
   await client.query("COMMIT");
 
   const updates = {
@@ -336,7 +338,7 @@ try {
     flag: "w",
   });
   console.log(
-    `Database role isolation configured for ${appRole} and ${adminRole}; legacy Worker role removed when present; secret values were not printed.`,
+    `Database role isolation configured for ${appRole} and ${adminRole}; secret values were not printed.`,
   );
 } catch (error) {
   await client.query("ROLLBACK").catch(() => undefined);

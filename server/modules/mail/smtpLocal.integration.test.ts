@@ -7,6 +7,7 @@ import type { DbPool } from "../../dist/db/postgres.js";
 import { createManagedSmtpAuthEmailService } from "../../dist/modules/auth/email.js";
 import {
   createSmtpCredentialKeyring,
+  encryptSmtpPassword,
   sendSmtpMessage,
   smtpTransportOptions,
   SmtpTransportError,
@@ -111,16 +112,35 @@ test("one-time local SMTP servers cover TLS, STARTTLS, auth failure and auth mes
         error.category === "authentication",
     );
 
+    const keyring = createSmtpCredentialKeyring({
+      developmentSecret: "smtp-local-integration-key",
+    });
+    const revisionId = "123e4567-e89b-42d3-a456-426614174000";
     const pool = {
       async query() {
-        return { rows: [] };
+        return {
+          rows: [
+            {
+              revision_id: revisionId,
+              enabled: true,
+              host: starttlsConfig.host,
+              port: starttlsConfig.port,
+              security_mode: starttlsConfig.securityMode,
+              username: starttlsConfig.username,
+              encrypted_password_json: encryptSmtpPassword(
+                starttlsConfig.password,
+                revisionId,
+                keyring,
+              ),
+              from_email: starttlsConfig.fromEmail,
+              from_name: starttlsConfig.fromName,
+            },
+          ],
+        };
       },
     } as unknown as DbPool;
     const emailService = createManagedSmtpAuthEmailService(pool, {
-      keyring: createSmtpCredentialKeyring({
-        developmentSecret: "smtp-local-integration-key",
-      }),
-      fallbackConfig: starttlsConfig,
+      keyring,
       async sendMessage(config, message) {
         await sendSmtpMessage(config, message, localDependencies);
       },

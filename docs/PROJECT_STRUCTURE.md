@@ -87,7 +87,7 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 
 `apps/api` 和 `apps/admin-api` 保持薄入口：解析请求、校验会话/schema/安全策略、调用领域服务、映射稳定错误。`server/modules` 是事务和授权查询的唯一所有者。
 
-`apps/api/src/routeInventory.ts` 与 `apps/admin-api/src/routeInventory.ts` 分别是公共和 Admin HTTP 方法、路径、`operationId`、路由组和迁移归属的事实清单；OpenAPI 构建必须与对应 Fastify 路由双向一致。`apps/api/src/fastify` 按 `system/auth/workspaces/telemetry/assets/migrations/projects` 拆分公共路由，`apps/admin-api/src/fastify` 按 `system/auth-security/dashboard-audit/users/site/smtp/object-storage` 拆分后台路由；两个 Fastify server factory 都独立处理未匹配请求和静态站点，不转发旧 Node HTTP handler。旧 `server.ts` 只作为临时服务级回滚 adapter 保留。`packages/contracts/src/httpSchema.ts` 与 `packages/contracts/src/adminHttpSchema.ts` 只通过服务端子路径导出 TypeBox Schema，不进入 Contracts 根导出或 Web bundle。
+`apps/api/src/routeInventory.ts` 与 `apps/admin-api/src/routeInventory.ts` 分别是公共和 Admin HTTP 方法、路径、`operationId` 与路由组的事实清单；OpenAPI 构建必须与对应 Fastify 路由双向一致。`apps/api/src/fastify` 按 `system/auth/workspaces/telemetry/assets/migrations/projects` 拆分公共路由，`apps/admin-api/src/fastify` 按 `system/auth-security/dashboard-audit/users/site/smtp/object-storage` 拆分后台路由；两个 Fastify server factory 都独立处理未匹配请求和静态站点。`serverOptions.ts` 只描述入口依赖，`serverLifecycle.ts` 只管理 Fastify 关闭钩子。`packages/contracts/src/httpSchema.ts` 与 `packages/contracts/src/adminHttpSchema.ts` 只通过服务端子路径导出 TypeBox Schema，不进入 Contracts 根导出或 Web bundle。
 
 - `project-graph` 独占节点、连线、change、version/sequence 和当前节点资产引用写入。
 - `project-snapshots` 独占 checkpoint 与 restore。
@@ -96,11 +96,11 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 - `admin` 只能通过受限服务读取普通用户最小投影、发布加密 SMTP/站点配置并写脱敏审计；资产清理只通过内部密钥调用普通 API 并接收聚合结果，Admin 数据库角色不得读取 object key。
 - `mail` 是 API 与 Admin API 共用的受控 SMTP 执行层；它不读取 HTTP 请求或数据库，主密钥只由两个服务器入口注入。
 
-普通 API 没有 Provider、官方模型、积分或服务器任务路由；历史 URL 保持 404。
+普通 API 只注册当前路由清单，不提供 Provider 代理、官方模型、积分或服务器任务路由。
 
 ### 数据库与部署
 
-`server/db/migrations` 保存有序 SQL 和 `release-manifest.json`。应用启动不自动迁移，发布显式运行 migrate。数据库运行角色只有普通 API 和 Admin API；旧 Worker 角色只允许出现在清理与兼容测试中。
+`server/db/migrations` 当前保存单一 `0001_current_schema.sql` 基线和 `release-manifest.json`。应用启动不自动迁移，发布显式运行 migrate。数据库运行角色只有普通 API 和 Admin API；正式运营后的 schema 变更只追加新迁移。
 
 根 `Dockerfile` 构建 Web、API、Admin Web、Admin API、migrate、release、operations 和单机 `single-host-app`。后者把两个已构建前端与两个 API 放进同一镜像，运行时仍以普通应用和后台应用两个容器隔离。staging Compose 不包含 Worker、生成队列、Provider 密钥环或队列恢复。托管 production Compose 只常驻四个应用容器；`infra/deploy/single-host` 则常驻普通应用、后台应用、PostgreSQL 和 Redis。单机程序镜像默认在开发电脑的 Docker Desktop 构建并导出，服务器只加载归档；GitHub Actions/ACR 仅作为可选兼容通道。
 
@@ -115,7 +115,6 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 - API/领域集成测试放在对应 app 或 server module。
 - 两账号和双设备 E2E 使用独立账号、cookie/device 上下文和对象前缀。
 - 浏览器 E2E 使用仓库级受控浏览器验证入口。
-- 历史兼容样本统一放 `test-fixtures/`，不得静默改写已提交样本。
-- 迁移测试可构造旧 Worker/Provider schema，但必须断言 contract 后对象已删除。
+- 当前版本的目录包和快照样本统一放 `test-fixtures/`，不得静默改写已提交样本。
 
 测试选择和验证层级见 [`DEVELOPMENT.md`](DEVELOPMENT.md)。

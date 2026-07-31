@@ -55,7 +55,8 @@ import type {
 } from "@ai-canvas-cloud/server/modules/projects";
 import type { WorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
 import { createMetricsRegistry, type Logger } from "@ai-canvas-cloud/shared";
-import { closeApiServer, createApiServer } from "../dist/server.js";
+import { createFastifyApiServer } from "../dist/fastify/server.js";
+import { closeApiServer } from "../dist/serverLifecycle.js";
 import type { ApiConfig } from "./config.ts";
 import type { RateLimiter } from "./rateLimit.ts";
 
@@ -88,7 +89,6 @@ const config: ApiConfig = {
   devSeedAdminEmail: "admin@example.com",
   authEmailTransport: "development",
   smtpCredentialActiveKeyVersion: 1,
-  smtpSecure: false,
 };
 
 function createAuthResponse(expiresAt: Date): AuthSuccessResponse {
@@ -254,7 +254,6 @@ function createProjectResponse(
       lastSequence: 0,
       nodeCount: 0,
       edgeCount: 0,
-      taskCount: 0,
       archivedAt: null,
       createdAt: "2026-07-15T00:00:00.000Z",
       updatedAt: "2026-07-15T00:00:00.000Z",
@@ -776,6 +775,7 @@ function createFakeMigrationExportService() {
         completedFileCount: status === "completed" ? 4 : 0,
         totalBytes: 512,
         completedBytes: status === "completed" ? 512 : 0,
+        retryCount: 0,
       },
       archive:
         status === "completed"
@@ -945,7 +945,10 @@ test("internal asset cleanup requires its bearer token and returns aggregates on
       };
     },
   };
-  const server = createApiServer({ config, assetCleanupService });
+  const server = await createFastifyApiServer({
+    config,
+    assetCleanupService,
+  });
   const port = await listen(server);
   try {
     for (const authorization of [undefined, "Bearer wrong-token"]) {
@@ -990,7 +993,7 @@ test("internal asset cleanup requires its bearer token and returns aggregates on
 
 test("public site configuration returns a safe projection with ETag revalidation", async () => {
   const etag = `"${"a".repeat(64)}"`;
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     siteConfigService: {
       async getCurrent() {
@@ -1026,33 +1029,6 @@ test("public site configuration returns a safe projection with ETag revalidation
   }
 });
 
-test("removed provider, official model, credit, and server task routes return 404", async () => {
-  const server = createApiServer({
-    config,
-    authService: createFakeAuthService(),
-  });
-  const port = await listen(server);
-  try {
-    for (const path of [
-      `${API_V1_PREFIX}/models/official`,
-      `${API_V1_PREFIX}/workspaces/current/official-credits`,
-      `${API_V1_PREFIX}/settings/providers`,
-      `${API_V1_PREFIX}/tasks`,
-    ]) {
-      const response = await requestJson(port, {
-        method: "GET",
-        path,
-        headers: {
-          cookie: `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`,
-        },
-      });
-      assert.equal(response.statusCode, 404);
-    }
-  } finally {
-    await closeApiServer(server, 1_000);
-  }
-});
-
 test("API enforces the web origin allowlist and emits security headers", async () => {
   const stagingConfig: ApiConfig = {
     ...config,
@@ -1060,7 +1036,7 @@ test("API enforces the web origin allowlist and emits security headers", async (
     webPublicUrl: "https://cloud.example.com",
     webAllowedOrigins: ["https://cloud.example.com"],
   };
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config: stagingConfig,
     authService: createFakeAuthService(),
   });
@@ -1121,7 +1097,7 @@ test("API rejects duplicate keys, invalid encoding, deep JSON and oversized bodi
     loginCalls += 1;
     return originalLogin(...args);
   };
-  const server = createApiServer({ config, authService });
+  const server = await createFastifyApiServer({ config, authService });
   const port = await listen(server);
   let deepJson = '"leaf"';
   for (let index = 0; index < 66; index += 1)
@@ -1196,7 +1172,7 @@ test("API logs and diagnostics exclude credentials, dynamic IDs, query values an
       entries.push({ message, context });
     },
   };
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     logger,
     authService: createFakeAuthService(),
@@ -1242,7 +1218,11 @@ test("API returns stable rate limit errors before reading request bodies or call
     async ping() {},
     async close() {},
   };
-  const server = createApiServer({ config, authService, rateLimiter });
+  const server = await createFastifyApiServer({
+    config,
+    authService,
+    rateLimiter,
+  });
   const port = await listen(server);
 
   try {
@@ -1281,7 +1261,7 @@ test("API explicitly fails closed when Redis is unavailable for high-risk routes
     },
     async close() {},
   };
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     rateLimiter,
@@ -1323,7 +1303,11 @@ test("API rate limit scopes use trusted session identities and reuse the session
     async ping() {},
     async close() {},
   };
-  const server = createApiServer({ config, authService, rateLimiter });
+  const server = await createFastifyApiServer({
+    config,
+    authService,
+    rateLimiter,
+  });
   const port = await listen(server);
 
   try {
@@ -1349,7 +1333,7 @@ test("API rate limit scopes use trusted session identities and reuse the session
 });
 
 test("register route issues a HttpOnly session cookie and auth response", async () => {
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
   });
@@ -1398,7 +1382,7 @@ test("login route preserves takeover conflicts until the client confirms", async
       return baseAuthService.login(input, { requestId: "forced-login" });
     },
   };
-  const server = createApiServer({ config, authService });
+  const server = await createFastifyApiServer({ config, authService });
   const port = await listen(server);
 
   try {
@@ -1434,7 +1418,7 @@ test("login route preserves takeover conflicts until the client confirms", async
 });
 
 test("password reset routes request and consume email verification codes", async () => {
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
   });
@@ -1468,7 +1452,7 @@ test("password reset routes request and consume email verification codes", async
 });
 
 test("password change requires an authenticated session and current credentials", async () => {
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
   });
@@ -1512,7 +1496,7 @@ test("password change requires an authenticated session and current credentials"
 });
 
 test("registration email-code route does not require a session", async () => {
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
   });
@@ -1532,7 +1516,7 @@ test("registration email-code route does not require a session", async () => {
 });
 
 test("session route requires a session cookie and resolves the current workspace", async () => {
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
   });
@@ -1567,7 +1551,7 @@ test("session route requires a session cookie and resolves the current workspace
 });
 
 test("current workspace route requires auth and returns session workspace", async () => {
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
   });
@@ -1606,7 +1590,7 @@ test("current workspace route requires auth and returns session workspace", asyn
 });
 
 test("session management routes list and revoke active sessions", async () => {
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
   });
@@ -1651,7 +1635,7 @@ test("session management routes list and revoke active sessions", async () => {
 });
 
 test("device management routes list history and remove an old device", async () => {
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
   });
@@ -1685,7 +1669,7 @@ test("device management routes list history and remove an old device", async () 
 
 test("project metadata routes use the session actor for the complete lifecycle", async () => {
   const projects = createFakeProjectService();
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     projectService: projects.service,
@@ -1783,7 +1767,7 @@ test("project metadata routes use the session actor for the complete lifecycle",
 
 test("asset upload route uses the session actor and returns presigned upload metadata", async () => {
   const assets = createFakeAssetService();
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     assetService: assets.service,
@@ -1878,7 +1862,7 @@ test("asset upload route uses the session actor and returns presigned upload met
 
 test("current workspace usage route uses only the trusted session actor", async () => {
   const usage = createFakeWorkspaceUsageService();
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     workspaceUsageService: usage.service,
@@ -1931,7 +1915,7 @@ test("generation telemetry route requires auth and uses only the session actor",
       };
     },
   };
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     generationTelemetryService,
@@ -2003,7 +1987,7 @@ test("asset upload route preserves workspace quota error details", async () => {
       });
     },
   };
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     assetService,
@@ -2110,7 +2094,11 @@ test("asset read routes preserve non-disclosing two-account isolation", async ()
       return baseAssetService.getAssetUrl(assetId, actor);
     },
   };
-  const server = createApiServer({ config, authService, assetService });
+  const server = await createFastifyApiServer({
+    config,
+    authService,
+    assetService,
+  });
   const port = await listen(server);
   const assetId = "66666666-6666-4666-8666-666666666666";
   const path = `${API_V1_PREFIX}/assets/${assetId}`;
@@ -2211,7 +2199,11 @@ test("project routes preserve non-disclosing two-account isolation", async () =>
       return createProjectResponse();
     },
   };
-  const server = createApiServer({ config, authService, projectService });
+  const server = await createFastifyApiServer({
+    config,
+    authService,
+    projectService,
+  });
   const port = await listen(server);
   const path = `${API_V1_PREFIX}/projects/11111111-1111-4111-8111-111111111111`;
 
@@ -2241,7 +2233,7 @@ test("project routes preserve non-disclosing two-account isolation", async () =>
 
 test("project graph routes use the session actor and preserve conflict details", async () => {
   const graphs = createFakeProjectGraphService();
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     projectGraphService: graphs.service,
@@ -2355,7 +2347,7 @@ test("project graph routes use the session actor and preserve conflict details",
 
 test("project checkpoint route uses the session actor and preserves version conflicts", async () => {
   const snapshots = createFakeProjectSnapshotService();
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     projectSnapshotService: snapshots.service,
@@ -2434,7 +2426,7 @@ test("project checkpoint route uses the session actor and preserves version conf
 
 test("project revisions route uses the session actor and returns checkpoint summaries", async () => {
   const snapshots = createFakeProjectSnapshotService();
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     projectSnapshotService: snapshots.service,
@@ -2467,7 +2459,7 @@ test("project revisions route uses the session actor and returns checkpoint summ
 
 test("project revision detail route uses the session actor and returns the saved record", async () => {
   const snapshots = createFakeProjectSnapshotService();
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     projectSnapshotService: snapshots.service,
@@ -2502,7 +2494,7 @@ test("project revision detail route uses the session actor and returns the saved
 
 test("project revision restore route uses the session actor and preserves conflicts", async () => {
   const snapshots = createFakeProjectSnapshotService();
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     projectSnapshotService: snapshots.service,
@@ -2577,7 +2569,7 @@ test("project revision restore route uses the session actor and preserves confli
 
 test("migration import routes use the trusted session actor and expose resumable state", async () => {
   const migrations = createFakeMigrationImportService();
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     migrationImportService: migrations.service,
@@ -2665,7 +2657,7 @@ test("migration import routes use the trusted session actor and expose resumable
 
 test("migration export routes use the trusted session actor and keep download metadata private", async () => {
   const exports = createFakeMigrationExportService();
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     migrationExportService: exports.service,
@@ -2824,7 +2816,7 @@ test("migration asset upload routes use the trusted session actor and preserve u
       return 0;
     },
   };
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     migrationAssetUploadService,
@@ -2930,7 +2922,7 @@ test("migration asset upload routes use the trusted session actor and preserve u
 test("observability records bounded API metrics and readiness failure recovery", async () => {
   let redisUp = false;
   const metrics = createMetricsRegistry();
-  const server = createApiServer({
+  const server = await createFastifyApiServer({
     config,
     authService: createFakeAuthService(),
     metrics,

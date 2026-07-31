@@ -32,7 +32,6 @@ function createTask(errorMsg = ""): GenerateTask {
     apiProfileName: null,
     provider: null,
     referenceImages: [],
-    referenceImageUrls: [],
     resultImageAsset: null,
     resultVideoAsset: null,
     status: "error",

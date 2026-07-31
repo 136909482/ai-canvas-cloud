@@ -5,11 +5,24 @@ import {
   createRevisionCachedSmtpSender,
   decryptSmtpPassword,
   encryptSmtpPassword,
-  legacySmtpRuntimeConfig,
   resolvePublicSmtpTarget,
   smtpTransportOptions,
   SmtpTransportError,
 } from "../../dist/modules/mail/smtp.js";
+
+function smtpConfig() {
+  return {
+    revisionId,
+    host: "smtp.example.com",
+    port: 465,
+    securityMode: "implicit_tls" as const,
+    username: "mailer@example.com",
+    password: "secret",
+    fromEmail: "noreply@example.com",
+    fromName: "AI Canvas",
+    source: "managed" as const,
+  };
+}
 
 const revisionId = "123e4567-e89b-42d3-a456-426614174000";
 const serializedKeys = JSON.stringify({
@@ -92,39 +105,8 @@ test("SMTP target validation accepts public addresses and blocks private resolut
   }
 });
 
-test("legacy SMTP configuration preserves the environment compatibility path", () => {
-  assert.deepEqual(
-    legacySmtpRuntimeConfig({
-      host: "smtp.example.com",
-      port: 465,
-      secure: true,
-      from: "AI Canvas <noreply@example.com>",
-      username: "mailer@example.com",
-      password: "secret",
-    }),
-    {
-      revisionId: "environment",
-      host: "smtp.example.com",
-      port: 465,
-      securityMode: "implicit_tls",
-      username: "mailer@example.com",
-      password: "secret",
-      fromEmail: "noreply@example.com",
-      fromName: "AI Canvas",
-      source: "environment",
-    },
-  );
-});
-
 test("SMTP transport maps TLS modes and caches transporters by revision", async () => {
-  const config = legacySmtpRuntimeConfig({
-    host: "smtp.example.com",
-    port: 465,
-    secure: true,
-    from: "AI Canvas <noreply@example.com>",
-    username: "mailer@example.com",
-    password: "secret",
-  });
+  const config = smtpConfig();
   const implicit = smtpTransportOptions(config, "8.8.8.8");
   assert.equal(implicit.secure, true);
   assert.equal(implicit.requireTLS, false);
@@ -196,14 +178,7 @@ test("revision-cached SMTP sender never retries a failed send", async () => {
       } as never;
     },
   });
-  const config = legacySmtpRuntimeConfig({
-    host: "smtp.example.com",
-    port: 465,
-    secure: true,
-    from: "noreply@example.com",
-    username: "mailer@example.com",
-    password: "secret",
-  });
+  const config = smtpConfig();
   await assert.rejects(
     () =>
       sender.send(config, {

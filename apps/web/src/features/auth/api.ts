@@ -19,20 +19,23 @@ import {
 import { requestCloudJson } from "@/api/cloudApiClient";
 import { getOrCreateDeviceId } from "./deviceIdentity";
 
+export type RegisterAuthInput = Omit<RegisterRequest, "deviceId">;
+export type LoginAuthInput = Omit<LoginRequest, "deviceId">;
+
 export function fetchAuthSession() {
   return requestCloudJson<AuthSessionResponse>("/auth/session", {
     method: "GET",
   });
 }
 
-export function registerAuth(input: RegisterRequest) {
+export function registerAuth(input: RegisterAuthInput) {
   return requestCloudJson<AuthSuccessResponse>("/auth/register", {
     method: "POST",
     body: JSON.stringify({ ...input, deviceId: getOrCreateDeviceId() }),
   });
 }
 
-export function loginAuth(input: LoginRequest) {
+export function loginAuth(input: LoginAuthInput) {
   return requestCloudJson<AuthSuccessResponse>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ ...input, deviceId: getOrCreateDeviceId() }),

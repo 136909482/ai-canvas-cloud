@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import pg from "pg";
+import { isolateCurrentSchemaSql } from "../../dist/db/schemaBaseline.js";
 import {
   canonicalJsonStringify,
   createMigrationPackageContentDigestInput,
@@ -199,25 +200,24 @@ test(
       const migrations = (
         await readdir(join(process.cwd(), "server", "db", "migrations"))
       )
-        .filter(
-          (fileName) =>
-            fileName.endsWith(".sql") &&
-            !/^(?:002[5-9]|0030|003[235])_/.test(fileName),
-        )
+        .filter((fileName) => fileName.endsWith(".sql"))
         .sort();
       for (const fileName of migrations) {
         await pool.query(
-          await readFile(
-            join(process.cwd(), "server", "db", "migrations", fileName),
-            "utf8",
+          isolateCurrentSchemaSql(
+            await readFile(
+              join(process.cwd(), "server", "db", "migrations", fileName),
+              "utf8",
+            ),
+            schemaName,
           ),
         );
       }
       await pool.query(`
-      INSERT INTO "user" (id, name, email, email_verified)
-      VALUES ('migration-owner-a', 'A', 'migration-a@example.com', true),
-             ('migration-owner-b', 'B', 'migration-b@example.com', true),
-             ('migration-viewer', 'Viewer', 'migration-viewer@example.com', true)
+      INSERT INTO "user" (id, name, email, email_verified, username, display_username)
+      VALUES ('migration-owner-a', 'A', 'migration-a@example.com', true, 'migration_owner_a', 'migration_owner_a'),
+             ('migration-owner-b', 'B', 'migration-b@example.com', true, 'migration_owner_b', 'migration_owner_b'),
+             ('migration-viewer', 'Viewer', 'migration-viewer@example.com', true, 'migration_viewer', 'migration_viewer')
     `);
       await pool.query(
         `

@@ -26,7 +26,6 @@ function completedTask(id: string, createdAt: number): GenerateTask {
     apiProfileName: null,
     provider: "openai",
     referenceImages: [],
-    referenceImageUrls: [],
     inputFidelity: null,
     quality: null,
     googleSearch: false,

@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import pg from "pg";
+import { isolateCurrentSchemaSql } from "../../dist/db/schemaBaseline.js";
 import { loadDotEnv } from "../../dist/env/loadDotEnv.js";
 import { AuthServiceError } from "../../dist/modules/auth/service.js";
 import { createPostgresProjectGraphService } from "../../dist/modules/project-graph/postgresProjectGraphService.js";
@@ -45,26 +46,25 @@ test(
       const migrationFiles = (
         await readdir(join(process.cwd(), "server", "db", "migrations"))
       )
-        .filter(
-          (fileName) =>
-            fileName.endsWith(".sql") &&
-            !/^(?:002[5-9]|0030|003[235])_/.test(fileName),
-        )
+        .filter((fileName) => fileName.endsWith(".sql"))
         .sort();
       for (const fileName of migrationFiles) {
         await pool.query(
-          await readFile(
-            join(process.cwd(), "server", "db", "migrations", fileName),
-            "utf8",
+          isolateCurrentSchemaSql(
+            await readFile(
+              join(process.cwd(), "server", "db", "migrations", fileName),
+              "utf8",
+            ),
+            schemaName,
           ),
         );
       }
 
       await pool.query(`
-      INSERT INTO "user" (id, name, email, email_verified)
+      INSERT INTO "user" (id, name, email, email_verified, username, display_username)
       VALUES
-        ('graph-asset-user-a', 'A', 'a-graph-assets@example.com', true),
-        ('graph-asset-user-b', 'B', 'b-graph-assets@example.com', true)
+        ('graph-asset-user-a', 'A', 'a-graph-assets@example.com', true, 'graph_asset_a', 'graph_asset_a'),
+        ('graph-asset-user-b', 'B', 'b-graph-assets@example.com', true, 'graph_asset_b', 'graph_asset_b')
     `);
       await pool.query(
         `

@@ -52,7 +52,7 @@ test("account settings renders verified identity and security actions", () => {
   assert.doesNotMatch(markup, /不应展示的内部个人空间/);
 });
 
-test("account settings does not offer a legacy verification-link action", () => {
+test("account settings does not offer a verification-link action", () => {
   const markup = renderPanel(false);
 
   assert.match(markup, /邮箱待验证/);

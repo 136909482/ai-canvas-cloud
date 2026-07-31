@@ -57,7 +57,6 @@ interface LockedProjectRow {
   last_sequence: string | number;
   node_count: number;
   edge_count: number;
-  task_count: number;
   archived_at: Date | string | null;
   created_at: Date | string;
   updated_at: Date | string;
@@ -122,7 +121,6 @@ function toProjectSummary(row: LockedProjectRow): ProjectSummary {
     lastSequence: Number(row.last_sequence),
     nodeCount: row.node_count,
     edgeCount: row.edge_count,
-    taskCount: row.task_count,
     archivedAt: row.archived_at ? toIso(row.archived_at) : null,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
@@ -716,7 +714,6 @@ export function createPostgresProjectSnapshotService(
               last_sequence,
               node_count,
               edge_count,
-              task_count,
               archived_at,
               created_at,
               updated_at
@@ -808,7 +805,6 @@ export function createPostgresProjectSnapshotService(
                   last_sequence,
                   node_count,
                   edge_count,
-                  task_count,
                   archived_at,
                   created_at,
                   updated_at
@@ -850,7 +846,6 @@ export function createPostgresProjectSnapshotService(
               last_sequence,
               node_count,
               edge_count,
-              task_count,
               archived_at,
               created_at,
               updated_at
@@ -1013,7 +1008,6 @@ export function createPostgresProjectSnapshotService(
               last_sequence,
               node_count,
               edge_count,
-              task_count,
               archived_at,
               created_at,
               updated_at

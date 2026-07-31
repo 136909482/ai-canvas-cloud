@@ -36,11 +36,11 @@ npm run dev:admin-api
 
 默认地址为 Web `http://127.0.0.1:5173`、API `http://127.0.0.1:8787`、Admin Web `http://127.0.0.1:5174`、Admin API `http://127.0.0.1:8788`。后台进程记录和脱敏日志位于已忽略的 `.codex-run/`。
 
-本地、staging、production 和 single-host 部署模板均显式让普通 API 与 Admin API 使用 `fastify`；开发 OpenAPI UI 分别位于 `http://127.0.0.1:8787/docs` 和 `http://127.0.0.1:8788/docs`。服务在缺少 adapter 配置时仍以 `legacy` 作为受控回退，实际发布环境必须保留上一版镜像和 adapter 选择以便应用级回滚；非法值会阻止启动。
+普通 API 与 Admin API 仅使用 Fastify，不提供旧 HTTP 入口或运行时切换开关；开发 OpenAPI UI 分别位于 `http://127.0.0.1:8787/docs` 和 `http://127.0.0.1:8788/docs`。
 
 本地需要自动创建普通开发账号时，在未跟踪的 `.env` 中设置 `DEV_SEED_ADMIN=true`、`DEV_SEED_ADMIN_USERNAME`、`DEV_SEED_ADMIN_EMAIL` 和 `DEV_SEED_ADMIN_PASSWORD`；默认用户名为 `admin_user`。该账号属于普通用户体系，与独立 Admin 账号完全隔离。
 
-后台管理 SMTP 时，把 `AUTH_EMAIL_TRANSPORT` 设为 `managed`，并在 API 与 Admin API 的服务器环境中提供同一份 `SMTP_CREDENTIAL_KEYS`（版本到 32 字节 Base64 密钥的 JSON）和 `SMTP_CREDENTIAL_ACTIVE_KEY_VERSION`。主密钥不能在后台填写；首次发布 managed 配置前可保留旧 `SMTP_*` 环境变量作为回退，确认测试邮件和认证邮件成功后再移除旧密码。
+后台管理 SMTP 时，把 `AUTH_EMAIL_TRANSPORT` 设为 `managed`，并在 API 与 Admin API 的服务器环境中提供同一份 `SMTP_CREDENTIAL_KEYS`（版本到 32 字节 Base64 密钥的 JSON）和 `SMTP_CREDENTIAL_ACTIVE_KEY_VERSION`。主密钥不能在后台填写；正式启用注册和密码重置邮件前，必须先在后台发布并验证 Managed SMTP 配置。
 
 后台管理 OSS 时，API 与 Admin API 必须使用同一份 `OBJECT_STORAGE_CREDENTIAL_KEYS` 和 `OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION`。通用生产部署可保留环境 `S3_*` 作为首次启动和故障回退；单机安装使用 `OBJECT_STORAGE_ENVIRONMENT_FALLBACK=false`，允许服务先启动，再由超级管理员在“对象存储”中通过真实读写删除测试后发布加密配置，AccessKey 不会回显。已有资产时 Bucket、Region、Endpoint 和路径样式会锁定，只允许轮换 RAM AccessKey 与调整签名访问地址。
 
@@ -52,7 +52,7 @@ npm run dev:admin-api
 
 生产配置从 `infra/deploy/production/production.env.example` 复制为同目录未跟踪的 `production.env`。首次发布、宝塔反向代理、迁移、升级和回滚顺序见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#docker-生产部署)。安全组只需开放 `22`、`80` 和 `443`，`8787`、`8788`、PostgreSQL 与 Redis 端口不得暴露公网。
 
-[`infra/deploy/single-host`](infra/deploy/single-host) 提供面向宝塔单机的简化部署：长期只运行普通应用、后台应用、PostgreSQL 和 Redis 四个容器。本地 Docker Desktop 一次构建并导出程序镜像，上传服务器后由 `setup.sh`/`deploy.sh` 直接加载；服务器不构建源码，也不要求购买 ACR。PostgreSQL 和 Redis 继续使用 Compose 中固定版本的官方镜像，服务器已有时不会重复上传。`setup.sh` 只用于首次安装；以后更新重新构建并上传镜像和部署文件，再运行 `deploy.sh`，不得覆盖服务器的 `secrets/`、`backups/` 或 Docker volumes。单机首次安装、离线镜像构建、更新、备份和故障处理见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#单机-docker-生产部署)。
+[`infra/deploy/single-host`](infra/deploy/single-host) 提供面向宝塔单机的简化部署：长期只运行普通应用、后台应用、PostgreSQL 和 Redis 四个容器。默认从 Docker Hub 公共仓库 `hao136909482/ai-canvas-cloud:stable` 拉取程序镜像，服务器不构建源码；国内服务器可配置 Docker 镜像加速。无法访问公共仓库时仍可由本地 Docker Desktop 构建并上传离线 tar。`setup.sh` 只用于首次安装；以后更新部署文件并运行 `deploy.sh` 即可拉取更新，不得覆盖服务器的 `secrets/`、`backups/` 或 Docker volumes。正式运营前需要把旧开发迁移链替换为当前空库基线时，使用 `sudo bash reset-prelaunch.sh --confirm-empty-database` 一次完成最终备份、精确删除 PostgreSQL volume、重新部署和 Admin 引导；该命令不得在正式运营后使用。单机首次安装、镜像发布、离线兜底、更新、备份和故障处理见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#单机-docker-生产部署)。
 
 普通站点的公开首页、登录、注册、密码重置、帮助和法律页面只加载认证与基础界面。会话确认已登录后才动态下载画布、工具栏、项目管理、编辑器、任务运行器、React Flow 和全景预览；Chunk 加载失败会显示刷新恢复界面。`npm run build` 会检查 `apps/web/dist/index.html` 没有 preload 登录后、工具栏、React Flow、编辑器、Three.js 或全景 Chunk，并要求匿名入口实际引用的 JS/CSS Gzip 总量不超过 200 KiB。
 
@@ -80,12 +80,9 @@ npm run check
 ```bash
 npm test
 npm run build
-npm run verify:http-adapters
 ```
 
 `npm test` 会构建测试运行时实际依赖的 6 个共享/后端工作区，不再重复构建两个前端生产包。`npm run build` 除生产打包外还执行匿名入口体积和 preload 门禁。数据库、认证、权限、资产、Vault 和发布验证按风险触发，完整矩阵见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)。
-
-`npm run verify:http-adapters` 使用真实 PostgreSQL、Redis 和对象存储，要求 `MIGRATION_DATABASE_URL` 对应角色具有 `CREATEDB` 权限。命令从同一迁移基线克隆隔离的 Legacy/Fastify 临时数据库，按轮交替执行 25/100/250 并发混合业务负载，随后验收 2 个公共 API 与 2 个 Admin API 实例；结束时删除临时对象和数据库，默认约需 25 分钟。基线出现 5xx 或传输错误时测试环境无效。可用 `ADAPTER_BENCH_WARMUP_SECONDS`、`ADAPTER_BENCH_DURATION_SECONDS`、`ADAPTER_BENCH_REPETITIONS` 和 `ADAPTER_BENCH_CONCURRENCY` 缩短本地调试，但缩短后的结果不能作为发布门禁。
 
 ## 文档入口
 
@@ -137,4 +134,4 @@ npm run deploy:staging:backup
 npm run deploy:staging:restore:drill
 ```
 
-生产应用启动不自动迁移。`0029_remove_server_generation.sql` 会不可逆删除旧 Provider 密文和服务端生成链路；`0030_user_usernames.sql` 会把普通账号切换到必填用户名契约，两者都要求协调应用发布并提前备份。`0031`–`0035` 是只新增的运营遥测、加密 SMTP、邮箱验证码与加密对象存储配置迁移；`0036` 在保留现有数据的前提下把旧默认个人空间配额从 20 GiB 调整为 10 GiB。执行、回滚和前向修复要求见 [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md)。
+生产应用启动不自动迁移。当前数据库从 `0001_current_schema.sql` 创建；首次正式运营前必须重建空库并完成角色配置，不支持从已删除的开发期迁移链原地升级。正式运营后只允许追加新的显式迁移，不再压缩基线。执行、回滚和前向修复要求见 [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md)。

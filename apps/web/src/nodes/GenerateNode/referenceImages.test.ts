@@ -19,18 +19,13 @@ test("reference image keys preserve original and thumbnail asset paths", () => {
   );
 });
 
-test("reference image keys remain compatible with the legacy three fields", () => {
-  assert.deepEqual(
+test("reference image keys reject incomplete fields", () => {
+  assert.equal(
     decodeReferenceImageKey(
       ["image-1", "data:image/png;base64,abc", "cloud-assets/thumb-1"].join(
         "\u0000",
       ),
     ),
-    {
-      sourceId: "image-1",
-      imageUrl: "data:image/png;base64,abc",
-      thumbnailRelativePath: "cloud-assets/thumb-1",
-      assetRelativePath: undefined,
-    },
+    null,
   );
 });

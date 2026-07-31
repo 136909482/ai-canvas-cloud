@@ -21,12 +21,14 @@ export function encodeReferenceImageKey(item: ReferenceImageItem) {
 export function decodeReferenceImageKey(
   key: string,
 ): ReferenceImageItem | null {
+  const fields = key.split(REFERENCE_IMAGE_KEY_SEPARATOR);
+  if (fields.length !== 4) return null;
   const [
     sourceId = "",
     imageUrl = "",
     thumbnailRelativePath = "",
     assetRelativePath = "",
-  ] = key.split(REFERENCE_IMAGE_KEY_SEPARATOR);
+  ] = fields;
   if (!sourceId || !imageUrl) {
     return null;
   }

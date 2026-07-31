@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import pg from "pg";
+import { isolateCurrentSchemaSql } from "../../dist/db/schemaBaseline.js";
 import { loadDotEnv } from "../../dist/env/loadDotEnv.js";
 import { createS3ObjectStorage } from "../../dist/modules/assets/s3ObjectStorage.js";
 import { createPostgresAssetService } from "../../dist/modules/assets/service.js";
@@ -59,24 +60,23 @@ test(
       const migrationFiles = (
         await readdir(join(process.cwd(), "server", "db", "migrations"))
       )
-        .filter(
-          (fileName) =>
-            fileName.endsWith(".sql") &&
-            !/^(?:002[5-9]|0030|003[235])_/.test(fileName),
-        )
+        .filter((fileName) => fileName.endsWith(".sql"))
         .sort();
       for (const fileName of migrationFiles) {
         await pool.query(
-          await readFile(
-            join(process.cwd(), "server", "db", "migrations", fileName),
-            "utf8",
+          isolateCurrentSchemaSql(
+            await readFile(
+              join(process.cwd(), "server", "db", "migrations", fileName),
+              "utf8",
+            ),
+            schemaName,
           ),
         );
       }
 
       await pool.query(`
-      INSERT INTO "user" (id, name, email, email_verified)
-      VALUES ('asset-upload-user', 'Asset upload user', 'asset-upload@example.com', true)
+      INSERT INTO "user" (id, name, email, email_verified, username, display_username)
+      VALUES ('asset-upload-user', 'Asset upload user', 'asset-upload@example.com', true, 'asset_upload', 'asset_upload')
     `);
       await pool.query(`
       INSERT INTO workspaces (id, name, owner_user_id)

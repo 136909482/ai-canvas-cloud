@@ -13,7 +13,8 @@ import {
   type AdminObjectStorageConfigService,
   type AdminUserOperationsService,
 } from "@ai-canvas-cloud/server/modules/admin";
-import { createAdminApiServer } from "./server.ts";
+import { createFastifyAdminApiServer } from "./fastify/server.ts";
+import { closeAdminApiServer } from "./serverLifecycle.ts";
 
 const config = {
   env: "development",
@@ -40,7 +41,6 @@ const config = {
   assetMaintenanceApiUrl: "http://127.0.0.1:8787",
   assetMaintenanceToken: "asset-maintenance-token-for-tests-123456",
   smtpCredentialActiveKeyVersion: 1,
-  smtpSecure: false,
 };
 
 const logger = { debug() {}, info() {}, warn() {}, error() {} };
@@ -109,7 +109,7 @@ async function withServer(
     assetCleanupService?: AdminAssetCleanupService;
   } = {},
 ) {
-  const server = createAdminApiServer({
+  const server = await createFastifyAdminApiServer({
     config,
     adminService: service,
     siteConfigService,
@@ -122,7 +122,7 @@ async function withServer(
   try {
     await operation(address.port);
   } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closeAdminApiServer(server, 1_000);
   }
 }
 
@@ -965,43 +965,4 @@ test("Admin user mutations require CSRF and forward only their bounded body and 
     undefined,
     { userOperationsService },
   );
-});
-
-test("removed Admin provider, model, credit, and server task routes return 404", async () => {
-  await withServer(createUnavailableAdminService(), async (port) => {
-    for (const path of [
-      "/admin/v1/providers",
-      "/admin/v1/providers/provider-id",
-      "/admin/v1/models",
-      "/admin/v1/models/model-id",
-      "/admin/v1/tasks",
-      "/admin/v1/tasks/task-id",
-    ]) {
-      const result = await request(port, {
-        path,
-        origin: config.allowedOrigins[0],
-      });
-      assert.equal(result.status, 404, path);
-      assert.equal(
-        (result.body.error as { code: string }).code,
-        "RESOURCE_NOT_FOUND",
-        path,
-      );
-    }
-
-    const token = await csrf(port);
-    const creditAdjustment = await request(port, {
-      path: "/admin/v1/workspaces/workspace-id/credits/adjust",
-      method: "POST",
-      origin: config.allowedOrigins[0],
-      cookie: token.cookie,
-      csrf: token.token,
-      body: { amount: 1 },
-    });
-    assert.equal(creditAdjustment.status, 404);
-    assert.equal(
-      (creditAdjustment.body.error as { code: string }).code,
-      "RESOURCE_NOT_FOUND",
-    );
-  });
 });

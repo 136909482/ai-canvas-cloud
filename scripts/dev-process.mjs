@@ -22,7 +22,6 @@ const START_TIMEOUT_MS = 10_000;
 const POLL_INTERVAL_MS = 100;
 
 export const SERVICE_NAMES = ["web", "api", "admin-web", "admin-api"];
-export const LEGACY_STOP_SERVICE_NAMES = ["worker"];
 
 function normalizePath(value) {
   const normalized = resolve(value).replaceAll("\\", "/").replace(/\/$/, "");
@@ -415,10 +414,7 @@ async function startAll() {
 
 async function stopAll() {
   const failures = [];
-  for (const service of [
-    ...SERVICE_NAMES,
-    ...LEGACY_STOP_SERVICE_NAMES,
-  ].reverse()) {
+  for (const service of [...SERVICE_NAMES].reverse()) {
     try {
       await stopService(service);
     } catch (error) {

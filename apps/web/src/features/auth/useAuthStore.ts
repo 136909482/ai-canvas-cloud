@@ -2,9 +2,15 @@ import { create } from "zustand";
 import type {
   AuthSessionResponse,
   AuthSuccessResponse,
-  RegisterRequest,
 } from "@ai-canvas-cloud/contracts";
-import { fetchAuthSession, loginAuth, logoutAuth, registerAuth } from "./api";
+import {
+  fetchAuthSession,
+  loginAuth,
+  logoutAuth,
+  registerAuth,
+  type LoginAuthInput,
+  type RegisterAuthInput,
+} from "./api";
 
 export type AuthStatus = "checking" | "authenticated" | "anonymous";
 
@@ -13,12 +19,8 @@ interface AuthStore {
   session: AuthSessionResponse | null;
   error: string | null;
   checkSession: (options?: { silent?: boolean }) => Promise<void>;
-  login: (input: {
-    identifier: string;
-    password: string;
-    force?: boolean;
-  }) => Promise<void>;
-  register: (input: RegisterRequest) => Promise<void>;
+  login: (input: LoginAuthInput) => Promise<void>;
+  register: (input: RegisterAuthInput) => Promise<void>;
   logout: () => Promise<void>;
 }
 

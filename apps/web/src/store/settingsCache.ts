@@ -39,15 +39,6 @@ export function writeWorkspaceConfigCache(config: WorkspaceConfigFile) {
   }
 }
 
-export function clearLegacyPersistedConfig() {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem("ai-canvas-settings");
-  } catch {
-    // The in-memory Vault remains usable when localStorage is unavailable.
-  }
-}
-
 export function clearDeviceOnlySettingsCache() {
   if (typeof window === "undefined") return;
   try {

@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import pg from "pg";
+import { isolateCurrentSchemaSql } from "../../dist/db/schemaBaseline.js";
 import {
   createMigrationPackageContentDigestInput,
   validateMigrationPackageContract,
@@ -112,24 +113,23 @@ test(
       const migrations = (
         await readdir(join(process.cwd(), "server", "db", "migrations"))
       )
-        .filter(
-          (fileName) =>
-            fileName.endsWith(".sql") &&
-            !/^(?:002[5-9]|0030|003[235])_/.test(fileName),
-        )
+        .filter((fileName) => fileName.endsWith(".sql"))
         .sort();
       for (const fileName of migrations) {
         await pool.query(
-          await readFile(
-            join(process.cwd(), "server", "db", "migrations", fileName),
-            "utf8",
+          isolateCurrentSchemaSql(
+            await readFile(
+              join(process.cwd(), "server", "db", "migrations", fileName),
+              "utf8",
+            ),
+            schemaName,
           ),
         );
       }
       await pool.query(`
-      INSERT INTO "user" (id, name, email, email_verified)
-      VALUES ('export-owner-a', 'Export A', 'export-a@example.com', true),
-             ('export-owner-b', 'Export B', 'export-b@example.com', true)
+      INSERT INTO "user" (id, name, email, email_verified, username, display_username)
+      VALUES ('export-owner-a', 'Export A', 'export-a@example.com', true, 'export_owner_a', 'export_owner_a'),
+             ('export-owner-b', 'Export B', 'export-b@example.com', true, 'export_owner_b', 'export_owner_b')
     `);
       await pool.query(
         `

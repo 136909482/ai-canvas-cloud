@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import pg from "pg";
+import { isolateCurrentSchemaSql } from "../../dist/db/schemaBaseline.js";
 import { loadDotEnv } from "../../dist/env/loadDotEnv.js";
 import { AuthServiceError } from "../../dist/modules/auth/service.js";
 import {
@@ -42,26 +43,25 @@ test(
       const migrationFiles = (
         await readdir(join(process.cwd(), "server", "db", "migrations"))
       )
-        .filter(
-          (fileName) =>
-            fileName.endsWith(".sql") &&
-            !/^(?:002[5-9]|0030|003[235])_/.test(fileName),
-        )
+        .filter((fileName) => fileName.endsWith(".sql"))
         .sort();
       for (const fileName of migrationFiles) {
         await pool.query(
-          await readFile(
-            join(process.cwd(), "server", "db", "migrations", fileName),
-            "utf8",
+          isolateCurrentSchemaSql(
+            await readFile(
+              join(process.cwd(), "server", "db", "migrations", fileName),
+              "utf8",
+            ),
+            schemaName,
           ),
         );
       }
 
       await pool.query(`
-      INSERT INTO "user" (id, name, email, email_verified)
+      INSERT INTO "user" (id, name, email, email_verified, username, display_username)
       VALUES
-        ('usage-user-a', 'A', 'usage-a@example.com', true),
-        ('usage-user-b', 'B', 'usage-b@example.com', true)
+        ('usage-user-a', 'A', 'usage-a@example.com', true, 'usage_a', 'usage_a'),
+        ('usage-user-b', 'B', 'usage-b@example.com', true, 'usage_b', 'usage_b')
     `);
       await pool.query(
         `

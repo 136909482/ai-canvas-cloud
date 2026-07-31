@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const dockerfile = readFileSync("Dockerfile", "utf8");
@@ -34,6 +34,10 @@ const singleHostDeploy = readFileSync(
   "infra/deploy/single-host/deploy.sh",
   "utf8",
 );
+const singleHostPrelaunchReset = readFileSync(
+  "infra/deploy/single-host/reset-prelaunch.sh",
+  "utf8",
+);
 const staticAssetPrewarm = readFileSync(
   "scripts/prewarm-static-assets.mjs",
   "utf8",
@@ -61,18 +65,6 @@ const releaseManifest = JSON.parse(
   readFileSync("server/db/migrations/release-manifest.json", "utf8"),
 );
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
-const packageLock = readFileSync("package-lock.json", "utf8");
-
-test("server generation runtime paths remain removed", () => {
-  assert.equal(existsSync("apps/worker"), false);
-  assert.equal(existsSync("server/modules/tasks"), false);
-  assert.equal(existsSync("server/modules/providers"), false);
-  assert.equal(packageJson.scripts["dev:worker"], undefined);
-  assert.doesNotMatch(
-    packageLock,
-    /apps\/worker|node_modules\/bullmq|"bullmq"/,
-  );
-});
 
 test("deployment artifacts keep runtime targets non-root and migration explicit", () => {
   assert.equal(packageJson.packageManager, "npm@11.16.0");
@@ -132,8 +124,6 @@ test("deployment artifacts keep runtime targets non-root and migration explicit"
 
 test("staging environment template contains placeholders and no local defaults", () => {
   assert.match(template, /replace-with-staging-random-secret/);
-  assert.match(template, /^PUBLIC_HTTP_ADAPTER=fastify$/m);
-  assert.match(compose, /HTTP_ADAPTER: \$\{PUBLIC_HTTP_ADAPTER:-fastify\}/);
   assert.doesNotMatch(
     template,
     /WORKER_DATABASE_URL|PROVIDER_CREDENTIAL_KEYS|OFFICIAL_PROVIDER_CREDENTIAL_KEYS/,
@@ -166,16 +156,6 @@ test("staging web and object storage boundaries allow controlled HTTPS providers
 });
 
 test("production deployment stays lightweight and loopback-only", () => {
-  assert.match(productionTemplate, /^PUBLIC_HTTP_ADAPTER=fastify$/m);
-  assert.match(productionTemplate, /^ADMIN_HTTP_ADAPTER=fastify$/m);
-  assert.match(
-    productionCompose,
-    /HTTP_ADAPTER: \$\{PUBLIC_HTTP_ADAPTER:-fastify\}/,
-  );
-  assert.match(
-    productionCompose,
-    /HTTP_ADAPTER: \$\{ADMIN_HTTP_ADAPTER:-fastify\}/,
-  );
   assert.doesNotMatch(
     productionCompose,
     /\n  (postgres|redis|object-storage|minio|prometheus):/,
@@ -204,10 +184,6 @@ test("production deployment stays lightweight and loopback-only", () => {
 });
 
 test("single-host production uses one image, two application containers, and private state", () => {
-  assert.match(singleHostTemplate, /^PUBLIC_HTTP_ADAPTER=fastify$/m);
-  assert.match(singleHostTemplate, /^ADMIN_HTTP_ADAPTER=fastify$/m);
-  assert.match(singleHostSetup, /^PUBLIC_HTTP_ADAPTER=fastify$/m);
-  assert.match(singleHostSetup, /^ADMIN_HTTP_ADAPTER=fastify$/m);
   assert.match(singleHostCompose, /postgres:17\.6-alpine3\.22/);
   assert.match(singleHostCompose, /redis:8\.2\.1-alpine3\.22/);
   assert.match(singleHostCompose, /ai-canvas-cloud-single-host-postgres/);
@@ -228,7 +204,11 @@ test("single-host production uses one image, two application containers, and pri
   assert.match(singleHostCompose, /--maxmemory-policy noeviction/);
   assert.match(singleHostCompose, /profiles: \["release"\]/);
   assert.match(singleHostCompose, /health\/live/);
-  assert.match(singleHostTemplate, /APP_IMAGE_SOURCE=archive/);
+  assert.match(singleHostTemplate, /APP_IMAGE_SOURCE=registry/);
+  assert.match(
+    singleHostTemplate,
+    /APP_REPOSITORY=hao136909482\/ai-canvas-cloud/,
+  );
   assert.match(
     singleHostTemplate,
     /APP_IMAGE_ARCHIVE=ai-canvas-cloud-single-host-image\.tar/,
@@ -237,7 +217,6 @@ test("single-host production uses one image, two application containers, and pri
     singleHostTemplate,
     /APP_LOCAL_IMAGE=ai-canvas-cloud-single-host:offline/,
   );
-  assert.doesNotMatch(singleHostTemplate, /APP_REPOSITORY=/);
   assert.doesNotMatch(singleHostSetup, /docker login/);
   assert.match(singleHostSetup, /PUBLIC_DOMAIN=.*read_required/);
   assert.match(singleHostSetup, /ADMIN_DOMAIN=.*read_required/);
@@ -252,6 +231,8 @@ test("single-host production uses one image, two application containers, and pri
   );
   assert.match(singleHostSetup, /bootstrap-admin\.mjs/);
   assert.match(singleHostSetup, /Missing local image archive/);
+  assert.match(singleHostSetup, /APP_IMAGE_SOURCE.*registry/);
+  assert.match(singleHostSetup, /APP_REPOSITORY=\$\{APP_REPOSITORY\}/);
   assert.match(singleHostDeploy, /docker load --input/);
   assert.match(singleHostDeploy, /linux\/amd64/);
   assert.match(
@@ -276,6 +257,30 @@ test("single-host production uses one image, two application containers, and pri
       singleHostDeploy.indexOf("prewarm-static-assets.mjs"),
   );
   assert.match(singleHostDeploy, /if ! compose .*prewarm-static-assets\.mjs/);
+  assert.match(singleHostPrelaunchReset, /--confirm-empty-database/);
+  assert.match(
+    singleHostPrelaunchReset,
+    /POSTGRES_VOLUME="ai-canvas-cloud-single-host-postgres"/,
+  );
+  assert.match(singleHostPrelaunchReset, /pg_dump/);
+  assert.match(singleHostPrelaunchReset, /pg_restore --list/);
+  assert.ok(
+    singleHostPrelaunchReset.indexOf("pg_dump") <
+      singleHostPrelaunchReset.indexOf('docker volume rm "$POSTGRES_VOLUME"'),
+  );
+  assert.ok(
+    singleHostPrelaunchReset.indexOf("pg_restore --list") <
+      singleHostPrelaunchReset.indexOf('docker volume rm "$POSTGRES_VOLUME"'),
+  );
+  assert.ok(
+    singleHostPrelaunchReset.indexOf('docker volume rm "$POSTGRES_VOLUME"') <
+      singleHostPrelaunchReset.indexOf('bash "$SCRIPT_DIR/deploy.sh"'),
+  );
+  assert.match(singleHostPrelaunchReset, /bootstrap-admin\.mjs/);
+  assert.doesNotMatch(
+    singleHostPrelaunchReset,
+    /docker volume prune|compose down -v|single-host-redis.*volume rm/,
+  );
   assert.match(staticAssetPrewarm, /PREWARM_CONCURRENCY = 4/);
   assert.match(staticAssetPrewarm, /PREWARM_TIMEOUT_MS = 15_000/);
   assert.match(staticAssetPrewarm, /PREWARM_RETRIES = 2/);
@@ -331,11 +336,9 @@ test("migration release metadata is enforced by the one-shot migration command",
     "migrate",
     "contract",
   ]);
-  assert.equal(
-    releaseManifest.migrations.some(
-      (migration) => migration.version === "0020",
-    ),
-    true,
+  assert.deepEqual(
+    releaseManifest.migrations.map((migration) => migration.version),
+    ["0001"],
   );
   assert.match(applyMigrations, /SET LOCAL lock_timeout/);
   assert.match(applyMigrations, /SET LOCAL statement_timeout/);

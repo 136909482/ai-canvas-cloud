@@ -57,9 +57,6 @@ export function createModelEntry(
     Number.isFinite(overrides.lastSeenAt)
       ? { lastSeenAt: overrides.lastSeenAt }
       : {}),
-    ...(overrides.legacyLabel?.trim()
-      ? { legacyLabel: overrides.legacyLabel.trim() }
-      : {}),
   };
 }
 
@@ -150,7 +147,7 @@ type ConfigInput = Omit<Partial<ApiConfig>, "storage"> & {
 function normalizeLastUsedModelEntryIds(
   value: unknown,
   enabledEntries: ModelEntry[],
-  legacyDefaultModelEntryId: string,
+  defaultModelEntryId: string,
 ) {
   const source =
     value && typeof value === "object" && !Array.isArray(value)
@@ -170,11 +167,11 @@ function normalizeLastUsedModelEntryIds(
     }
   }
 
-  const legacyDefault = enabledEntries.find(
-    (entry) => entry.id === legacyDefaultModelEntryId,
+  const defaultEntry = enabledEntries.find(
+    (entry) => entry.id === defaultModelEntryId,
   );
-  if (legacyDefault && !result[legacyDefault.category]) {
-    result[legacyDefault.category] = legacyDefault.id;
+  if (defaultEntry && !result[defaultEntry.category]) {
+    result[defaultEntry.category] = defaultEntry.id;
   }
 
   return result;

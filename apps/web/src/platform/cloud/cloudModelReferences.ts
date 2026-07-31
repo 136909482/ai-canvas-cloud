@@ -26,7 +26,6 @@ const LOCAL_RUNTIME_FIELDS = [
   "endpoint",
   "apiUrl",
   "apiKey",
-  "generationResults",
 ] as const;
 
 function cloneNodeWithData(node: Node, data: Record<string, unknown>): Node {

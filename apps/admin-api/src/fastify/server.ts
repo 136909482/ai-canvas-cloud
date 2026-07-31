@@ -16,10 +16,10 @@ import {
   createUnavailableAdminUserOperationsService,
 } from "@ai-canvas-cloud/server/modules/admin";
 import {
-  ADMIN_HTTP_ADAPTER_CLOSE,
-  type AdminAdapterHttpServer,
-  type AdminServerOptions,
-} from "../server.js";
+  ADMIN_FASTIFY_SERVER_CLOSE,
+  type AdminFastifyHttpServer,
+} from "../serverLifecycle.js";
+import type { AdminServerOptions } from "../serverOptions.js";
 import { resetAdminOperationIds } from "./helpers.js";
 import { registerAdminFastifyFoundation } from "./plugins.js";
 import { registerAdminAuthRoutes } from "./routes/auth.js";
@@ -161,8 +161,8 @@ export async function createFastifyAdminApiServer(options: AdminServerOptions) {
   }
 
   await app.ready();
-  const server = app.server as AdminAdapterHttpServer;
-  server[ADMIN_HTTP_ADAPTER_CLOSE] = async () => {
+  const server = app.server as AdminFastifyHttpServer;
+  server[ADMIN_FASTIFY_SERVER_CLOSE] = async () => {
     await app.close();
   };
   return server;

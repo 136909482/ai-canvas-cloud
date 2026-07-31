@@ -10,7 +10,6 @@ import {
 
 export interface AdminApiConfig {
   env: string;
-  httpAdapter: "legacy" | "fastify";
   host: string;
   port: number;
   logLevel: LogLevel;
@@ -40,12 +39,6 @@ export interface AdminApiConfig {
   smtpCredentialKeys?: string;
   smtpCredentialActiveKeyVersion: number;
   smtpDevelopmentSecret?: string;
-  smtpHost?: string;
-  smtpPort?: number;
-  smtpSecure: boolean;
-  smtpFrom?: string;
-  smtpUsername?: string;
-  smtpPassword?: string;
 }
 
 const LOG_LEVELS = new Set<LogLevel>(["debug", "info", "warn", "error"]);
@@ -54,16 +47,6 @@ const TRUTHY_VALUES = new Set(["1", "true", "yes", "on"]);
 function readBoolean(env: NodeJS.ProcessEnv, key: string, fallback: boolean) {
   const value = env[key]?.trim().toLowerCase();
   return value ? TRUTHY_VALUES.has(value) : fallback;
-}
-
-function readHttpAdapter(env: NodeJS.ProcessEnv) {
-  const value = (env.ADMIN_API_HTTP_ADAPTER ?? env.HTTP_ADAPTER ?? "legacy")
-    .trim()
-    .toLowerCase();
-  if (value !== "legacy" && value !== "fastify") {
-    throw new Error(`Invalid HTTP_ADAPTER: ${value}`);
-  }
-  return value;
 }
 
 function parseOrigins(raw: string) {
@@ -225,7 +208,6 @@ export function loadAdminApiConfig(
     : "";
   return {
     env: appEnv,
-    httpAdapter: readHttpAdapter(env),
     host,
     port,
     logLevel,
@@ -278,11 +260,5 @@ export function loadAdminApiConfig(
     smtpCredentialActiveKeyVersion,
     smtpDevelopmentSecret:
       appEnv === "development" ? ordinaryAuthSecret : undefined,
-    smtpHost: env.SMTP_HOST?.trim() || undefined,
-    smtpPort: env.SMTP_PORT ? readPortEnv(env, "SMTP_PORT", 465) : undefined,
-    smtpSecure: readBoolean(env, "SMTP_SECURE", false),
-    smtpFrom: env.SMTP_FROM?.trim() || undefined,
-    smtpUsername: env.SMTP_USERNAME?.trim() || undefined,
-    smtpPassword: env.SMTP_PASSWORD?.trim() || undefined,
   };
 }

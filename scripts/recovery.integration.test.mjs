@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import pg from "pg";
+import { isolateCurrentSchemaSql } from "../server/dist/db/schemaBaseline.js";
 import { loadDotEnv } from "@ai-canvas-cloud/server";
 import { auditDatabaseConsistency } from "./audit-restored-state.mjs";
 import { createRecoveryFingerprint } from "./recovery-common.mjs";
@@ -24,24 +25,31 @@ test(
       await client.connect();
       await client.query(`CREATE SCHEMA "${schema}"`);
       await client.query(`SET search_path TO "${schema}", public`);
+      await client.query(`
+        CREATE TABLE "${schema}".schema_migrations (
+          version text PRIMARY KEY,
+          name text NOT NULL,
+          applied_at timestamptz NOT NULL DEFAULT now()
+        )
+      `);
       const migrations = (
         await readdir(join(process.cwd(), "server", "db", "migrations"))
       )
-        .filter(
-          (name) =>
-            name.endsWith(".sql") && !/^(?:002[5-9]|0030|003[235])_/.test(name),
-        )
+        .filter((name) => name.endsWith(".sql"))
         .sort();
       for (const migration of migrations) {
         await client.query(
-          await readFile(
-            join(process.cwd(), "server", "db", "migrations", migration),
-            "utf8",
+          isolateCurrentSchemaSql(
+            await readFile(
+              join(process.cwd(), "server", "db", "migrations", migration),
+              "utf8",
+            ),
+            schema,
           ),
         );
         const [, version, name] = /^(\d{4})_([a-z0-9_]+)\.sql$/.exec(migration);
         await client.query(
-          "INSERT INTO schema_migrations (version, name) VALUES ($1, $2)",
+          `INSERT INTO "${schema}".schema_migrations (version, name) VALUES ($1, $2)`,
           [version, name],
         );
       }

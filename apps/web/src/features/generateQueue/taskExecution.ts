@@ -225,8 +225,8 @@ function buildTaskRequestParams(task: GenerateTask) {
         task.operationType === "image-edit"
           ? (task.maskImageUrl ?? null)
           : null,
-      referenceImageUrl: task.referenceImageUrls[0] ?? null,
-      referenceImageUrls: task.referenceImageUrls,
+      referenceImageUrl: task.referenceImages[0]?.imageUrl ?? null,
+      referenceImageUrls: task.referenceImages.map((source) => source.imageUrl),
       apiKey: modelConfig.apiKey,
       apiUrl,
       model: modelConfig.modelId,

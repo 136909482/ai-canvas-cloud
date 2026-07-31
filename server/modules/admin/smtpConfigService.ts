@@ -66,7 +66,6 @@ interface AdminSmtpConfigServiceOptions {
   adminService: AdminService;
   keyring: SmtpCredentialKeyring;
   auditSecret: string;
-  fallbackConfig?: SmtpRuntimeConfig;
   verifyConnection?: typeof verifySmtpConnection;
   sendMessage?: typeof sendSmtpMessage;
   metrics?: MetricsRegistry;
@@ -103,25 +102,7 @@ function mapTransportError(error: unknown) {
   return new AdminAccessError(422, mapped[0], mapped[1]);
 }
 
-function responseFromRow(
-  row: SmtpConfigRow | null,
-  fallback?: SmtpRuntimeConfig,
-): SmtpSettingsResponse {
-  if (!row && fallback) {
-    return {
-      state: "active",
-      source: "environment",
-      host: fallback.host,
-      port: fallback.port,
-      securityMode: fallback.securityMode,
-      username: fallback.username,
-      passwordConfigured: true,
-      fromEmail: fallback.fromEmail,
-      fromName: fallback.fromName,
-      revisionId: null,
-      updatedAt: null,
-    };
-  }
+function responseFromRow(row: SmtpConfigRow | null): SmtpSettingsResponse {
   if (!row) {
     return {
       state: "unconfigured",
@@ -322,7 +303,7 @@ export function createPostgresAdminSmtpConfigService(
   return {
     async getCurrent(context) {
       await requireSession(context);
-      return responseFromRow(await readCurrent(pool), options.fallbackConfig);
+      return responseFromRow(await readCurrent(pool));
     },
 
     async testConnection(raw, context) {
@@ -501,21 +482,18 @@ export function createPostgresAdminSmtpConfigService(
           },
           options.auditSecret,
         );
-        return responseFromRow(
-          {
-            revision_id: revisionId,
-            enabled: true,
-            host: input.host,
-            port: input.port,
-            security_mode: input.securityMode,
-            username: input.username,
-            encrypted_password_json: envelope,
-            from_email: input.fromEmail,
-            from_name: input.fromName,
-            updated_at: new Date(),
-          },
-          options.fallbackConfig,
-        );
+        return responseFromRow({
+          revision_id: revisionId,
+          enabled: true,
+          host: input.host,
+          port: input.port,
+          security_mode: input.securityMode,
+          username: input.username,
+          encrypted_password_json: envelope,
+          from_email: input.fromEmail,
+          from_name: input.fromName,
+          updated_at: new Date(),
+        });
       });
     },
 
@@ -604,16 +582,13 @@ export function createPostgresAdminSmtpConfigService(
           },
           options.auditSecret,
         );
-        return responseFromRow(
-          {
-            ...current,
-            revision_id: revisionId,
-            enabled: false,
-            encrypted_password_json: envelope,
-            updated_at: new Date(),
-          },
-          options.fallbackConfig,
-        );
+        return responseFromRow({
+          ...current,
+          revision_id: revisionId,
+          enabled: false,
+          encrypted_password_json: envelope,
+          updated_at: new Date(),
+        });
       });
     },
   };

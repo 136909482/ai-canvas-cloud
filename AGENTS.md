@@ -80,7 +80,6 @@
 - `npm run db:migrate:compat`
 - `npm run db:repair:checkpoint-assets`
 - `npm run db:maintain:assets`
-- `npm run verify:http-adapters`
 - `npm run build`
 - `npm run deploy:staging:check`
 - `npm run deploy:staging:gate`

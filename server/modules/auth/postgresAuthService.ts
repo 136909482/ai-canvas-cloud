@@ -509,27 +509,16 @@ async function getPrimaryWorkspace(
   return result.rows[0] ?? null;
 }
 
-function resolveDeviceKey(
-  deviceId: string | undefined,
-  context: AuthRequestContext,
-) {
-  const provided = deviceId?.trim();
-
-  if (provided) {
-    if (!/^[a-zA-Z0-9._:-]{1,128}$/.test(provided)) {
-      throw new AuthServiceError({
-        statusCode: 400,
-        apiCode: "VALIDATION_FAILED",
-        message: "Invalid device identifier",
-      });
-    }
-
-    return provided;
+function resolveDeviceKey(deviceId: string) {
+  const provided = deviceId.trim();
+  if (!/^[a-zA-Z0-9._:-]{1,128}$/.test(provided)) {
+    throw new AuthServiceError({
+      statusCode: 400,
+      apiCode: "VALIDATION_FAILED",
+      message: "Invalid device identifier",
+    });
   }
-
-  const fallbackSource =
-    context.userAgent || context.ipAddress || "unknown-device";
-  return `legacy:${Buffer.from(fallbackSource).toString("base64url").slice(0, 96)}`;
+  return provided;
 }
 
 async function findOtherActiveSession(
@@ -611,20 +600,6 @@ async function upsertDeviceHistory(
       options.deviceKey,
       options.userAgent?.slice(0, 2048) || null,
       options.currentToken,
-    ],
-  );
-  await client.query(
-    `
-      DELETE FROM auth_devices
-      WHERE user_id = $1
-        AND device_key LIKE 'legacy-session:%'
-        AND device_key <> $2
-        AND user_agent IS NOT DISTINCT FROM $3
-    `,
-    [
-      options.userId,
-      options.deviceKey,
-      options.userAgent?.slice(0, 2048) || null,
     ],
   );
 }
@@ -774,7 +749,7 @@ export function createPostgresAuthService(
             input.emailVerificationCode?.trim() ?? "",
           );
         }
-        const deviceKey = resolveDeviceKey(input.deviceId, context);
+        const deviceKey = resolveDeviceKey(input.deviceId);
         const result = await authApi.signUpEmail({
           body: {
             email: normalized.emailNormalized,
@@ -852,7 +827,7 @@ export function createPostgresAuthService(
     async login(input: LoginRequest, context: AuthRequestContext) {
       try {
         const identifier = normalizeLoginIdentifier(input.identifier);
-        const deviceKey = resolveDeviceKey(input.deviceId, context);
+        const deviceKey = resolveDeviceKey(input.deviceId);
         const request = {
           headers: createRequestHeaders(context),
           returnHeaders: true as const,

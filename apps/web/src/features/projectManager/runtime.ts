@@ -4,16 +4,15 @@ import type { ProjectSnapshot } from "@/types";
 import { cloneSerializable } from "@/utils/clone";
 import {
   CURRENT_PROJECT_SNAPSHOT_SCHEMA_VERSION,
-  migrateProjectSnapshot,
-  type PersistedProjectSnapshot,
-} from "./migrations";
+  parseProjectSnapshot,
+} from "./snapshotSchema";
 import {
   sanitizeProjectSnapshotForPersistence,
   stripLocalTaskQueueFromProjectSnapshot,
 } from "./snapshotSize";
 
 export const DEFAULT_PROJECT_NAME = "未命名项目";
-export { CURRENT_PROJECT_SNAPSHOT_SCHEMA_VERSION, migrateProjectSnapshot };
+export { CURRENT_PROJECT_SNAPSHOT_SCHEMA_VERSION, parseProjectSnapshot };
 
 export function createEmptyProjectSnapshot(): ProjectSnapshot {
   return {
@@ -29,9 +28,9 @@ export function createEmptyProjectSnapshot(): ProjectSnapshot {
 }
 
 export function cloneProjectSnapshot(
-  snapshot: ProjectSnapshot | PersistedProjectSnapshot,
+  snapshot: ProjectSnapshot,
 ): ProjectSnapshot {
-  return migrateProjectSnapshot(cloneSerializable(snapshot));
+  return parseProjectSnapshot(cloneSerializable(snapshot));
 }
 
 export function takeWorkspaceSnapshot(): ProjectSnapshot {
@@ -45,7 +44,7 @@ export function takeWorkspaceSnapshot(): ProjectSnapshot {
 }
 
 export function replaceWorkspaceSnapshot(
-  snapshot: ProjectSnapshot | PersistedProjectSnapshot,
+  snapshot: ProjectSnapshot,
   projectId?: string | null,
 ) {
   const clonedSnapshot = cloneProjectSnapshot(snapshot);

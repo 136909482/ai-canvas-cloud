@@ -30,7 +30,6 @@ export interface GenerateTaskSnapshot {
   referenceImages?: GenerateTaskImageSource[];
   editImageSource?: GenerateTaskImageSource | null;
   maskImageSource?: GenerateTaskImageSource | null;
-  referenceImageUrls?: string[];
   inputFidelity?: ImageInputFidelity | null;
   quality?: GptImageQuality | null;
   googleSearch?: boolean;
@@ -74,24 +73,10 @@ function sanitizeImageSource(value: unknown): GenerateTaskImageSource | null {
 }
 
 function sanitizeReferenceImages(task: GenerateTask) {
-  const structured = Array.isArray(task.referenceImages)
+  return Array.isArray(task.referenceImages)
     ? task.referenceImages
         .map(sanitizeImageSource)
         .filter((source): source is GenerateTaskImageSource => Boolean(source))
-    : [];
-
-  if (structured.length > 0) {
-    return structured;
-  }
-
-  return Array.isArray(task.referenceImageUrls)
-    ? task.referenceImageUrls
-        .filter((url): url is string => typeof url === "string" && Boolean(url))
-        .map((imageUrl) => ({
-          sourceNodeId: null,
-          imageUrl,
-          assetRelativePath: null,
-        }))
     : [];
 }
 
@@ -133,7 +118,6 @@ function sanitizeTask(
     referenceImages,
     editImageSource: sanitizeImageSource(task.editImageSource),
     maskImageSource: sanitizeImageSource(task.maskImageSource),
-    referenceImageUrls: referenceImages.map((source) => source.imageUrl),
     inputFidelity: task.inputFidelity ?? null,
     quality: task.quality ?? null,
     googleSearch: Boolean(task.googleSearch),
@@ -179,9 +163,6 @@ export function prepareTasksForSnapshot(tasks: GenerateTask[]) {
       referenceImages,
       editImageSource: stripAssetBackedRuntimeUrl(task.editImageSource),
       maskImageSource: stripAssetBackedRuntimeUrl(task.maskImageSource),
-      referenceImageUrls: referenceImages
-        .filter((source) => !source.assetRelativePath)
-        .map((source) => source.imageUrl),
     };
   });
 }
@@ -296,15 +277,7 @@ export function mergeTaskSnapshot(
       patch && "provider" in patch
         ? (patch.provider ?? null)
         : (task.provider ?? null),
-    referenceImages:
-      patch?.referenceImages ??
-      (patch?.referenceImageUrls
-        ? patch.referenceImageUrls.map((imageUrl) => ({
-            sourceNodeId: null,
-            imageUrl,
-            assetRelativePath: null,
-          }))
-        : task.referenceImages),
+    referenceImages: patch?.referenceImages ?? task.referenceImages,
     editImageSource:
       patch && "editImageSource" in patch
         ? (patch.editImageSource ?? null)
@@ -313,10 +286,6 @@ export function mergeTaskSnapshot(
       patch && "maskImageSource" in patch
         ? (patch.maskImageSource ?? null)
         : (task.maskImageSource ?? null),
-    referenceImageUrls:
-      patch?.referenceImages?.map((source) => source.imageUrl) ??
-      patch?.referenceImageUrls ??
-      task.referenceImageUrls,
     inputFidelity:
       patch && "inputFidelity" in patch
         ? (patch.inputFidelity ?? null)

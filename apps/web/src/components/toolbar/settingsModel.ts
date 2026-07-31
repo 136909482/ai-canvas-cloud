@@ -281,7 +281,6 @@ export function toDraftModel(model: ModelEntry): DraftModelCard {
     status: model.status,
     enabled: model.enabled,
     ...(model.lastSeenAt ? { lastSeenAt: model.lastSeenAt } : {}),
-    ...(model.legacyLabel ? { legacyLabel: model.legacyLabel } : {}),
   };
 }
 

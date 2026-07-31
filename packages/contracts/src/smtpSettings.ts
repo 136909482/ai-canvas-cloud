@@ -1,6 +1,6 @@
 export type SmtpSecurityMode = "implicit_tls" | "starttls";
 export type SmtpSettingsState = "unconfigured" | "active" | "disabled";
-export type SmtpSettingsSource = "managed" | "environment" | "none";
+export type SmtpSettingsSource = "managed" | "none";
 
 export interface SmtpSettingsResponse {
   state: SmtpSettingsState;

@@ -264,7 +264,7 @@ export const RegisterRequestSchema = Type.Object(
     password: Type.String(),
     acceptedTermsAndPrivacy: Type.Boolean(),
     emailVerificationCode: Type.Optional(Type.String()),
-    deviceId: Type.Optional(Type.String()),
+    deviceId: Type.String(),
   },
   { additionalProperties: false },
 );
@@ -273,7 +273,7 @@ export const LoginRequestSchema = Type.Object(
   {
     identifier: Type.String(),
     password: Type.String(),
-    deviceId: Type.Optional(Type.String()),
+    deviceId: Type.String(),
     force: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
@@ -920,7 +920,6 @@ const ProjectSummarySchema = Type.Object(
     lastSequence: Type.Number(),
     nodeCount: Type.Number(),
     edgeCount: Type.Number(),
-    taskCount: Type.Number(),
     archivedAt: NullableStringSchema,
     createdAt: Type.String(),
     updatedAt: Type.String(),
@@ -1032,7 +1031,6 @@ const ProjectGraphChangeSchema = Type.Object(
     batchId: Type.String(),
     source: Type.Union([
       Type.Literal("user"),
-      Type.Literal("worker"),
       Type.Literal("import"),
       Type.Literal("restore"),
       Type.Literal("system"),

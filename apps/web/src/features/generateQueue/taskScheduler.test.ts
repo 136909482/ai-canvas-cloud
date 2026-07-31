@@ -28,7 +28,6 @@ function task(
     apiProfileName: null,
     provider: "openai",
     referenceImages: [],
-    referenceImageUrls: [],
     inputFidelity: null,
     quality: null,
     googleSearch: false,

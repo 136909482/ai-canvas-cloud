@@ -30,12 +30,6 @@ const publicKeys = [
   "AUTH_EMAIL_TRANSPORT",
   "SMTP_CREDENTIAL_ACTIVE_KEY_VERSION",
   "SMTP_CREDENTIAL_KEYS",
-  "SMTP_HOST",
-  "SMTP_PORT",
-  "SMTP_SECURE",
-  "SMTP_FROM",
-  "SMTP_USERNAME",
-  "SMTP_PASSWORD",
   "DEPLOYMENT_RESOURCE_NAMESPACE",
   "DEPLOYMENT_CREDENTIAL_NAMESPACE",
   "DATABASE_RESOURCE_ID",
@@ -74,12 +68,6 @@ const adminKeys = [
   "ASSET_MAINTENANCE_TOKEN",
   "SMTP_CREDENTIAL_ACTIVE_KEY_VERSION",
   "SMTP_CREDENTIAL_KEYS",
-  "SMTP_HOST",
-  "SMTP_PORT",
-  "SMTP_SECURE",
-  "SMTP_FROM",
-  "SMTP_USERNAME",
-  "SMTP_PASSWORD",
 ];
 
 const optionalKeys = new Set([
@@ -91,12 +79,6 @@ const optionalKeys = new Set([
   "S3_REGION",
   "S3_ACCESS_KEY_ID",
   "S3_SECRET_ACCESS_KEY",
-  "SMTP_HOST",
-  "SMTP_PORT",
-  "SMTP_SECURE",
-  "SMTP_FROM",
-  "SMTP_USERNAME",
-  "SMTP_PASSWORD",
 ]);
 
 function argumentValue(name, fallback) {
@@ -131,14 +113,6 @@ function required(values, key) {
     throw new Error(
       `Runtime configuration must not contain line breaks: ${key}`,
     );
-  return value;
-}
-
-function httpAdapter(values, key) {
-  const value = (values.get(key) ?? "legacy").trim().toLowerCase();
-  if (value !== "legacy" && value !== "fastify") {
-    throw new Error(`Invalid ${key}: ${value}`);
-  }
   return value;
 }
 
@@ -180,7 +154,6 @@ writeEnvironment(publicDestination, values, publicKeys, {
   API_PORT: "8080",
   API_TRUST_PROXY: "true",
   WEB_STATIC_SITE_ROOT: "/app/apps/web/dist",
-  HTTP_ADAPTER: httpAdapter(values, "PUBLIC_HTTP_ADAPTER"),
 });
 writeEnvironment(adminDestination, values, adminKeys, {
   ADMIN_API_HOST: "0.0.0.0",
@@ -188,7 +161,6 @@ writeEnvironment(adminDestination, values, adminKeys, {
   ADMIN_API_TRUST_PROXY: "true",
   ADMIN_STATIC_SITE_ROOT: "/app/apps/admin-web/dist",
   ASSET_MAINTENANCE_API_URL: "http://public:8080",
-  HTTP_ADAPTER: httpAdapter(values, "ADMIN_HTTP_ADAPTER"),
 });
 
 console.log(

@@ -40,7 +40,7 @@ export interface SmtpRuntimeConfig {
   password: string;
   fromEmail: string;
   fromName: string;
-  source: "managed" | "environment";
+  source: "managed";
 }
 
 export interface SmtpMessage {
@@ -48,28 +48,6 @@ export interface SmtpMessage {
   subject: string;
   text: string;
   html?: string;
-}
-
-export function legacySmtpRuntimeConfig(options: {
-  host: string;
-  port: number;
-  secure: boolean;
-  from: string;
-  username: string;
-  password: string;
-}): SmtpRuntimeConfig {
-  const formatted = /^(.*?)\s*<([^<>]+)>$/.exec(options.from.trim());
-  return {
-    revisionId: "environment",
-    host: options.host,
-    port: options.port,
-    securityMode: options.secure ? "implicit_tls" : "starttls",
-    username: options.username,
-    password: options.password,
-    fromEmail: (formatted?.[2] ?? options.from).trim().toLowerCase(),
-    fromName: formatted?.[1]?.trim() || "AI Canvas",
-    source: "environment",
-  };
 }
 
 export class SmtpTransportError extends Error {

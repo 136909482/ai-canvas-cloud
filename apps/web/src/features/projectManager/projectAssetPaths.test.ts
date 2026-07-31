@@ -29,11 +29,11 @@ test("keeps project thumbnails inside the owning project tree", () => {
   );
 });
 
-test("preserves the legacy thumbnail layout for legacy assets", () => {
-  assert.deepEqual(buildWorkspaceThumbnailPath(["manual-uploads"]), [
-    "thumbnails",
-    "manual-uploads",
-  ]);
+test("rejects thumbnail paths outside a project tree", () => {
+  assert.throws(
+    () => buildWorkspaceThumbnailPath(["manual-uploads"]),
+    /路径格式无效/,
+  );
 });
 
 test("extracts path segments from existing workspace asset references", () => {

@@ -4,29 +4,11 @@ import { loadDotEnv } from "@ai-canvas-cloud/server";
 
 loadDotEnv();
 
-for (const key of [
-  "WORKER_DATABASE_ROLE",
-  "WORKER_DATABASE_PASSWORD",
-  "WORKER_DATABASE_URL",
-  "PROVIDER_CREDENTIAL_KEYS",
-  "PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION",
-  "OFFICIAL_PROVIDER_CREDENTIAL_KEYS",
-  "OFFICIAL_PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION",
-]) {
-  assert.equal(
-    Boolean(process.env[key]?.trim()),
-    false,
-    `${key} must be removed`,
-  );
-}
-
 const connections = {
   app: process.env.DATABASE_URL,
   admin: process.env.ADMIN_DATABASE_URL,
 };
-const expectedMigrationVersions = Array.from({ length: 37 }, (_, index) =>
-  String(index + 1).padStart(4, "0"),
-);
+const expectedMigrationVersions = ["0001"];
 
 if (!connections.app || !connections.admin)
   throw new Error("Missing DATABASE_URL or ADMIN_DATABASE_URL");
@@ -233,14 +215,36 @@ for (const [connection, connectionString] of Object.entries(connections)) {
         erasurePermissions.rows[0] ?? {},
       ).every(Boolean);
       await client.query(
-        `UPDATE public.project_edges pe SET deleted_at = now()
+        `UPDATE public.project_edges pe
+         SET deleted_at = COALESCE(pe.deleted_at, GREATEST(now(), pe.created_at)),
+             updated_at = now()
          FROM public.projects p
          WHERE pe.project_id = p.id AND false`,
       );
       await client.query(
-        `UPDATE public.project_nodes pn SET deleted_at = now()
+        `UPDATE public.project_nodes pn
+         SET deleted_at = COALESCE(pn.deleted_at, GREATEST(now(), pn.created_at)),
+             updated_at = now()
          FROM public.projects p
          WHERE pn.project_id = p.id AND false`,
+      );
+      await client.query(
+        `UPDATE public.projects
+         SET deleted_at = COALESCE(deleted_at, GREATEST(now(), created_at)),
+             updated_at = now()
+         WHERE workspace_id IS NULL AND false`,
+      );
+      await client.query(
+        `UPDATE public.assets
+         SET status = 'deleted',
+             deleted_at = COALESCE(deleted_at, GREATEST(now(), created_at)),
+             updated_at = now()
+         WHERE workspace_id IS NULL AND false`,
+      );
+      await client.query(
+        `UPDATE public."user"
+         SET deleted_at = COALESCE(deleted_at, now())
+         WHERE id = '' AND false`,
       );
       await client.query(
         `UPDATE public.migration_imports mi SET created_by_user_id = w.owner_user_id
@@ -251,6 +255,36 @@ for (const [connection, connectionString] of Object.entries(connections)) {
         `UPDATE public.migration_exports me SET created_by_user_id = w.owner_user_id
          FROM public.workspaces w
          WHERE me.workspace_id = w.id AND false`,
+      );
+      await client.query(
+        `DELETE FROM public.workspace_user_state wus
+         USING public.workspaces w
+         WHERE wus.workspace_id = w.id
+           AND wus.user_id = ''
+           AND w.type = 'team'
+           AND false`,
+      );
+      await client.query(
+        `DELETE FROM public.asset_references
+         WHERE workspace_id IS NULL AND false`,
+      );
+      await client.query(
+        `DELETE FROM public.asset_uploads
+         WHERE workspace_id IS NULL AND false`,
+      );
+      await client.query(
+        `DELETE FROM public.auth_devices WHERE user_id = '' AND false`,
+      );
+      await client.query(
+        `DELETE FROM public."verification" WHERE identifier = '' AND false`,
+      );
+      await client.query(
+        `DELETE FROM public.registration_email_challenges
+         WHERE email_hash = '' AND false`,
+      );
+      await client.query(
+        `DELETE FROM public.password_reset_email_challenges
+         WHERE email_hash = '' AND false`,
       );
     } catch {
       accountErasureWrite = false;
@@ -285,81 +319,6 @@ for (const [connection, connectionString] of Object.entries(connections)) {
     const passwordResetEmailChallengeWrite = await client.query(
       `SELECT has_table_privilege(current_user, 'public.password_reset_email_challenges', 'INSERT,UPDATE,DELETE') AS allowed`,
     );
-    const removedRelations = await client.query(
-      `
-      SELECT namespace.nspname AS schema_name, relation.relname AS relation_name
-      FROM pg_catalog.pg_class relation
-      JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
-      WHERE (namespace.nspname = 'public' AND relation.relname = ANY ($1::text[]))
-         OR (namespace.nspname = 'admin' AND relation.relname = ANY ($2::text[]))
-      ORDER BY namespace.nspname, relation.relname
-    `,
-      [
-        [
-          "generation_tasks",
-          "task_attempts",
-          "task_commands",
-          "task_queue_outbox",
-          "generation_task_events",
-          "usage_ledger",
-          "provider_credentials",
-          "official_model_publications",
-          "workspace_official_credit_periods",
-          "official_credit_ledger",
-        ],
-        [
-          "official_providers",
-          "official_provider_revisions",
-          "official_provider_secrets",
-          "official_provider_revision_tests",
-          "official_models",
-          "official_model_revisions",
-        ],
-      ],
-    );
-    assert.deepEqual(
-      removedRelations.rows,
-      [],
-      "server generation relations must be removed",
-    );
-    const removedFunctions = await client.query(
-      `
-      SELECT namespace.nspname AS schema_name, function.proname
-      FROM pg_catalog.pg_proc function
-      JOIN pg_catalog.pg_namespace namespace ON namespace.oid = function.pronamespace
-      WHERE proname = ANY ($1::text[])
-        AND namespace.nspname = ANY ($2::text[])
-      ORDER BY namespace.nspname, function.proname
-    `,
-      [
-        [
-          "record_generation_task_event",
-          "provider_credentials_fill_legacy_metadata",
-          "reserve_official_generation_task",
-          "read_official_task_execution",
-          "read_official_credit_balance",
-          "adjust_official_credits",
-        ],
-        ["public", "admin"],
-      ],
-    );
-    assert.deepEqual(
-      removedFunctions.rows,
-      [],
-      "server generation functions must be removed",
-    );
-    const taskReferenceColumn = await client.query(`
-      SELECT 1
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = 'asset_references'
-        AND column_name = 'task_id'
-    `);
-    assert.equal(
-      taskReferenceColumn.rowCount,
-      0,
-      "asset_references.task_id must be removed",
-    );
     if (connection === "app") {
       const appliedMigrations = await client.query(
         "SELECT version FROM schema_migrations ORDER BY version",
@@ -367,40 +326,9 @@ for (const [connection, connectionString] of Object.entries(connections)) {
       assert.deepEqual(
         appliedMigrations.rows.map((row) => row.version),
         expectedMigrationVersions,
-        "live migration history must match the 29-file release manifest",
+        "live migration history must match the current baseline manifest",
       );
     }
-    const activePublication = await client.query(`
-      SELECT (config_json -> 'features') ? 'officialModeEnabled' AS has_official_mode
-      FROM public.site_config_publications
-      WHERE singleton_id = 1
-    `);
-    assert.equal(
-      activePublication.rows[0]?.has_official_mode ?? false,
-      false,
-      "active site publication must not expose retired official mode",
-    );
-    if (connection === "admin") {
-      const activeRevision = await client.query(`
-        SELECT (r.config_json -> 'features') ? 'officialModeEnabled' AS has_official_mode
-        FROM admin.site_config_current c
-        JOIN admin.site_config_revisions r ON r.id = c.revision_id
-        WHERE c.singleton_id = 1
-      `);
-      assert.equal(
-        activeRevision.rows[0]?.has_official_mode ?? false,
-        false,
-        "active Admin site revision must not retain retired official mode",
-      );
-    }
-    const legacyWorkerRole = await client.query(
-      `SELECT 1 FROM pg_roles WHERE rolname = 'ai_canvas_cloud_worker'`,
-    );
-    assert.equal(
-      legacyWorkerRole.rowCount,
-      0,
-      "legacy Worker database role must be removed",
-    );
     const permissions = {
       isSuperuser: identity.rows[0]?.rolsuper,
       adminSchemaUsage: identity.rows[0]?.admin_usage,

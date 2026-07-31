@@ -253,10 +253,7 @@ export function validateSiteConfigDocument(value: unknown): SiteConfigDocument {
     ],
     "config",
   );
-  if (
-    root.schemaVersion !== 1 &&
-    root.schemaVersion !== SITE_CONFIG_SCHEMA_VERSION
-  )
+  if (root.schemaVersion !== SITE_CONFIG_SCHEMA_VERSION)
     throw new Error("config schema version is unsupported");
 
   const home = object(root.home, "home");
@@ -282,13 +279,11 @@ export function validateSiteConfigDocument(value: unknown): SiteConfigDocument {
   const features = object(root.features, "features");
   exactKeys(
     features,
-    root.schemaVersion === 1
-      ? ["registrationEnabled", "feedbackEnabled"]
-      : [
-          "registrationEnabled",
-          "registrationEmailVerificationRequired",
-          "feedbackEnabled",
-        ],
+    [
+      "registrationEnabled",
+      "registrationEmailVerificationRequired",
+      "feedbackEnabled",
+    ],
     "features",
   );
 
@@ -362,13 +357,10 @@ export function validateSiteConfigDocument(value: unknown): SiteConfigDocument {
         features.registrationEnabled,
         "features.registrationEnabled",
       ),
-      registrationEmailVerificationRequired:
-        root.schemaVersion === 1
-          ? false
-          : boolean(
-              features.registrationEmailVerificationRequired,
-              "features.registrationEmailVerificationRequired",
-            ),
+      registrationEmailVerificationRequired: boolean(
+        features.registrationEmailVerificationRequired,
+        "features.registrationEmailVerificationRequired",
+      ),
       feedbackEnabled: boolean(
         features.feedbackEnabled,
         "features.feedbackEnabled",

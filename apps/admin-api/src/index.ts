@@ -15,11 +15,10 @@ import {
   createManagedS3ObjectStorage,
   createObjectStorageCredentialKeyring,
   createSmtpCredentialKeyring,
-  legacySmtpRuntimeConfig,
   loadDotEnv,
 } from "@ai-canvas-cloud/server";
 import { loadAdminApiConfig } from "./config.js";
-import { closeAdminApiServer, createAdminApiServer } from "./server.js";
+import { closeAdminApiServer } from "./serverLifecycle.js";
 import { createFastifyAdminApiServer } from "./fastify/server.js";
 
 loadDotEnv();
@@ -67,21 +66,6 @@ const siteConfigService = createPostgresAdminSiteConfigService(pool, {
   auditSecret: config.betterAuthSecret,
 });
 const metrics = createMetricsRegistry();
-const legacySmtpConfig =
-  config.smtpHost &&
-  config.smtpPort &&
-  config.smtpFrom &&
-  config.smtpUsername &&
-  config.smtpPassword
-    ? legacySmtpRuntimeConfig({
-        host: config.smtpHost,
-        port: config.smtpPort,
-        secure: config.smtpSecure,
-        from: config.smtpFrom,
-        username: config.smtpUsername,
-        password: config.smtpPassword,
-      })
-    : undefined;
 const smtpConfigService = createPostgresAdminSmtpConfigService(pool, {
   adminService,
   keyring: createSmtpCredentialKeyring({
@@ -89,7 +73,6 @@ const smtpConfigService = createPostgresAdminSmtpConfigService(pool, {
     activeVersion: config.smtpCredentialActiveKeyVersion,
     developmentSecret: config.smtpDevelopmentSecret,
   }),
-  fallbackConfig: legacySmtpConfig,
   auditSecret: config.betterAuthSecret,
   metrics,
 });
@@ -141,10 +124,7 @@ const serverOptions = {
   metrics,
   readinessChecks,
 };
-const server =
-  config.httpAdapter === "fastify"
-    ? await createFastifyAdminApiServer(serverOptions)
-    : createAdminApiServer(serverOptions);
+const server = await createFastifyAdminApiServer(serverOptions);
 
 let closing = false;
 async function shutdown(signal: NodeJS.Signals) {
@@ -174,6 +154,5 @@ server.listen(config.port, config.host, () => {
     host: config.host,
     port: config.port,
     env: config.env,
-    httpAdapter: config.httpAdapter,
   });
 });

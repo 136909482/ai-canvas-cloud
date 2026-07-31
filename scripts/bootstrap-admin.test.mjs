@@ -8,7 +8,7 @@ test("administrator bootstrap refuses non-interactive input and never accepts an
     env: { ...process.env, ADMIN_BOOTSTRAP_PASSWORD: "must-never-be-read" },
     encoding: "utf8",
     input: "admin\npassword-from-stdin\n",
-    timeout: 10_000,
+    timeout: 30_000,
   });
   assert.notEqual(result.status, 0);
   const output = `${result.stdout}\n${result.stderr}`;

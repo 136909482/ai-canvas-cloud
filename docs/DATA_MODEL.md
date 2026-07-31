@@ -27,8 +27,6 @@
 
 `user_no` 从 `10001` 开始，只用于本人展示、客服检索和运营管理，不参与认证或授权。`username` 为 3–30 位小写规范值，格式为 `^[a-z][a-z0-9_]{2,29}$`，具有唯一索引且排除保留词；`display_username` 保留注册时大小写，并以约束保证 `lower(display_username)=username`。两者均不可修改；`name` 只作为 Better Auth 兼容镜像，不是昵称或公共字段，`image` 兼容列不进入普通用户界面。普通用户状态为 `active|disabled|deleted`；`disabled` 不能登录、恢复 session 或通过 workspace 授权，`deleted` 可用于运营筛选和只读核对但不能再被状态操作。账号采用单活跃 session；接管新设备和密码重置会撤销旧 session。
 
-`0030_user_usernames.sql` 为协调发布迁移：旧账号按邮箱前缀确定性清洗，`admin@example.com` 回填为 `admin_user`，保留词追加 `_user`，规范值冲突追加 `user_no`，并补齐非空、格式和唯一约束。发布、回滚与前向修复要求见“关键发布迁移”。
-
 日志、审计、错误和前端响应不得记录密码、session/reset token、注册或密码重置验证码、完整邮件链接或 Provider API Key。业务授权只信任 Better Auth session 解析的用户。
 
 ### `auth_devices`
@@ -37,7 +35,7 @@
 
 ### `workspaces`
 
-保存 ID、类型、名称、owner、状态、plan、`storage_quota_bytes` 和时间戳。首发 `type=personal`，默认资产配额 10 GiB。旧任务配额列若仍存在只属于历史 schema 兼容，不作为当前服务端生成能力。
+保存 ID、类型、名称、owner、状态、plan、`storage_quota_bytes` 和时间戳。首发 `type=personal`，默认资产配额 10 GiB。
 
 ### `workspace_members`
 
@@ -55,9 +53,9 @@
 
 ### `projects`
 
-主要字段：`id`、`workspace_id`、`name`、`version`、`last_sequence`、`saved_snapshot_id`、`node_count`、`edge_count`、`task_count`、归档/软删除时间和时间戳。
+主要字段：`id`、`workspace_id`、`name`、`version`、`last_sequence`、`saved_snapshot_id`、`node_count`、`edge_count`、归档/软删除时间和时间戳。
 
-`version` 是项目级乐观并发版本，`last_sequence` 是连续 change 序号。`task_count` 由早期 schema 保留以兼容历史项目摘要；迁移 0029 后没有服务器任务写入，正常值为 0，不能作为当前任务事实来源。活动/归档列表索引都限定 workspace 并排除软删除。
+`version` 是项目级乐观并发版本，`last_sequence` 是连续 change 序号。活动/归档列表索引都限定 workspace 并排除软删除。
 
 ### `project_nodes`
 
@@ -81,13 +79,12 @@
 - `(project_id, sequence)`、`(project_id, idempotency_key)` 和 `(project_id, batch_id)` 唯一。
 - 领域事务锁定项目并保证 sequence 连续。
 - user 来源记录可信 actor；HTTP 响应不返回 actor/workspace/幂等键。
-- `source='worker'` 可作为历史 change 的兼容枚举保留，但当前没有运行时写入者。
 
 ### `project_snapshots`
 
 保存 ID、项目、version/sequence、`manual|periodic|import|pre_restore` 类型、schema、`record_json`、字节数、`asset_manifest_json`、有效性和时间戳。检查点不是当前事实来源；恢复产生新版本。
 
-服务端从当前关系化图组装检查点，不接受客户端整份 record 写入。`record_json.taskQueue.tasks` 只为与历史 `ProjectRecord`/目录包兼容；Cloud 检查点正常写入空数组，不能用于恢复服务器任务。浏览器本地任务缓存不进入 Cloud checkpoint。
+服务端从当前关系化图组装检查点，不接受客户端整份 record 写入。当前 `ProjectRecord` 结构包含 `record_json.taskQueue.tasks`，但 Cloud 检查点固定写入空数组；浏览器本地任务缓存不进入 Cloud checkpoint。
 
 创建 checkpoint 时从节点提取排序、去重的 Cloud asset UUID，按可信 workspace 验证 completed 状态后写入 manifest。restore 交叉校验 record/manifest，创建 pre-restore，再替换图、重建引用、追加 change 并递增 version/sequence。
 
@@ -107,7 +104,7 @@
 
 ### `asset_references`
 
-当前保存 `asset_id`、`workspace_id`、`project_id`、非空 `node_id`、reference role 和时间戳。`0029` 删除旧 `task_id` 列、任务唯一索引/外键，并把 `node_id` 恢复为必填；因此每条当前引用都属于同项目节点。
+当前保存 `asset_id`、`workspace_id`、`project_id`、非空 `node_id`、reference role 和时间戳。每条引用都属于同项目节点。
 
 图 upsert 先删除节点旧引用，再写入去重的新引用；delete 节点同步删除引用。checkpoint 的历史引用集合在 manifest 中保护，不在本表复制。
 
@@ -115,7 +112,7 @@
 
 ### `generation_telemetry`
 
-`0031_generation_telemetry.sql` 新增隐私最小化的浏览器生成 attempt 记录。每行只保存可信 `workspace_id/user_id`、客户端随机 `client_attempt_id`、`category=text|image|video`、`status=started|succeeded|failed|canceled`、受限 `failure_category`、`result_count`、`duration_ms` 和时间戳。`(workspace_id, user_id, client_attempt_id)` 唯一。
+每条浏览器生成 attempt 只保存可信 `workspace_id/user_id`、客户端随机 `client_attempt_id`、`category=text|image|video`、`status=started|succeeded|failed|canceled`、受限 `failure_category`、`result_count`、`duration_ms` 和时间戳。`(workspace_id, user_id, client_attempt_id)` 唯一。
 
 状态约束固定为：started 不得有终态时间、耗时、结果或失败分类；succeeded 要求 1–32 个结果、0–24 小时耗时和终态时间；failed 要求受限失败分类、0 个结果、耗时和终态时间；canceled 要求 0 个结果、无失败分类、耗时和终态时间。领域服务只允许同类别 `started -> terminal`，已进入终态的行不可由重放改写。终态先到时可直接插入，迟到 start 幂等忽略。
 
@@ -137,7 +134,7 @@ apply 逐资产加排他锁，并在持锁后的新语句快照中复查当前�
 
 保存可信 workspace/创建者、package/source/project 摘要、幂等键和请求指纹、内容 hash、状态、冲突快照、计数、validated manifest/ProjectRecord/graph/asset manifest/可选 checkpoint、错误与终态时间。
 
-prepare 只写 import 行，不创建正式项目、图、资产、引用、change 或 checkpoint。历史 `ProjectRecord.taskQueue` 只用于输入兼容；Cloud commit 忽略且不执行其中任务，当前导出固定写空数组。
+prepare 只写 import 行，不创建正式项目、图、资产、引用、change 或 checkpoint。Cloud commit 不导入或执行 `ProjectRecord.taskQueue`，当前导出固定写空数组。
 
 ### `migration_import_asset_uploads`
 
@@ -177,7 +174,7 @@ Admin 运行角色对 public 普通用户数据采用列级授权：
 
 ### 站点配置与品牌资产
 
-`admin.site_config_revisions` 保存不可变结构配置，`admin.site_config_current` 保存当前 revision 指针。schema version 1 保持可读，version 2 在 `features` 中增加 `registrationEmailVerificationRequired`；配置只允许版本化纯数据，不接受 HTML、JavaScript 或任意 CSS。
+`admin.site_config_revisions` 保存不可变结构配置，`admin.site_config_current` 保存当前 revision 指针。只接受 schema version 2，`features` 必须显式包含 `registrationEmailVerificationRequired`；配置只允许版本化纯数据，不接受 HTML、JavaScript 或任意 CSS。
 
 `admin.site_assets` 保存 Logo/Favicon 私有对象元数据。完成确认复核对象 metadata、hash、魔数和真实尺寸。`public.site_config_publications` 是普通 API 唯一可读的最小投影；Admin 发布事务原子更新 current 和投影。
 
@@ -187,7 +184,7 @@ Admin 运行角色对 public 普通用户数据采用列级授权：
 
 SMTP 密码使用 AES-256-GCM 信封加密，每个 revision 使用随机 96 位 IV 和 128 位认证标签，AAD 固定绑定 `smtp-config:<revisionId>:password`。密文文档只包含算法、key version、IV、ciphertext 和 auth tag；主密钥版本映射 `SMTP_CREDENTIAL_KEYS` 与活动版本只存在 API/Admin API 服务器环境。轮换时先同时部署新旧 key、切换活动版本，再通过新 revision 重加密；旧 revision 仍需读取期间不能提前删除旧 key。
 
-`public.smtp_config_publications` 保存普通 API 动态发送所需的当前加密投影。Admin 发布事务在验证 SMTP 连接成功后，用 revision 乐观锁同时插入 revision、切换 current、upsert publication 和追加脱敏审计；失败或冲突不改变旧 publication。停用同样创建携带重新加密密码的 disabled revision，明确停用态阻止普通 API 回退旧环境变量。
+`public.smtp_config_publications` 保存普通 API 动态发送所需的当前加密投影。Admin 发布事务在验证 SMTP 连接成功后，用 revision 乐观锁同时插入 revision、切换 current、upsert publication 和追加脱敏审计；失败或冲突不改变旧 publication。停用同样创建携带重新加密密码的 disabled revision；普通 API 没有环境 SMTP 回退路径。
 
 `admin.smtp_test_attempts` 只保存管理员、`connection|email`、`pending|success|failure`、受限失败类别与时间，用于每管理员 10 分钟 5 次的原子限频；不含收件邮箱、SMTP 主机、用户名或凭据。测试请求不创建配置 revision，也不改变 current/publication。
 
@@ -201,21 +198,9 @@ SMTP 密码使用 AES-256-GCM 信封加密，每个 revision 使用随机 96 位
 
 普通 API 角色没有 `admin` schema USAGE，只对站点、SMTP 和对象存储公开投影有 SELECT；三类 publication 均不可写。Admin 角色除用户运营列级投影、生成遥测安全聚合列和必要公开投影外，不拥有 public 业务表宽泛权限，尤其不能读取资产 object key；`PUBLIC` 对配置 Admin 表和 publication 均无权限。
 
-## 已移除的历史 schema
+## 当前 Schema 基线
 
-`0029_remove_server_generation.sql` 删除以下运行时对象：
-
-- `generation_tasks`、`task_attempts`、`task_commands`、`task_queue_outbox`、`generation_task_events`、`usage_ledger`。
-- `provider_credentials` 及其 legacy metadata trigger/function。
-- `public.official_model_publications`、`workspace_official_credit_periods`、`official_credit_ledger`。
-- `admin.official_providers`、Provider revisions/secrets/tests、official models/revisions。
-- 官方任务预留、执行凭据读取、积分余额和积分调整函数。
-- `asset_references.task_id` 及对应索引/约束。
-- 当前站点配置若仍有旧 `features.officialModeEnabled`，则保留原不可变修订，创建删除该字段的新修订，并原子切换 `admin.site_config_current` 与 `public.site_config_publications`。
-
-历史迁移 `0007`–`0024` 仍必须保留，保证旧数据库可按顺序升级到 0029。迁移测试可在 0029 之前创建并验证旧对象，但当前 schema、应用角色和新备份中不得存在这些对象或可用凭据。
-
-0029 不删除普通认证/工作区、项目图/change/checkpoint、资产、目录包迁移、Admin 认证/审计、品牌资产或站点配置历史。迁移先前向发布不含旧官方模式开关的当前站点修订，再删除旧任务资产引用、列和任务表；执行前提是没有需要保留的真实 Provider/任务数据。
+数据库只保留 `server/db/migrations/0001_current_schema.sql` 单一当前基线。项目正式运营前的部署必须重建空库，再依次运行 `db:migrate` 和 `db:roles:provision`；该基线不提供开发期数据库的原地升级。目录包导入/导出是当前跨仓库产品能力，继续使用当前版本化契约。
 
 ## 核心事务
 
@@ -241,90 +226,11 @@ manual checkpoint 从一致版本的关系图生成 record 和资产 manifest，
 
 commit 在一个事务中完成项目策略、资产 UUID 映射、图/引用/change/checkpoint 和 import 状态。跨 workspace 相同 hash 不可复用；任一失败不留下半完成正式资源。
 
-## 关键发布迁移
+## 基线发布与修复
 
-### 0029：清退服务端生成
+首次正式运营前，停止四个应用进程，重建目标空库，运行 `npm run db:migrate`、`npm run db:roles:provision` 与 `npm run db:roles:check`，再部署同一版本的 Web、API、Admin Web 和 Admin API。回滚边界是恢复本次发布前的空库备份或重新创建空库；不尝试把旧迁移链或旧运行时表合并进当前基线。前向修复以新的显式迁移追加到基线之后，已经运营并产生正式数据后不得再次压缩迁移历史。
 
-0029 在 release manifest 中是 `releaseTrain=p8`、`phase=contract`、高锁风险、30 秒 statement timeout、`backupRequired=true`。旧应用不能读取新 schema，新应用也不支持旧服务器生成对象。
-
-执行顺序：
-
-1. 停止旧 API 的 Provider/任务写入和所有旧 Worker/Consumer/lease recovery。
-2. 确认本次环境没有需要保留的真实 Provider/任务数据。
-3. 创建并验证 P7-8 加密 contract 前数据库备份。
-4. 独立运行 0029 transaction。
-5. 运行角色 provisioning，删除旧 Worker 角色和旧环境键。
-6. 只部署 Web、API、Admin Web、Admin API，再执行角色/schema/404/readiness 验收。
-
-回滚边界：0029 删除密文和任务事实，不提供 down migration。只能恢复加密 contract 前备份，并与旧应用作为一个协调操作回滚；禁止在现库根据日志、末四位或历史配置猜测重建凭据。对象存储和项目图/资产在恢复后仍须执行一致性审计。
-
-前向修复：保持全部旧 API/Worker 停止；幂等重跑 0029；确认活动 Admin 修订和公开投影已删除 `officialModeEnabled`；重新应用 public/admin 最小授权；删除残余旧 Worker 角色和失效环境键；验证旧表、函数、角色和 URL 均不存在；再只部署当前浏览器生成架构。历史备份中的旧密文只按既定加密保留周期淘汰，不导出、不打印、不重新启用。
-
-### 0030：普通用户用户名契约
-
-0030 在 release manifest 中是 `releaseTrain=p8-username`、`phase=contract`、中等锁风险、30 秒 statement timeout、`backupRequired=true`。旧应用可读取迁移后的既有账号，但不能继续创建缺少用户名的新账号；因此迁移和新 API 必须协调发布。
-
-执行顺序：
-
-1. 创建并验证迁移前数据库备份，停止旧版注册写入。
-2. 独立运行 0030，完成旧账号确定性回填和约束建立。
-3. 运行角色 provisioning，确认 Admin 只获得 `username/display_username` 所需列级权限。
-4. 部署同版本 Web、API、Admin Web 和 Admin API。
-5. 审计空用户名、格式、保留词、大小写规范值和重复值，并验证用户名/邮箱两种登录。
-
-回滚边界：0030 不提供把新账号无损降级到邮箱-only 写入契约的 down migration。只能恢复迁移前备份并协调部署旧应用；禁止仅删除约束后继续混用新旧写入方。
-
-前向修复：保持旧注册写入停止，幂等重跑 0030；对缺失值执行同一确定性回填，重新审计格式与唯一约束，重新应用数据库角色，并在审计通过后启用用户名登录。
-
-### 0031：生成运营遥测
-
-0031 在 release manifest 中是 `releaseTrain=p8-operations`、`phase=expand`、低锁风险、10 秒 statement timeout、`backupRequired=false`。它只新增独立表与索引，旧应用可继续读取新 schema；新 API 和 Admin 聚合必须在迁移与角色 provisioning 完成后启用。
-
-回滚边界：采集开始前可删除 additive 表；采集开始后先关闭普通遥测入口和 Admin 新聚合，保留已有有限元数据直到替代版本部署，不使用遥测反推或重建任何浏览器任务。前向修复为幂等重跑 0031、重新应用列级角色授权，并审计列集合、状态约束、失败枚举和私有字段缺失。
-
-### 0032：版本化加密 SMTP 配置
-
-0032 在 release manifest 中是 `releaseTrain=p8-mail`、`phase=expand`、低锁风险、10 秒 statement timeout、`backupRequired=false`。它只新增 `admin.smtp_config_revisions`、`admin.smtp_config_current`、`admin.smtp_test_attempts` 和 `public.smtp_config_publications`；旧应用仍使用原环境 SMTP，新代码必须在迁移、角色 provisioning 和两端加密密钥完成后启用 `managed`。
-
-发布顺序：先把同一份 `SMTP_CREDENTIAL_KEYS` 与活动 key version 部署到 API/Admin API，再执行 0032 和角色 provisioning，随后发布代码并保留旧 SMTP 环境变量；超级管理员完成连接和测试邮件后保存启用，确认验证/重置邮件动态使用 managed revision，最后移除旧 `SMTP_PASSWORD`。密钥和数据库备份必须分离保存。
-
-回滚边界：首次发布前可删除 additive 表并继续使用环境 SMTP；已有 managed revision 后先把传输模式切回 `smtp` 或部署兼容版本，确认旧环境凭据仍有效，再删除 additive 表。前向修复为幂等重跑 0032、重新应用精确角色授权、校验 publication/current/revision 一致性和密文 envelope，并在 managed 投递通过前保留旧环境回退。禁止从日志、审计或前端值重建密码。
-
-### 0033：注册邮箱验证码
-
-0033 在 release manifest 中是 `releaseTrain=p8-mail-codes`、`phase=expand`、低锁风险、10 秒 statement timeout、`backupRequired=false`。它新增 `registration_email_challenges`，只保存带服务端密钥的邮箱与验证码 HMAC、过期时间、发送冷却、失败次数和消费时间；同时允许站点配置 revision 读取 schema version 1 或 2。普通 API 角色可读写挑战表，Admin 角色无权读取或写入。
-
-发布顺序：先执行 0033 和角色 provisioning，再发布 API/Web/Admin 代码；开关默认关闭。确认 SMTP 投递、六码验证码消费、60 秒冷却和 5 次错误失效均通过后，超级管理员才在网站设置中开启 `registrationEmailVerificationRequired`。
-
-回滚边界：先关闭开关并停止新注册验证码入口，再部署兼容代码；挑战表不含邮箱或验证码明文，可在确认没有新代码消费者后删除。前向修复为幂等重跑 0033、重新应用角色授权、确认 Admin 无法访问挑战表，并保持开关关闭直到验证码注册链路复验通过。
-
-### 0034：密码重置邮箱验证码
-
-0034 在 release manifest 中是 `releaseTrain=p8-mail-codes`、`phase=expand`、低锁风险、10 秒 statement timeout、`backupRequired=false`。它新增 `password_reset_email_challenges`，保存带服务端密钥的邮箱与验证码 HMAC、过期时间、发送冷却、失败次数和消费时间；Better Auth 生成的内部重置 token 使用从服务端密钥派生的 AES-256-GCM 密文保存，绝不落库或记录明文。普通 API 角色可读写挑战表，Admin 角色无权读取或写入。
-
-发布顺序：先执行 0034 和角色 provisioning，再发布 API/Web 代码。忘记密码先请求验证码，浏览器再以 `{ email, code, password }` 提交；验证码有效 10 分钟，60 秒内不生成替代 token，连续 5 次错误即消费失效。验证码正确后才解密内部 token 并交由 Better Auth 更新密码和撤销 session。
-
-### 0035：版本化加密对象存储配置
-
-0035 在 release manifest 中是 `releaseTrain=p8-storage`、`phase=expand`、低锁风险、10 秒 statement timeout、`backupRequired=false`。它只新增三张 Admin 表和 `public.object_storage_config_publications`，旧应用继续使用环境 `S3_*`。
-
-发布顺序：先在 API/Admin API 部署同一份 `OBJECT_STORAGE_CREDENTIAL_KEYS` 与活动版本并保留全部 `S3_*`，执行 0035 和角色 provisioning，再部署应用。超级管理员用与环境相同的存储身份填写后台配置，完成真实读写删除测试后发布；确认上传、签名读取、站点品牌资产和迁移包均正常后，环境凭据仍保留作显式恢复路径。
-
-回滚边界：先在后台恢复环境配置，确认 publication 已撤销且环境 Bucket 可读写，再部署旧应用；尚未产生 managed revision 时可直接删除 additive 表。前向修复为幂等重跑 0035、重新应用精确角色权限、校验 current/publication/revision 和信封 key version、验证历史资产仍指向原 Bucket。禁止通过更换 Bucket 掩盖凭据错误，也禁止从日志、审计或前端重建 AccessKey。
-
-### 0036：个人空间默认存储配额
-
-0036 在 release manifest 中是 `releaseTrain=p8-storage-quota`、`phase=migrate`、中等锁风险、30 秒 statement timeout、`backupRequired=true`。它不删除任何数据，只把 `workspaces.storage_quota_bytes` 的新记录默认值设为 10 GiB，并将仍等于旧默认 20 GiB 的 personal workspace 调整为 10 GiB；其他显式配额保持不变。已用量超过新配额的 workspace 保留全部资产，但在用量重新低于配额前不能新增上传或迁移预留。
-
-发布前备份数据库，执行 0036 后核对受影响 workspace 数量和总已用量，再发布应用。回滚不得把所有 10 GiB workspace 无条件改回 20 GiB；只能恢复列默认值，并依据发布审计或备份恢复本次确实从 20 GiB 调整的 workspace。前向修复为幂等重跑 0036，并继续只匹配仍保留旧默认 20 GiB 的 personal workspace。
-
-回滚边界：必须先部署仍能消费已发验证码的兼容代码，或等待所有 10 分钟挑战过期后，才能移除表。前向修复为幂等重跑 0034、重新应用角色授权、确认 Admin 无法访问挑战表，并复验重置验证码投递、消费和 session 撤销。
-
-### 0037：账户注销与延迟清理
-
-`"user".deleted_at` 记录不可恢复的注销时间，`personal_data_purged_at` 记录个人数据物理清理完成时间。用户行不会物理删除：状态改为 `deleted`，邮箱、用户名、展示名、兼容 `name` 和头像替换为唯一且不可识别的 tombstone，从而释放原登录标识，同时保留外键和不可变审计关联。
-
-`account_erasure_jobs` 每个用户至多一条，保存个人 workspace ID、7 天后的 `purge_after`、尝试次数、受限错误码和完成时间。即时事务锁定用户和团队成员关系，校验用户编号、转移团队 owner、移除团队成员关系、撤销认证、清除个人空间的当前资产引用与检查点，并软删除个人项目、节点、连线和资产。到期维护任务以应用侧对象存储权限先删除对象，随后幂等删除个人空间的项目历史、快照、关系与元数据；对象删除失败时任务回到 `pending`，不标记用户已清理。用户行保留无 PII tombstone 以保证外键和不可变审计有效；团队 workspace、项目、资产与成员数据不进入该任务。
+当前基线直接包含账户注销和延迟清理结构：`"user".deleted_at`、`personal_data_purged_at` 与 `account_erasure_jobs`。用户注销立即撤销身份和当前引用，个人对象与历史元数据按 `purge_after` 延迟清理；团队 workspace 不进入个人清理任务。
 
 ## 浏览器本地状态
 
@@ -334,12 +240,12 @@ commit 在一个事务中完成项目策略、资产 UUID 映射、图/引用/ch
 
 设备持久化是唯一用户可见模式，不提供 persistence 或单独删除入口。Vault 保存与本地任务写入在浏览器内串行执行；登出/session 失效/换账号只清空内存明文并保留按账号隔离的设备密文。用户清除当前网站数据时，浏览器删除 IndexedDB 中的密文、CryptoKey、模型绑定和本地任务缓存。异步完成只有在可信用户、内部持久化状态与状态代次仍一致时才能更新运行态。
 
-当前内测环境不读取或迁移旧 `ai-canvas-settings` 明文、旧 Vault 或 v1 任务缓存；任务缓存 v2 只做结构兼容迁移到 v3。workspace 配置、workspace/localStorage 缓存、项目图、checkpoint、迁移包、Cloud API 请求、日志、指标、诊断、PostgreSQL 和 Admin 均不保存真实 Provider、endpoint、模型 ID、绑定或 Key。
+当前运行时只读取当前版本的浏览器 Vault、任务缓存和项目快照。workspace 配置、项目图、checkpoint、迁移包、Cloud API 请求、日志、指标、诊断、PostgreSQL 和 Admin 均不保存真实 Provider、endpoint、模型 ID、绑定或 Key。
 
 浏览器本地生成与任务恢复不创建服务端任务表，也不把执行状态同步到 Cloud；`generation_telemetry` 只是不可执行的有限运营记录。项目图中的模型字段仅保存 `local:<uuid>`，其 Vault 绑定值是 `modelEntryId`；真实模型 ID 只存在对应 Vault 模型条目中。Cloud 图还会移除 profile/Provider/endpoint/Key、task ID、remote task、上游错误和运行态。生成媒体先作为私有 `assets` 上传，完成后项目图只引用 Cloud asset UUID，不保存 Provider 临时 URL。
 
 节点先按类别过滤可执行 `ModelEntry`，再按上游 `modelId` 分组；同名模型在不同服务商下仍是不同的 `modelEntryId` 路由，界面必须让用户明确选择具体服务商，不能按名称合并为同一持久化身份。未绑定、已删除、上游缺失、模型/服务商停用或凭据无效的引用可作为节点当前状态显示，但不得执行。对已绑定匿名引用，运行时只使用绑定的 `modelEntryId` 解析其唯一 Provider 和凭据；本地任务记录同样保存解析后的 `modelEntryId`，不会以匿名引用或显示名称猜测路由。
 
-本地任务缓存是独立加密文档：`schemaVersion=3`、`cipherVersion=1`，IndexedDB 数据库版本为 3，并兼容解密和迁移 v2 文档；复用同一不可导出 AES-256-GCM 设备 Key，AAD 在 Origin/可信用户之外额外绑定项目 ID。任务使用 UUID，保存冻结的 Prompt/参考图/比例/分辨率、`modelEntryId`、adapter、执行模式、Provider 绑定指纹、`queued|running|done|error` 主状态、`requesting|polling|persisting` 本地阶段和受控 `remoteTaskId`；不保存真实模型 ID、endpoint 或 API Key。
+本地任务缓存是独立加密文档：`schemaVersion=3`、`cipherVersion=1`，IndexedDB 数据库版本为 3，只接受 v3 文档；复用同一不可导出 AES-256-GCM 设备 Key，AAD 在 Origin/可信用户之外额外绑定项目 ID。任务使用 UUID，保存冻结的 Prompt/参考图/比例/分辨率、`modelEntryId`、adapter、执行模式、Provider 绑定指纹、`queued|running|done|error` 主状态、`requesting|polling|persisting` 本地阶段和受控 `remoteTaskId`；不保存真实模型 ID、endpoint 或 API Key。
 
 Provider 返回而 Cloud 资产尚未完成时，图片 Blob 存入独立 `taskResults` 对象仓库，使用同一设备 Key 加密，AAD 额外绑定 Origin、可信用户、项目和任务 ID。Cloud 保存失败只重试该 Blob，不重新发起 Provider POST；保存成功、任务删除、项目任务缓存删除或用户 Vault 清除时同步删除临时结果。任务文档和临时结果均按用户/项目分区，只属于当前浏览器，不进入 workspace/project record、checkpoint、迁移包、Cloud API、日志、诊断或 PostgreSQL。

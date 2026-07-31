@@ -19,7 +19,6 @@ function projectRow(overrides: Record<string, unknown> = {}) {
     last_sequence: "0",
     node_count: 0,
     edge_count: 0,
-    task_count: 0,
     archived_at: null,
     created_at: new Date("2026-07-15T00:00:00.000Z"),
     updated_at: new Date("2026-07-15T00:00:00.000Z"),

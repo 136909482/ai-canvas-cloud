@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import pg from "pg";
+import { isolateCurrentSchemaSql } from "../../dist/db/schemaBaseline.js";
 import { loadDotEnv } from "../../dist/env/loadDotEnv.js";
 import { AuthServiceError } from "../../dist/modules/auth/service.js";
 import { createWorkspaceAuthorizationService } from "../../dist/modules/workspaces/authorization.js";
@@ -31,25 +32,29 @@ test(
         max: 2,
         options: `-c search_path=${schemaName},public`,
       });
-      for (const fileName of [
-        "0001_schema_migrations.sql",
-        "0002_auth_workspaces.sql",
-      ]) {
-        await pool.query(
+      await pool.query(
+        isolateCurrentSchemaSql(
           await readFile(
-            join(process.cwd(), "server", "db", "migrations", fileName),
+            join(
+              process.cwd(),
+              "server",
+              "db",
+              "migrations",
+              "0001_current_schema.sql",
+            ),
             "utf8",
           ),
-        );
-      }
+          schemaName,
+        ),
+      );
       await pool.query(`
-      INSERT INTO "user" (id, name, email, email_verified)
+      INSERT INTO "user" (id, name, email, email_verified, username, display_username)
       VALUES
-        ('role-owner', 'Owner', 'role-owner@example.invalid', true),
-        ('role-admin', 'Admin', 'role-admin@example.invalid', true),
-        ('role-editor', 'Editor', 'role-editor@example.invalid', true),
-        ('role-viewer', 'Viewer', 'role-viewer@example.invalid', true),
-        ('role-outsider', 'Outsider', 'role-outsider@example.invalid', true)
+        ('role-owner', 'Owner', 'role-owner@example.invalid', true, 'role_owner', 'role_owner'),
+        ('role-admin', 'Admin', 'role-admin@example.invalid', true, 'role_admin', 'role_admin'),
+        ('role-editor', 'Editor', 'role-editor@example.invalid', true, 'role_editor', 'role_editor'),
+        ('role-viewer', 'Viewer', 'role-viewer@example.invalid', true, 'role_viewer', 'role_viewer'),
+        ('role-outsider', 'Outsider', 'role-outsider@example.invalid', true, 'role_outsider', 'role_outsider')
     `);
       await pool.query(
         `

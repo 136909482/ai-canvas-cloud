@@ -52,6 +52,7 @@ printf '%s\n' 'Only the two domain names are required. Enter them without https:
 PUBLIC_DOMAIN="$(read_required 'Public domain: ')"
 ADMIN_DOMAIN="$(read_required 'Admin domain: ')"
 APP_IMAGE_SOURCE="$(read_default APP_IMAGE_SOURCE)"
+APP_REPOSITORY="$(read_default APP_REPOSITORY)"
 APP_IMAGE_ARCHIVE="$(read_default APP_IMAGE_ARCHIVE)"
 APP_LOCAL_IMAGE="$(read_default APP_LOCAL_IMAGE)"
 
@@ -61,21 +62,27 @@ for value in "$PUBLIC_DOMAIN" "$ADMIN_DOMAIN"; do
     exit 1
   fi
 done
-if [[ "$APP_IMAGE_SOURCE" != "archive" ]]; then
-  printf '%s\n' 'The bundled single-host installer requires APP_IMAGE_SOURCE=archive.' >&2
-  exit 1
-fi
-if [[ -z "$APP_IMAGE_ARCHIVE" || ! "$APP_IMAGE_ARCHIVE" =~ ^[A-Za-z0-9._-]+$ ]]; then
-  printf '%s\n' 'The local image archive name is invalid.' >&2
-  exit 1
-fi
-if [[ -z "$APP_LOCAL_IMAGE" || ! "$APP_LOCAL_IMAGE" =~ ^[A-Za-z0-9./:_-]+$ ]]; then
-  printf '%s\n' 'The local image name is invalid.' >&2
-  exit 1
-fi
-if [[ ! -f "$SCRIPT_DIR/$APP_IMAGE_ARCHIVE" ]]; then
-  printf 'Missing local image archive: %s\n' "$SCRIPT_DIR/$APP_IMAGE_ARCHIVE" >&2
-  printf '%s\n' 'Upload the image archive beside setup.sh, then retry.' >&2
+if [[ "$APP_IMAGE_SOURCE" == "registry" ]]; then
+  if [[ -z "$APP_REPOSITORY" || ! "$APP_REPOSITORY" =~ ^[A-Za-z0-9./_-]+$ ]]; then
+    printf '%s\n' 'The public image repository is invalid.' >&2
+    exit 1
+  fi
+elif [[ "$APP_IMAGE_SOURCE" == "archive" ]]; then
+  if [[ -z "$APP_IMAGE_ARCHIVE" || ! "$APP_IMAGE_ARCHIVE" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    printf '%s\n' 'The local image archive name is invalid.' >&2
+    exit 1
+  fi
+  if [[ -z "$APP_LOCAL_IMAGE" || ! "$APP_LOCAL_IMAGE" =~ ^[A-Za-z0-9./:_-]+$ ]]; then
+    printf '%s\n' 'The local image name is invalid.' >&2
+    exit 1
+  fi
+  if [[ ! -f "$SCRIPT_DIR/$APP_IMAGE_ARCHIVE" ]]; then
+    printf 'Missing local image archive: %s\n' "$SCRIPT_DIR/$APP_IMAGE_ARCHIVE" >&2
+    printf '%s\n' 'Upload the image archive beside setup.sh, then retry.' >&2
+    exit 1
+  fi
+else
+  printf 'Unsupported APP_IMAGE_SOURCE: %s\n' "$APP_IMAGE_SOURCE" >&2
   exit 1
 fi
 
@@ -110,9 +117,8 @@ cat >"$RELEASE_ENV" <<EOF
 NODE_ENV=production
 DEPLOYMENT_ENV=production
 LOG_LEVEL=info
-PUBLIC_HTTP_ADAPTER=fastify
-ADMIN_HTTP_ADAPTER=fastify
 APP_IMAGE_SOURCE=${APP_IMAGE_SOURCE}
+APP_REPOSITORY=${APP_REPOSITORY}
 APP_IMAGE_ARCHIVE=${APP_IMAGE_ARCHIVE}
 APP_LOCAL_IMAGE=${APP_LOCAL_IMAGE}
 APP_IMAGE=
@@ -147,12 +153,6 @@ OBJECT_STORAGE_CREDENTIAL_KEYS={"1":"${OBJECT_STORAGE_KEY}"}
 AUTH_EMAIL_TRANSPORT=managed
 SMTP_CREDENTIAL_ACTIVE_KEY_VERSION=1
 SMTP_CREDENTIAL_KEYS={"1":"${SMTP_KEY}"}
-SMTP_HOST=
-SMTP_PORT=
-SMTP_SECURE=
-SMTP_FROM=
-SMTP_USERNAME=
-SMTP_PASSWORD=
 
 DEPLOYMENT_RESOURCE_NAMESPACE=ai-canvas-cloud-production
 DEPLOYMENT_CREDENTIAL_NAMESPACE=ai-canvas-cloud-production-credentials

@@ -157,13 +157,13 @@ export interface RegisterRequest {
   password: string;
   acceptedTermsAndPrivacy: boolean;
   emailVerificationCode?: string;
-  deviceId?: string;
+  deviceId: string;
 }
 
 export interface LoginRequest {
   identifier: string;
   password: string;
-  deviceId?: string;
+  deviceId: string;
   force?: boolean;
 }
 
@@ -220,7 +220,6 @@ export interface ProjectSummary {
   lastSequence: number;
   nodeCount: number;
   edgeCount: number;
-  taskCount: number;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -276,8 +275,7 @@ export type ProjectGraphOperation =
   | { type: "upsertEdge"; edge: ProjectGraphEdge }
   | { type: "deleteEdge"; edgeId: string };
 
-export type ProjectGraphChangeSource =
-  "user" | "worker" | "import" | "restore" | "system";
+export type ProjectGraphChangeSource = "user" | "import" | "restore" | "system";
 
 export interface ProjectGraphChange {
   sequence: number;

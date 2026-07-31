@@ -9,7 +9,6 @@ import { normalizeLocalModelBindings } from "./localModelReferences.ts";
 export const LOCAL_VAULT_SCHEMA_VERSION = 2;
 export const LOCAL_VAULT_CIPHER_VERSION = 1;
 export const LOCAL_TASK_CACHE_SCHEMA_VERSION = 3;
-const LEGACY_LOCAL_TASK_CACHE_SCHEMA_VERSION = 2;
 const PENDING_TASK_RESULT_SCHEMA_VERSION = 1;
 
 const DATABASE_NAME = "ai-canvas-cloud-local-vault";
@@ -59,9 +58,7 @@ interface EncryptedLocalTaskQueueRecord {
   id: string;
   ownerId: string;
   cipherVersion: typeof LOCAL_VAULT_CIPHER_VERSION;
-  schemaVersion:
-    | typeof LOCAL_TASK_CACHE_SCHEMA_VERSION
-    | typeof LEGACY_LOCAL_TASK_CACHE_SCHEMA_VERSION;
+  schemaVersion: typeof LOCAL_TASK_CACHE_SCHEMA_VERSION;
   iv: ArrayBuffer;
   ciphertext: ArrayBuffer;
   updatedAt: number;
@@ -129,15 +126,12 @@ function createTaskAdditionalData(
   origin: string,
   userId: string,
   projectId: string,
-  schemaVersion:
-    | typeof LOCAL_TASK_CACHE_SCHEMA_VERSION
-    | typeof LEGACY_LOCAL_TASK_CACHE_SCHEMA_VERSION = LOCAL_TASK_CACHE_SCHEMA_VERSION,
 ) {
   return new TextEncoder().encode(
     [
       TASK_AAD_NAMESPACE,
       `cipher=${LOCAL_VAULT_CIPHER_VERSION}`,
-      `schema=${schemaVersion}`,
+      `schema=${LOCAL_TASK_CACHE_SCHEMA_VERSION}`,
       `origin=${origin}`,
       `user=${userId}`,
       `project=${projectId}`,
@@ -292,34 +286,21 @@ export async function encryptLocalTaskQueueDocument(
   };
 }
 
-function isLocalTaskQueueDocument(value: unknown) {
+function isLocalTaskQueueDocument(
+  value: unknown,
+): value is LocalTaskQueueDocument {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const document = value as Partial<LocalTaskQueueDocument> & {
     schemaVersion?: number;
   };
   return (
-    (document.schemaVersion === LOCAL_TASK_CACHE_SCHEMA_VERSION ||
-      document.schemaVersion === LEGACY_LOCAL_TASK_CACHE_SCHEMA_VERSION) &&
+    document.schemaVersion === LOCAL_TASK_CACHE_SCHEMA_VERSION &&
     typeof document.userId === "string" &&
     typeof document.projectId === "string" &&
     Boolean(document.taskQueue && typeof document.taskQueue === "object") &&
     Array.isArray(document.taskQueue?.tasks) &&
     typeof document.updatedAt === "number"
   );
-}
-
-export function migrateLocalTaskQueueDocument(
-  value: unknown,
-): LocalTaskQueueDocument | null {
-  if (!isLocalTaskQueueDocument(value)) return null;
-
-  const document = value as Omit<LocalTaskQueueDocument, "schemaVersion"> & {
-    schemaVersion: number;
-  };
-  return {
-    ...document,
-    schemaVersion: LOCAL_TASK_CACHE_SCHEMA_VERSION,
-  };
 }
 
 export async function decryptLocalTaskQueueDocument(
@@ -331,8 +312,7 @@ export async function decryptLocalTaskQueueDocument(
 ): Promise<LocalTaskQueueDocument> {
   if (
     record.cipherVersion !== LOCAL_VAULT_CIPHER_VERSION ||
-    (record.schemaVersion !== LOCAL_TASK_CACHE_SCHEMA_VERSION &&
-      record.schemaVersion !== LEGACY_LOCAL_TASK_CACHE_SCHEMA_VERSION)
+    record.schemaVersion !== LOCAL_TASK_CACHE_SCHEMA_VERSION
   ) {
     throw new Error("本地任务缓存版本不受支持");
   }
@@ -341,22 +321,19 @@ export async function decryptLocalTaskQueueDocument(
     {
       name: "AES-GCM",
       iv: record.iv,
-      additionalData: createTaskAdditionalData(
-        origin,
-        userId,
-        projectId,
-        record.schemaVersion,
-      ),
+      additionalData: createTaskAdditionalData(origin, userId, projectId),
       tagLength: 128,
     },
     key,
     record.ciphertext,
   );
-  const parsed = migrateLocalTaskQueueDocument(
-    JSON.parse(new TextDecoder().decode(plaintext)) as unknown,
-  );
+  const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as unknown;
 
-  if (!parsed || parsed.userId !== userId || parsed.projectId !== projectId) {
+  if (
+    !isLocalTaskQueueDocument(parsed) ||
+    parsed.userId !== userId ||
+    parsed.projectId !== projectId
+  ) {
     throw new Error("本地任务缓存内容无效");
   }
 
