@@ -360,7 +360,7 @@ test("migration release metadata is enforced by the one-shot migration command",
   ]);
   assert.deepEqual(
     releaseManifest.migrations.map((migration) => migration.version),
-    ["0001"],
+    ["0001", "0038"],
   );
   assert.match(applyMigrations, /SET LOCAL lock_timeout/);
   assert.match(applyMigrations, /SET LOCAL statement_timeout/);

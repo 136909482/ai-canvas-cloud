@@ -8,7 +8,10 @@ const connections = {
   app: process.env.DATABASE_URL,
   admin: process.env.ADMIN_DATABASE_URL,
 };
-const expectedMigrationVersions = ["0001"];
+const currentBaselineMigrationVersions = ["0001", "0038"];
+const legacyMigrationVersions = Array.from({ length: 38 }, (_, index) =>
+  String(index + 1).padStart(4, "0"),
+);
 
 if (!connections.app || !connections.admin)
   throw new Error("Missing DATABASE_URL or ADMIN_DATABASE_URL");
@@ -323,10 +326,16 @@ for (const [connection, connectionString] of Object.entries(connections)) {
       const appliedMigrations = await client.query(
         "SELECT version FROM schema_migrations ORDER BY version",
       );
-      assert.deepEqual(
-        appliedMigrations.rows.map((row) => row.version),
-        expectedMigrationVersions,
-        "live migration history must match the current baseline manifest",
+      const appliedMigrationVersions = appliedMigrations.rows.map(
+        (row) => row.version,
+      );
+      assert.ok(
+        [currentBaselineMigrationVersions, legacyMigrationVersions].some(
+          (expected) =>
+            JSON.stringify(appliedMigrationVersions) ===
+            JSON.stringify(expected),
+        ),
+        "live migration history must match the current baseline or legacy upgrade path",
       );
     }
     const permissions = {

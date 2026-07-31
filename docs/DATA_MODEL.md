@@ -154,7 +154,7 @@ commit 锁定 import、workspace 配额和可选 replace 目标。copy 重映射
 
 Admin Better Auth 表位于固定 `admin` schema，使用独立 Cookie 和 Secret。`admin.user.role` 为 `super_admin|operator|support|auditor`，status 为 active/banned。账号登录标识是唯一小写 username；内部兼容 email 不进入 Admin UI/响应。
 
-`admin.login_security_settings` 保存验证码开关，`admin.login_captcha_challenges` 保存短期 challenge hash、失败次数、过期/消费时间，不保存验证码明文。`admin.audit_events` 是追加式脱敏审计，运行角色只有 INSERT/SELECT，触发器拒绝 UPDATE/DELETE。
+`admin.login_security_settings` 保存验证码开关；`singleton_id = 1` 的记录必须始终存在，新库默认写入 `captcha_enabled = false`，补偿迁移使用幂等插入修复缺失记录。`admin.login_captcha_challenges` 保存短期 challenge hash、失败次数、过期/消费时间，不保存验证码明文。`admin.audit_events` 是追加式脱敏审计，运行角色只有 INSERT/SELECT，触发器拒绝 UPDATE/DELETE。
 
 ### 用户运营投影、聚合与事务
 
@@ -200,7 +200,7 @@ SMTP 密码使用 AES-256-GCM 信封加密，每个 revision 使用随机 96 位
 
 ## 当前 Schema 基线
 
-数据库只保留 `server/db/migrations/0001_current_schema.sql` 单一当前基线。项目正式运营前的部署必须重建空库，再依次运行 `db:migrate` 和 `db:roles:provision`；该基线不提供开发期数据库的原地升级。目录包导入/导出是当前跨仓库产品能力，继续使用当前版本化契约。
+`server/db/migrations/0001_current_schema.sql` 是新库的当前基线；基线发布后新增的前向修复继续使用未占用的历史序号，当前 `0038_initialize_login_security_settings.sql` 为已部署数据库补齐管理员登录安全单例记录。新库会依次执行基线和后续幂等迁移；曾执行旧 `0001` 至 `0037` 链的数据库从 `0038` 继续升级，不复用旧迁移版本号。项目正式运营前如需主动清空开发数据，仍应重建空库，再依次运行 `db:migrate` 和 `db:roles:provision`。目录包导入/导出是当前跨仓库产品能力，继续使用当前版本化契约。
 
 ## 核心事务
 

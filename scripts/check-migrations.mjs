@@ -22,18 +22,23 @@ function readDotEnv() {
   }
 }
 
-function loadBaseline() {
+function loadMigrations() {
   const files = readdirSync(migrationsDir)
     .filter((fileName) => fileName.endsWith(".sql"))
     .sort();
-  assert.deepEqual(files, ["0001_current_schema.sql"]);
-  const match = migrationPattern.exec(files[0]);
-  assert.ok(match);
-  const sql = readFileSync(join(migrationsDir, files[0]), "utf8").trim();
-  assert.ok(sql.length > 0, "Current schema baseline must not be empty");
-  assert.doesNotMatch(sql, /\\(?:un)?restrict\b/);
-  assert.doesNotMatch(sql, /\bDROP\s+DATABASE\b/i);
-  return { fileName: files[0], version: match[1], name: match[2], sql };
+  assert.deepEqual(files, [
+    "0001_current_schema.sql",
+    "0038_initialize_login_security_settings.sql",
+  ]);
+  return files.map((fileName) => {
+    const match = migrationPattern.exec(fileName);
+    assert.ok(match);
+    const sql = readFileSync(join(migrationsDir, fileName), "utf8").trim();
+    assert.ok(sql.length > 0, `${fileName} must not be empty`);
+    assert.doesNotMatch(sql, /\\(?:un)?restrict\b/);
+    assert.doesNotMatch(sql, /\bDROP\s+DATABASE\b/i);
+    return { fileName, version: match[1], name: match[2], sql };
+  });
 }
 
 function isolatedBaselineSql(sql, publicSchema, adminSchema) {
@@ -83,7 +88,7 @@ async function columnNames(client, schema, table) {
 }
 
 readDotEnv();
-const baseline = loadBaseline();
+const [baseline, loginSecurityRepair] = loadMigrations();
 const databaseUrl =
   process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -200,6 +205,29 @@ try {
   ]) {
     assert.ok(adminTriggers.has(name), `Missing current trigger: ${name}`);
   }
+
+  const loginSecurityTable = `"${adminSchema}".login_security_settings`;
+  const initialLoginSecurity = await client.query(
+    `SELECT captcha_enabled FROM ${loginSecurityTable} WHERE singleton_id = 1`,
+  );
+  assert.equal(initialLoginSecurity.rowCount, 1);
+  assert.equal(initialLoginSecurity.rows[0].captcha_enabled, false);
+
+  await client.query(
+    `DELETE FROM ${loginSecurityTable} WHERE singleton_id = 1`,
+  );
+  const repairSql = isolatedBaselineSql(
+    loginSecurityRepair.sql,
+    publicSchema,
+    adminSchema,
+  );
+  await client.query(repairSql);
+  await client.query(repairSql);
+  const repairedLoginSecurity = await client.query(
+    `SELECT captcha_enabled FROM ${loginSecurityTable} WHERE singleton_id = 1`,
+  );
+  assert.equal(repairedLoginSecurity.rowCount, 1);
+  assert.equal(repairedLoginSecurity.rows[0].captcha_enabled, false);
 
   await client.query("SET CONSTRAINTS ALL IMMEDIATE");
   await client.query("ROLLBACK");

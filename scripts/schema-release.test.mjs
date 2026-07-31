@@ -7,10 +7,13 @@ import {
   validateSchemaReleaseManifest,
 } from "./check-schema-release.mjs";
 
-test("schema release manifest describes the single current baseline", () => {
+test("schema release manifest describes the current baseline and repair", () => {
   const result = validateSchemaReleaseManifest(loadSchemaReleaseManifest());
-  assert.deepEqual(result.files, ["0001_current_schema.sql"]);
-  assert.equal(result.manifest.migrations.length, 1);
+  assert.deepEqual(result.files, [
+    "0001_current_schema.sql",
+    "0038_initialize_login_security_settings.sql",
+  ]);
+  assert.equal(result.manifest.migrations.length, 2);
   assert.deepEqual(result.manifest.migrations[0], {
     version: "0001",
     name: "current_schema",
@@ -24,6 +27,21 @@ test("schema release manifest describes the single current baseline", () => {
     rollback: "recreate the unopened database before production launch",
     forwardRepair:
       "recreate the unopened database and rerun the current baseline",
+    backupRequired: false,
+  });
+  assert.deepEqual(result.manifest.migrations[1], {
+    version: "0038",
+    name: "initialize_login_security_settings",
+    releaseTrain: "admin-login-security-default",
+    phase: "migrate",
+    oldAppReadable: true,
+    newAppReadable: true,
+    oldAppWithNewSchema: true,
+    lockRisk: "low",
+    statementTimeoutMs: 30000,
+    rollback: "delete the singleton only before any Admin traffic is served",
+    forwardRepair:
+      "rerun the idempotent singleton insert and verify the CAPTCHA endpoint",
     backupRequired: false,
   });
 });
@@ -44,6 +62,26 @@ test("current baseline is nonempty and excludes psql-only or destructive databas
   assert.doesNotMatch(sql, /\bDROP\s+DATABASE\b/i);
   assert.match(sql, /CREATE TABLE public\.projects/);
   assert.match(sql, /CREATE TABLE admin\.smtp_config_revisions/);
+  assert.match(
+    sql,
+    /INSERT INTO admin\.login_security_settings \(singleton_id, captcha_enabled\)/,
+  );
   assert.doesNotMatch(sql, /\btask_count\b/);
   assert.doesNotMatch(sql, /\btask_quota_monthly\b/);
+});
+
+test("login security repair is idempotent and preserves an existing setting", async () => {
+  const sql = await readFile(
+    join(
+      process.cwd(),
+      "server",
+      "db",
+      "migrations",
+      "0038_initialize_login_security_settings.sql",
+    ),
+    "utf8",
+  );
+  assert.match(sql, /VALUES \(1, false\)/);
+  assert.match(sql, /ON CONFLICT \(singleton_id\) DO NOTHING/);
+  assert.doesNotMatch(sql, /UPDATE|DELETE/i);
 });

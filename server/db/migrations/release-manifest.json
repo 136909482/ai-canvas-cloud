@@ -15,6 +15,20 @@
       "rollback": "recreate the unopened database before production launch",
       "forwardRepair": "recreate the unopened database and rerun the current baseline",
       "backupRequired": false
+    },
+    {
+      "version": "0038",
+      "name": "initialize_login_security_settings",
+      "releaseTrain": "admin-login-security-default",
+      "phase": "migrate",
+      "oldAppReadable": true,
+      "newAppReadable": true,
+      "oldAppWithNewSchema": true,
+      "lockRisk": "low",
+      "statementTimeoutMs": 30000,
+      "rollback": "delete the singleton only before any Admin traffic is served",
+      "forwardRepair": "rerun the idempotent singleton insert and verify the CAPTCHA endpoint",
+      "backupRequired": false
     }
   ]
 }

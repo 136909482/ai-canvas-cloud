@@ -2686,5 +2686,13 @@ ALTER TABLE ONLY public.workspaces
 
 
 --
+-- Administrator login security singleton
+--
+
+INSERT INTO admin.login_security_settings (singleton_id, captcha_enabled)
+VALUES (1, false);
+
+
+--
 -- PostgreSQL database dump complete
 --
