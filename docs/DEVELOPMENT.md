@@ -244,7 +244,7 @@ Web 不得 import `server/`、数据库驱动、Redis 或对象存储管理 SDK�
 - 公开帮助中心、问题反馈、用户协议和隐私政策分别由 Web 固定路由 `/help`、`/feedback`、`/yonghuxieyi`、`/yinsizhengce` 承载；站点配置对应 URL 为空时使用当前 Origin 的固定路由，发布完整安全 HTTP(S) 地址后统一覆盖首页、公共页导航和注册链接。
 - 注册、登录和 session 恢复后幂等确保 personal workspace、owner membership 和 user state。
 - 所有资源访问从可信 session 解析用户，再按 `workspace_id` 和成员关系授权；客户端 `user_id` 不可信。
-- 同账号只允许一个有效 session；封禁用户不能登录、恢复 session 或通过 workspace 授权。
+- 同账号只允许一个有效 session；同浏览器或超过 10 分钟未活跃的异设备可静默接管，最近活跃或活跃状态未知的异设备必须确认；封禁用户不能登录、恢复 session 或通过 workspace 授权。
 - `deviceId` 是每个浏览器独立保存的随机非认证标识，用于设备管理记录；不采集硬件指纹、不跨浏览器共享或合并 ID，也不作为凭据。它不改变浏览器 Vault 按 Origin、可信用户和项目隔离的边界。
 - 跨 workspace 与不存在资源使用相同的非披露错误语义。
 - 密码、Cookie、token、完整邮件链接、正文和 Provider Key 不得进入日志。

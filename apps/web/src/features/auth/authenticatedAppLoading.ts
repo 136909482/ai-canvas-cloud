@@ -8,6 +8,18 @@ export function shouldLoadAuthenticatedApp(
   return status === "authenticated" && hasSession && !isPasswordReset;
 }
 
+export function shouldShowAuthenticatedHome(
+  status: AuthStatus,
+  hasSession: boolean,
+  isPasswordReset: boolean,
+  pathname: string,
+) {
+  return (
+    pathname.replace(/\/+$/, "") === "/home" &&
+    shouldLoadAuthenticatedApp(status, hasSession, isPasswordReset)
+  );
+}
+
 const CHUNK_LOAD_ERROR_PATTERNS = [
   /ChunkLoadError/i,
   /Loading (?:CSS )?chunk [\w-]+ failed/i,

@@ -19,7 +19,8 @@ const CONTROL_TEXT_STYLE = {
   letterSpacing: "0",
 } as const;
 
-const FLOATING_SURFACE_CLASS = `${themeClasses.floatingPanel} p-[4px]`;
+const FLOATING_SURFACE_CLASS = themeClasses.floatingPanel;
+const COMPACT_FLOATING_SURFACE_CLASS = `${FLOATING_SURFACE_CLASS} p-[4px]`;
 const ICON_BUTTON_CLASS = `${themeClasses.iconButton} h-6 w-6`;
 const ACTIVE_ICON_BUTTON_CLASS = themeClasses.iconButtonActive;
 const DIVIDER_CLASS = `mx-0.5 h-3 w-px ${themeClasses.divider}`;
@@ -145,7 +146,7 @@ export function ViewportControls({
                   closeZoomMenu,
                 )
               }
-              className={`absolute bottom-[calc(100%+8px)] left-1/2 w-[92px] -translate-x-1/2 animate-in fade-in-0 slide-in-from-bottom-2 duration-200 ${FLOATING_SURFACE_CLASS}`}
+              className={`absolute bottom-[calc(100%+8px)] left-1/2 w-[92px] -translate-x-1/2 animate-in fade-in-0 slide-in-from-bottom-2 duration-200 ${COMPACT_FLOATING_SURFACE_CLASS}`}
             >
               <button
                 type="button"
@@ -189,7 +190,9 @@ export function ViewportControls({
             </div>
           ) : null}
 
-          <div className={`flex items-center gap-0 ${FLOATING_SURFACE_CLASS}`}>
+          <div
+            className={`flex items-center gap-0 ${COMPACT_FLOATING_SURFACE_CLASS}`}
+          >
             <button
               ref={zoomTriggerRef}
               type="button"
@@ -278,17 +281,17 @@ export function ViewportControls({
               id="shortcut-help"
               role="dialog"
               aria-label="快捷键说明"
-              className={`absolute bottom-[calc(100%+8px)] left-0 w-[196px] max-w-[calc(100vw-24px)] p-2.5 animate-in fade-in-0 slide-in-from-bottom-2 duration-200 ${FLOATING_SURFACE_CLASS}`}
+              className={`absolute bottom-[calc(100%+8px)] left-0 w-[210px] max-w-[calc(100vw-24px)] p-3.5 animate-in fade-in-0 slide-in-from-bottom-2 duration-200 ${FLOATING_SURFACE_CLASS}`}
             >
-              <div className="pb-2.5 text-[9px] font-medium text-[var(--text-muted)]">
+              <div className="pb-3 text-[10px] font-semibold text-[var(--text-muted)]">
                 快捷键
               </div>
 
-              <div className="flex flex-col gap-2.5">
+              <div className="flex flex-col gap-3">
                 {SHORTCUT_ITEMS.map((item) => (
                   <div
                     key={item.name}
-                    className="flex items-center justify-between gap-1.5"
+                    className="flex min-h-4 items-center justify-between gap-3"
                   >
                     <span className="min-w-0 text-[11px] font-medium tracking-normal text-[var(--text-primary)]">
                       {item.name}
@@ -302,7 +305,7 @@ export function ViewportControls({
             </div>
           ) : null}
 
-          <div className={FLOATING_SURFACE_CLASS}>
+          <div className={COMPACT_FLOATING_SURFACE_CLASS}>
             <button
               type="button"
               onClick={() => {
@@ -320,14 +323,15 @@ export function ViewportControls({
               aria-haspopup="dialog"
               aria-expanded={showShortcutMenu}
               aria-controls={showShortcutMenu ? "shortcut-help" : undefined}
-              title="快捷键说明"
             >
               <Keyboard className="h-3 w-3" />
             </button>
           </div>
         </div>
 
-        <div className={`flex items-center gap-0 ${FLOATING_SURFACE_CLASS}`}>
+        <div
+          className={`flex items-center gap-0 ${COMPACT_FLOATING_SURFACE_CLASS}`}
+        >
           <TooltipIconButton
             label="撤销"
             onClick={() => {

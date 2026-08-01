@@ -667,6 +667,36 @@ async function runCloudE2E() {
       200,
     );
 
+    await pool.query(
+      `
+        UPDATE auth_devices
+        SET first_seen_at = now() - interval '11 minutes',
+            last_seen_at = now() - interval '11 minutes'
+        WHERE user_id = (SELECT id FROM "user" WHERE email = $1)
+          AND device_key = $2
+      `,
+      [emailA, `device-a-takeover-${runId}`],
+    );
+    const staleTakeover = new BrowserContext(
+      `cloud-e2e-a-stale-takeover/${runId}`,
+      `device-a-stale-takeover-${runId}`,
+    );
+    assert.equal(
+      (
+        await staleTakeover.request(
+          port,
+          "POST",
+          "/api/v1/auth/login",
+          staleTakeover.loginBody(emailA, password),
+        )
+      ).statusCode,
+      200,
+    );
+    assert.notEqual(
+      (await takeover.request(port, "GET", "/api/v1/auth/session")).statusCode,
+      200,
+    );
+
     const resetPassword = `p7-6-reset-password-${runId}`;
     assert.equal(
       (

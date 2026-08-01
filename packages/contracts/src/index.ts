@@ -167,6 +167,11 @@ export interface LoginRequest {
   force?: boolean;
 }
 
+export interface ActiveSessionConflictDetails {
+  activeDeviceLabel: string | null;
+  activeDeviceLastSeenAt: string | null;
+}
+
 export interface AuthSuccessResponse {
   user: UserSummary;
   workspace: WorkspaceSummary;

@@ -108,3 +108,17 @@ test("last used model ids are normalized by category", () => {
     image: "image-entry",
   });
 });
+
+test("incoming edge animation defaults on and persists with workspace settings", () => {
+  const defaultConfig = normalizeConfig();
+  assert.equal(defaultConfig.storage.incomingEdgeAnimationEnabled, true);
+
+  const disabledConfig = normalizeConfig({
+    storage: { incomingEdgeAnimationEnabled: false },
+  });
+  assert.equal(disabledConfig.storage.incomingEdgeAnimationEnabled, false);
+  assert.equal(
+    toWorkspaceConfigFile(disabledConfig).storage.incomingEdgeAnimationEnabled,
+    false,
+  );
+});

@@ -130,6 +130,8 @@ export function normalizeStorageConfig(
     autosaveIntervalMs,
     canvasTopBarCollapsed: Boolean(config?.canvasTopBarCollapsed),
     alignmentGuidesEnabled: config?.alignmentGuidesEnabled !== false,
+    incomingEdgeAnimationEnabled:
+      config?.incomingEdgeAnimationEnabled !== false,
     themeMode,
     canvasPerformanceMode,
     canvasGridEnabled: config?.canvasGridEnabled !== false,
@@ -239,6 +241,7 @@ export function toWorkspaceConfigFile(config: ApiConfig): WorkspaceConfigFile {
       autosaveIntervalMs: storage.autosaveIntervalMs,
       canvasTopBarCollapsed: storage.canvasTopBarCollapsed,
       alignmentGuidesEnabled: storage.alignmentGuidesEnabled,
+      incomingEdgeAnimationEnabled: storage.incomingEdgeAnimationEnabled,
       themeMode: storage.themeMode,
       canvasPerformanceMode: storage.canvasPerformanceMode,
       canvasGridEnabled: storage.canvasGridEnabled,

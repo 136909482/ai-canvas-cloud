@@ -82,6 +82,7 @@ export interface WorkspaceConfigFile {
     | "autosaveIntervalMs"
     | "canvasTopBarCollapsed"
     | "alignmentGuidesEnabled"
+    | "incomingEdgeAnimationEnabled"
     | "themeMode"
     | "canvasPerformanceMode"
     | "canvasGridEnabled"
@@ -94,6 +95,7 @@ export interface StorageConfig {
   autosaveIntervalMs: number;
   canvasTopBarCollapsed: boolean;
   alignmentGuidesEnabled: boolean;
+  incomingEdgeAnimationEnabled: boolean;
   themeMode: ThemeMode;
   canvasPerformanceMode: CanvasPerformanceMode;
   canvasGridEnabled: boolean;

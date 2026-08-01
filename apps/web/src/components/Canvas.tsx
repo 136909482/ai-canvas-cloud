@@ -56,6 +56,10 @@ import { CanvasTopBar } from "./CanvasTopBar";
 import { SelectionActionsToolbar } from "./SelectionActionsToolbar";
 import { CanvasFlowLayer } from "./canvas/CanvasFlowLayer";
 import {
+  getSingleSelectedNodeId,
+  shouldAnimateIncomingEdge,
+} from "./canvas/incomingEdgeAnimation";
+import {
   CANVAS_NODE_DRAG_MIME_TYPE,
   getFirstImageFile,
   hasCanvasNodeDragTransfer,
@@ -155,6 +159,9 @@ export function Canvas() {
   const themeMode = useSettingsStore((state) => state.config.storage.themeMode);
   const alignmentGuidesEnabled = useSettingsStore(
     (state) => state.config.storage.alignmentGuidesEnabled,
+  );
+  const incomingEdgeAnimationEnabled = useSettingsStore(
+    (state) => state.config.storage.incomingEdgeAnimationEnabled,
   );
   const canvasPerformanceMode = useSettingsStore(
     (state) => state.config.storage.canvasPerformanceMode,
@@ -926,6 +933,9 @@ export function Canvas() {
   const useDashedEdges = edgeStyle === "animated";
   const useStepEdges = edgeStyle === "step" || edgeStyle === "colorful";
   const useSmoothStepEdges = edgeStyle === "smoothstep";
+  const selectedNodeId = useMemo(() => getSingleSelectedNodeId(nodes), [nodes]);
+  const shouldAnimateSelectedIncomingEdges =
+    incomingEdgeAnimationEnabled && !shouldUseLiteRendering;
   const edgeOptions = useMemo<DefaultEdgeOptions>(
     () => ({
       ...DEFAULT_EDGE_OPTIONS,
@@ -940,21 +950,43 @@ export function Canvas() {
   );
   const renderedEdges = useMemo(
     () =>
-      edges.map((edge) => ({
-        ...edge,
-        type: useStepEdges
-          ? "step"
-          : useSmoothStepEdges
-            ? "smoothstep"
-            : edge.type === "straight"
-              ? undefined
-              : edge.type,
-        animated: false,
-        style: useDashedEdges
+      edges.map((edge) => {
+        const animated = shouldAnimateIncomingEdge(
+          edge,
+          selectedNodeId,
+          shouldAnimateSelectedIncomingEdges,
+        );
+        const baseStyle = useDashedEdges
           ? { ...edge.style, strokeDasharray: "6 4" }
-          : edge.style,
-      })),
-    [edges, useDashedEdges, useSmoothStepEdges, useStepEdges],
+          : edge.style;
+
+        return {
+          ...edge,
+          type: useStepEdges
+            ? "step"
+            : useSmoothStepEdges
+              ? "smoothstep"
+              : edge.type === "straight"
+                ? undefined
+                : edge.type,
+          animated,
+          style: animated
+            ? {
+                ...baseStyle,
+                stroke: "var(--accent-violet-strong)",
+                strokeWidth: 1.8,
+              }
+            : baseStyle,
+        };
+      }),
+    [
+      edges,
+      selectedNodeId,
+      shouldAnimateSelectedIncomingEdges,
+      useDashedEdges,
+      useSmoothStepEdges,
+      useStepEdges,
+    ],
   );
   const topLeftPanel = useMemo(
     () => (

@@ -2,6 +2,7 @@ import { betterAuth, APIError } from "better-auth";
 import { splitSetCookieHeader } from "better-auth/cookies";
 import { username } from "better-auth/plugins";
 import type {
+  ActiveSessionConflictDetails,
   AuthDevicesResponse,
   AuthSessionResponse,
   AuthSessionsResponse,
@@ -171,10 +172,14 @@ interface AuthDeviceRow {
 
 interface ActiveSessionRow {
   user_agent: string | null;
+  device_key: string | null;
+  last_seen_at: Date | string | null;
+  recently_active: boolean | null;
 }
 
 const DEFAULT_BASE_URL = "http://localhost:8787";
 const DEFAULT_SECRET = "ai-canvas-cloud-dev-secret-change-me-in-env";
+const ACTIVE_DEVICE_WINDOW_SECONDS = 10 * 60;
 const BETTER_AUTH_FIELD_MAPPING = {
   user: {
     emailVerified: "email_verified",
@@ -521,25 +526,44 @@ function resolveDeviceKey(deviceId: string) {
   return provided;
 }
 
-async function findOtherActiveSession(
+async function findBlockingActiveSession(
   client: Pick<DbClient, "query">,
   userId: string,
   currentToken: string,
+  currentDeviceKey: string,
 ) {
   const result = await client.query<ActiveSessionRow>(
     `
-      SELECT user_agent
-      FROM "session"
-      WHERE user_id = $1
-        AND token <> $2
-        AND expires_at > now()
-      ORDER BY updated_at DESC
-      LIMIT 1
+      SELECT
+        COALESCE(ad.user_agent, s.user_agent) AS user_agent,
+        ad.device_key,
+        ad.last_seen_at,
+        ad.last_seen_at >= now() - ($3 * interval '1 second') AS recently_active
+      FROM "session" s
+      LEFT JOIN auth_devices ad
+        ON ad.user_id = s.user_id
+       AND ad.last_session_id = s.id
+      WHERE s.user_id = $1
+        AND s.token <> $2
+        AND s.expires_at > now()
+      ORDER BY ad.last_seen_at DESC NULLS FIRST, s.updated_at DESC
     `,
-    [userId, currentToken],
+    [userId, currentToken, ACTIVE_DEVICE_WINDOW_SECONDS],
   );
 
-  return result.rows[0] ?? null;
+  return (
+    result.rows.find((session) => {
+      if (session.device_key === currentDeviceKey) {
+        return false;
+      }
+
+      return (
+        session.device_key === null ||
+        session.last_seen_at === null ||
+        session.recently_active === true
+      );
+    }) ?? null
+  );
 }
 
 async function deleteCurrentLoginAttempt(
@@ -851,25 +875,30 @@ export function createPostgresAuthService(
                 },
               });
 
-        const otherActiveSession = await findOtherActiveSession(
-          pool,
-          result.response.user.id,
-          result.response.token,
-        );
+        const blockingSession = input.force
+          ? null
+          : await findBlockingActiveSession(
+              pool,
+              result.response.user.id,
+              result.response.token,
+              deviceKey,
+            );
 
-        if (otherActiveSession && !input.force) {
+        if (blockingSession) {
           await deleteCurrentLoginAttempt(
             pool,
             result.response.user.id,
             result.response.token,
           );
+          const details: ActiveSessionConflictDetails = {
+            activeDeviceLabel: blockingSession.user_agent,
+            activeDeviceLastSeenAt: toIsoString(blockingSession.last_seen_at),
+          };
           throw new AuthServiceError({
             statusCode: 409,
             apiCode: "ACTIVE_SESSION_EXISTS",
             message: "This account is already signed in on another device",
-            details: {
-              activeDeviceLabel: otherActiveSession.user_agent,
-            },
+            details: { ...details },
           });
         }
 

@@ -901,6 +901,23 @@ function requestJson(
   });
 }
 
+async function requestJsonWithFetch(
+  port: number,
+  options: { method: string; path: string; rawBody: string },
+) {
+  const response = await fetch(`http://127.0.0.1:${port}${options.path}`, {
+    method: options.method,
+    headers: { "content-type": "application/json" },
+    body: options.rawBody,
+  });
+  const text = await response.text();
+
+  return {
+    statusCode: response.status,
+    body: text ? (JSON.parse(text) as unknown) : null,
+  };
+}
+
 function requestText(port: number, path: string) {
   return new Promise<{
     statusCode: number;
@@ -1130,11 +1147,6 @@ test("API rejects duplicate keys, invalid encoding, deep JSON and oversized bodi
       statusCode: 400,
     },
     { name: "deep object", rawBody: deepJson, statusCode: 400 },
-    {
-      name: "oversized body",
-      rawBody: `{"email":"${"x".repeat(70 * 1024)}"}`,
-      statusCode: 413,
-    },
   ];
 
   try {
@@ -1151,6 +1163,18 @@ test("API rejects duplicate keys, invalid encoding, deep JSON and oversized bodi
         scenario.name,
       );
     }
+
+    const oversizedResponse = await requestJsonWithFetch(port, {
+      method: "POST",
+      path: `${API_V1_PREFIX}/auth/login`,
+      rawBody: `{"email":"${"x".repeat(70 * 1024)}"}`,
+    });
+    assert.equal(oversizedResponse.statusCode, 413, "oversized body");
+    assert.equal(
+      (oversizedResponse.body as { error: { code: string } }).error.code,
+      "VALIDATION_FAILED",
+      "oversized body",
+    );
     assert.equal(loginCalls, 0);
   } finally {
     await closeApiServer(server, 1_000);
@@ -1376,6 +1400,10 @@ test("login route preserves takeover conflicts until the client confirms", async
           statusCode: 409,
           apiCode: "ACTIVE_SESSION_EXISTS",
           message: "This account is already signed in on another device",
+          details: {
+            activeDeviceLabel: "Mozilla/5.0 Edg/150.0.0.0",
+            activeDeviceLastSeenAt: "2026-08-01T08:00:00.000Z",
+          },
         });
       }
 
@@ -1399,6 +1427,17 @@ test("login route preserves takeover conflicts until the client confirms", async
     assert.equal(
       (conflict.body as { error: { code: string } }).error.code,
       "ACTIVE_SESSION_EXISTS",
+    );
+    assert.deepEqual(
+      (
+        conflict.body as {
+          error: { details?: Record<string, unknown> };
+        }
+      ).error.details,
+      {
+        activeDeviceLabel: "Mozilla/5.0 Edg/150.0.0.0",
+        activeDeviceLastSeenAt: "2026-08-01T08:00:00.000Z",
+      },
     );
 
     const confirmed = await requestJson(port, {

@@ -101,7 +101,7 @@ function AppContent() {
         <Toolbar
           rightSlot={
             <>
-              <CanvasQuickActions includeWorkflowActions={false} />
+              <CanvasQuickActions />
               <NotificationCenterButton />
               <TooltipIconButton
                 label="项目管理"

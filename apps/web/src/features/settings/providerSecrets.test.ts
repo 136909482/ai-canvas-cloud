@@ -12,6 +12,7 @@ test("workspace config has no provider fields to redact", () => {
       autosaveIntervalMs: 60_000,
       canvasTopBarCollapsed: false,
       alignmentGuidesEnabled: true,
+      incomingEdgeAnimationEnabled: true,
       themeMode: "dark" as const,
       canvasPerformanceMode: "quality" as const,
       canvasGridEnabled: true,

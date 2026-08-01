@@ -25,13 +25,13 @@
 - `registration_email_challenges`：注册前邮箱验证码的 `email_hash`、`code_hash`、过期/发送/消费时间与失败次数；不保存邮箱或验证码明文。
 - `password_reset_email_challenges`：密码重置邮箱验证码的 `email_hash`、`code_hash`、AES-256-GCM 加密的 Better Auth token、过期/发送/消费时间与失败次数；不保存邮箱、验证码或 token 明文。
 
-`user_no` 从 `10001` 开始，只用于本人展示、客服检索和运营管理，不参与认证或授权。`username` 为 3–30 位小写规范值，格式为 `^[a-z][a-z0-9_]{2,29}$`，具有唯一索引且排除保留词；`display_username` 保留注册时大小写，并以约束保证 `lower(display_username)=username`。两者均不可修改；`name` 只作为 Better Auth 兼容镜像，不是昵称或公共字段，`image` 兼容列不进入普通用户界面。普通用户状态为 `active|disabled|deleted`；`disabled` 不能登录、恢复 session 或通过 workspace 授权，`deleted` 可用于运营筛选和只读核对但不能再被状态操作。账号采用单活跃 session；接管新设备和密码重置会撤销旧 session。
+`user_no` 从 `10001` 开始，只用于本人展示、客服检索和运营管理，不参与认证或授权。`username` 为 3–30 位小写规范值，格式为 `^[a-z][a-z0-9_]{2,29}$`，具有唯一索引且排除保留词；`display_username` 保留注册时大小写，并以约束保证 `lower(display_username)=username`。两者均不可修改；`name` 只作为 Better Auth 兼容镜像，不是昵称或公共字段，`image` 兼容列不进入普通用户界面。普通用户状态为 `active|disabled|deleted`；`disabled` 不能登录、恢复 session 或通过 workspace 授权，`deleted` 可用于运营筛选和只读核对但不能再被状态操作。账号采用单活跃 session；同设备重登或异设备超过 10 分钟未活跃时静默接管，最近活跃或活跃状态未知的异设备要求明确确认，密码重置仍直接撤销旧 session。
 
 日志、审计、错误和前端响应不得记录密码、session/reset token、注册或密码重置验证码、完整邮件链接或 Provider API Key。业务授权只信任 Better Auth session 解析的用户。
 
 ### `auth_devices`
 
-保存 `id`、`user_id`、客户端非认证 `device_key`、User-Agent、首次/最近时间和可空 `last_session_id`。`device_key` 实际是浏览器级随机标识：每个浏览器在本 Origin 独立保存，不采集硬件指纹、不跨浏览器共享或合并。`(user_id, device_key)` 唯一；删除 session 时只把 `last_session_id` 置空，不删除历史设备记录。当前设备记录不能从设备管理页删除。
+保存 `id`、`user_id`、客户端非认证 `device_key`、User-Agent、首次/最近时间和可空 `last_session_id`。`device_key` 实际是浏览器级随机标识：每个浏览器在本 Origin 独立保存，不采集硬件指纹、不跨浏览器共享或合并。`last_seen_at` 在登录、注册和已认证 session 检查成功后刷新，既供设备管理展示，也作为登录时 10 分钟最近活跃窗口的事实来源；无法通过 `last_session_id` 关联的有效 session 视为活跃状态未知，不允许静默接管。`(user_id, device_key)` 唯一；删除 session 时只把 `last_session_id` 置空，不删除历史设备记录。当前设备记录不能从设备管理页删除。
 
 ### `workspaces`
 

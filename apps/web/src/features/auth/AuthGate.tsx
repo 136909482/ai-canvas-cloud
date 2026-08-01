@@ -32,8 +32,16 @@ import {
   SESSION_HEARTBEAT_INTERVAL_MS,
   shouldProbeSession,
 } from "./sessionProbe";
+import {
+  getLoginConflictPresentation,
+  parseLoginConflictDetails,
+  type LoginConflict,
+} from "./loginConflict";
 import { useAuthStore } from "./useAuthStore";
-import { shouldLoadAuthenticatedApp } from "./authenticatedAppLoading";
+import {
+  shouldLoadAuthenticatedApp,
+  shouldShowAuthenticatedHome,
+} from "./authenticatedAppLoading";
 import { themeClasses } from "@/styles/themeClasses";
 
 interface AuthGateProps {
@@ -169,7 +177,9 @@ export function AuthGate({ children }: AuthGateProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
-  const [loginConflict, setLoginConflict] = useState(false);
+  const [loginConflict, setLoginConflict] = useState<LoginConflict | null>(
+    null,
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const sessionProbeInFlightRef = useRef(false);
   const lastSessionProbeAtRef = useRef(0);
@@ -177,7 +187,7 @@ export function AuthGate({ children }: AuthGateProps) {
   const openAuth = (nextMode: Extract<AuthMode, "login" | "register">) => {
     setSubmitError(null);
     setSubmitMessage(null);
-    setLoginConflict(false);
+    setLoginConflict(null);
 
     const shouldFlip =
       isAuthOpen &&
@@ -216,7 +226,7 @@ export function AuthGate({ children }: AuthGateProps) {
     window.sessionStorage.removeItem("ai-canvas-password-reset-email");
     setSubmitError(null);
     setSubmitMessage(null);
-    setLoginConflict(false);
+    setLoginConflict(null);
   }, []);
 
   useEffect(() => {
@@ -365,6 +375,9 @@ export function AuthGate({ children }: AuthGateProps) {
     mode === "register" && username.length > 0
       ? getUsernameValidationMessage(username)
       : null;
+  const loginConflictPresentation = loginConflict
+    ? getLoginConflictPresentation(loginConflict)
+    : null;
 
   const handleAuthModeAnimationEnd = (
     event: React.AnimationEvent<HTMLElement>,
@@ -442,7 +455,7 @@ export function AuthGate({ children }: AuthGateProps) {
     event.preventDefault();
     setSubmitError(null);
     setSubmitMessage(null);
-    setLoginConflict(false);
+    setLoginConflict(null);
 
     if (mode === "register") {
       const validationMessage = getUsernameValidationMessage(username);
@@ -515,7 +528,7 @@ export function AuthGate({ children }: AuthGateProps) {
         error instanceof CloudApiError &&
         error.code === "ACTIVE_SESSION_EXISTS"
       ) {
-        setLoginConflict(true);
+        setLoginConflict(parseLoginConflictDetails(error.details));
       } else {
         setSubmitError(getSubmitErrorMessage(mode, error));
       }
@@ -531,7 +544,7 @@ export function AuthGate({ children }: AuthGateProps) {
     try {
       await login({ identifier, password, force: true });
     } catch (error) {
-      setLoginConflict(false);
+      setLoginConflict(null);
       setSubmitError(getSubmitErrorMessage("login", error));
     } finally {
       setIsSubmitting(false);
@@ -550,6 +563,26 @@ export function AuthGate({ children }: AuthGateProps) {
           正在恢复会话...
         </div>
       </div>
+    );
+  }
+
+  if (
+    shouldShowAuthenticatedHome(
+      status,
+      Boolean(session),
+      mode === "reset",
+      window.location.pathname,
+    )
+  ) {
+    const enterCanvas = () => window.location.assign("/");
+
+    return (
+      <PublicHome
+        authenticated
+        onEnterCanvas={enterCanvas}
+        onLogin={enterCanvas}
+        onRegister={enterCanvas}
+      />
     );
   }
 
@@ -696,7 +729,7 @@ export function AuthGate({ children }: AuthGateProps) {
                     onChange={(event) => {
                       setIdentifier(event.target.value);
                       setSubmitError(null);
-                      setLoginConflict(false);
+                      setLoginConflict(null);
                     }}
                     type="text"
                     autoComplete="username"
@@ -720,7 +753,7 @@ export function AuthGate({ children }: AuthGateProps) {
                     onChange={(event) => {
                       setEmail(event.target.value);
                       setSubmitError(null);
-                      setLoginConflict(false);
+                      setLoginConflict(null);
                     }}
                     type="email"
                     autoComplete="email"
@@ -837,7 +870,7 @@ export function AuthGate({ children }: AuthGateProps) {
                       onChange={(event) => {
                         setPassword(event.target.value);
                         setSubmitError(null);
-                        setLoginConflict(false);
+                        setLoginConflict(null);
                       }}
                       type={showPassword ? "text" : "password"}
                       autoComplete={
@@ -936,18 +969,26 @@ export function AuthGate({ children }: AuthGateProps) {
                 </div>
               ) : null}
 
-              {mode === "login" && loginConflict ? (
-                <div className="rounded-[10px] border border-amber-400/25 bg-amber-400/8 p-3">
+              {mode === "login" && loginConflictPresentation ? (
+                <div
+                  role="alert"
+                  className="rounded-[8px] border border-amber-400/25 bg-amber-400/8 p-3"
+                >
                   <div className="flex items-start gap-2.5">
                     <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
                     <div className="min-w-0">
                       <div
                         className={`text-xs font-semibold ${themeClasses.textPrimary}`}
                       >
-                        账号已在其他设备登录
+                        {loginConflictPresentation.title}
                       </div>
                       <p
                         className={`mt-1 text-[11px] leading-5 ${themeClasses.textMuted}`}
+                      >
+                        {loginConflictPresentation.activity}
+                      </p>
+                      <p
+                        className={`mt-0.5 text-[11px] leading-5 ${themeClasses.textMuted}`}
                       >
                         继续登录后，原设备会立即退出；设备记录仍会保留在设备管理中。
                       </p>
@@ -957,7 +998,7 @@ export function AuthGate({ children }: AuthGateProps) {
                     <button
                       type="button"
                       disabled={isSubmitting}
-                      onClick={() => setLoginConflict(false)}
+                      onClick={() => setLoginConflict(null)}
                       className="h-8 rounded-[7px] px-3 text-xs text-[var(--text-secondary)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
                     >
                       取消

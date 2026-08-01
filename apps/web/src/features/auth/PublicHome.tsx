@@ -4,6 +4,7 @@ import {
   Cloud,
   Image as ImageIcon,
   Layers3,
+  LayoutDashboard,
   LogIn,
   ShieldCheck,
   Sparkles,
@@ -15,17 +16,25 @@ import { getPublicPageHref } from "@/features/public/publicPages";
 interface PublicHomeProps {
   onLogin: () => void;
   onRegister: () => void;
+  authenticated?: boolean;
+  onEnterCanvas?: () => void;
 }
 
 function Brand({
   config,
   logoUrl,
+  href,
 }: {
   config: SiteConfigDocument;
   logoUrl: string;
+  href: string;
 }) {
   return (
-    <a href="/" className="home-brand" aria-label={`${config.shortName} 首页`}>
+    <a
+      href={href}
+      className="home-brand"
+      aria-label={`${config.shortName} 首页`}
+    >
       <img
         src={logoUrl}
         alt=""
@@ -90,7 +99,12 @@ function CanvasScene({ logoUrl }: { logoUrl: string }) {
   );
 }
 
-export function PublicHome({ onLogin, onRegister }: PublicHomeProps) {
+export function PublicHome({
+  onLogin,
+  onRegister,
+  authenticated = false,
+  onEnterCanvas = onLogin,
+}: PublicHomeProps) {
   const [site, setSite] =
     useState<PublicSiteConfigResponse>(FALLBACK_SITE_CONFIG);
   useEffect(() => {
@@ -132,30 +146,46 @@ export function PublicHome({ onLogin, onRegister }: PublicHomeProps) {
   }, []);
   const config = site.config;
   const logoUrl = site.assets.logo?.url ?? "/brand/ai-canvas-mark.png";
+  const homeHref = authenticated ? "/home" : "/";
+  const handlePrimaryAction = authenticated ? onEnterCanvas : onLogin;
   return (
     <main className="home-shell">
       <header className="home-header">
         <div className="home-header__inner">
-          <Brand config={config} logoUrl={logoUrl} />
+          <Brand config={config} logoUrl={logoUrl} href={homeHref} />
           <div className="home-header__actions">
-            <button
-              type="button"
-              className="home-login-button"
-              onClick={onLogin}
-            >
-              <LogIn aria-hidden="true" />
-              <span>登录</span>
-            </button>
-            {config.features.registrationEnabled ? (
+            {authenticated ? (
               <button
                 type="button"
                 className="home-register-button"
-                onClick={onRegister}
+                onClick={onEnterCanvas}
               >
-                免费注册
+                <LayoutDashboard aria-hidden="true" />
+                进入画布
                 <ArrowRight aria-hidden="true" />
               </button>
-            ) : null}
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="home-login-button"
+                  onClick={onLogin}
+                >
+                  <LogIn aria-hidden="true" />
+                  <span>登录</span>
+                </button>
+                {config.features.registrationEnabled ? (
+                  <button
+                    type="button"
+                    className="home-register-button"
+                    onClick={onRegister}
+                  >
+                    免费注册
+                    <ArrowRight aria-hidden="true" />
+                  </button>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -171,10 +201,10 @@ export function PublicHome({ onLogin, onRegister }: PublicHomeProps) {
             <button
               type="button"
               className="home-primary-action"
-              onClick={onLogin}
+              onClick={handlePrimaryAction}
             >
               <WandSparkles aria-hidden="true" />
-              {config.home.primaryActionLabel}
+              {authenticated ? "进入创作画布" : config.home.primaryActionLabel}
               <ArrowRight aria-hidden="true" />
             </button>
           </div>
@@ -221,7 +251,7 @@ export function PublicHome({ onLogin, onRegister }: PublicHomeProps) {
       <footer className="home-footer">
         <div className="home-footer__main">
           <div className="home-footer__brand">
-            <a href="/" aria-label={`${config.shortName} 首页`}>
+            <a href={homeHref} aria-label={`${config.shortName} 首页`}>
               <img src={logoUrl} alt="" width="42" height="42" />
               <span>{config.shortName}</span>
               <small>Cloud</small>
@@ -233,8 +263,8 @@ export function PublicHome({ onLogin, onRegister }: PublicHomeProps) {
             {config.navigation.includes("home") ? (
               <div>
                 <h3>产品</h3>
-                <button type="button" onClick={onLogin}>
-                  开始创作
+                <button type="button" onClick={handlePrimaryAction}>
+                  {authenticated ? "进入画布" : "开始创作"}
                 </button>
               </div>
             ) : null}

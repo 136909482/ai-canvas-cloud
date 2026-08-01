@@ -8,6 +8,7 @@ import {
 import {
   isChunkLoadError,
   shouldLoadAuthenticatedApp,
+  shouldShowAuthenticatedHome,
 } from "./authenticatedAppLoading.ts";
 
 test("authenticated application loads only for a confirmed usable session", () => {
@@ -33,6 +34,25 @@ test("dynamic import failures are recognized for refresh recovery", () => {
     true,
   );
   assert.equal(isChunkLoadError(new Error("ordinary render failure")), false);
+});
+
+test("authenticated users can open the public home without unloading their session", () => {
+  assert.equal(
+    shouldShowAuthenticatedHome("authenticated", true, false, "/home"),
+    true,
+  );
+  assert.equal(
+    shouldShowAuthenticatedHome("authenticated", true, false, "/home/"),
+    true,
+  );
+  assert.equal(
+    shouldShowAuthenticatedHome("authenticated", true, false, "/"),
+    false,
+  );
+  assert.equal(
+    shouldShowAuthenticatedHome("anonymous", false, false, "/home"),
+    false,
+  );
 });
 
 test("authenticated runtime cleanup is registered without static store imports", async () => {

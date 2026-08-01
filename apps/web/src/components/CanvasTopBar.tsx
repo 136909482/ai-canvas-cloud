@@ -4,6 +4,7 @@ import {
   Download,
   FolderDown,
   Grid3X3,
+  Home,
   Loader2,
   Moon,
   Save,
@@ -11,6 +12,7 @@ import {
   Upload,
 } from "lucide-react";
 import { TooltipIconButton } from "@/components/TooltipIconButton";
+import { confirmReturnHome } from "@/components/canvas/canvasHomeNavigation";
 import { platformBridge } from "@/platform";
 import { selectHasCanvasContent, useCanvasStore } from "@/store/useCanvasStore";
 import { useHistoryStore } from "@/store/useHistoryStore";
@@ -230,7 +232,7 @@ export function CanvasQuickActions({
       {includeWorkflowActions ? (
         <>
           <TooltipIconButton
-            label="保存工作流"
+            label="导出工作流"
             onClick={() => {
               void handleExportWorkflow();
             }}
@@ -248,6 +250,10 @@ export function CanvasQuickActions({
             tooltipAlign={tooltipAlign}
             className={iconButtonClass}
             icon={<Upload className="h-3.5 w-3.5" />}
+          />
+          <span
+            aria-hidden="true"
+            className={`mx-0.5 h-4 w-px shrink-0 ${themeClasses.divider}`}
           />
         </>
       ) : null}
@@ -296,51 +302,15 @@ export function CanvasTopBar({
   const hasPersistedChanges = useProjectStore((state) =>
     state.hasPersistedChanges(),
   );
-  const syncActiveWorkingSnapshot = useProjectStore(
-    (state) => state.syncActiveWorkingSnapshot,
-  );
-  const notify = useFeedbackStore((state) => state.notify);
   const confirm = useFeedbackStore((state) => state.confirm);
-  const getSnapshot = useCanvasStore((state) => state.getSnapshot);
-  const replaceSnapshot = useCanvasStore((state) => state.replaceSnapshot);
-  const hasCanvasContent = useCanvasStore(selectHasCanvasContent);
-  const clearHistory = useHistoryStore((state) => state.clearHistory);
   const persistenceStatus = getActivePersistenceStatus();
 
-  const handleExportWorkflow = async () => {
-    const suggestedName = `${activeProject?.name || "workflow"}.json`;
-    await platformBridge.exportWorkflowJson(getSnapshot(), suggestedName);
-  };
-
-  const handleImportWorkflow = async () => {
-    if (hasCanvasContent) {
-      const confirmed = await confirm({
-        title: "导入工作流",
-        message: "导入工作流会替换当前画布，确定继续吗？",
-        confirmLabel: "继续导入",
-      });
-
-      if (!confirmed) {
-        return;
-      }
+  const handleReturnHome = async () => {
+    if (!(await confirmReturnHome(hasUnsavedChanges, confirm))) {
+      return;
     }
 
-    try {
-      const { snapshot } = await platformBridge.importWorkflowJson();
-      replaceSnapshot(snapshot);
-      clearHistory();
-      syncActiveWorkingSnapshot();
-    } catch (error) {
-      if (error instanceof Error && error.message === "未选择工作流文件") {
-        return;
-      }
-
-      notify({
-        tone: "error",
-        title: "导入失败",
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
+    window.location.assign("/home");
   };
 
   const toggleLabel = compact ? "展开工具栏" : "折叠工具栏";
@@ -352,51 +322,44 @@ export function CanvasTopBar({
 
   return (
     <div
-      className={`flex items-center gap-0.5 p-1 ${themeClasses.compactFloatingPanel}`}
+      className={`flex max-w-[calc(100vw-1rem)] items-center gap-0.5 p-1 ${themeClasses.compactFloatingPanel}`}
     >
+      <TooltipIconButton
+        label="返回首页"
+        onClick={() => {
+          void handleReturnHome();
+        }}
+        testId="return-home-button"
+        tooltipAlign="start"
+        className={`${iconButtonClass} shrink-0`}
+        icon={<Home className="h-3 w-3" />}
+      />
+
       {!compact ? (
-        <>
-          <TooltipIconButton
-            label="保存工作流"
-            onClick={() => {
-              void handleExportWorkflow();
-            }}
-            testId="export-workflow-button"
-            tooltipAlign="start"
-            className={iconButtonClass}
-            icon={<Download className="h-3 w-3" />}
-          />
-          <TooltipIconButton
-            label="导入工作流"
-            onClick={() => {
-              void handleImportWorkflow();
-            }}
-            testId="import-workflow-button"
-            tooltipAlign="start"
-            className={iconButtonClass}
-            icon={<Upload className="h-3 w-3" />}
-          />
-        </>
+        <span
+          aria-hidden="true"
+          className={`mx-0.5 h-4 w-px shrink-0 ${themeClasses.divider}`}
+        />
       ) : null}
 
       <div
-        className={`h-6 items-center gap-1 rounded-md border border-[var(--border-subtle)] bg-[var(--control-bg)] px-2 ${themeClasses.textSecondary} ${compact ? "flex min-w-0" : "ml-0.5 hidden md:flex"}`}
+        className={`h-6 min-w-0 items-center gap-1.5 overflow-hidden px-1.5 ${themeClasses.textSecondary} ${compact ? "hidden" : "hidden max-w-[min(20rem,calc(100vw-6.5rem))] md:flex"}`}
         title={status.title}
         data-testid="project-persistence-status"
         data-status-kind={persistenceStatus.kind}
         data-has-unsaved-changes={hasUnsavedChanges ? "true" : "false"}
         data-has-persisted-changes={hasPersistedChanges ? "true" : "false"}
       >
-        <FolderDown className={`h-3 w-3 shrink-0 ${themeClasses.textMuted}`} />
+        <FolderDown className="h-3 w-3 shrink-0 text-[var(--accent-violet-strong)]" />
         <span
-          className={`whitespace-nowrap text-[10px] font-medium ${themeClasses.textPrimary}`}
+          className={`max-w-32 min-w-0 truncate whitespace-nowrap text-[10px] font-semibold ${themeClasses.textPrimary}`}
           title={projectName}
         >
           {projectName}
         </span>
         <span className={`h-3 w-px shrink-0 ${themeClasses.divider}`} />
         <span
-          className={`inline-flex min-w-0 items-center gap-1 text-[9px] ${status.tone}`}
+          className={`inline-flex min-w-0 max-w-36 items-center gap-1 text-[9px] ${status.tone}`}
         >
           {persistenceStatus.kind === "saving" ||
           persistenceStatus.kind === "restoring" ? (
@@ -412,7 +375,7 @@ export function CanvasTopBar({
           onClick={onToggleCollapse}
           showTooltip={false}
           tooltipAlign="start"
-          className={`${iconButtonClass} shrink-0 ${compact ? "ml-0.5" : ""}`}
+          className={`${iconButtonClass} ml-0.5 shrink-0`}
           icon={
             compact ? (
               <ChevronRight className="h-3 w-3" />

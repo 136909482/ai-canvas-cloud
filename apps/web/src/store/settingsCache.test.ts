@@ -25,6 +25,7 @@ test("workspace cache stores only workspace settings", () => {
         autosaveIntervalMs: 60_000,
         canvasTopBarCollapsed: false,
         alignmentGuidesEnabled: true,
+        incomingEdgeAnimationEnabled: true,
         themeMode: "dark" as const,
         canvasPerformanceMode: "quality" as const,
         canvasGridEnabled: true,

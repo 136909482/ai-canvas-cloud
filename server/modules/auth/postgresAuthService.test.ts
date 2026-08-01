@@ -63,6 +63,33 @@ function createWorkspaceRows() {
   };
 }
 
+function createLoginAuthApi() {
+  return {
+    async signInEmail() {
+      const headers = new Headers();
+      headers.append(
+        "set-cookie",
+        "better-auth.session_token=new-signed; HttpOnly; Path=/",
+      );
+      return {
+        headers,
+        response: {
+          redirect: false,
+          token: "new-token",
+          user: {
+            id: "user-1",
+            email: "artist@example.com",
+            emailVerified: true,
+            name: "artist",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+      };
+    },
+  };
+}
+
 test("register delegates credentials to Better Auth and creates workspace data", async () => {
   let signUpBody: Record<string, unknown> | null = null;
   const authApi = {
@@ -194,33 +221,20 @@ test("registration requires a valid email code when the site setting is enabled"
 });
 
 test("login requires confirmation before replacing another active device", async () => {
-  const authApi = {
-    async signInEmail() {
-      const headers = new Headers();
-      headers.append(
-        "set-cookie",
-        "better-auth.session_token=new-signed; HttpOnly; Path=/",
-      );
-      return {
-        headers,
-        response: {
-          redirect: false,
-          token: "new-token",
-          user: {
-            id: "user-1",
-            email: "artist@example.com",
-            emailVerified: true,
-            name: "artist",
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-        },
-      };
-    },
-  };
+  const authApi = createLoginAuthApi();
+  const lastSeenAt = new Date("2026-08-01T08:00:00.000Z");
   const { pool, calls } = createMockPool(({ text }) => {
     if (text.includes('FROM "session"') && text.includes("token <>")) {
-      return { rows: [{ user_agent: "Edge on Windows" }] };
+      return {
+        rows: [
+          {
+            user_agent: "Edge on Windows",
+            device_key: "device-a",
+            last_seen_at: lastSeenAt,
+            recently_active: true,
+          },
+        ],
+      };
     }
 
     return { rows: [] };
@@ -239,10 +253,20 @@ test("login requires confirmation before replacing another active device", async
         },
         { requestId: "req_1", userAgent: "agent", ipAddress: "127.0.0.1" },
       ),
-    (error: unknown) =>
-      error instanceof AuthServiceError &&
-      error.statusCode === 409 &&
-      error.apiCode === "ACTIVE_SESSION_EXISTS",
+    (error: unknown) => {
+      if (
+        !(error instanceof AuthServiceError) ||
+        error.statusCode !== 409 ||
+        error.apiCode !== "ACTIVE_SESSION_EXISTS"
+      ) {
+        return false;
+      }
+      assert.deepEqual(error.details, {
+        activeDeviceLabel: "Edge on Windows",
+        activeDeviceLastSeenAt: lastSeenAt.toISOString(),
+      });
+      return true;
+    },
   );
 
   assert(
@@ -256,6 +280,158 @@ test("login requires confirmation before replacing another active device", async
   assert.equal(
     calls.some((call) => call.text.includes("INSERT INTO auth_devices")),
     false,
+  );
+});
+
+for (const scenario of [
+  {
+    name: "same-device login silently replaces its earlier session",
+    session: {
+      user_agent: "Chrome on Windows",
+      device_key: "device-b",
+      last_seen_at: new Date("2026-08-01T08:00:00.000Z"),
+      recently_active: true,
+    },
+  },
+  {
+    name: "stale other-device login is replaced without confirmation",
+    session: {
+      user_agent: "Edge on Windows",
+      device_key: "device-a",
+      last_seen_at: new Date("2026-08-01T07:00:00.000Z"),
+      recently_active: false,
+    },
+  },
+]) {
+  test(scenario.name, async () => {
+    const { pool, calls } = createMockPool(({ text }) => {
+      if (text.includes('FROM "session"') && text.includes("token <>")) {
+        return { rows: [scenario.session] };
+      }
+      if (text.includes("INSERT INTO workspaces")) {
+        return { rows: [{ id: "workspace-1" }] };
+      }
+      if (text.includes("SELECT") && text.includes("JOIN workspace_members")) {
+        return { rows: [createWorkspaceRows()] };
+      }
+      return { rows: [] };
+    });
+    const authService = createPostgresAuthService(pool as never, {
+      authApi: createLoginAuthApi() as never,
+    });
+
+    const result = await authService.login(
+      {
+        identifier: "artist@example.com",
+        password: "long-enough-password",
+        deviceId: "device-b",
+      },
+      { requestId: scenario.name },
+    );
+
+    assert.equal(result.response.user.email, "artist@example.com");
+    assert(
+      calls.some(
+        (call) =>
+          call.text.includes('DELETE FROM "session"') &&
+          call.text.includes("token <> $2"),
+      ),
+    );
+    const activityQuery = calls.find(
+      (call) =>
+        call.text.includes('FROM "session"') && call.text.includes("token <>"),
+    );
+    assert.match(activityQuery?.text ?? "", /last_seen_at\s+>=\s+now\(\)/);
+    assert.deepEqual(activityQuery?.values, ["user-1", "new-token", 600]);
+  });
+}
+
+test("unknown device activity keeps the takeover confirmation", async () => {
+  const { pool } = createMockPool(({ text }) => {
+    if (text.includes('FROM "session"') && text.includes("token <>")) {
+      return {
+        rows: [
+          {
+            user_agent: "Legacy Browser",
+            device_key: null,
+            last_seen_at: null,
+            recently_active: null,
+          },
+        ],
+      };
+    }
+    return { rows: [] };
+  });
+  const authService = createPostgresAuthService(pool as never, {
+    authApi: createLoginAuthApi() as never,
+  });
+
+  await assert.rejects(
+    () =>
+      authService.login(
+        {
+          identifier: "artist@example.com",
+          password: "long-enough-password",
+          deviceId: "device-b",
+        },
+        { requestId: "unknown-device" },
+      ),
+    (error: unknown) => {
+      if (
+        !(error instanceof AuthServiceError) ||
+        error.apiCode !== "ACTIVE_SESSION_EXISTS"
+      ) {
+        return false;
+      }
+      assert.deepEqual(error.details, {
+        activeDeviceLabel: "Legacy Browser",
+        activeDeviceLastSeenAt: null,
+      });
+      return true;
+    },
+  );
+});
+
+test("any recent different device blocks takeover when stale sessions also exist", async () => {
+  const { pool } = createMockPool(({ text }) => {
+    if (text.includes('FROM "session"') && text.includes("token <>")) {
+      return {
+        rows: [
+          {
+            user_agent: "Old Firefox",
+            device_key: "device-old",
+            last_seen_at: new Date("2026-08-01T06:00:00.000Z"),
+            recently_active: false,
+          },
+          {
+            user_agent: "Active Chrome",
+            device_key: "device-active",
+            last_seen_at: new Date("2026-08-01T08:00:00.000Z"),
+            recently_active: true,
+          },
+        ],
+      };
+    }
+    return { rows: [] };
+  });
+  const authService = createPostgresAuthService(pool as never, {
+    authApi: createLoginAuthApi() as never,
+  });
+
+  await assert.rejects(
+    () =>
+      authService.login(
+        {
+          identifier: "artist@example.com",
+          password: "long-enough-password",
+          deviceId: "device-b",
+        },
+        { requestId: "multiple-sessions" },
+      ),
+    (error: unknown) =>
+      error instanceof AuthServiceError &&
+      error.apiCode === "ACTIVE_SESSION_EXISTS" &&
+      error.details?.activeDeviceLabel === "Active Chrome",
   );
 });
 

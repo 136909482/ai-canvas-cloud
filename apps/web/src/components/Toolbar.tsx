@@ -67,6 +67,14 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
     await persistWorkspaceConfig().catch(() => undefined);
   };
 
+  const handleToggleIncomingEdgeAnimation = async () => {
+    setStorageSettings({
+      incomingEdgeAnimationEnabled:
+        !config.storage.incomingEdgeAnimationEnabled,
+    });
+    await persistWorkspaceConfig().catch(() => undefined);
+  };
+
   const handleToggleCanvasGrid = async () => {
     setStorageSettings({
       canvasGridEnabled: !config.storage.canvasGridEnabled,
@@ -347,6 +355,30 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                             label="启用对齐参考线"
                             onChange={() => {
                               void handleToggleAlignmentGuides();
+                            }}
+                          />
+                        </div>
+
+                        <div className={CANVAS_SETTINGS_ROW_CLASS}>
+                          <div className="min-w-0">
+                            <div
+                              className={`truncate text-sm font-medium ${themeClasses.textPrimary}`}
+                            >
+                              {CANVAS_EXPERIENCE_TEXT.incomingEdgeAnimation}
+                            </div>
+                            <p
+                              className={`mt-1 max-w-2xl truncate text-xs ${themeClasses.textMuted}`}
+                            >
+                              {CANVAS_EXPERIENCE_TEXT.incomingEdgeAnimationHint}
+                            </p>
+                          </div>
+                          <CanvasSettingsSwitch
+                            checked={
+                              config.storage.incomingEdgeAnimationEnabled
+                            }
+                            label="选中节点时突出显示上游连线"
+                            onChange={() => {
+                              void handleToggleIncomingEdgeAnimation();
                             }}
                           />
                         </div>
