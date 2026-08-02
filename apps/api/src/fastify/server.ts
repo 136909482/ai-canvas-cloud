@@ -8,6 +8,7 @@ import {
 } from "@ai-canvas-cloud/shared";
 import { createStaticSite } from "@ai-canvas-cloud/server";
 import { createUnavailablePublicSiteConfigService } from "@ai-canvas-cloud/server/modules/admin";
+import { createUnavailableAnnouncementTimelineService } from "@ai-canvas-cloud/server/modules/announcements";
 import { createUnavailableAuthService } from "@ai-canvas-cloud/server/modules/auth";
 import { createUnavailableWorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
 import { createUnavailableGenerationTelemetryService } from "@ai-canvas-cloud/server/modules/generation-telemetry";
@@ -34,6 +35,7 @@ import { registerAuthRoutes } from "./routes/auth.js";
 import { registerAssetRoutes } from "./routes/assets.js";
 import { registerMigrationRoutes } from "./routes/migrations.js";
 import { registerProjectRoutes } from "./routes/projects.js";
+import { registerAnnouncementRoutes } from "./routes/announcements.js";
 
 const PUBLIC_SITE_CONTENT_SECURITY_POLICY =
   "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https:; worker-src 'self' blob:; manifest-src 'self'; form-action 'self'";
@@ -46,6 +48,9 @@ export async function createFastifyApiServer(options: ServerOptions) {
   const authService = options.authService ?? createUnavailableAuthService();
   const siteConfigService =
     options.siteConfigService ?? createUnavailablePublicSiteConfigService();
+  const announcementService =
+    options.announcementService ??
+    createUnavailableAnnouncementTimelineService();
   const workspaceUsageService =
     options.workspaceUsageService ?? createUnavailableWorkspaceUsageService();
   const generationTelemetryService =
@@ -116,6 +121,7 @@ export async function createFastifyApiServer(options: ServerOptions) {
     readinessChecks: options.readinessChecks,
   });
   registerWorkspaceRoutes(app, { authContext, workspaceUsageService });
+  registerAnnouncementRoutes(app, { authContext, announcementService });
   registerTelemetryRoutes(app, { authContext, generationTelemetryService });
   registerAuthRoutes(app, authContext);
   registerAssetRoutes(app, {

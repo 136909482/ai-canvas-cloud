@@ -10,6 +10,7 @@ import type {
   AdminSmtpConfigService,
   AdminUserOperationsService,
 } from "@ai-canvas-cloud/server/modules/admin";
+import type { AdminAnnouncementService } from "@ai-canvas-cloud/server/modules/announcements";
 import { ADMIN_ROUTE_INVENTORY } from "../routeInventory.ts";
 import { closeAdminApiServer } from "../serverLifecycle.ts";
 import { createFastifyAdminApiServer } from "./server.ts";
@@ -121,7 +122,8 @@ function request(
 function concretePath(path: string) {
   return path
     .replace(":userId", "user_123")
-    .replace(":assetId", "123e4567-e89b-42d3-a456-426614174000");
+    .replace(":assetId", "123e4567-e89b-42d3-a456-426614174000")
+    .replace(":announcementId", "123e4567-e89b-42d3-a456-426614174001");
 }
 
 function bodyFor(path: string) {
@@ -145,6 +147,7 @@ async function listen(options: { env?: string } = {}) {
     objectStorageConfigService: serviceProxy<AdminObjectStorageConfigService>(),
     assetCleanupService: serviceProxy<AdminAssetCleanupService>(),
     userOperationsService: serviceProxy<AdminUserOperationsService>(),
+    announcementService: serviceProxy<AdminAnnouncementService>(),
     logger,
     readinessChecks: {
       postgres: async () => ({ ok: true, latencyMs: 1 }),
@@ -182,7 +185,10 @@ test("Admin Fastify registers and serves the complete route inventory", async ()
       });
       assert.equal(
         response.status,
-        route.operationId === "createAdminSiteAsset" ? 201 : 200,
+        route.operationId === "createAdminSiteAsset" ||
+          route.operationId === "createAdminAnnouncementDraft"
+          ? 201
+          : 200,
         `${route.method} ${route.path}: ${response.text}`,
       );
       assert.equal(typeof response.headers["x-request-id"], "string");

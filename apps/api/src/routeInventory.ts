@@ -5,7 +5,8 @@ export type PublicRouteGroup =
   | "telemetry"
   | "assets"
   | "migrations"
-  | "projects";
+  | "projects"
+  | "announcements";
 
 export interface PublicRouteInventoryEntry {
   method: "GET" | "POST" | "PATCH" | "DELETE";
@@ -142,6 +143,18 @@ export const PUBLIC_ROUTE_INVENTORY = [
     path: "/api/v1/telemetry/generations",
     operationId: "createGenerationTelemetry",
     group: "telemetry",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/announcements",
+    operationId: "listAnnouncements",
+    group: "announcements",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/announcements/read",
+    operationId: "markAnnouncementsRead",
+    group: "announcements",
   },
 
   {

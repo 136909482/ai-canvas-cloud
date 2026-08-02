@@ -5,7 +5,8 @@ export type AdminRouteGroup =
   | "users"
   | "site"
   | "smtp"
-  | "object-storage";
+  | "object-storage"
+  | "announcements";
 
 export interface AdminRouteInventoryEntry {
   method: "GET" | "POST";
@@ -98,6 +99,36 @@ export const ADMIN_ROUTE_INVENTORY = [
     path: "/admin/v1/dashboard",
     operationId: "getAdminDashboard",
     group: "dashboard-audit",
+  },
+  {
+    method: "GET",
+    path: "/admin/v1/announcements",
+    operationId: "listAdminAnnouncements",
+    group: "announcements",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/announcements",
+    operationId: "createAdminAnnouncementDraft",
+    group: "announcements",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/announcements/:announcementId",
+    operationId: "updateAdminAnnouncementDraft",
+    group: "announcements",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/announcements/:announcementId/publish",
+    operationId: "publishAdminAnnouncement",
+    group: "announcements",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/announcements/:announcementId/archive",
+    operationId: "archiveAdminAnnouncement",
+    group: "announcements",
   },
   {
     method: "GET",

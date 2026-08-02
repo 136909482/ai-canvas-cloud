@@ -36,6 +36,9 @@ import type {
   ObjectStorageTestResponse,
   RestoreEnvironmentObjectStorageInput,
   AssetCleanupSummary,
+  AdminAnnouncementsResponse,
+  AnnouncementActionResponse,
+  SaveAnnouncementDraftRequest,
 } from "@ai-canvas-cloud/contracts";
 
 const configuredApiUrl = (
@@ -180,6 +183,31 @@ export const adminApi = {
   },
   dashboard() {
     return request<AdminDashboardResponse>("/admin/v1/dashboard");
+  },
+  announcements() {
+    return request<AdminAnnouncementsResponse>("/admin/v1/announcements");
+  },
+  createAnnouncementDraft(input: SaveAnnouncementDraftRequest) {
+    return post<AnnouncementActionResponse>(
+      "/admin/v1/announcements",
+      input as unknown as Record<string, unknown>,
+    );
+  },
+  updateAnnouncementDraft(id: string, input: SaveAnnouncementDraftRequest) {
+    return post<AnnouncementActionResponse>(
+      `/admin/v1/announcements/${encodeURIComponent(id)}`,
+      input as unknown as Record<string, unknown>,
+    );
+  },
+  publishAnnouncement(id: string) {
+    return post<AnnouncementActionResponse>(
+      `/admin/v1/announcements/${encodeURIComponent(id)}/publish`,
+    );
+  },
+  archiveAnnouncement(id: string) {
+    return post<AnnouncementActionResponse>(
+      `/admin/v1/announcements/${encodeURIComponent(id)}/archive`,
+    );
   },
   users(
     params: {

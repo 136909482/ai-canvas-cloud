@@ -150,6 +150,12 @@ commit 锁定 import、workspace 配额和可选 replace 目标。copy 重映射
 
 ## Admin 数据
 
+### 站内通知与时间线
+
+`public.announcements` 保存面向全部已登录用户的平台通知，字段包括受控类别 `notice|product_update|maintenance`、状态 `draft|published|archived`、标题、纯文本正文、创建/更新管理员和生命周期时间。只有 `published` 且 `published_at <= now()` 的记录进入用户时间线；已发布内容不可编辑，下线只切换为 `archived` 并保留审计与历史事实，不物理删除。
+
+`public.announcement_receipts` 以 `(announcement_id, user_id)` 为主键，只保存用户首次已读时间。发布不向全体用户扇出收件箱行，未读状态由已发布公告与当前用户回执的差集计算；标记已读使用 `INSERT ... SELECT` 并再次限制公告仍处于已发布状态。普通 API 角色只能读取公告并写当前可信用户的回执，Admin 角色可管理公告但不读取用户回执。公告正文不进入 Admin 审计，审计只记录公告 ID、类别和状态变化。
+
 ### `admin` schema 与认证
 
 Admin Better Auth 表位于固定 `admin` schema，使用独立 Cookie 和 Secret。`admin.user.role` 为 `super_admin|operator|support|auditor`，status 为 active/banned。账号登录标识是唯一小写 username；内部兼容 email 不进入 Admin UI/响应。
@@ -200,7 +206,7 @@ SMTP 密码使用 AES-256-GCM 信封加密，每个 revision 使用随机 96 位
 
 ## 当前 Schema 基线
 
-`server/db/migrations/0001_current_schema.sql` 是新库的当前基线；基线发布后新增的前向修复继续使用未占用的历史序号，当前 `0038_initialize_login_security_settings.sql` 为已部署数据库补齐管理员登录安全单例记录。新库会依次执行基线和后续幂等迁移；曾执行旧 `0001` 至 `0037` 链的数据库从 `0038` 继续升级，不复用旧迁移版本号。项目正式运营前如需主动清空开发数据，仍应重建空库，再依次运行 `db:migrate` 和 `db:roles:provision`。目录包导入/导出是当前跨仓库产品能力，继续使用当前版本化契约。
+`server/db/migrations/0001_current_schema.sql` 是新库的当前基线；基线发布后新增的前向修复继续使用未占用的历史序号。`0038_initialize_login_security_settings.sql` 补齐管理员登录安全单例，`0039_add_announcements.sql` 新增站内通知与用户已读回执。新库会依次执行基线和后续迁移；曾执行旧 `0001` 至 `0037` 链的数据库从 `0038` 继续升级，不复用旧迁移版本号。项目正式运营前如需主动清空开发数据，仍应重建空库，再依次运行 `db:migrate` 和 `db:roles:provision`。目录包导入/导出是当前跨仓库产品能力，继续使用当前版本化契约。
 
 ## 核心事务
 

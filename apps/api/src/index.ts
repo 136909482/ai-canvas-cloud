@@ -19,6 +19,7 @@ import {
   createPostgresMigrationAssetUploadService,
   createPostgresMigrationExportService,
   createPostgresPublicSiteConfigService,
+  createPostgresAnnouncementTimelineService,
   loadDotEnv,
   seedDevelopmentAdminAccount,
 } from "@ai-canvas-cloud/server";
@@ -121,6 +122,7 @@ const siteConfigService = createPostgresPublicSiteConfigService(
   dbPool,
   objectStorage,
 );
+const announcementService = createPostgresAnnouncementTimelineService(dbPool);
 const authService = createPostgresAuthService(dbPool, {
   baseURL: config.betterAuthUrl,
   secret: config.betterAuthSecret,
@@ -147,6 +149,7 @@ const serverOptions = {
   migrationAssetUploadService,
   migrationExportService,
   siteConfigService,
+  announcementService,
   metrics,
   postgresPoolStats: () => ({
     total: dbPool.totalCount,

@@ -8,8 +8,8 @@ const connections = {
   app: process.env.DATABASE_URL,
   admin: process.env.ADMIN_DATABASE_URL,
 };
-const currentBaselineMigrationVersions = ["0001", "0038"];
-const legacyMigrationVersions = Array.from({ length: 38 }, (_, index) =>
+const currentBaselineMigrationVersions = ["0001", "0038", "0039"];
+const legacyMigrationVersions = Array.from({ length: 39 }, (_, index) =>
   String(index + 1).padStart(4, "0"),
 );
 

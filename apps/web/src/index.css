@@ -2,6 +2,12 @@
 
 :root {
   color-scheme: dark;
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+    "Noto Sans CJK SC", sans-serif;
+  --font-mono:
+    ui-monospace, "SFMono-Regular", "Cascadia Mono", "Segoe UI Mono",
+    "Roboto Mono", "Noto Sans Mono", "Liberation Mono", Consolas, monospace;
   --canvas-bg: #09090b;
   --panel-bg: rgba(9, 9, 11, 0.86);
   --panel-bg-strong: rgba(9, 9, 11, 0.98);
@@ -56,36 +62,10 @@
   --flow-grid: #d4d4d8;
 }
 
-@font-face {
-  font-family: "HarmonyOS Sans SC";
-  src: url("/fonts/HarmonyOS_SansSC_Regular.ttf") format("truetype");
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "JetBrains Mono";
-  src: url("/fonts/JetBrainsMono-Regular.ttf") format("truetype");
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Source Han Sans SC Medium";
-  src: url("/fonts/SourceHanSansSC-Medium.otf") format("opentype");
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-}
-
 html,
 body,
 #root {
-  font-family:
-    "HarmonyOS Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei",
-    sans-serif;
+  font-family: var(--font-sans);
 }
 
 @layer base {
@@ -302,7 +282,7 @@ textarea::-webkit-scrollbar-thumb:hover {
 
 .home-brand__name {
   margin-left: 10px;
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 15px;
   font-weight: 400;
   letter-spacing: 0;
@@ -501,7 +481,7 @@ textarea::-webkit-scrollbar-thumb:hover {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 4px;
   color: rgba(255, 255, 255, 0.46);
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
 }
 
@@ -596,7 +576,7 @@ textarea::-webkit-scrollbar-thumb:hover {
 .home-hero h1 {
   margin: 0;
   color: #ffffff;
-  font-family: "Source Han Sans SC Medium", "HarmonyOS Sans SC", sans-serif;
+  font-family: var(--font-sans);
   font-size: 96px;
   font-weight: 500;
   line-height: 1;
@@ -690,7 +670,7 @@ textarea::-webkit-scrollbar-thumb:hover {
 
 .home-capabilities__intro > span {
   color: rgba(255, 255, 255, 0.42);
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -699,7 +679,7 @@ textarea::-webkit-scrollbar-thumb:hover {
 .home-capabilities__intro h2 {
   max-width: 470px;
   margin: 13px 0 0;
-  font-family: "Source Han Sans SC Medium", "HarmonyOS Sans SC", sans-serif;
+  font-family: var(--font-sans);
   font-size: 36px;
   font-weight: 500;
   line-height: 1.32;
@@ -772,7 +752,7 @@ textarea::-webkit-scrollbar-thumb:hover {
 
 .home-footer__brand a > span {
   margin-left: 11px;
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 16px;
   letter-spacing: 0;
 }
@@ -782,7 +762,7 @@ textarea::-webkit-scrollbar-thumb:hover {
   padding-left: 9px;
   border-left: 1px solid rgba(255, 255, 255, 0.2);
   color: rgba(255, 255, 255, 0.42);
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 400;
   letter-spacing: 0;
@@ -812,7 +792,7 @@ textarea::-webkit-scrollbar-thumb:hover {
 .home-footer__links h3 {
   margin: 0 0 8px;
   color: rgba(255, 255, 255, 0.36);
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 400;
   letter-spacing: 0;
@@ -863,7 +843,7 @@ textarea::-webkit-scrollbar-thumb:hover {
   gap: 28px;
   border-top: 1px solid rgba(255, 255, 255, 0.09);
   color: rgba(255, 255, 255, 0.34);
-  font-family: "JetBrains Mono", "HarmonyOS Sans SC", sans-serif;
+  font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0;
 }
@@ -909,7 +889,7 @@ textarea::-webkit-scrollbar-thumb:hover {
 .public-doc-brand {
   justify-self: start;
   gap: 10px;
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 14px;
 }
 
@@ -986,7 +966,7 @@ textarea::-webkit-scrollbar-thumb:hover {
   align-items: center;
   gap: 8px;
   color: #767a74;
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
 }
 
@@ -1042,14 +1022,14 @@ textarea::-webkit-scrollbar-thumb:hover {
 .public-doc-title > p:first-of-type {
   margin: 0;
   color: #147a61;
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
 .public-doc-title h1 {
   margin: 12px 0 0;
   color: #171a18;
-  font-family: "Source Han Sans SC Medium", "HarmonyOS Sans SC", sans-serif;
+  font-family: var(--font-sans);
   font-size: 38px;
   font-weight: 500;
   letter-spacing: 0;
@@ -1074,7 +1054,7 @@ textarea::-webkit-scrollbar-thumb:hover {
   display: block;
   margin-top: 18px;
   color: #898c86;
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
 }
 
@@ -1090,7 +1070,7 @@ textarea::-webkit-scrollbar-thumb:hover {
 .public-doc-sections h2 {
   margin: 0 0 20px;
   color: #1d211e;
-  font-family: "Source Han Sans SC Medium", "HarmonyOS Sans SC", sans-serif;
+  font-family: var(--font-sans);
   font-size: 20px;
   font-weight: 500;
   letter-spacing: 0;
@@ -1141,7 +1121,7 @@ textarea::-webkit-scrollbar-thumb:hover {
   gap: 24px;
   border-top: 1px solid rgba(255, 255, 255, 0.09);
   color: rgba(255, 255, 255, 0.42);
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
 }
 

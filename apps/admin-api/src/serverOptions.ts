@@ -7,6 +7,7 @@ import type {
   AdminSmtpConfigService,
   AdminUserOperationsService,
 } from "@ai-canvas-cloud/server/modules/admin";
+import type { AdminAnnouncementService } from "@ai-canvas-cloud/server/modules/announcements";
 import type {
   Logger,
   MeasuredDependencyStatus,
@@ -23,6 +24,7 @@ export interface AdminServerOptions {
   objectStorageConfigService?: AdminObjectStorageConfigService;
   assetCleanupService?: AdminAssetCleanupService;
   userOperationsService?: AdminUserOperationsService;
+  announcementService?: AdminAnnouncementService;
   logger: Logger;
   metrics?: MetricsRegistry;
   readinessChecks?: {

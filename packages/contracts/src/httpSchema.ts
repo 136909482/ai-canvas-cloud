@@ -57,6 +57,9 @@ import type {
   DeleteProjectResponse,
   RevokeSessionResponse,
   WorkspaceUsageResponse,
+  AnnouncementTimelineResponse,
+  MarkAnnouncementsReadRequest,
+  MarkAnnouncementsReadResponse,
 } from "./index.js";
 
 const DependencyFailureSchema = Type.Union([
@@ -86,6 +89,64 @@ export const ApiErrorResponseSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
+const AnnouncementCategorySchema = Type.Union([
+  Type.Literal("notice"),
+  Type.Literal("product_update"),
+  Type.Literal("maintenance"),
+]);
+
+export const AnnouncementTimelineResponseSchema = Type.Object(
+  {
+    items: Type.Array(
+      Type.Object(
+        {
+          id: Type.String({ format: "uuid" }),
+          category: AnnouncementCategorySchema,
+          title: Type.String(),
+          content: Type.String(),
+          publishedAt: Type.String(),
+          readAt: Type.Union([Type.String(), Type.Null()]),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    unreadCount: Type.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
+
+export const MarkAnnouncementsReadRequestSchema = Type.Object(
+  {
+    announcementIds: Type.Array(Type.String({ format: "uuid" }), {
+      minItems: 1,
+      maxItems: 100,
+      uniqueItems: true,
+    }),
+  },
+  { additionalProperties: false },
+);
+
+export const MarkAnnouncementsReadResponseSchema = Type.Object(
+  {
+    readAt: Type.String(),
+    updatedCount: Type.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
+
+export type AnnouncementTimelineResponseBody = Static<
+  typeof AnnouncementTimelineResponseSchema
+> &
+  AnnouncementTimelineResponse;
+export type MarkAnnouncementsReadRequestBody = Static<
+  typeof MarkAnnouncementsReadRequestSchema
+> &
+  MarkAnnouncementsReadRequest;
+export type MarkAnnouncementsReadResponseBody = Static<
+  typeof MarkAnnouncementsReadResponseSchema
+> &
+  MarkAnnouncementsReadResponse;
 
 export const HealthResponseSchema = Type.Object(
   {

@@ -3,6 +3,7 @@ import type { AdminSessionResponse } from "@ai-canvas-cloud/contracts";
 import { Button, Drawer, Layout, Menu, Tooltip, type MenuProps } from "antd";
 import {
   Activity,
+  BellRing,
   HardDrive,
   LogOut,
   Mail,
@@ -20,6 +21,7 @@ import { ROLE_LABELS } from "./uiModel";
 
 const ICONS: Record<AdminView, ReactNode> = {
   dashboard: <Activity size={18} />,
+  announcements: <BellRing size={18} />,
   users: <UsersRound size={18} />,
   site: <SlidersHorizontal size={18} />,
   smtp: <Mail size={18} />,

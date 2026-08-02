@@ -556,3 +556,4 @@ export * from "./generationTelemetry.ts";
 export * from "./smtpSettings.ts";
 export * from "./objectStorageSettings.ts";
 export * from "./assetCleanup.ts";
+export * from "./announcements.ts";

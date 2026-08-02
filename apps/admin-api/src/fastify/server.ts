@@ -15,6 +15,7 @@ import {
   createUnavailableAdminSmtpConfigService,
   createUnavailableAdminUserOperationsService,
 } from "@ai-canvas-cloud/server/modules/admin";
+import { createUnavailableAdminAnnouncementService } from "@ai-canvas-cloud/server/modules/announcements";
 import {
   ADMIN_FASTIFY_SERVER_CLOSE,
   type AdminFastifyHttpServer,
@@ -29,6 +30,7 @@ import { registerAdminSiteRoutes } from "./routes/site.js";
 import { registerAdminSmtpRoutes } from "./routes/smtp.js";
 import { registerAdminSystemRoutes } from "./routes/system.js";
 import { registerAdminUserRoutes } from "./routes/users.js";
+import { registerAdminAnnouncementRoutes } from "./routes/announcements.js";
 
 function isAdminApiOwnedPath(pathname: string) {
   return (
@@ -65,6 +67,8 @@ export async function createFastifyAdminApiServer(options: AdminServerOptions) {
   const userOperationsService =
     options.userOperationsService ??
     createUnavailableAdminUserOperationsService();
+  const announcementService =
+    options.announcementService ?? createUnavailableAdminAnnouncementService();
   const staticSite = options.config.staticSiteRoot
     ? createStaticSite({
         root: options.config.staticSiteRoot,
@@ -126,6 +130,10 @@ export async function createFastifyAdminApiServer(options: AdminServerOptions) {
     userOperationsService,
   });
   registerAdminSiteRoutes(app, { config: options.config, siteConfigService });
+  registerAdminAnnouncementRoutes(app, {
+    config: options.config,
+    announcementService,
+  });
   registerAdminSmtpRoutes(app, { config: options.config, smtpConfigService });
   registerAdminObjectStorageRoutes(app, {
     config: options.config,

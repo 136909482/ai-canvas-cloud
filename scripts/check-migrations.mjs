@@ -29,6 +29,7 @@ function loadMigrations() {
   assert.deepEqual(files, [
     "0001_current_schema.sql",
     "0038_initialize_login_security_settings.sql",
+    "0039_add_announcements.sql",
   ]);
   return files.map((fileName) => {
     const match = migrationPattern.exec(fileName);
@@ -88,7 +89,8 @@ async function columnNames(client, schema, table) {
 }
 
 readDotEnv();
-const [baseline, loginSecurityRepair] = loadMigrations();
+const [baseline, loginSecurityRepair, announcementsMigration] =
+  loadMigrations();
 const databaseUrl =
   process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -228,6 +230,16 @@ try {
   );
   assert.equal(repairedLoginSecurity.rowCount, 1);
   assert.equal(repairedLoginSecurity.rows[0].captcha_enabled, false);
+
+  const announcementsSql = isolatedBaselineSql(
+    announcementsMigration.sql,
+    publicSchema,
+    adminSchema,
+  );
+  await client.query(announcementsSql);
+  const expandedTables = await tableNames(client, publicSchema);
+  assert.ok(expandedTables.includes("announcements"));
+  assert.ok(expandedTables.includes("announcement_receipts"));
 
   await client.query("SET CONSTRAINTS ALL IMMEDIATE");
   await client.query("ROLLBACK");

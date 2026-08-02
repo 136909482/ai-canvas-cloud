@@ -16,8 +16,14 @@ const ROLE_PERMISSIONS: Readonly<
     "user.write",
     "user.credentials.write",
     "user.delete",
+    "announcement.write",
   ]),
-  operator: new Set(["audit.read", "dashboard.read", "site_config.write"]),
+  operator: new Set([
+    "audit.read",
+    "dashboard.read",
+    "site_config.write",
+    "announcement.write",
+  ]),
   support: new Set(["audit.read", "dashboard.read", "user.read", "user.write"]),
   auditor: new Set(["audit.read", "dashboard.read"]),
 };

@@ -12,8 +12,9 @@ test("schema release manifest describes the current baseline and repair", () => 
   assert.deepEqual(result.files, [
     "0001_current_schema.sql",
     "0038_initialize_login_security_settings.sql",
+    "0039_add_announcements.sql",
   ]);
-  assert.equal(result.manifest.migrations.length, 2);
+  assert.equal(result.manifest.migrations.length, 3);
   assert.deepEqual(result.manifest.migrations[0], {
     version: "0001",
     name: "current_schema",
@@ -44,6 +45,40 @@ test("schema release manifest describes the current baseline and repair", () => 
       "rerun the idempotent singleton insert and verify the CAPTCHA endpoint",
     backupRequired: false,
   });
+  assert.deepEqual(result.manifest.migrations[2], {
+    version: "0039",
+    name: "add_announcements",
+    releaseTrain: "in-app-announcement-timeline",
+    phase: "expand",
+    oldAppReadable: true,
+    newAppReadable: true,
+    oldAppWithNewSchema: true,
+    lockRisk: "low",
+    statementTimeoutMs: 30000,
+    rollback:
+      "drop announcement_receipts and announcements only before any announcement is published",
+    forwardRepair:
+      "rerun the idempotent role provisioning after applying the announcement tables",
+    backupRequired: false,
+  });
+});
+
+test("announcement migration adds a bounded timeline and per-user receipts", async () => {
+  const sql = await readFile(
+    join(
+      process.cwd(),
+      "server",
+      "db",
+      "migrations",
+      "0039_add_announcements.sql",
+    ),
+    "utf8",
+  );
+  assert.match(sql, /CREATE TABLE public\.announcements/);
+  assert.match(sql, /CREATE TABLE public\.announcement_receipts/);
+  assert.match(sql, /PRIMARY KEY \(announcement_id, user_id\)/);
+  assert.match(sql, /WHERE status = 'published'/);
+  assert.doesNotMatch(sql, /DROP\s+(?:TABLE|COLUMN|DATABASE)/i);
 });
 
 test("current baseline is nonempty and excludes psql-only or destructive database commands", async () => {

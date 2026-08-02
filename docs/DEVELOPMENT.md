@@ -35,7 +35,7 @@ Admin Browser -> Admin Web -> Admin API -> PostgreSQL admin schema
 
 动态入口使用轻量 `Suspense` 等待态和错误边界。浏览器因发布切换、旧 HTML 或网络问题无法取得 Chunk 时显示“版本已更新，请刷新”和刷新按钮，不得白屏。公开首页、认证、帮助与法律模块不得导入画布、工具栏、项目 Store、React Flow、编辑器或全景模块。
 
-Web 生产构建保留 React、React Flow、编辑器、Three.js、全景、图标、状态库和工具栏分组，分组不得递归吞并公开入口依赖。`npm run build -w @ai-canvas-cloud/web` 在 Vite 输出后自动检查 `dist/index.html`：禁止 modulepreload `AuthenticatedApp`、`app-toolbar`、`vendor-flow`、`vendor-editor`、`vendor-three` 和 `vendor-panorama`，并按 `index.html` 实际引用的模块脚本、modulepreload 和样式计算 Gzip 总量，匿名入口上限固定为 200 KiB。站点配置与 HTTP 常量使用 contracts 轻量子路径，禁止为单个公开常量重新引入 contracts 根 Barrel。
+Web 生产构建保留 React、React Flow、编辑器、Three.js、全景、图标、状态库和工具栏分组，分组不得递归吞并公开入口依赖。`npm run build -w @ai-canvas-cloud/web` 在 Vite 输出后自动检查 `dist/index.html`：禁止 modulepreload `AuthenticatedApp`、`app-toolbar`、`vendor-flow`、`vendor-editor`、`vendor-three` 和 `vendor-panorama`，并按 `index.html` 实际引用的模块脚本、modulepreload 和样式计算 Gzip 总量，匿名入口上限固定为 200 KiB。普通 Web 使用系统无衬线与等宽字体栈，不下载首屏 Web 字体；构建产物中的全部 Web 字体原始总量上限固定为 256 KiB，超过即阻止发布。需要恢复品牌字体时必须使用子集化 WOFF2 并继续满足该门禁，不得把完整 CJK TTF/OTF 放入 `public`。站点配置与 HTTP 常量使用 contracts 轻量子路径，禁止为单个公开常量重新引入 contracts 根 Barrel。
 
 Node 静态站点对 `index.html`、`/` 和所有 SPA 回退 HTML 返回 `Cache-Control: no-store`；`/assets/*` 返回 `Cache-Control: public, max-age=31536000, immutable`，其他静态文件使用 `no-cache`。Hash 文件名变化即创建新 URL，新旧资源可同时缓存一年。EdgeOne 必须使用源站缓存头，不得配置覆盖 `/assets/*` 的短 TTL；HTML 不得在 EdgeOne 缓存。
 
@@ -233,7 +233,7 @@ sudo bash status.sh
 - `apps/admin-web` 与 `apps/admin-api` 使用独立 Origin、Cookie、认证、RBAC、数据库角色和审计。
 - `packages/contracts` 是 HTTP 运行时 schema 和共享类型来源。
 - `packages/project-graph` 只保存图操作、检查点和 `ProjectRecord` 纯转换。
-- `server/modules` 拥有认证、邮件传输、工作区、项目图、检查点、资产、生成运营遥测、迁移和 Admin 领域事务。
+- `server/modules` 拥有认证、邮件传输、工作区、项目图、检查点、资产、站内通知、生成运营遥测、迁移和 Admin 领域事务。
 
 Web 不得 import `server/`、数据库驱动、Redis 或对象存储管理 SDK。API 路由只解析 HTTP、可信会话与 schema，再调用领域服务；不得直接写项目图、资产引用、迁移或 Admin 表。
 
@@ -250,6 +250,8 @@ Web 不得 import `server/`、数据库驱动、Redis 或对象存储管理 SDK�
 - 密码、Cookie、token、完整邮件链接、正文和 Provider Key 不得进入日志。
 
 Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户名、邮箱、UID、状态、session 时间、workspace 与存储聚合，不读取兼容 `name`、密码哈希、session token、项目正文、资产 object key 或浏览器 Provider 配置。仅 `super_admin` 可通过账号恢复入口写入新的 Better Auth 密码哈希；输入密码只在请求内存中短期存在，更新与 session 撤销、脱敏审计同事务提交，响应和审计不返回密码或哈希。
+
+站内通知使用共享 `announcements` 领域模块：`super_admin` 与 `operator` 可保存草稿、发布和下线，普通用户只读取当前发布集合并为自己写幂等已读回执。发布不创建每用户收件箱副本，用户端通知中心把 Cloud 公告与浏览器内存中的任务/错误消息分源合并；时间线只展示 Cloud 公告，正文不写入 Admin 审计。
 
 认证邮件只支持 `development|managed` 两种传输模式。`managed` 每次发送前读取 `public.smtp_config_publications`，按 revision 缓存解密后的运行配置和 Nodemailer transporter，并在每次发送前重新校验 DNS；后台新 revision 或公网目标变化后下一封邮件立即替换缓存，不要求重启。没有已启用的后台 revision 时邮件服务不可用，不读取环境 SMTP 配置。注册邮箱验证码仅在站点设置开启后发送，发送与已有账号均保持不披露账号状态的响应语义；注册与密码重置验证码均由 PostgreSQL 挑战记录一次性消费，10 分钟有效、60 秒冷却、连续 5 次错误失效。密码重置表不保存 Better Auth token 明文，只保存 AES-256-GCM 密文；SMTP `sendMail` 不自动重试。
 

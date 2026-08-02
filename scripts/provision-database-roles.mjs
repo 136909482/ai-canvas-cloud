@@ -155,6 +155,10 @@ try {
     `GRANT SELECT ON public.object_storage_config_publications TO ${app}`,
   );
   await client.query(
+    `REVOKE INSERT, UPDATE, DELETE ON public.announcements FROM ${app}`,
+  );
+  await client.query(`GRANT SELECT ON public.announcements TO ${app}`);
+  await client.query(
     `REVOKE DELETE ON public.generation_telemetry FROM ${app}`,
   );
   await client.query(`REVOKE ALL ON SCHEMA admin FROM ${app}`);
@@ -179,6 +183,9 @@ try {
   );
   await client.query(
     `GRANT SELECT, INSERT, UPDATE, DELETE ON public.object_storage_config_publications TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT, INSERT, UPDATE ON public.announcements TO ${admin}`,
   );
   await client.query(
     `REVOKE ALL ON public."user", public."session", public."account", public."verification", public.auth_devices, public.workspaces, public.workspace_members, public.workspace_user_state, public.projects, public.project_nodes, public.project_edges, public.project_snapshots, public.assets, public.asset_uploads, public.asset_references, public.migration_imports, public.migration_exports, public.migration_import_asset_uploads, public.generation_telemetry, public.account_erasure_jobs, public.registration_email_challenges, public.password_reset_email_challenges FROM ${admin}`,

@@ -1,4 +1,5 @@
 import type { PublicSiteConfigService } from "@ai-canvas-cloud/server/modules/admin";
+import type { AnnouncementTimelineService } from "@ai-canvas-cloud/server/modules/announcements";
 import type {
   AssetCleanupService,
   AssetService,
@@ -33,6 +34,7 @@ export interface ServerOptions {
   migrationAssetUploadService?: MigrationAssetUploadService;
   migrationExportService?: MigrationExportService;
   siteConfigService?: PublicSiteConfigService;
+  announcementService?: AnnouncementTimelineService;
   metrics?: MetricsRegistry;
   postgresPoolStats?: () => { total: number; idle: number; waiting: number };
   readinessChecks?: {

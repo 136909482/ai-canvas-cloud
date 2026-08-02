@@ -128,6 +128,17 @@ POST   /api/v1/auth/password/change
 
 网站设置开启 `registrationEmailVerificationRequired` 后，浏览器先以 `{ email }` 调用 `POST /api/v1/auth/registration/email-code`，再将邮件中的 6 位 `emailVerificationCode` 传给注册接口。验证码有效 10 分钟，60 秒内不重复投递，连续 5 次错误即消费失效；发送接口保持非枚举响应，不返回账号或挑战状态。注册接口只接受一次性未过期验证码，成功后将邮箱标为已验证。关闭开关时不发送注册验证邮件，注册直接将邮箱标为已验证。密码重置同样先以 `{ email }` 调用 `POST /api/v1/auth/password/forgot`，再以 `{ email, code, password }` 调用 `POST /api/v1/auth/password/reset`；两个接口都不泄漏邮箱是否存在。重置验证码遵循相同的 10 分钟、60 秒和 5 次失败限制，短期表仅保存 HMAC 与 AES-256-GCM token 密文；SMTP `sendMail` 不自动重试。
 
+## 站内通知
+
+```text
+GET  /api/v1/announcements
+POST /api/v1/announcements/read
+```
+
+两个接口都要求可信普通用户 session。GET 返回最近 100 条当前已发布公告及当前用户的 `readAt`，按 `publishedAt DESC, id DESC` 排列，并返回全部当前公告的 `unreadCount`；响应类别只允许 `notice|product_update|maintenance`，不返回创建管理员或用户信息。
+
+标记已读请求严格为 `{ "announcementIds": [uuid] }`，每批 1–100 个且去重。服务端从 session 取得 `userId`，只为仍处于已发布状态的公告插入幂等回执，不接受客户端用户标识。响应为 `{ readAt, updatedCount }`。
+
 ## 工作区
 
 ```text
@@ -246,6 +257,11 @@ GET  /admin/v1/auth/login-security
 POST /admin/v1/auth/login-security
 POST /admin/v1/auth/logout
 GET  /admin/v1/dashboard
+GET  /admin/v1/announcements
+POST /admin/v1/announcements
+POST /admin/v1/announcements/:announcementId
+POST /admin/v1/announcements/:announcementId/publish
+POST /admin/v1/announcements/:announcementId/archive
 GET  /admin/v1/audit-events
 GET  /admin/v1/users
 GET  /admin/v1/users/:userId
@@ -274,6 +290,8 @@ POST /admin/v1/site-assets/:assetId/complete
 ```
 
 `GET /auth/csrf` 返回 token 并设置签名 HttpOnly CSRF Cookie。所有 Admin POST 要求精确 Origin、非 cross-site Fetch Metadata 和匹配的 `X-CSRF-Token`。普通用户 Cookie 无效。
+
+站内通知管理要求 `super_admin|operator` 持有 `announcement.write`。创建和更新草稿只接受 `{ category, title, content }`，标题 1–120 字符、纯文本正文 1–4000 字符；只有 `draft` 可编辑和发布，只有 `published` 可下线。发布立即写入 `publishedAt` 并面向全部登录用户可见；下线保留记录但从用户时间线移除。创建、编辑、发布和下线均写脱敏审计，正文不进入审计载荷。
 
 验证码默认关闭；开启时 captcha 返回 5 位数字的短期 SVG challenge，数据库只保存 hash、失败次数和过期/消费时间。login 接受 username/password 和可选 captcha 字段；响应不返回内部 email 或 session token。
 

@@ -1,9 +1,11 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { gzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 
 export const ANONYMOUS_ENTRY_LIMIT_BYTES = 200 * 1024;
+export const WEB_FONT_LIMIT_BYTES = 256 * 1024;
+const WEB_FONT_EXTENSIONS = /\.(?:otf|ttf|woff2?)$/i;
 export const FORBIDDEN_ENTRY_CHUNKS = [
   "authenticatedapp",
   "app-toolbar",
@@ -67,6 +69,38 @@ function resolveLocalReference(distDirectory, reference) {
   return { absolutePath, pathname: url.pathname };
 }
 
+function listFiles(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = resolve(directory, entry.name);
+    return entry.isDirectory() ? listFiles(path) : [path];
+  });
+}
+
+export function inspectWebFonts(
+  distDirectory,
+  { limitBytes = WEB_FONT_LIMIT_BYTES } = {},
+) {
+  const absoluteDist = resolve(distDirectory);
+  const resources = listFiles(absoluteDist)
+    .filter((path) => WEB_FONT_EXTENSIONS.test(path))
+    .map((path) => ({
+      pathname: path.slice(absoluteDist.length).split(sep).join("/"),
+      bytes: statSync(path).size,
+    }));
+  const bytes = resources.reduce(
+    (total, resource) => total + resource.bytes,
+    0,
+  );
+
+  if (bytes > limitBytes) {
+    throw new Error(
+      `Web fonts total ${(bytes / 1024).toFixed(2)} KiB; limit is ${(limitBytes / 1024).toFixed(0)} KiB. Use system fonts or subsetted WOFF2 assets.`,
+    );
+  }
+
+  return { bytes, limitBytes, resources };
+}
+
 export function inspectAnonymousEntry(
   distDirectory,
   { limitBytes = ANONYMOUS_ENTRY_LIMIT_BYTES } = {},
@@ -113,7 +147,12 @@ export function inspectAnonymousEntry(
     );
   }
 
-  return { gzipBytes, limitBytes, resources };
+  return {
+    gzipBytes,
+    limitBytes,
+    resources,
+    webFonts: inspectWebFonts(absoluteDist),
+  };
 }
 
 function isMainModule() {
@@ -127,7 +166,7 @@ if (isMainModule()) {
   try {
     const result = inspectAnonymousEntry(process.argv[2] ?? "apps/web/dist");
     console.log(
-      `Anonymous entry: ${(result.gzipBytes / 1024).toFixed(2)} KiB gzip / ${(result.limitBytes / 1024).toFixed(0)} KiB limit (${result.resources.length} JS/CSS files).`,
+      `Anonymous entry: ${(result.gzipBytes / 1024).toFixed(2)} KiB gzip / ${(result.limitBytes / 1024).toFixed(0)} KiB limit (${result.resources.length} JS/CSS files); web fonts ${(result.webFonts.bytes / 1024).toFixed(2)} KiB / ${(result.webFonts.limitBytes / 1024).toFixed(0)} KiB limit.`,
     );
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

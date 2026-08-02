@@ -7,6 +7,7 @@ import {
   FORBIDDEN_ENTRY_CHUNKS,
   getAnonymousEntryReferences,
   inspectAnonymousEntry,
+  inspectWebFonts,
 } from "./check-web-entry-bundle.mjs";
 
 function fixture(html, resources) {
@@ -62,6 +63,25 @@ test("anonymous entry rejects every authenticated module preload", () => {
     assert.throws(
       () => inspectAnonymousEntry(root),
       /preloads authenticated chunks/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("web font budget prevents large static fonts from returning", () => {
+  const root = fixture(
+    '<script type="module" src="/assets/index-a.js"></script>',
+    { "index-a.js": "const ready = true;" },
+  );
+  mkdirSync(join(root, "fonts"));
+  writeFileSync(join(root, "fonts", "small.woff2"), Buffer.alloc(32));
+  try {
+    assert.equal(inspectWebFonts(root, { limitBytes: 32 }).bytes, 32);
+    writeFileSync(join(root, "fonts", "large.ttf"), Buffer.alloc(33));
+    assert.throws(
+      () => inspectWebFonts(root, { limitBytes: 64 }),
+      /Web fonts total .* limit is/,
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
