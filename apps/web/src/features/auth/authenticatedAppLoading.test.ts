@@ -92,3 +92,29 @@ test("authentication dialog keeps readable dark controls under the public light 
   assert.match(authModal, /--text-muted:\s*#a1a1aa/);
   assert.match(authModal, /--control-bg:\s*rgba\(255, 255, 255, 0\.06\)/);
 });
+
+test("authentication dialog closes only through explicit controls", async () => {
+  const [source, css] = await Promise.all([
+    readFile("apps/web/src/features/auth/AuthGate.tsx", "utf8"),
+    readFile("apps/web/src/index.css", "utf8"),
+  ]);
+  const authBackdrop = css.match(/\.auth-modal-backdrop\s*\{([\s\S]*?)\}/)?.[1];
+  const authModal = css.match(/\.auth-modal\s*\{([\s\S]*?)\}/)?.[1];
+
+  assert.ok(authBackdrop, "authentication backdrop styles must exist");
+  assert.ok(authModal, "authentication dialog styles must exist");
+  assert.match(authBackdrop, /background:\s*rgba\(0, 0, 0, 0\.6\)/);
+  assert.doesNotMatch(authBackdrop, /backdrop-filter/);
+  assert.match(
+    css,
+    /body:has\(\.auth-modal-backdrop\) \.home-scene-node\s*\{[\s\S]*?box-shadow:\s*none/,
+  );
+  assert.match(authModal, /0 14px 32px rgba\(0, 0, 0, 0\.34\)/);
+  assert.doesNotMatch(authModal, /100px/);
+  assert.match(source, /event\.key === "Escape"[\s\S]*closeAuth\(\)/);
+  assert.match(
+    source,
+    /className="auth-modal__close"[\s\S]*onClick=\{closeAuth\}/,
+  );
+  assert.doesNotMatch(source, /auth-modal-backdrop[\s\S]{0,240}onMouseDown/);
+});

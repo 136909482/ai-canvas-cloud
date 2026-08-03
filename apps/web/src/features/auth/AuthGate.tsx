@@ -598,19 +598,7 @@ export function AuthGate({ children }: AuthGateProps) {
       />
 
       {isAuthOpen ? (
-        <div
-          className="auth-modal-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (
-              event.target === event.currentTarget &&
-              !isSubmitting &&
-              !isAuthModeTransitioning
-            ) {
-              closeAuth();
-            }
-          }}
-        >
+        <div className="auth-modal-backdrop" role="presentation">
           <section
             className={`auth-modal ${themeClasses.strongPanel}`}
             role="dialog"

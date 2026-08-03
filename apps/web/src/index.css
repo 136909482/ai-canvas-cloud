@@ -403,6 +403,11 @@ textarea::-webkit-scrollbar-thumb:hover {
   background: rgba(14, 17, 18, 0.92);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.46);
   opacity: 0.62;
+  transition: box-shadow 180ms ease;
+}
+
+body:has(.auth-modal-backdrop) .home-scene-node {
+  box-shadow: none;
 }
 
 .home-scene-node--source {
@@ -1228,8 +1233,7 @@ textarea::-webkit-scrollbar-thumb:hover {
   align-items: center;
   justify-content: center;
   overflow-y: auto;
-  background: rgba(2, 3, 4, 0.78);
-  backdrop-filter: blur(14px);
+  background: rgba(0, 0, 0, 0.6);
   perspective: 1200px;
   perspective-origin: center;
   animation: auth-backdrop-enter 180ms ease both;
@@ -1258,7 +1262,9 @@ textarea::-webkit-scrollbar-thumb:hover {
   border-radius: 8px;
   background: #0d0f10;
   color: #f7f7f4;
-  box-shadow: 0 36px 100px rgba(0, 0, 0, 0.68);
+  box-shadow:
+    0 14px 32px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(255, 255, 255, 0.02);
   backface-visibility: hidden;
   transform-style: preserve-3d;
 }
