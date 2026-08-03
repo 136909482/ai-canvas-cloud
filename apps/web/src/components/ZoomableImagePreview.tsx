@@ -6,10 +6,14 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { LoaderCircle, RefreshCw, X } from "lucide-react";
+import { loadImageEditorSource } from "@/components/imageEditor/imageSource";
+import { platformBridge } from "@/platform";
+import type { WorkspaceImageAsset } from "@/types";
 
 type ZoomableImagePreviewProps = {
   imageUrl: string;
+  imageAsset?: Pick<WorkspaceImageAsset, "relativePath"> | null;
   alt: string;
   closeLabel: string;
   onClose: () => void;
@@ -26,6 +30,7 @@ const DEFAULT_CAPTION_CLASS_NAME = "text-white/60";
 
 export function ZoomableImagePreview({
   imageUrl,
+  imageAsset = null,
   alt,
   closeLabel,
   onClose,
@@ -43,7 +48,53 @@ export function ZoomableImagePreview({
     panX: number;
     panY: number;
   } | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const sourceKey = `${imageUrl}\u0000${imageAsset?.relativePath ?? ""}`;
+  const [sourceState, setSourceState] = useState<
+    | { key: string; status: "loading" }
+    | { key: string; status: "ready"; url: string }
+    | { key: string; status: "error" }
+  >({ key: sourceKey, status: "loading" });
   const overlayRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSourceState({ key: sourceKey, status: "loading" });
+
+    void loadImageEditorSource({
+      imageUrl,
+      relativePath: imageAsset?.relativePath,
+      resolveAssetUrl: (relativePath) =>
+        platformBridge.resolveWorkspaceAssetUrl(relativePath),
+      clearAssetUrlCache: () => platformBridge.clearWorkspaceAssetUrlCache(),
+      load: (url) =>
+        new Promise<string>((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(url);
+          image.onerror = () => reject(new Error("图片加载失败"));
+          image.src = url;
+        }),
+    })
+      .then(({ imageUrl: resolvedUrl }) => {
+        if (!cancelled) {
+          setSourceState({ key: sourceKey, status: "ready", url: resolvedUrl });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSourceState({ key: sourceKey, status: "error" });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [imageAsset?.relativePath, imageUrl, loadAttempt, sourceKey]);
+
+  const activeSourceState =
+    sourceState.key === sourceKey
+      ? sourceState
+      : ({ key: sourceKey, status: "loading" } as const);
 
   useEffect(() => {
     const overlay = overlayRef.current;
@@ -144,14 +195,38 @@ export function ZoomableImagePreview({
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
         >
-          <img
-            src={imageUrl}
-            alt={alt}
-            className={`pointer-events-none max-h-screen max-w-screen object-contain shadow-[0_0_80px_rgba(255,255,255,0.04)] ${dragState ? "" : "transition-transform duration-100"}`}
-            style={{
-              transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
-            }}
-          />
+          {activeSourceState.status === "ready" ? (
+            <img
+              src={activeSourceState.url}
+              alt={alt}
+              className={`pointer-events-none max-h-screen max-w-screen object-contain shadow-[0_0_80px_rgba(255,255,255,0.04)] ${dragState ? "" : "transition-transform duration-100"}`}
+              style={{
+                transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
+              }}
+            />
+          ) : activeSourceState.status === "error" ? (
+            <div className="flex flex-col items-center gap-3 text-sm text-white/60">
+              <span>图片加载失败</span>
+              <button
+                type="button"
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/70 transition hover:border-white/20 hover:bg-black/70 hover:text-white"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setLoadAttempt((attempt) => attempt + 1);
+                }}
+                aria-label="重新加载图片"
+                title="重新加载图片"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <LoaderCircle
+              className="h-5 w-5 animate-spin text-white/60"
+              aria-label="图片加载中"
+            />
+          )}
         </div>
       </div>
       {children ? (

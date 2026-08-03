@@ -1,6 +1,6 @@
 {
   "name": "@ai-canvas-cloud/project-graph",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "exports": {
@@ -11,6 +11,6 @@
     "test": "node --test src/**/*.test.ts"
   },
   "dependencies": {
-    "@ai-canvas-cloud/contracts": "0.2.1"
+    "@ai-canvas-cloud/contracts": "0.2.2"
   }
 }

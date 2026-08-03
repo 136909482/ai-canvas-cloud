@@ -460,6 +460,7 @@ export const ImageNode = memo(function ImageNode({
         <ZoomableImagePreview
           key={data.imageUrl}
           imageUrl={data.imageUrl}
+          imageAsset={data.imageAsset}
           alt={nodeName}
           closeLabel={UI_TEXT.closePreview}
           onClose={() => setShowPreview(false)}

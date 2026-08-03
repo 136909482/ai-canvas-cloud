@@ -566,6 +566,7 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
         <ZoomableImagePreview
           key={data.imageUrl}
           imageUrl={data.imageUrl}
+          imageAsset={data.imageAsset}
           alt={nodeTitle}
           closeLabel={UI_TEXT.closePreview}
           onClose={() => setShowPreview(false)}
