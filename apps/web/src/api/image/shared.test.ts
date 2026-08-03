@@ -5,7 +5,11 @@ import {
   SUPPORTED_GENERATE_RATIOS,
   normalizeGenerateRatio,
 } from "../../constants/generateNode.ts";
-import { resolveEffectiveRatio } from "./shared.ts";
+import {
+  downloadMediaAsBlob,
+  getImageResultFromUnknown,
+  resolveEffectiveRatio,
+} from "./shared.ts";
 import type { GenerateImageParams } from "./types.ts";
 
 function createParams(
@@ -38,6 +42,68 @@ test("generate ratio options match the documented provider ratios", () => {
     "21:9",
     "9:21",
   ]);
+});
+
+test("Base64 media results decode locally without a fetch request", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    writable: true,
+    value: async () => {
+      fetchCalls += 1;
+      throw new Error("fetch should not be called for a data URL");
+    },
+  });
+
+  try {
+    const blob = await downloadMediaAsBlob(
+      "data:image/png;charset=utf-8;base64,aGVsbG8td29ybGQ",
+      "Generated image download",
+    );
+
+    assert.equal(fetchCalls, 0);
+    assert.equal(blob.type, "image/png");
+    assert.equal(await blob.text(), "hello-world");
+
+    const urlSafeBlob = await downloadMediaAsBlob(
+      "data:image/webp;base64,-_8",
+      "Generated image download",
+    );
+    assert.deepEqual(
+      new Uint8Array(await urlSafeBlob.arrayBuffer()),
+      new Uint8Array([251, 255]),
+    );
+    await assert.rejects(
+      downloadMediaAsBlob("data:image/png;base64,", "Generated image download"),
+      /Invalid Base64 media payload/,
+    );
+    assert.equal(fetchCalls, 0);
+  } finally {
+    Object.defineProperty(globalThis, "fetch", {
+      configurable: true,
+      writable: true,
+      value: originalFetch,
+    });
+  }
+});
+
+test("image responses prefer embedded Base64 over temporary URLs", () => {
+  assert.equal(
+    getImageResultFromUnknown({
+      url: "https://cdn.example/temporary.png",
+      b64_json: "aGVsbG8=",
+    }),
+    "data:image/png;base64,aGVsbG8=",
+  );
+});
+
+test("image responses accept common explicit Base64 fields", () => {
+  assert.equal(
+    getImageResultFromUnknown({ image_base64: "aGVsbG8=" }),
+    "data:image/png;base64,aGVsbG8=",
+  );
 });
 
 test("unsupported and invalid generate ratios normalize to Auto", () => {

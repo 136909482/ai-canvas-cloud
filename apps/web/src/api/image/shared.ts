@@ -22,8 +22,52 @@ export function normalizeReferenceImages(
 }
 
 function decodeBase64ToBytes(value: string) {
-  const binary = globalThis.atob(value);
+  const normalized = value
+    .replace(/\s/g, "")
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  if (!normalized) {
+    throw new Error("Invalid Base64 media payload");
+  }
+
+  const remainder = normalized.length % 4;
+  if (remainder === 1) {
+    throw new Error("Invalid Base64 media payload");
+  }
+
+  const padded = normalized.padEnd(
+    normalized.length + ((4 - remainder) % 4),
+    "=",
+  );
+  const binary = globalThis.atob(padded);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+export function decodeBase64DataUrl(dataUrl: string) {
+  const separatorIndex = dataUrl.indexOf(",");
+  if (separatorIndex < 0) {
+    throw new Error("Unsupported Base64 media data URL");
+  }
+
+  const metadata = dataUrl.slice(5, separatorIndex).split(";");
+  const mimeType = metadata[0]?.trim().toLowerCase() ?? "";
+  const isSupportedMedia =
+    mimeType.startsWith("image/") || mimeType.startsWith("video/");
+  const isBase64 = metadata
+    .slice(1)
+    .some((value) => value.trim().toLowerCase() === "base64");
+
+  if (!dataUrl.startsWith("data:") || !isSupportedMedia || !isBase64) {
+    throw new Error("Unsupported Base64 media data URL");
+  }
+
+  try {
+    return new Blob([decodeBase64ToBytes(dataUrl.slice(separatorIndex + 1))], {
+      type: mimeType,
+    });
+  } catch (error) {
+    throw new Error("Invalid Base64 media payload", { cause: error });
+  }
 }
 
 function getExtensionFromMimeType(mimeType: string) {
@@ -41,18 +85,11 @@ function getExtensionFromMimeType(mimeType: string) {
 }
 
 function dataUrlToFile(dataUrl: string, index: number) {
-  const matched = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  const blob = decodeBase64DataUrl(dataUrl);
+  const extension = getExtensionFromMimeType(blob.type);
 
-  if (!matched) {
-    throw new Error("Unsupported data URL reference image format");
-  }
-
-  const [, mimeType, base64] = matched;
-  const bytes = decodeBase64ToBytes(base64);
-  const extension = getExtensionFromMimeType(mimeType);
-
-  return new File([bytes], `image_${index + 1}.${extension}`, {
-    type: mimeType,
+  return new File([blob], `image_${index + 1}.${extension}`, {
+    type: blob.type,
   });
 }
 
@@ -187,6 +224,10 @@ export function getFirstStringValue(...values: unknown[]) {
 }
 
 export async function downloadMediaAsBlob(mediaUrl: string, context: string) {
+  if (mediaUrl.startsWith("data:")) {
+    return decodeBase64DataUrl(mediaUrl);
+  }
+
   const candidateUrls = [mediaUrl];
 
   let lastError: unknown = null;
@@ -209,7 +250,9 @@ export async function downloadMediaAsBlob(mediaUrl: string, context: string) {
   }
 
   if (lastError instanceof Error) {
-    throw lastError;
+    throw new Error(getNetworkErrorMessage(lastError, context), {
+      cause: lastError,
+    });
   }
 
   throw new Error(getNetworkErrorMessage(lastError, context));
@@ -243,6 +286,15 @@ export function getImageResultFromUnknown(payload: unknown): string | null {
 
   const record = payload as Record<string, unknown>;
 
+  const embeddedBase64 = getFirstStringValue(
+    record.b64_json,
+    record.image_base64,
+    record.base64,
+  );
+  if (embeddedBase64) {
+    return `data:image/png;base64,${embeddedBase64}`;
+  }
+
   if (Array.isArray(record.url)) {
     const image = getImageResultFromUnknown(record.url);
     if (image) {
@@ -252,10 +304,6 @@ export function getImageResultFromUnknown(payload: unknown): string | null {
 
   if (typeof record.url === "string" && record.url) {
     return record.url;
-  }
-
-  if (typeof record.b64_json === "string" && record.b64_json) {
-    return `data:image/png;base64,${record.b64_json}`;
   }
 
   const nestedKeys = [

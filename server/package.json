@@ -1,6 +1,6 @@
 {
   "name": "@ai-canvas-cloud/server",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "exports": {
@@ -22,8 +22,8 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@ai-canvas-cloud/contracts": "0.2.0",
-    "@ai-canvas-cloud/shared": "0.2.0",
+    "@ai-canvas-cloud/contracts": "0.2.1",
+    "@ai-canvas-cloud/shared": "0.2.1",
     "@aws-sdk/client-s3": "^3.1087.0",
     "@aws-sdk/s3-request-presigner": "^3.1087.0",
     "better-auth": "^1.6.23",

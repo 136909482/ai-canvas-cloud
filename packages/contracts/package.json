@@ -1,6 +1,6 @@
 {
   "name": "@ai-canvas-cloud/contracts",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "exports": {
@@ -17,7 +17,7 @@
     "test": "node --test src/**/*.test.ts"
   },
   "dependencies": {
-    "@ai-canvas-cloud/shared": "0.2.0",
+    "@ai-canvas-cloud/shared": "0.2.1",
     "@sinclair/typebox": "^0.34.52"
   }
 }

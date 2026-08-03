@@ -51,21 +51,7 @@ export function buildGeneratedVideoFileName(
   return `generated-${task.id}.${extension}`;
 }
 
-async function dataUrlToBlob(dataUrl: string) {
-  const response = await fetch(dataUrl);
-
-  if (!response.ok) {
-    throw new Error(`Failed to decode generated image: ${response.status}`);
-  }
-
-  return response.blob();
-}
-
 async function downloadGeneratedImageAsBlob(imageUrl: string) {
-  if (imageUrl.startsWith("data:image/")) {
-    return dataUrlToBlob(imageUrl);
-  }
-
   return downloadMediaAsBlob(imageUrl, "Failed to fetch generated image");
 }
 
@@ -134,10 +120,6 @@ export async function clearStagedGeneratedImageResult(task: GenerateTask) {
 }
 
 async function downloadGeneratedVideoAsBlob(videoUrl: string) {
-  if (videoUrl.startsWith("data:video/")) {
-    return dataUrlToBlob(videoUrl);
-  }
-
   return downloadMediaAsBlob(videoUrl, "Failed to fetch generated video");
 }
 
