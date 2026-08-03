@@ -34,14 +34,12 @@ interface ToolbarProps {
 }
 
 export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
-  const { config, setStorageSettings, persistWorkspaceConfig } =
-    useSettingsStore(
-      useShallow((state) => ({
-        config: state.config,
-        setStorageSettings: state.setStorageSettings,
-        persistWorkspaceConfig: state.persistWorkspaceConfig,
-      })),
-    );
+  const { config, updateStorageSettings } = useSettingsStore(
+    useShallow((state) => ({
+      config: state.config,
+      updateStorageSettings: state.updateStorageSettings,
+    })),
+  );
   const logout = useAuthStore((state) => state.logout);
   const showSettings = useSettingsDialogStore((state) => state.isOpen);
   const activeCategory = useSettingsDialogStore(
@@ -61,49 +59,44 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
     closeSettingsPanel,
   );
   const handleToggleAlignmentGuides = async () => {
-    setStorageSettings({
+    await updateStorageSettings({
       alignmentGuidesEnabled: !config.storage.alignmentGuidesEnabled,
-    });
-    await persistWorkspaceConfig().catch(() => undefined);
+    }).catch(() => undefined);
   };
 
   const handleToggleIncomingEdgeAnimation = async () => {
-    setStorageSettings({
+    await updateStorageSettings({
       incomingEdgeAnimationEnabled:
         !config.storage.incomingEdgeAnimationEnabled,
-    });
-    await persistWorkspaceConfig().catch(() => undefined);
+    }).catch(() => undefined);
   };
 
   const handleToggleCanvasGrid = async () => {
-    setStorageSettings({
+    await updateStorageSettings({
       canvasGridEnabled: !config.storage.canvasGridEnabled,
-    });
-    await persistWorkspaceConfig().catch(() => undefined);
+    }).catch(() => undefined);
   };
 
   const handleCanvasPerformanceModeChange = async (
     canvasPerformanceMode: CanvasPerformanceMode,
   ) => {
-    setStorageSettings({ canvasPerformanceMode });
-    await persistWorkspaceConfig().catch(() => undefined);
+    await updateStorageSettings({ canvasPerformanceMode }).catch(
+      () => undefined,
+    );
   };
 
   const handleEdgeStyleChange = async (edgeStyle: EdgeStyle) => {
-    setStorageSettings({ edgeStyle });
-    await persistWorkspaceConfig().catch(() => undefined);
+    await updateStorageSettings({ edgeStyle }).catch(() => undefined);
   };
 
   const handleToggleHighQualityPreview = async () => {
-    setStorageSettings({
+    await updateStorageSettings({
       lowQualityPreviewEnabled: !config.storage.lowQualityPreviewEnabled,
-    });
-    await persistWorkspaceConfig().catch(() => undefined);
+    }).catch(() => undefined);
   };
 
   const handleThemeModeChange = async (themeMode: ThemeMode) => {
-    setStorageSettings({ themeMode });
-    await persistWorkspaceConfig().catch(() => undefined);
+    await updateStorageSettings({ themeMode }).catch(() => undefined);
   };
 
   return (
@@ -407,12 +400,9 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                                   key={option.value}
                                   type="button"
                                   onClick={() => {
-                                    setStorageSettings({
+                                    void updateStorageSettings({
                                       autosaveIntervalMs: option.value,
-                                    });
-                                    void persistWorkspaceConfig().catch(
-                                      () => undefined,
-                                    );
+                                    }).catch(() => undefined);
                                   }}
                                   className={cx(
                                     CANVAS_OPTION_BUTTON_CLASS,

@@ -39,8 +39,12 @@ import type {
   TaskQueueSnapshot,
 } from "../types/index.ts";
 import {
+  readLegacyWorkspaceConfigCache,
   readWorkspaceConfigCache,
+  removeLegacyWorkspaceConfigCache,
   writeWorkspaceConfigCache,
+  type PendingWorkspaceSettingsPatch,
+  type SettingsCacheIdentity,
 } from "./settingsCache";
 import {
   fromWorkspaceConfigFile,
@@ -59,6 +63,8 @@ export interface SettingsRuntimeState {
   hydrated: boolean;
   lastLoadError: string | null;
   lastSaveError: string | null;
+  settingsUserId: string | null;
+  settingsWorkspaceId: string | null;
   vaultStatus: LocalVaultStatus;
   vaultPersistence: LocalVaultPersistence;
   vaultUserId: string | null;
@@ -78,14 +84,20 @@ interface SettingsStore {
   config: ApiConfig;
   runtime: SettingsRuntimeState;
   setStorageSettings: (patch: Partial<StorageConfig>) => void;
+  updateStorageSettings: (patch: Partial<StorageConfig>) => Promise<void>;
   setWorkspaceRuntimeStatus: (
     status: Pick<
       WorkspaceStatus,
       "configured" | "directoryName" | "permission"
     >,
   ) => void;
-  hydrateFromWorkspace: () => Promise<"workspace" | "default">;
-  persistWorkspaceConfig: () => Promise<void>;
+  hydrateFromWorkspace: (
+    userId: string,
+    workspaceId: string,
+  ) => Promise<"workspace" | "default">;
+  persistWorkspaceConfig: (
+    patch?: PendingWorkspaceSettingsPatch,
+  ) => Promise<void>;
   hydrateLocalVault: (
     userId: string,
   ) => Promise<"device" | "empty" | "session">;
@@ -133,6 +145,8 @@ function createDefaultRuntimeState(): SettingsRuntimeState {
     hydrated: false,
     lastLoadError: null,
     lastSaveError: null,
+    settingsUserId: null,
+    settingsWorkspaceId: null,
     vaultStatus: "idle",
     vaultPersistence: "device",
     vaultUserId: null,
@@ -194,6 +208,7 @@ interface LocalVaultRuntimeContext {
 }
 
 let localVaultOperationChain = Promise.resolve();
+let workspaceConfigOperationChain = Promise.resolve();
 let localVaultStateVersion = 0;
 const sessionTaskQueues = new Map<string, TaskQueueSnapshot>();
 
@@ -229,6 +244,42 @@ function enqueueLocalVaultOperation<T>(operation: () => Promise<T>) {
     () => undefined,
   );
   return result;
+}
+
+function enqueueWorkspaceConfigOperation<T>(operation: () => Promise<T>) {
+  const result = workspaceConfigOperationChain.then(operation);
+  workspaceConfigOperationChain = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+function settingsIdentity(
+  runtime: SettingsRuntimeState,
+): SettingsCacheIdentity | null {
+  return runtime.settingsUserId && runtime.settingsWorkspaceId
+    ? {
+        userId: runtime.settingsUserId,
+        workspaceId: runtime.settingsWorkspaceId,
+      }
+    : null;
+}
+
+function hasSettingsPatch(patch: PendingWorkspaceSettingsPatch) {
+  return Object.keys(patch).length > 0;
+}
+
+function remainingPendingPatch(
+  current: PendingWorkspaceSettingsPatch,
+  sent: PendingWorkspaceSettingsPatch,
+) {
+  return Object.fromEntries(
+    Object.entries(current).filter(
+      ([key, value]) =>
+        !(key in sent) || sent[key as keyof typeof sent] !== value,
+    ),
+  ) as PendingWorkspaceSettingsPatch;
 }
 
 function isCurrentLocalVaultContext(
@@ -270,6 +321,19 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
       }),
     })),
 
+  updateStorageSettings: async (patch) => {
+    get().setStorageSettings(patch);
+    const workspacePatch = Object.fromEntries(
+      Object.entries(patch).filter(
+        ([key]) =>
+          key !== "workspaceConfigured" && key !== "workspaceDirectoryName",
+      ),
+    ) as PendingWorkspaceSettingsPatch;
+    if (hasSettingsPatch(workspacePatch)) {
+      await get().persistWorkspaceConfig(workspacePatch);
+    }
+  },
+
   setWorkspaceRuntimeStatus: (status) =>
     set((state) => ({
       config: {
@@ -285,139 +349,187 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
       },
     })),
 
-  hydrateFromWorkspace: async () => {
-    const cachedWorkspaceConfig = readWorkspaceConfigCache();
+  hydrateFromWorkspace: async (userId, workspaceId) => {
+    const identity = {
+      userId: userId.trim(),
+      workspaceId: workspaceId.trim(),
+    };
+    const cached = readWorkspaceConfigCache(identity);
+    const legacy = readLegacyWorkspaceConfigCache();
+
+    set((state) => ({
+      runtime: {
+        ...state.runtime,
+        settingsUserId: identity.userId,
+        settingsWorkspaceId: identity.workspaceId,
+      },
+    }));
+
+    const applyHydratedConfig = (
+      workspaceConfig: ReturnType<typeof toWorkspaceConfigFile>,
+      options: { loadError?: string | null; saveError?: string | null } = {},
+    ) => {
+      const hydratedConfig =
+        fromWorkspaceConfigFile(workspaceConfig) ?? normalizeConfig();
+      set((state) => ({
+        config: {
+          ...state.config,
+          storage: {
+            ...hydratedConfig.storage,
+            workspaceConfigured: state.runtime.workspaceConfigured,
+            workspaceDirectoryName: state.runtime.workspaceDirectoryName,
+          },
+        },
+        runtime: {
+          ...state.runtime,
+          hydrated: true,
+          lastLoadError: options.loadError ?? null,
+          lastSaveError: options.saveError ?? null,
+        },
+      }));
+    };
 
     try {
-      const workspaceConfig = await platformBridge.loadWorkspaceConfig();
-      const hydratedConfig = fromWorkspaceConfigFile(
-        workspaceConfig ?? cachedWorkspaceConfig,
+      const cloudConfig = await platformBridge.loadWorkspaceConfig();
+
+      if (cloudConfig) {
+        const pendingPatch = cached?.pendingPatch ?? {};
+        if (hasSettingsPatch(pendingPatch)) {
+          const pendingConfig = {
+            version: 1 as const,
+            storage: { ...cloudConfig.storage, ...pendingPatch },
+          };
+          try {
+            const savedConfig =
+              await platformBridge.saveWorkspaceConfig(pendingPatch);
+            writeWorkspaceConfigCache(identity, savedConfig);
+            removeLegacyWorkspaceConfigCache();
+            applyHydratedConfig(savedConfig);
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            writeWorkspaceConfigCache(identity, pendingConfig, pendingPatch);
+            applyHydratedConfig(pendingConfig, { saveError: message });
+            reportDiagnostic({
+              area: "persistence",
+              title: "云同步失败，将稍后重试",
+              error,
+              code: "WORKSPACE_CONFIG_SAVE_FAILED",
+              context: { operation: "retry-settings" },
+            });
+          }
+        } else {
+          writeWorkspaceConfigCache(identity, cloudConfig);
+          removeLegacyWorkspaceConfigCache();
+          applyHydratedConfig(cloudConfig);
+        }
+        return "workspace" as const;
+      }
+
+      const seedConfig = toWorkspaceConfigFile(
+        fromWorkspaceConfigFile(legacy ?? cached?.config) ?? normalizeConfig(),
       );
-
-      if (workspaceConfig) {
-        writeWorkspaceConfigCache(workspaceConfig);
+      try {
+        const savedConfig = await platformBridge.saveWorkspaceConfig(
+          seedConfig.storage,
+        );
+        writeWorkspaceConfigCache(identity, savedConfig);
+        removeLegacyWorkspaceConfigCache();
+        applyHydratedConfig(savedConfig);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        writeWorkspaceConfigCache(identity, seedConfig, seedConfig.storage);
+        applyHydratedConfig(seedConfig, { saveError: message });
+        reportDiagnostic({
+          area: "persistence",
+          title: "云同步失败，将稍后重试",
+          error,
+          code: "WORKSPACE_CONFIG_SAVE_FAILED",
+          context: { operation: "initialize-settings" },
+        });
       }
-
-      if (hydratedConfig) {
-        set((state) => ({
-          config: {
-            ...hydratedConfig,
-            storage: {
-              ...hydratedConfig.storage,
-              workspaceConfigured: state.runtime.workspaceConfigured,
-              workspaceDirectoryName: state.runtime.workspaceDirectoryName,
-            },
-          },
-          runtime: {
-            ...state.runtime,
-            hydrated: true,
-            lastLoadError: null,
-          },
-        }));
-        return workspaceConfig ? ("workspace" as const) : ("default" as const);
-      }
-
-      const defaultConfig = normalizeConfig();
-      set((state) => ({
-        config: {
-          ...defaultConfig,
-          storage: {
-            ...defaultConfig.storage,
-            workspaceConfigured: state.runtime.workspaceConfigured,
-            workspaceDirectoryName: state.runtime.workspaceDirectoryName,
-          },
-        },
-        runtime: {
-          ...state.runtime,
-          hydrated: true,
-          lastLoadError: null,
-        },
-      }));
-
       return "default" as const;
     } catch (error) {
-      const hydratedConfig = fromWorkspaceConfigFile(cachedWorkspaceConfig);
-
-      if (hydratedConfig) {
-        set((state) => ({
-          config: {
-            ...hydratedConfig,
-            storage: {
-              ...hydratedConfig.storage,
-              workspaceConfigured: state.runtime.workspaceConfigured,
-              workspaceDirectoryName: state.runtime.workspaceDirectoryName,
-            },
-          },
-          runtime: {
-            ...state.runtime,
-            hydrated: true,
-            lastLoadError:
-              error instanceof Error ? error.message : String(error),
-          },
-        }));
-        return "default" as const;
-      }
-
-      const defaultConfig = normalizeConfig();
-      set((state) => ({
-        config: {
-          ...defaultConfig,
-          storage: {
-            ...defaultConfig.storage,
-            workspaceConfigured: state.runtime.workspaceConfigured,
-            workspaceDirectoryName: state.runtime.workspaceDirectoryName,
-          },
-        },
-        runtime: {
-          ...state.runtime,
-          hydrated: true,
-          lastLoadError: error instanceof Error ? error.message : String(error),
-        },
-      }));
+      const fallback = toWorkspaceConfigFile(
+        fromWorkspaceConfigFile(cached?.config ?? legacy) ?? normalizeConfig(),
+      );
+      writeWorkspaceConfigCache(identity, fallback, cached?.pendingPatch ?? {});
+      applyHydratedConfig(fallback, {
+        loadError: error instanceof Error ? error.message : String(error),
+      });
       return "default" as const;
     }
   },
 
-  persistWorkspaceConfig: async () => {
+  persistWorkspaceConfig: async (patch) => {
     const state = get();
+    const identity = settingsIdentity(state.runtime);
+    if (!identity) return;
+
     const workspaceConfig = toWorkspaceConfigFile(state.config);
+    const cached = readWorkspaceConfigCache(identity);
+    const pendingPatch = {
+      ...cached?.pendingPatch,
+      ...(patch ?? workspaceConfig.storage),
+    };
+    writeWorkspaceConfigCache(identity, workspaceConfig, pendingPatch);
 
-    writeWorkspaceConfigCache(workspaceConfig);
+    await enqueueWorkspaceConfigOperation(async () => {
+      const latest = readWorkspaceConfigCache(identity);
+      const sentPatch = latest?.pendingPatch ?? pendingPatch;
+      if (!hasSettingsPatch(sentPatch)) return;
 
-    if (!state.runtime.workspaceConfigured) {
-      set((current) => ({
-        runtime: {
-          ...current.runtime,
-          lastSaveError: null,
-        },
-      }));
-      return;
-    }
-
-    try {
-      await platformBridge.saveWorkspaceConfig(workspaceConfig);
-      set((current) => ({
-        runtime: {
-          ...current.runtime,
-          lastSaveError: null,
-        },
-      }));
-    } catch (error) {
-      reportDiagnostic({
-        area: "persistence",
-        title: "配置保存失败",
-        error,
-        code: "WORKSPACE_CONFIG_SAVE_FAILED",
-        context: { operation: "save-config" },
-      });
-      set((current) => ({
-        runtime: {
-          ...current.runtime,
-          lastSaveError: error instanceof Error ? error.message : String(error),
-        },
-      }));
-      throw error;
-    }
+      try {
+        const savedConfig = await platformBridge.saveWorkspaceConfig(sentPatch);
+        const afterSave = readWorkspaceConfigCache(identity);
+        const remaining = remainingPendingPatch(
+          afterSave?.pendingPatch ?? {},
+          sentPatch,
+        );
+        const effectiveConfig = {
+          version: 1 as const,
+          storage: { ...savedConfig.storage, ...remaining },
+        };
+        writeWorkspaceConfigCache(identity, effectiveConfig, remaining);
+        removeLegacyWorkspaceConfigCache();
+        set((current) => {
+          const currentIdentity = settingsIdentity(current.runtime);
+          if (
+            currentIdentity?.userId !== identity.userId ||
+            currentIdentity.workspaceId !== identity.workspaceId
+          ) {
+            return current;
+          }
+          return {
+            config: normalizeConfig({
+              ...current.config,
+              storage: {
+                ...effectiveConfig.storage,
+                workspaceConfigured: current.runtime.workspaceConfigured,
+                workspaceDirectoryName: current.runtime.workspaceDirectoryName,
+              },
+            }),
+            runtime: { ...current.runtime, lastSaveError: null },
+          };
+        });
+      } catch (error) {
+        reportDiagnostic({
+          area: "persistence",
+          title: "云同步失败，将稍后重试",
+          error,
+          code: "WORKSPACE_CONFIG_SAVE_FAILED",
+          context: { operation: "save-settings" },
+        });
+        set((current) => ({
+          runtime: {
+            ...current.runtime,
+            lastSaveError:
+              error instanceof Error ? error.message : String(error),
+          },
+        }));
+        throw error;
+      }
+    });
   },
 
   hydrateLocalVault: async (userId) => {
@@ -661,17 +773,10 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
     advanceLocalVaultStateVersion();
     clearSessionTaskQueues();
     useTaskQueueStore.getState().clearDeviceCache();
-    set((state) => ({
-      config: withoutPrivateSettings(state.config),
-      runtime: {
-        ...state.runtime,
-        vaultStatus: "idle",
-        vaultPersistence: "device",
-        vaultUserId: null,
-        vaultUpdatedAt: null,
-        vaultError: null,
-      },
-    }));
+    set({
+      config: normalizeConfig(),
+      runtime: createDefaultRuntimeState(),
+    });
   },
 
   setDefaultModel: (modelId) => {

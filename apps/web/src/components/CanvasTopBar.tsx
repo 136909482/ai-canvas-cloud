@@ -134,11 +134,8 @@ export function CanvasQuickActions({
   const canvasGridEnabled = useSettingsStore(
     (state) => state.config.storage.canvasGridEnabled,
   );
-  const setStorageSettings = useSettingsStore(
-    (state) => state.setStorageSettings,
-  );
-  const persistWorkspaceConfig = useSettingsStore(
-    (state) => state.persistWorkspaceConfig,
+  const updateStorageSettings = useSettingsStore(
+    (state) => state.updateStorageSettings,
   );
   const notify = useFeedbackStore((state) => state.notify);
   const confirm = useFeedbackStore((state) => state.confirm);
@@ -205,13 +202,15 @@ export function CanvasQuickActions({
   };
 
   const handleToggleTheme = async () => {
-    setStorageSettings({ themeMode: getNextThemeMode(themeMode) });
-    await persistWorkspaceConfig().catch(() => undefined);
+    await updateStorageSettings({
+      themeMode: getNextThemeMode(themeMode),
+    }).catch(() => undefined);
   };
 
   const handleToggleCanvasGrid = async () => {
-    setStorageSettings({ canvasGridEnabled: !canvasGridEnabled });
-    await persistWorkspaceConfig().catch(() => undefined);
+    await updateStorageSettings({
+      canvasGridEnabled: !canvasGridEnabled,
+    }).catch(() => undefined);
   };
 
   const iconButtonClass = `${themeClasses.iconButton} h-6 w-6 rounded-md disabled:cursor-not-allowed disabled:border-transparent disabled:bg-transparent disabled:text-[color-mix(in_srgb,var(--text-muted)_55%,transparent)]`;

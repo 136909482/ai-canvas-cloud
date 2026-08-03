@@ -1,13 +1,18 @@
 import type { Edge, Node, NodeProps } from "@xyflow/react";
-import type { AssetKind } from "@ai-canvas-cloud/contracts";
+import type {
+  AssetKind,
+  CanvasEdgeStyle,
+  CanvasPerformanceMode as CloudCanvasPerformanceMode,
+  CanvasPreferences,
+  CanvasThemeMode,
+} from "@ai-canvas-cloud/contracts";
 import type { ProviderId } from "@/config/modelCatalog";
 import type { RichPromptDocument } from "@/features/richPrompt/types";
 
 export type ModelTestStatus = "idle" | "testing" | "success" | "error";
-export type ThemeMode = "dark" | "light" | "system";
-export type CanvasPerformanceMode = "quality" | "performance";
-export type EdgeStyle =
-  "animated" | "solid" | "step" | "smoothstep" | "colorful";
+export type ThemeMode = CanvasThemeMode;
+export type CanvasPerformanceMode = CloudCanvasPerformanceMode;
+export type EdgeStyle = CanvasEdgeStyle;
 export type ModelCategory = "chat" | "image" | "video";
 export type CustomModelKind = ModelCategory;
 export type ModelSource = "discovered" | "manual";
@@ -77,30 +82,10 @@ export interface ApiConfig {
 
 export interface WorkspaceConfigFile {
   version: 1;
-  storage: Pick<
-    StorageConfig,
-    | "autosaveIntervalMs"
-    | "canvasTopBarCollapsed"
-    | "alignmentGuidesEnabled"
-    | "incomingEdgeAnimationEnabled"
-    | "themeMode"
-    | "canvasPerformanceMode"
-    | "canvasGridEnabled"
-    | "lowQualityPreviewEnabled"
-    | "edgeStyle"
-  >;
+  storage: CanvasPreferences;
 }
 
-export interface StorageConfig {
-  autosaveIntervalMs: number;
-  canvasTopBarCollapsed: boolean;
-  alignmentGuidesEnabled: boolean;
-  incomingEdgeAnimationEnabled: boolean;
-  themeMode: ThemeMode;
-  canvasPerformanceMode: CanvasPerformanceMode;
-  canvasGridEnabled: boolean;
-  edgeStyle: EdgeStyle;
-  lowQualityPreviewEnabled: boolean;
+export interface StorageConfig extends CanvasPreferences {
   workspaceDirectoryName: string;
   workspaceConfigured: boolean;
 }

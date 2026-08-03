@@ -17,6 +17,7 @@ import {
   createPostgresProjectService,
   createPostgresProjectSnapshotService,
   createPostgresWorkspaceUsageService,
+  createPostgresCanvasPreferencesService,
   createS3ObjectStorage,
   createWorkspaceAuthorizationService,
   isolateCurrentSchemaSql,
@@ -237,6 +238,9 @@ async function runCloudE2E() {
     const workspaceUsageService = createPostgresWorkspaceUsageService(pool, {
       authorizationService: authorization,
     });
+    const settingsService = createPostgresCanvasPreferencesService(pool, {
+      authorizationService: authorization,
+    });
     const migrationImportService = createPostgresMigrationImportService(pool, {
       authorizationService: authorization,
     });
@@ -283,6 +287,7 @@ async function runCloudE2E() {
         projectGraphService,
         projectSnapshotService,
         workspaceUsageService,
+        settingsService,
         migrationImportService,
         migrationAssetUploadService,
         migrationExportService,
@@ -360,6 +365,33 @@ async function runCloudE2E() {
       (sessionResponseB.body as { user: { userNumber: number } }).user
         .userNumber,
       userNumberB,
+    );
+
+    assert.deepEqual(
+      (await accountA.request(port, "GET", "/api/v1/settings")).body,
+      { settings: null, updatedAt: null },
+    );
+    const updatedSettingsA = await accountA.request(
+      port,
+      "PATCH",
+      "/api/v1/settings",
+      {
+        canvasPerformanceMode: "performance",
+        lowQualityPreviewEnabled: false,
+      },
+    );
+    assert.equal(updatedSettingsA.statusCode, 200);
+    assert.equal(
+      (
+        updatedSettingsA.body as {
+          settings: { canvasPerformanceMode: string };
+        }
+      ).settings.canvasPerformanceMode,
+      "performance",
+    );
+    assert.deepEqual(
+      (await accountB.request(port, "GET", "/api/v1/settings")).body,
+      { settings: null, updatedAt: null },
     );
 
     const createdProject = await accountA.request(
@@ -631,6 +663,14 @@ async function runCloudE2E() {
       200,
     );
     assert.equal(
+      (
+        (await accountA.request(port, "GET", "/api/v1/settings")).body as {
+          settings: { lowQualityPreviewEnabled: boolean };
+        }
+      ).settings.lowQualityPreviewEnabled,
+      false,
+    );
+    assert.equal(
       (await accountB.request(port, "GET", `/api/v1/projects/${projectA}`))
         .statusCode,
       404,
@@ -788,7 +828,7 @@ const cloudE2ESkip =
     : "DATABASE_URL and S3 test dependencies are not configured";
 
 test(
-  "cloud API two-account E2E keeps projects, graph, assets, sessions and devices isolated",
+  "cloud API two-account E2E keeps projects, graph, assets, settings, sessions and devices isolated",
   { skip: cloudE2ESkip },
   runCloudE2E,
 );

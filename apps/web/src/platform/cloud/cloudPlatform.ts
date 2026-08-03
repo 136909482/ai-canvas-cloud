@@ -4,6 +4,7 @@ import type {
   AssetResponse,
   AssetUploadResponse,
   AssetUrlResponse,
+  CanvasPreferencesResponse,
   CompleteAssetUploadResponse,
   CurrentWorkspaceResponse,
   ProjectCheckpointResponse,
@@ -819,11 +820,24 @@ export const cloudPlatformBridge: PlatformBridge = {
   },
 
   async loadWorkspaceConfig() {
+    const response =
+      await requestCloudJson<CanvasPreferencesResponse>("/settings");
+    memoryConfig = response.settings
+      ? { version: 1, storage: cloneJson(response.settings) }
+      : null;
     return memoryConfig ? cloneJson(memoryConfig) : null;
   },
 
-  async saveWorkspaceConfig(config) {
-    memoryConfig = cloneJson(config);
+  async saveWorkspaceConfig(patch) {
+    const response = await requestCloudJson<CanvasPreferencesResponse>(
+      "/settings",
+      { method: "PATCH", body: JSON.stringify(patch) },
+    );
+    if (!response.settings) {
+      throw new Error("Cloud settings response is missing settings");
+    }
+    memoryConfig = { version: 1, storage: cloneJson(response.settings) };
+    return cloneJson(memoryConfig);
   },
 
   async loadWorkflowTemplates() {

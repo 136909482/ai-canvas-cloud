@@ -70,6 +70,7 @@
 - `npm run lint`
 - `npm run lint:files`
 - `npm run format:files`
+- `npm run version:set -- <semver>`
 - `npm run typecheck`
 - `npm run check`
 - `npm run db:migrate`

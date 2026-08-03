@@ -148,6 +148,17 @@ GET /api/v1/workspaces/current/usage
 
 `/current` 返回可信 session 的 personal workspace 摘要。首发不提供切换或邀请。`/usage` 返回存储 used/reserved/total/quota/available 及同工作区项目的 file/node/storage 摘要；不返回 object key、用户 ID 或其他 workspace 统计。
 
+## 账号画布偏好
+
+```text
+GET   /api/v1/settings
+PATCH /api/v1/settings
+```
+
+两个接口都从可信 session 取得 `userId` 与当前 `workspaceId`，不接受客户端身份字段。GET 在尚未初始化时返回 `{ settings: null, updatedAt: null }`；初始化后返回完整画布偏好和更新时间。PATCH 至少包含一个字段并按字段合并，只接受 `autosaveIntervalMs`、`canvasTopBarCollapsed`、`alignmentGuidesEnabled`、`incomingEdgeAnimationEnabled`、`themeMode`、`canvasPerformanceMode`、`canvasGridEnabled`、`edgeStyle` 和 `lowQualityPreviewEnabled`。自动保存间隔只允许 `15000|30000|60000|120000|300000`，未知字段、Provider 配置、Key 和身份字段统一拒绝。
+
+偏好修改采用字段级最后写入生效，不使用项目版本冲突协议。新设备在登录或刷新后读取当前云端值；首个升级后的设备仅在云端尚无偏好时把旧本地配置作为初始值。网络失败时浏览器可以保留按用户和工作区隔离的非敏感待同步补丁，但不得把 Provider Vault 或任务状态混入该缓存。
+
 ## 项目元数据
 
 ```text

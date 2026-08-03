@@ -1,6 +1,6 @@
 {
   "name": "@ai-canvas-cloud/admin-web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ai-canvas-cloud/contracts": "0.1.0",
+    "@ai-canvas-cloud/contracts": "0.2.0",
     "@ant-design/v5-patch-for-react-19": "^1.0.3",
     "@refinedev/core": "^5.0.12",
     "antd": "^5.29.3",

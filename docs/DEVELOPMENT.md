@@ -39,6 +39,14 @@ Web 生产构建保留 React、React Flow、编辑器、Three.js、全景、图�
 
 Node 静态站点对 `index.html`、`/` 和所有 SPA 回退 HTML 返回 `Cache-Control: no-store`；`/assets/*` 返回 `Cache-Control: public, max-age=31536000, immutable`，其他静态文件使用 `no-cache`。Hash 文件名变化即创建新 URL，新旧资源可同时缓存一年。EdgeOne 必须使用源站缓存头，不得配置覆盖 `/assets/*` 的短 TTL；HTML 不得在 EdgeOne 缓存。
 
+## 版本与更新日志
+
+应用版本遵循语义化版本，根 `package.json`、全部 workspace、内部依赖和 `package-lock.json` 必须保持同一版本。公共 API 与 Admin API 的 OpenAPI `info.version` 在运行时读取各自 package 版本，不维护独立常量。
+
+准备新版本时运行 `npm run version:set -- <semver>`，随后在根目录 `CHANGELOG.md` 的 `Unreleased` 下整理用户可见变化并创建带发布日期的版本段。完成 `npm run check`、`npm test`、`npm run lint` 和 `npm run build` 后才能构建发布镜像；发布成功再创建同版本 `v<semver>` Git 标签。版本命令不创建提交或标签，也不代替更新日志和发布门禁。
+
+`CHANGELOG.md` 只记录用户可见的新增、变化、修复和安全边界，不复制路线图、架构文档、测试数量或单次开发复盘。阶段状态仍只在 `docs/ROADMAP.md` 维护。
+
 ## Docker 生产部署
 
 ### 2 核 2G 拓扑
@@ -233,7 +241,7 @@ sudo bash status.sh
 - `apps/admin-web` 与 `apps/admin-api` 使用独立 Origin、Cookie、认证、RBAC、数据库角色和审计。
 - `packages/contracts` 是 HTTP 运行时 schema 和共享类型来源。
 - `packages/project-graph` 只保存图操作、检查点和 `ProjectRecord` 纯转换。
-- `server/modules` 拥有认证、邮件传输、工作区、项目图、检查点、资产、站内通知、生成运营遥测、迁移和 Admin 领域事务。
+- `server/modules` 拥有认证、邮件传输、工作区、账号画布偏好、项目图、检查点、资产、站内通知、生成运营遥测、迁移和 Admin 领域事务。
 
 Web 不得 import `server/`、数据库驱动、Redis 或对象存储管理 SDK。API 路由只解析 HTTP、可信会话与 schema，再调用领域服务；不得直接写项目图、资产引用、迁移或 Admin 表。
 
@@ -252,6 +260,8 @@ Web 不得 import `server/`、数据库驱动、Redis 或对象存储管理 SDK�
 Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户名、邮箱、UID、状态、session 时间、workspace 与存储聚合，不读取兼容 `name`、密码哈希、session token、项目正文、资产 object key 或浏览器 Provider 配置。仅 `super_admin` 可通过账号恢复入口写入新的 Better Auth 密码哈希；输入密码只在请求内存中短期存在，更新与 session 撤销、脱敏审计同事务提交，响应和审计不返回密码或哈希。
 
 站内通知使用共享 `announcements` 领域模块：`super_admin` 与 `operator` 可保存草稿、发布和下线，普通用户只读取当前发布集合并为自己写幂等已读回执。发布不创建每用户收件箱副本，用户端通知中心把 Cloud 公告与浏览器内存中的任务/错误消息分源合并；时间线只展示 Cloud 公告，正文不写入 Admin 审计。
+
+画布管理和外观设置的九项非敏感偏好通过 `/api/v1/settings` 保存到当前用户的 `workspace_user_state.ui_state_json`，跨设备在登录或刷新时同步。浏览器缓存必须按可信用户和工作区隔离；云端未初始化时才允许以旧本地配置首次写入，云端已有值时不得由旧全局缓存覆盖。保存失败使用字段级待同步补丁重试。Provider、模型身份、endpoint、Key、匿名绑定和本地任务不属于该配置，仍只进入浏览器 Vault 或任务缓存。
 
 认证邮件只支持 `development|managed` 两种传输模式。`managed` 每次发送前读取 `public.smtp_config_publications`，按 revision 缓存解密后的运行配置和 Nodemailer transporter，并在每次发送前重新校验 DNS；后台新 revision 或公网目标变化后下一封邮件立即替换缓存，不要求重启。没有已启用的后台 revision 时邮件服务不可用，不读取环境 SMTP 配置。注册邮箱验证码仅在站点设置开启后发送，发送与已有账号均保持不披露账号状态的响应语义；注册与密码重置验证码均由 PostgreSQL 挑战记录一次性消费，10 分钟有效、60 秒冷却、连续 5 次错误失效。密码重置表不保存 Better Auth token 明文，只保存 AES-256-GCM 密文；SMTP `sendMail` 不自动重试。
 

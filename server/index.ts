@@ -12,4 +12,5 @@ export * from "./modules/migrations/index.js";
 export * from "./modules/project-graph/index.js";
 export * from "./modules/project-snapshots/index.js";
 export * from "./modules/projects/index.js";
+export * from "./modules/settings/index.js";
 export * from "./modules/workspaces/index.js";

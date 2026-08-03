@@ -6,6 +6,7 @@ export type PublicRouteGroup =
   | "assets"
   | "migrations"
   | "projects"
+  | "settings"
   | "announcements";
 
 export interface PublicRouteInventoryEntry {
@@ -137,6 +138,18 @@ export const PUBLIC_ROUTE_INVENTORY = [
     path: "/api/v1/workspaces/current/usage",
     operationId: "getCurrentWorkspaceUsage",
     group: "workspaces",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/settings",
+    operationId: "getCanvasPreferences",
+    group: "settings",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/settings",
+    operationId: "updateCanvasPreferences",
+    group: "settings",
   },
   {
     method: "POST",

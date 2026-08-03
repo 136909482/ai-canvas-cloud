@@ -43,7 +43,7 @@
 
 ### `workspace_user_state`
 
-保存某用户在某工作区的最近项目、当前项目和非敏感 UI 游标。它不能放在 `workspaces` 上，避免未来成员互相覆盖。
+保存某用户在某工作区的最近项目、当前项目和非敏感 UI 游标。`ui_state_json.canvasPreferences` 是 `schemaVersion=1` 的版本化账号画布偏好，保存自动保存间隔、工具栏折叠、对齐线、入线动画、主题、性能模式、网格、连线样式和高清预览，并带独立 `updatedAt`；PATCH 在 JSONB 内按字段合并且保留其他 UI 状态。它不能放在 `workspaces` 上，避免未来成员互相覆盖，也不得包含 Provider、endpoint、真实模型 ID、绑定、Key 或本地任务。
 
 ### `auth_audit_events`
 
@@ -246,7 +246,7 @@ commit 在一个事务中完成项目策略、资产 UUID 映射、图/引用/ch
 
 设备持久化是唯一用户可见模式，不提供 persistence 或单独删除入口。Vault 保存与本地任务写入在浏览器内串行执行；登出/session 失效/换账号只清空内存明文并保留按账号隔离的设备密文。用户清除当前网站数据时，浏览器删除 IndexedDB 中的密文、CryptoKey、模型绑定和本地任务缓存。异步完成只有在可信用户、内部持久化状态与状态代次仍一致时才能更新运行态。
 
-当前运行时只读取当前版本的浏览器 Vault、任务缓存和项目快照。workspace 配置、项目图、checkpoint、迁移包、Cloud API 请求、日志、指标、诊断、PostgreSQL 和 Admin 均不保存真实 Provider、endpoint、模型 ID、绑定或 Key。
+当前运行时只读取当前版本的浏览器 Vault、任务缓存和项目快照。非敏感画布与外观偏好通过 `workspace_user_state` 跨设备同步；项目图、checkpoint、迁移包、偏好 API、日志、指标、诊断、PostgreSQL 和 Admin 均不保存真实 Provider、endpoint、模型 ID、绑定或 Key。
 
 浏览器本地生成与任务恢复不创建服务端任务表，也不把执行状态同步到 Cloud；`generation_telemetry` 只是不可执行的有限运营记录。项目图中的模型字段仅保存 `local:<uuid>`，其 Vault 绑定值是 `modelEntryId`；真实模型 ID 只存在对应 Vault 模型条目中。Cloud 图还会移除 profile/Provider/endpoint/Key、task ID、remote task、上游错误和运行态。生成媒体先作为私有 `assets` 上传，完成后项目图只引用 Cloud asset UUID，不保存 Provider 临时 URL。
 

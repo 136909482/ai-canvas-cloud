@@ -31,6 +31,7 @@ import { registerAdminSmtpRoutes } from "./routes/smtp.js";
 import { registerAdminSystemRoutes } from "./routes/system.js";
 import { registerAdminUserRoutes } from "./routes/users.js";
 import { registerAdminAnnouncementRoutes } from "./routes/announcements.js";
+import { APPLICATION_VERSION } from "../applicationVersion.js";
 
 function isAdminApiOwnedPath(pathname: string) {
   return (
@@ -100,7 +101,7 @@ export async function createFastifyAdminApiServer(options: AdminServerOptions) {
       openapi: {
         info: {
           title: "AI Canvas Cloud Admin API",
-          version: "0.1.0",
+          version: APPLICATION_VERSION,
         },
       },
     });

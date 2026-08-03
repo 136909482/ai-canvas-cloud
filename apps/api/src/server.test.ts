@@ -13,6 +13,7 @@ import {
   type CompleteAssetUploadResponse,
   type AuthSuccessResponse,
   type CurrentWorkspaceResponse,
+  type CanvasPreferencesResponse,
   type WorkspaceUsageResponse,
   type ProjectCheckpointResponse,
   type ProjectGraphChangesResponse,
@@ -28,6 +29,7 @@ import {
   type MigrationExportResponse,
   DEFAULT_SITE_CONFIG,
 } from "@ai-canvas-cloud/contracts";
+import { DEFAULT_CANVAS_PREFERENCES } from "@ai-canvas-cloud/contracts/canvas-preferences";
 import type {
   AssetCleanupService,
   AssetService,
@@ -53,6 +55,7 @@ import type {
   ProjectActor,
   ProjectService,
 } from "@ai-canvas-cloud/server/modules/projects";
+import type { CanvasPreferencesService } from "@ai-canvas-cloud/server/modules/settings";
 import type { WorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
 import { createMetricsRegistry, type Logger } from "@ai-canvas-cloud/shared";
 import { createFastifyApiServer } from "../dist/fastify/server.js";
@@ -671,6 +674,29 @@ function createFakeWorkspaceUsageService() {
             updatedAt: "2026-07-15T00:00:00.000Z",
           },
         ],
+      };
+    },
+  };
+  return { actors, service };
+}
+
+function createFakeCanvasPreferencesService() {
+  const actors: ProjectActor[] = [];
+  let settings: CanvasPreferencesResponse["settings"] = null;
+  const service: CanvasPreferencesService = {
+    async get(actor) {
+      actors.push(actor);
+      return {
+        settings,
+        updatedAt: settings ? "2026-08-03T12:00:00.000Z" : null,
+      };
+    },
+    async update(patch, actor) {
+      actors.push(actor);
+      settings = { ...DEFAULT_CANVAS_PREFERENCES, ...settings, ...patch };
+      return {
+        settings,
+        updatedAt: "2026-08-03T12:00:00.000Z",
       };
     },
   };
@@ -1934,6 +1960,63 @@ test("current workspace usage route uses only the trusted session actor", async 
       1024,
     );
     assert.deepEqual(usage.actors, [
+      { userId: "user_1", workspaceId: "workspace_1" },
+    ]);
+  } finally {
+    await closeApiServer(server, 1_000);
+  }
+});
+
+test("canvas settings routes use the trusted actor and reject unsupported fields", async () => {
+  const preferences = createFakeCanvasPreferencesService();
+  const server = await createFastifyApiServer({
+    config,
+    authService: createFakeAuthService(),
+    settingsService: preferences.service,
+  });
+  const port = await listen(server);
+  const cookie = `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`;
+
+  try {
+    const missingCookie = await requestJson(port, {
+      method: "GET",
+      path: `${API_V1_PREFIX}/settings`,
+    });
+    assert.equal(missingCookie.statusCode, 401);
+
+    const empty = await requestJson(port, {
+      method: "GET",
+      path: `${API_V1_PREFIX}/settings?userId=forged&workspaceId=forged`,
+      cookie,
+    });
+    assert.equal(empty.statusCode, 200);
+    assert.deepEqual(empty.body, { settings: null, updatedAt: null });
+
+    const updated = await requestJson(port, {
+      method: "PATCH",
+      path: `${API_V1_PREFIX}/settings`,
+      cookie,
+      body: {
+        canvasPerformanceMode: "performance",
+        lowQualityPreviewEnabled: false,
+      },
+    });
+    assert.equal(updated.statusCode, 200);
+    assert.equal(
+      (updated.body as CanvasPreferencesResponse).settings
+        ?.canvasPerformanceMode,
+      "performance",
+    );
+
+    const rejected = await requestJson(port, {
+      method: "PATCH",
+      path: `${API_V1_PREFIX}/settings`,
+      cookie,
+      body: { apiKey: "must-not-reach-service" },
+    });
+    assert.equal(rejected.statusCode, 400);
+    assert.deepEqual(preferences.actors, [
+      { userId: "user_1", workspaceId: "workspace_1" },
       { userId: "user_1", workspaceId: "workspace_1" },
     ]);
   } finally {

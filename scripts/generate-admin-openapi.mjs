@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createUnavailableAdminService } from "../server/dist/modules/admin/index.js";
@@ -38,6 +38,9 @@ const config = {
 
 const logger = { debug() {}, info() {}, warn() {}, error() {} };
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const adminApiPackage = JSON.parse(
+  await readFile(resolve(workspaceRoot, "apps/admin-api/package.json"), "utf8"),
+);
 const server = await createFastifyAdminApiServer({
   config,
   adminService: createUnavailableAdminService(),
@@ -57,6 +60,7 @@ try {
     "Admin OpenAPI endpoint must be available",
   );
   const document = await response.json();
+  assert.equal(document.info?.version, adminApiPackage.version);
   const operationIds = [];
   const documentedRoutes = new Map();
 

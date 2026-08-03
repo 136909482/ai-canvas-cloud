@@ -17,6 +17,9 @@ function hasDraggingNode({ nodes }: CanvasSnapshot) {
 
 export function ProjectBootstrap() {
   const userId = useAuthStore((state) => state.session?.user.id ?? null);
+  const workspaceId = useAuthStore(
+    (state) => state.session?.workspace.id ?? null,
+  );
   const isReady = useProjectStore((state) => state.isReady);
   const hasHydrated = useProjectStore((state) => state.hasHydrated);
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
@@ -47,14 +50,16 @@ export function ProjectBootstrap() {
     (state) => state.runtime.vaultPersistence,
   );
   const vaultUserId = useSettingsStore((state) => state.runtime.vaultUserId);
-  const initializedUserRef = useRef<string | null>(null);
+  const initializedSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!userId || initializedUserRef.current === userId) {
+    if (!userId || !workspaceId) {
       return;
     }
 
-    initializedUserRef.current = userId;
+    const sessionKey = `${userId}\n${workspaceId}`;
+    if (initializedSessionRef.current === sessionKey) return;
+    initializedSessionRef.current = sessionKey;
 
     void (async () => {
       try {
@@ -72,7 +77,7 @@ export function ProjectBootstrap() {
         });
       }
 
-      await hydrateFromWorkspace();
+      await hydrateFromWorkspace(userId, workspaceId);
       await hydrateLocalVault(userId);
       await ensureInitialized();
     })();
@@ -82,6 +87,7 @@ export function ProjectBootstrap() {
     hydrateLocalVault,
     setWorkspaceRuntimeStatus,
     userId,
+    workspaceId,
   ]);
 
   useEffect(() => {

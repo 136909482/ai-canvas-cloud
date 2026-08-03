@@ -1,12 +1,13 @@
 {
   "name": "@ai-canvas-cloud/contracts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./dist/index.js",
     "./http": "./dist/http.js",
     "./http-schema": "./dist/httpSchema.js",
+    "./canvas-preferences": "./dist/canvasPreferences.js",
     "./admin-http-schema": "./dist/adminHttpSchema.js",
     "./migration-package": "./dist/migrationPackage.js",
     "./site-config": "./dist/siteConfig.js"
@@ -16,7 +17,7 @@
     "test": "node --test src/**/*.test.ts"
   },
   "dependencies": {
-    "@ai-canvas-cloud/shared": "0.1.0",
+    "@ai-canvas-cloud/shared": "0.2.0",
     "@sinclair/typebox": "^0.34.52"
   }
 }

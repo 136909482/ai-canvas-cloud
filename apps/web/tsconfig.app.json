@@ -17,6 +17,9 @@
       "@ai-canvas-cloud/contracts/site-config": [
         "../../packages/contracts/src/siteConfig.ts"
       ],
+      "@ai-canvas-cloud/contracts/canvas-preferences": [
+        "../../packages/contracts/src/canvasPreferences.ts"
+      ],
       "@ai-canvas-cloud/project-graph": [
         "../../packages/project-graph/src/index.ts"
       ],

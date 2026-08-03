@@ -239,6 +239,14 @@ textarea::-webkit-scrollbar-thumb:hover {
 }
 
 /* Public home */
+html:has(.home-shell) {
+  scrollbar-width: none;
+}
+
+html:has(.home-shell)::-webkit-scrollbar {
+  width: 0;
+}
+
 .home-shell {
   min-height: 100vh;
   overflow-x: clip;

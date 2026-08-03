@@ -3,7 +3,7 @@
   "description": "Cloud SaaS monorepo for AI Canvas.",
   "author": "AI Canvas",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "packageManager": "npm@11.16.0",
   "engines": {
@@ -28,6 +28,7 @@
     "lint": "eslint .",
     "lint:files": "eslint",
     "format:files": "prettier --check --ignore-unknown --end-of-line auto",
+    "version:set": "node scripts/set-version.mjs",
     "typecheck": "tsc -b --pretty false",
     "check": "node scripts/run-check.mjs",
     "build": "npm run build -w @ai-canvas-cloud/shared && npm run build -w @ai-canvas-cloud/contracts && npm run build -w @ai-canvas-cloud/project-graph && npm run build -w @ai-canvas-cloud/server && npm run build -w @ai-canvas-cloud/api && npm run build -w @ai-canvas-cloud/admin-api && npm run build -w @ai-canvas-cloud/web && npm run build -w @ai-canvas-cloud/admin-web",

@@ -2,7 +2,7 @@
 
 AI Canvas Cloud 是 AI Canvas 的独立账号网站端。它提供账号、个人空间、云端项目图、私有媒体资产、目录包迁移和独立 Admin；用户 Provider、endpoint、模型 ID、API Key 与可恢复生成任务只保存在当前浏览器的加密设备存储中，不进入 Cloud。
 
-仓库使用 npm workspaces，常驻应用只有 Web、API、Admin Web 和 Admin API。当前阶段与剩余工作以 [`docs/ROADMAP.md`](docs/ROADMAP.md) 为准。
+仓库使用 npm workspaces，常驻应用只有 Web、API、Admin Web 和 Admin API。当前阶段与剩余工作以 [`docs/ROADMAP.md`](docs/ROADMAP.md) 为准，用户可见版本变化记录在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ## 快速开始
 
@@ -84,6 +84,14 @@ npm run build
 
 `npm test` 会构建测试运行时实际依赖的 6 个共享/后端工作区，不再重复构建两个前端生产包。`npm run build` 除生产打包外还执行匿名入口体积和 preload 门禁。数据库、认证、权限、资产、Vault 和发布验证按风险触发，完整矩阵见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)。
 
+准备新版本时使用统一命令更新根包、全部 workspace、内部依赖和 lockfile，再补充更新日志并运行发布门禁：
+
+```bash
+npm run version:set -- 0.3.0
+```
+
+版本号遵循语义化版本；正式发布后再创建对应的 `v0.3.0` Git 标签，不允许只修改单个应用的版本号。
+
 ## 文档入口
 
 | 文档                                                     | 只维护什么                           |
@@ -94,6 +102,8 @@ npm run build
 | [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md)               | 表、约束、事务与迁移语义             |
 | [`docs/API.md`](docs/API.md)                             | HTTP 请求、响应、错误码与安全边界    |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md)                     | 唯一阶段状态、当前剩余验收、后续路线 |
+
+[`CHANGELOG.md`](CHANGELOG.md) 独立保存按语义化版本整理的用户可见变化，不承载路线状态或架构说明。
 
 完成态不再写成逐次复盘。稳定结论写入对应参考文档，阶段只在路线图保留一行摘要，测试次数和某次命令输出不进入长期文档。
 

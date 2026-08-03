@@ -1,6 +1,6 @@
 {
   "name": "@ai-canvas-cloud/api",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -12,9 +12,9 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@ai-canvas-cloud/contracts": "0.1.0",
-    "@ai-canvas-cloud/server": "0.1.0",
-    "@ai-canvas-cloud/shared": "0.1.0",
+    "@ai-canvas-cloud/contracts": "0.2.0",
+    "@ai-canvas-cloud/server": "0.2.0",
+    "@ai-canvas-cloud/shared": "0.2.0",
     "@fastify/type-provider-typebox": "^6.1.0",
     "@sinclair/typebox": "^0.34.52",
     "fastify": "^5.10.0",

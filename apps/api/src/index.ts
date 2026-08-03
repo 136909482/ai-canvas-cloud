@@ -15,6 +15,7 @@ import {
   createObjectStorageCredentialKeyring,
   createWorkspaceAuthorizationService,
   createPostgresWorkspaceUsageService,
+  createPostgresCanvasPreferencesService,
   createPostgresMigrationImportService,
   createPostgresMigrationAssetUploadService,
   createPostgresMigrationExportService,
@@ -101,6 +102,9 @@ const projectService = createPostgresProjectService(dbPool, {
 const workspaceUsageService = createPostgresWorkspaceUsageService(dbPool, {
   authorizationService: workspaceAuthorizationService,
 });
+const settingsService = createPostgresCanvasPreferencesService(dbPool, {
+  authorizationService: workspaceAuthorizationService,
+});
 const migrationImportService = createPostgresMigrationImportService(dbPool, {
   authorizationService: workspaceAuthorizationService,
 });
@@ -145,6 +149,7 @@ const serverOptions = {
   projectSnapshotService,
   projectService,
   workspaceUsageService,
+  settingsService,
   migrationImportService,
   migrationAssetUploadService,
   migrationExportService,

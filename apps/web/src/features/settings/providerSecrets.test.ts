@@ -9,7 +9,7 @@ test("workspace config has no provider fields to redact", () => {
   const config = {
     version: 1 as const,
     storage: {
-      autosaveIntervalMs: 60_000,
+      autosaveIntervalMs: 60_000 as const,
       canvasTopBarCollapsed: false,
       alignmentGuidesEnabled: true,
       incomingEdgeAnimationEnabled: true,

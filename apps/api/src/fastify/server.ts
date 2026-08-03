@@ -21,6 +21,7 @@ import {
 import { createUnavailableProjectGraphService } from "@ai-canvas-cloud/server/modules/project-graph";
 import { createUnavailableProjectSnapshotService } from "@ai-canvas-cloud/server/modules/project-snapshots";
 import { createUnavailableProjectService } from "@ai-canvas-cloud/server/modules/projects";
+import { createUnavailableCanvasPreferencesService } from "@ai-canvas-cloud/server/modules/settings";
 import {
   FASTIFY_SERVER_CLOSE,
   type FastifyHttpServer,
@@ -36,6 +37,8 @@ import { registerAssetRoutes } from "./routes/assets.js";
 import { registerMigrationRoutes } from "./routes/migrations.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerAnnouncementRoutes } from "./routes/announcements.js";
+import { registerSettingsRoutes } from "./routes/settings.js";
+import { APPLICATION_VERSION } from "../applicationVersion.js";
 
 const PUBLIC_SITE_CONTENT_SECURITY_POLICY =
   "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https:; worker-src 'self' blob:; manifest-src 'self'; form-action 'self'";
@@ -53,6 +56,8 @@ export async function createFastifyApiServer(options: ServerOptions) {
     createUnavailableAnnouncementTimelineService();
   const workspaceUsageService =
     options.workspaceUsageService ?? createUnavailableWorkspaceUsageService();
+  const settingsService =
+    options.settingsService ?? createUnavailableCanvasPreferencesService();
   const generationTelemetryService =
     options.generationTelemetryService ??
     createUnavailableGenerationTelemetryService();
@@ -99,7 +104,7 @@ export async function createFastifyApiServer(options: ServerOptions) {
       openapi: {
         info: {
           title: "AI Canvas Cloud Public API",
-          version: "0.1.0",
+          version: APPLICATION_VERSION,
         },
       },
     });
@@ -121,6 +126,7 @@ export async function createFastifyApiServer(options: ServerOptions) {
     readinessChecks: options.readinessChecks,
   });
   registerWorkspaceRoutes(app, { authContext, workspaceUsageService });
+  registerSettingsRoutes(app, { authContext, settingsService });
   registerAnnouncementRoutes(app, { authContext, announcementService });
   registerTelemetryRoutes(app, { authContext, generationTelemetryService });
   registerAuthRoutes(app, authContext);

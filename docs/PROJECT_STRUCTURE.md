@@ -23,6 +23,7 @@ server/
     auth/              Better Auth、动态认证邮件、设备和认证错误映射
     mail/              SMTP 公网校验、TLS 传输与版本化凭据加解密
     workspaces/        成员授权、存储用量和配额
+    settings/          用户在工作区内的非敏感画布偏好
     projects/          项目元数据与生命周期
     project-graph/     图增量事务、change 和当前资产引用
     project-snapshots/ checkpoint、历史、restore 和 manifest 修复
@@ -88,13 +89,14 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 
 `apps/api` 和 `apps/admin-api` 保持薄入口：解析请求、校验会话/schema/安全策略、调用领域服务、映射稳定错误。`server/modules` 是事务和授权查询的唯一所有者。
 
-`apps/api/src/routeInventory.ts` 与 `apps/admin-api/src/routeInventory.ts` 分别是公共和 Admin HTTP 方法、路径、`operationId` 与路由组的事实清单；OpenAPI 构建必须与对应 Fastify 路由双向一致。`apps/api/src/fastify` 按 `system/auth/workspaces/announcements/telemetry/assets/migrations/projects` 拆分公共路由，`apps/admin-api/src/fastify` 按 `system/auth-security/dashboard-audit/users/announcements/site/smtp/object-storage` 拆分后台路由；两个 Fastify server factory 都独立处理未匹配请求和静态站点。`serverOptions.ts` 只描述入口依赖，`serverLifecycle.ts` 只管理 Fastify 关闭钩子。`packages/contracts/src/httpSchema.ts` 与 `packages/contracts/src/adminHttpSchema.ts` 只通过服务端子路径导出 TypeBox Schema，不进入 Contracts 根导出或 Web bundle。
+`apps/api/src/routeInventory.ts` 与 `apps/admin-api/src/routeInventory.ts` 分别是公共和 Admin HTTP 方法、路径、`operationId` 与路由组的事实清单；OpenAPI 构建必须与对应 Fastify 路由双向一致。`apps/api/src/fastify` 按 `system/auth/workspaces/settings/announcements/telemetry/assets/migrations/projects` 拆分公共路由，`apps/admin-api/src/fastify` 按 `system/auth-security/dashboard-audit/users/announcements/site/smtp/object-storage` 拆分后台路由；两个 Fastify server factory 都独立处理未匹配请求和静态站点。`serverOptions.ts` 只描述入口依赖，`serverLifecycle.ts` 只管理 Fastify 关闭钩子。`packages/contracts/src/httpSchema.ts` 与 `packages/contracts/src/adminHttpSchema.ts` 只通过服务端子路径导出 TypeBox Schema，不进入 Contracts 根导出或 Web bundle。
 
 - `project-graph` 独占节点、连线、change、version/sequence 和当前节点资产引用写入。
 - `project-snapshots` 独占 checkpoint 与 restore。
 - `assets` 独占上传确认、私有读取、配额、无引用资产扫描与 GC；普通 API 执行引用复查和对象删除。
 - `migrations` 编排导入导出，但复用图、资产和 checkpoint 领域 helper。
 - `announcements` 独占公告草稿/发布/下线生命周期、用户时间线查询和幂等已读回执；HTTP 路由与 React 组件不直接写公告表。
+- `settings` 独占非敏感画布偏好的校验、成员授权与 `workspace_user_state.ui_state_json` 字段级合并；不得接收 Provider Vault 或客户端身份字段。
 - `admin` 只能通过受限服务读取普通用户最小投影、发布加密 SMTP/站点配置并写脱敏审计；资产清理只通过内部密钥调用普通 API 并接收聚合结果，Admin 数据库角色不得读取 object key。
 - `mail` 是 API 与 Admin API 共用的受控 SMTP 执行层；它不读取 HTTP 请求或数据库，主密钥只由两个服务器入口注入。
 

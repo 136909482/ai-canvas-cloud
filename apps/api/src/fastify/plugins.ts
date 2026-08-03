@@ -33,6 +33,7 @@ const SESSION_PROTECTED_ROUTE_GROUPS = new Set([
   "assets",
   "migrations",
   "projects",
+  "settings",
   "telemetry",
   "workspaces",
   "announcements",

@@ -1,4 +1,5 @@
 import { normalizeLocalModelBindings } from "../features/settings/localModelReferences.ts";
+import { DEFAULT_CANVAS_PREFERENCES } from "@ai-canvas-cloud/contracts/canvas-preferences";
 import type {
   ApiConfig,
   ModelCategory,
@@ -108,23 +109,32 @@ function normalizeApiKeys(value: unknown, profiles: ProviderProfileConfig[]) {
 export function normalizeStorageConfig(
   config?: Partial<StorageConfig>,
 ): StorageConfig {
-  const autosaveIntervalMs = Number.isFinite(config?.autosaveIntervalMs)
-    ? Math.max(15_000, Number(config?.autosaveIntervalMs))
-    : 60_000;
+  const autosaveIntervalMs =
+    config?.autosaveIntervalMs === 15_000 ||
+    config?.autosaveIntervalMs === 30_000 ||
+    config?.autosaveIntervalMs === 60_000 ||
+    config?.autosaveIntervalMs === 120_000 ||
+    config?.autosaveIntervalMs === 300_000
+      ? config.autosaveIntervalMs
+      : DEFAULT_CANVAS_PREFERENCES.autosaveIntervalMs;
   const themeMode =
     config?.themeMode === "light" || config?.themeMode === "system"
       ? config.themeMode
-      : "dark";
+      : DEFAULT_CANVAS_PREFERENCES.themeMode;
   const canvasPerformanceMode =
-    config?.canvasPerformanceMode === "performance" ? "performance" : "quality";
+    config?.canvasPerformanceMode === "performance"
+      ? "performance"
+      : DEFAULT_CANVAS_PREFERENCES.canvasPerformanceMode;
+  const legacyEdgeStyle = (config as { edgeStyle?: unknown } | undefined)
+    ?.edgeStyle;
   const edgeStyle =
     config?.edgeStyle === "solid" ||
     config?.edgeStyle === "step" ||
     config?.edgeStyle === "smoothstep"
       ? config.edgeStyle
-      : config?.edgeStyle === "colorful"
+      : legacyEdgeStyle === "colorful"
         ? "step"
-        : "animated";
+        : DEFAULT_CANVAS_PREFERENCES.edgeStyle;
 
   return {
     autosaveIntervalMs,

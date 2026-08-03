@@ -1,4 +1,13 @@
 export { API_V1_PREFIX } from "./http.ts";
+export type {
+  CanvasAutosaveInterval,
+  CanvasEdgeStyle,
+  CanvasPerformanceMode,
+  CanvasPreferences,
+  CanvasPreferencesResponse,
+  CanvasThemeMode,
+  UpdateCanvasPreferencesRequest,
+} from "./canvasPreferences.js";
 
 export const apiErrorCodes = [
   "AUTH_REQUIRED",

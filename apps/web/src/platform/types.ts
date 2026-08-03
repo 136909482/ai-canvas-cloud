@@ -257,7 +257,9 @@ export interface PlatformBridge {
   ) => Promise<void>;
   deleteWorkspaceProject: (input: DeleteWorkspaceProjectInput) => Promise<void>;
   loadWorkspaceConfig: () => Promise<WorkspaceConfigFile | null>;
-  saveWorkspaceConfig: (config: WorkspaceConfigFile) => Promise<void>;
+  saveWorkspaceConfig: (
+    patch: Partial<WorkspaceConfigFile["storage"]>,
+  ) => Promise<WorkspaceConfigFile>;
   loadWorkflowTemplates: () => Promise<WorkflowTemplateLibrary | null>;
   saveWorkflowTemplates: (library: WorkflowTemplateLibrary) => Promise<void>;
   writeWorkspaceAsset: (

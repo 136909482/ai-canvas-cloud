@@ -16,6 +16,10 @@ export default defineConfig({
         __dirname,
         "../../packages/contracts/src/siteConfig.ts",
       ),
+      "@ai-canvas-cloud/contracts/canvas-preferences": path.resolve(
+        __dirname,
+        "../../packages/contracts/src/canvasPreferences.ts",
+      ),
       "@ai-canvas-cloud/contracts": path.resolve(
         __dirname,
         "../../packages/contracts/src/index.ts",

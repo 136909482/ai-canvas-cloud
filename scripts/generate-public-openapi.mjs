@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { resolve } from "node:path";
@@ -40,6 +40,9 @@ const config = {
   smtpCredentialActiveKeyVersion: 1,
 };
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const apiPackage = JSON.parse(
+  await readFile(resolve(workspaceRoot, "apps/api/package.json"), "utf8"),
+);
 
 const server = await createFastifyApiServer({ config });
 
@@ -56,6 +59,7 @@ try {
     "public OpenAPI endpoint must be available",
   );
   const document = await response.json();
+  assert.equal(document.info?.version, apiPackage.version);
   const operationIds = [];
   const documentedRoutes = new Map();
 

@@ -13,6 +13,8 @@ import type {
   AuthSessionsResponse,
   AuthSuccessResponse,
   CurrentWorkspaceResponse,
+  CanvasPreferencesResponse,
+  UpdateCanvasPreferencesRequest,
   CompleteAssetUploadResponse,
   CommitMigrationImportRequest,
   CompleteMigrationImportAssetPartRequest,
@@ -412,6 +414,52 @@ export const RemoveDeviceResponseSchema = OkResponseSchema;
 
 export const CurrentWorkspaceResponseSchema = Type.Object(
   { workspace: WorkspaceSummarySchema },
+  { additionalProperties: false },
+);
+
+export const CanvasPreferencesSchema = Type.Object(
+  {
+    autosaveIntervalMs: Type.Union([
+      Type.Literal(15_000),
+      Type.Literal(30_000),
+      Type.Literal(60_000),
+      Type.Literal(120_000),
+      Type.Literal(300_000),
+    ]),
+    canvasTopBarCollapsed: Type.Boolean(),
+    alignmentGuidesEnabled: Type.Boolean(),
+    incomingEdgeAnimationEnabled: Type.Boolean(),
+    themeMode: Type.Union([
+      Type.Literal("dark"),
+      Type.Literal("light"),
+      Type.Literal("system"),
+    ]),
+    canvasPerformanceMode: Type.Union([
+      Type.Literal("quality"),
+      Type.Literal("performance"),
+    ]),
+    canvasGridEnabled: Type.Boolean(),
+    edgeStyle: Type.Union([
+      Type.Literal("animated"),
+      Type.Literal("solid"),
+      Type.Literal("step"),
+      Type.Literal("smoothstep"),
+    ]),
+    lowQualityPreviewEnabled: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+
+export const UpdateCanvasPreferencesRequestSchema = Type.Partial(
+  CanvasPreferencesSchema,
+  { additionalProperties: false, minProperties: 1 },
+);
+
+export const CanvasPreferencesResponseSchema = Type.Object(
+  {
+    settings: Type.Union([CanvasPreferencesSchema, Type.Null()]),
+    updatedAt: Type.Union([Type.String(), Type.Null()]),
+  },
   { additionalProperties: false },
 );
 
@@ -1278,6 +1326,18 @@ type WorkspaceUsageSchemaCompatibility = Assert<
     WorkspaceUsageResponse
   >
 >;
+type CanvasPreferencesResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof CanvasPreferencesResponseSchema>,
+    CanvasPreferencesResponse
+  >
+>;
+type UpdateCanvasPreferencesRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof UpdateCanvasPreferencesRequestSchema>,
+    UpdateCanvasPreferencesRequest
+  >
+>;
 type GenerationTelemetryRequestSchemaCompatibility = Assert<
   IsMutuallyAssignable<
     Static<typeof GenerationTelemetryRequestSchema>,
@@ -1614,4 +1674,6 @@ export type {
   RestoreProjectRevisionRequestSchemaCompatibility,
   RevokeSessionSchemaCompatibility,
   WorkspaceUsageSchemaCompatibility,
+  CanvasPreferencesResponseSchemaCompatibility,
+  UpdateCanvasPreferencesRequestSchemaCompatibility,
 };

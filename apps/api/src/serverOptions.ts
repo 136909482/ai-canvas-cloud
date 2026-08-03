@@ -14,6 +14,7 @@ import type {
 import type { ProjectGraphService } from "@ai-canvas-cloud/server/modules/project-graph";
 import type { ProjectSnapshotService } from "@ai-canvas-cloud/server/modules/project-snapshots";
 import type { ProjectService } from "@ai-canvas-cloud/server/modules/projects";
+import type { CanvasPreferencesService } from "@ai-canvas-cloud/server/modules/settings";
 import type { WorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
 import type { Logger, MetricsRegistry } from "@ai-canvas-cloud/shared";
 import type { ApiConfig } from "./config.js";
@@ -30,6 +31,7 @@ export interface ServerOptions {
   projectSnapshotService?: ProjectSnapshotService;
   projectService?: ProjectService;
   workspaceUsageService?: WorkspaceUsageService;
+  settingsService?: CanvasPreferencesService;
   migrationImportService?: MigrationImportService;
   migrationAssetUploadService?: MigrationAssetUploadService;
   migrationExportService?: MigrationExportService;

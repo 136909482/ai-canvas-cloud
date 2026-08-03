@@ -174,11 +174,8 @@ export function Canvas() {
     (state) => state.runtime.workspaceConfigured,
   );
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
-  const setStorageSettings = useSettingsStore(
-    (state) => state.setStorageSettings,
-  );
-  const persistWorkspaceConfig = useSettingsStore(
-    (state) => state.persistWorkspaceConfig,
+  const updateStorageSettings = useSettingsStore(
+    (state) => state.updateStorageSettings,
   );
   const notify = useFeedbackStore((state) => state.notify);
   const {
@@ -931,7 +928,7 @@ export function Canvas() {
     .filter(Boolean)
     .join(" ");
   const useDashedEdges = edgeStyle === "animated";
-  const useStepEdges = edgeStyle === "step" || edgeStyle === "colorful";
+  const useStepEdges = edgeStyle === "step";
   const useSmoothStepEdges = edgeStyle === "smoothstep";
   const selectedNodeId = useMemo(() => getSingleSelectedNodeId(nodes), [nodes]);
   const shouldAnimateSelectedIncomingEdges =
@@ -994,12 +991,13 @@ export function Canvas() {
         compact={isTopBarCollapsed}
         onToggleCollapse={() => {
           const nextCollapsed = !isTopBarCollapsed;
-          setStorageSettings({ canvasTopBarCollapsed: nextCollapsed });
-          void persistWorkspaceConfig().catch(() => undefined);
+          void updateStorageSettings({
+            canvasTopBarCollapsed: nextCollapsed,
+          }).catch(() => undefined);
         }}
       />
     ),
-    [isTopBarCollapsed, persistWorkspaceConfig, setStorageSettings],
+    [isTopBarCollapsed, updateStorageSettings],
   );
 
   return (

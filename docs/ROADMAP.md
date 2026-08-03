@@ -47,6 +47,7 @@ HTTP 接入层 Fastify 迁移已完成并收口为单一实现：Node 20 门禁�
 - 受控 OpenAI Compatible/DashScope chat、image、video 协议；平台不代理 Provider，也不接收用户 Key/endpoint/真实模型 ID。
 - 服务商模型发现、服务商下模型管理、节点按模型分组并选择具体服务商路由，以及不可执行状态提示。
 - 云端图只保存 `local:<uuid>`，新设备由用户显式绑定，不自动按名称或上游 ID 替换。
+- 画布管理和外观设置的九项非敏感偏好按账号与工作区同步；旧本地配置只在云端未初始化时迁移，Provider Vault 与本地任务继续保持设备隔离。
 - 统一浏览器任务中心按 FIFO 原子领取任务，图片并发 8、视频并发 1；同步/异步图片走受控 adapter，同一节点每次生成独立结果，异步任务和待入云结果可在同设备恢复。
 - 媒体结果经 Cloud 资产上传和幂等图变更入云；Provider POST 不自动重试，轮询 GET 有限退避，上传失败不重新生成。Provider 私有配置、绑定指纹、任务阶段、remote task ID 和临时 Blob 均不进入 Cloud。
 - 文本/图片/视频调用发送不含 Provider 私有信息的有限 attempt 遥测，Admin 按上海自然日展示今日 KPI、7 日趋势、运行质量和失败分类。
