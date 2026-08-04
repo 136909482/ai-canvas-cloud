@@ -444,7 +444,6 @@ export const GenerateNode = memo(function GenerateNode({
         id="prompt"
         className="handle-orb-anchor !w-[18px] !h-[18px] !rounded-full !border-0 !bg-transparent !p-0"
         style={{ top: "50%" }}
-        title="提示词 / 参考图输入"
       >
         <span className="handle-orb handle-orb--target">
           <span className="handle-orb__glow" />
@@ -460,7 +459,6 @@ export const GenerateNode = memo(function GenerateNode({
           id="mask"
           className="handle-orb-anchor !w-[18px] !h-[18px] !rounded-full !border-0 !bg-transparent !p-0"
           style={{ top: "62%" }}
-          title={UI_TEXT.maskInput}
         >
           <span className="handle-orb handle-orb--mask">
             <span className="handle-orb__glow" />

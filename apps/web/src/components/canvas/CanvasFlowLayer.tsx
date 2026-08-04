@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type DragEvent,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type MutableRefObject,
   type ReactNode,
@@ -45,6 +46,10 @@ import {
 } from "../canvasImagePreviewRuntime";
 import { CanvasPerformanceProvider } from "../CanvasPerformanceContext";
 import { ViewportControls } from "../ViewportControls";
+import {
+  CANVAS_CONNECTION_RADIUS,
+  getCanvasHandleSize,
+} from "./canvasHandleGeometry";
 import { isEditableTarget } from "./canvasDomUtils";
 
 const VIEWPORT_INTERACTION_RESTORE_DELAY_MS = 140;
@@ -435,6 +440,7 @@ export function CanvasFlowLayer({
   const [imagePreviewQuality, setImagePreviewQuality] =
     useState<CanvasImagePreviewQuality>("full");
   const imagePreviewQualityRef = useRef<CanvasImagePreviewQuality>("full");
+  const canvasFlowRootRef = useRef<HTMLDivElement>(null);
   const lastViewportZoomRef = useRef(0.8);
   const isViewportInteractingRef = useRef(false);
   const isViewportThumbnailQueuePausedRef = useRef(false);
@@ -586,6 +592,10 @@ export function CanvasFlowLayer({
   const updateImagePreviewQuality = useCallback(
     (zoom: number, options?: { allowFullQualityRestore?: boolean }) => {
       lastViewportZoomRef.current = zoom;
+      canvasFlowRootRef.current?.style.setProperty(
+        "--canvas-handle-hit-size",
+        `${getCanvasHandleSize(zoom)}px`,
+      );
       const nextQuality = getCanvasImagePreviewQuality({
         currentQuality: imagePreviewQualityRef.current,
         zoom,
@@ -1117,6 +1127,12 @@ export function CanvasFlowLayer({
   return (
     <CanvasPerformanceProvider value={canvasPerformanceContextValue}>
       <ReactFlow
+        ref={canvasFlowRootRef}
+        style={
+          {
+            "--canvas-handle-hit-size": `${getCanvasHandleSize(0.8)}px`,
+          } as CSSProperties
+        }
         nodes={
           isNodeDragging && !shouldUseInternalDrag ? interactiveNodes : nodes
         }
@@ -1141,6 +1157,7 @@ export function CanvasFlowLayer({
         defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
         fitView={shouldFitView}
         fitViewOptions={{ padding: 0.2, maxZoom: 0.8 }}
+        connectionRadius={CANVAS_CONNECTION_RADIUS}
         elevateNodesOnSelect={false}
         onlyRenderVisibleElements={shouldCullReactFlowElements}
         className={`bg-[var(--canvas-bg)] ${shouldStabilizeViewportElements ? "canvas-image-heavy-stable" : ""}`}

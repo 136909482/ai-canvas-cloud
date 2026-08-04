@@ -459,7 +459,6 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({
         id="input"
         className="handle-orb-anchor !w-[18px] !h-[18px] !rounded-full !border-0 !bg-transparent !p-0"
         style={{ top: "56%" }}
-        title="提示词 / 图片输入"
       >
         <span className="handle-orb handle-orb--target">
           <span className="handle-orb__glow" />

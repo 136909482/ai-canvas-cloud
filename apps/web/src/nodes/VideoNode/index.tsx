@@ -604,7 +604,6 @@ export const VideoNode = memo(function VideoNode({
           position={Position.Left}
           id="input"
           className="handle-orb-anchor !w-[18px] !h-[18px] !rounded-full !border-0 !bg-transparent !p-0 !z-30"
-          title="视频输入"
         >
           <span className="handle-orb handle-orb--target">
             <span className="handle-orb__glow" />
