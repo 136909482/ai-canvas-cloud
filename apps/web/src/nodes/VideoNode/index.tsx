@@ -31,6 +31,7 @@ import { useHistoryStore } from "@/store/useHistoryStore";
 import { useProjectStore } from "@/store/useProjectStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import type { AppNodeProps } from "@/types";
+import { readMediaUrlAsBlob } from "@/utils/mediaDataUrl";
 import { themeClasses } from "@/styles/themeClasses";
 import {
   NodeDeleteButton,
@@ -102,12 +103,7 @@ function inferVideoMimeType(url: string) {
 }
 
 async function videoUrlToBlob(videoUrl: string) {
-  const response = await fetch(videoUrl);
-  if (!response.ok) {
-    throw new Error(UI_TEXT.downloadFailed);
-  }
-
-  return response.blob();
+  return readMediaUrlAsBlob(videoUrl, UI_TEXT.downloadFailed);
 }
 
 function fallbackDownload(blob: Blob, fileName: string) {

@@ -4,9 +4,12 @@ import {
   type SupportedGenerateRatio,
 } from "../../constants/generateNode.ts";
 import type { ImageOperationType } from "@/types";
+import { decodeBase64DataUrl } from "@/utils/mediaDataUrl";
 import type { GenerateImageParams } from "./types.ts";
 const PROMPT_RATIO_PATTERN =
   /(?:^|[^\d])(\d{1,4})\s*[:x]\s*(\d{1,4})(?:[^\d]|$)/i;
+
+export { decodeBase64DataUrl };
 
 export function normalizeReferenceImages(
   referenceImageUrl?: string | null,
@@ -19,55 +22,6 @@ export function normalizeReferenceImages(
       : [];
 
   return orderedReferenceImages.slice(0, MAX_GENERATE_REFERENCE_IMAGES);
-}
-
-function decodeBase64ToBytes(value: string) {
-  const normalized = value
-    .replace(/\s/g, "")
-    .replace(/-/g, "+")
-    .replace(/_/g, "/");
-  if (!normalized) {
-    throw new Error("Invalid Base64 media payload");
-  }
-
-  const remainder = normalized.length % 4;
-  if (remainder === 1) {
-    throw new Error("Invalid Base64 media payload");
-  }
-
-  const padded = normalized.padEnd(
-    normalized.length + ((4 - remainder) % 4),
-    "=",
-  );
-  const binary = globalThis.atob(padded);
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
-}
-
-export function decodeBase64DataUrl(dataUrl: string) {
-  const separatorIndex = dataUrl.indexOf(",");
-  if (separatorIndex < 0) {
-    throw new Error("Unsupported Base64 media data URL");
-  }
-
-  const metadata = dataUrl.slice(5, separatorIndex).split(";");
-  const mimeType = metadata[0]?.trim().toLowerCase() ?? "";
-  const isSupportedMedia =
-    mimeType.startsWith("image/") || mimeType.startsWith("video/");
-  const isBase64 = metadata
-    .slice(1)
-    .some((value) => value.trim().toLowerCase() === "base64");
-
-  if (!dataUrl.startsWith("data:") || !isSupportedMedia || !isBase64) {
-    throw new Error("Unsupported Base64 media data URL");
-  }
-
-  try {
-    return new Blob([decodeBase64ToBytes(dataUrl.slice(separatorIndex + 1))], {
-      type: mimeType,
-    });
-  } catch (error) {
-    throw new Error("Invalid Base64 media payload", { cause: error });
-  }
 }
 
 function getExtensionFromMimeType(mimeType: string) {
@@ -95,9 +49,9 @@ function dataUrlToFile(dataUrl: string, index: number) {
 
 function base64ToFile(base64: string, index: number) {
   const mimeType = "image/png";
-  const bytes = decodeBase64ToBytes(base64);
+  const blob = decodeBase64DataUrl(`data:${mimeType};base64,${base64}`);
 
-  return new File([bytes], `image_${index + 1}.png`, { type: mimeType });
+  return new File([blob], `image_${index + 1}.png`, { type: mimeType });
 }
 
 export async function remoteImageUrlToFile(imageUrl: string, index: number) {

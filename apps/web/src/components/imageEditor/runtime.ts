@@ -1,3 +1,5 @@
+import { decodeBase64DataUrl } from "@/utils/mediaDataUrl";
+
 export type ToolMode =
   "select" | "brush" | "line" | "rect" | "ellipse" | "text";
 export type DrawMode = "annotation" | "mask";
@@ -160,6 +162,9 @@ export function downloadDataUrl(dataUrl: string, fileName: string) {
 }
 
 export async function dataUrlToBlob(dataUrl: string) {
-  const response = await fetch(dataUrl);
-  return response.blob();
+  const blob = decodeBase64DataUrl(dataUrl);
+  if (!blob.type.startsWith("image/")) {
+    throw new Error("Unsupported image data URL");
+  }
+  return blob;
 }

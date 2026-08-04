@@ -4,6 +4,7 @@ import {
   getWorkspaceAssetPathParts,
 } from "@/features/projectManager/projectAssetPaths";
 import type { WorkspaceImageAsset } from "@/types";
+import { readMediaUrlAsBlob } from "@/utils/mediaDataUrl";
 
 export const WORKSPACE_IMAGE_THUMBNAIL_MAX_EDGE = 768;
 
@@ -219,12 +220,10 @@ export async function restoreWorkspaceImageThumbnailAsset(
     return null;
   }
 
-  const response = await fetch(input.imageUrl);
-  if (!response.ok) {
-    throw new Error("原图读取失败，无法恢复预览图");
-  }
-
-  const blob = await response.blob();
+  const blob = await readMediaUrlAsBlob(
+    input.imageUrl,
+    "原图读取失败，无法恢复预览图",
+  );
   const originalWidth = getSafeDimension(input.asset.originalWidth);
   const originalHeight = getSafeDimension(input.asset.originalHeight);
   const original =
