@@ -8,16 +8,29 @@ import {
 import { buildTaskQueryUrl, buildVideoSynthesisUrl } from "./videoAdapter.ts";
 
 test("chat requests use the fixed OpenAI-compatible completions path without a Cloud proxy", () => {
-  const endpoint = buildChatCompletionsUrl("https://gateway.example/tenant-a");
+  const endpointWithoutVersion = buildChatCompletionsUrl(
+    "https://gateway.example/tenant-a",
+  );
+  const endpointWithVersion = buildChatCompletionsUrl(
+    "https://gateway.example/tenant-a/v1",
+  );
 
   assert.equal(
-    endpoint,
+    endpointWithoutVersion,
     "https://gateway.example/tenant-a/v1/chat/completions",
   );
-  assert.equal(endpoint.includes("/api-proxy/"), false);
+  assert.equal(endpointWithoutVersion, endpointWithVersion);
+  assert.equal(endpointWithoutVersion.includes("/api-proxy/"), false);
 });
 
 test("image requests only switch among fixed generation, edit, and task paths", () => {
+  assert.equal(
+    resolveOpenAiEndpoint(
+      "https://gateway.example/tenant-a",
+      "/v1/images/generations",
+    ),
+    "https://gateway.example/tenant-a/v1/images/generations",
+  );
   assert.equal(
     resolveOpenAiEndpoint(
       "https://gateway.example/tenant-a/v1",

@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useCanvasPerformanceContext } from "@/components/CanvasPerformanceContext";
 import {
   cacheThumbnail,
@@ -83,6 +83,12 @@ function CanvasImagePreviewInner({
   shouldUseLowQualityPreview,
 }: CanvasImagePreviewInnerProps) {
   recordComponentRender("CanvasImagePreviewInner");
+  const imageElementRef = useRef<HTMLImageElement>(null);
+  const [isNearViewport, setIsNearViewport] = useState(
+    () => typeof IntersectionObserver === "undefined",
+  );
+  const persistentOriginalRelativePath =
+    typeof imageAsset?.relativePath === "string" ? imageAsset.relativePath : "";
   const persistentThumbnailRelativePath =
     typeof imageAsset?.thumbnailRelativePath === "string"
       ? imageAsset.thumbnailRelativePath
@@ -101,6 +107,10 @@ function CanvasImagePreviewInner({
     url: directPersistentThumbnailSrc,
     unavailable: false,
   }));
+  const [persistentOriginalState, setPersistentOriginalState] = useState<{
+    path: string;
+    url: string | null;
+  }>(() => ({ path: persistentOriginalRelativePath, url: null }));
   const [runtimeThumbnailState, setRuntimeThumbnailState] = useState<{
     source: string;
     url: string | null;
@@ -119,9 +129,13 @@ function CanvasImagePreviewInner({
     runtimeThumbnailState.source === src
       ? runtimeThumbnailState.url
       : getCachedThumbnailUrl(src);
+  const persistentOriginalSrc =
+    persistentOriginalState.path === persistentOriginalRelativePath
+      ? persistentOriginalState.url
+      : null;
   const desiredSourceSrc = shouldUseLowQualityPreview
     ? (persistentThumbnailSrc ?? runtimeThumbnailSrc ?? src)
-    : src;
+    : (persistentOriginalSrc ?? src);
   const desiredSourceType =
     shouldUseLowQualityPreview && persistentThumbnailSrc
       ? "workspace-thumbnail"
@@ -129,33 +143,113 @@ function CanvasImagePreviewInner({
           runtimeThumbnailSrc &&
           runtimeThumbnailSrc !== src
         ? "runtime-thumbnail"
-        : "original";
+        : !shouldUseLowQualityPreview && persistentOriginalSrc
+          ? "workspace-original"
+          : "original";
   const [renderedSource, setRenderedSource] = useState<{
     src: string;
-    type: "original" | "workspace-thumbnail" | "runtime-thumbnail";
+    type:
+      | "original"
+      | "workspace-original"
+      | "workspace-thumbnail"
+      | "runtime-thumbnail";
   }>(() => ({ src, type: "original" }));
+
+  useEffect(() => {
+    if (isNearViewport) return;
+    const element = imageElementRef.current;
+    if (!element || typeof IntersectionObserver === "undefined") {
+      setIsNearViewport(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setIsNearViewport(true);
+        observer.disconnect();
+      },
+      { rootMargin: "320px" },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [isNearViewport]);
+
+  useEffect(() => {
+    if (
+      !persistentOriginalRelativePath ||
+      shouldUseLowQualityPreview ||
+      !isNearViewport
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setPersistentOriginalState({
+      path: persistentOriginalRelativePath,
+      url: null,
+    });
+
+    void platformBridge
+      .loadWorkspaceAssetBlob(persistentOriginalRelativePath)
+      .then((blob) => {
+        const nextObjectUrl = URL.createObjectURL(blob);
+        if (cancelled) {
+          URL.revokeObjectURL(nextObjectUrl);
+          return;
+        }
+        objectUrl = nextObjectUrl;
+        setPersistentOriginalState({
+          path: persistentOriginalRelativePath,
+          url: nextObjectUrl,
+        });
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [
+    isNearViewport,
+    persistentOriginalRelativePath,
+    shouldUseLowQualityPreview,
+  ]);
 
   useEffect(() => {
     if (
       !persistentThumbnailRelativePath ||
+      !shouldUseLowQualityPreview ||
+      !isNearViewport ||
       isDirectThumbnailUrl(persistentThumbnailRelativePath)
     ) {
       return;
     }
 
     let cancelled = false;
+    let objectUrl: string | null = null;
+    setPersistentThumbnailState({
+      path: persistentThumbnailRelativePath,
+      url: null,
+      unavailable: false,
+    });
     const resolvePersistentThumbnail = async () => {
       try {
-        const resolvedUrl = await platformBridge.resolveWorkspaceAssetUrl(
+        const blob = await platformBridge.loadWorkspaceAssetBlob(
           persistentThumbnailRelativePath,
         );
-        if (!cancelled) {
-          setPersistentThumbnailState({
-            path: persistentThumbnailRelativePath,
-            url: resolvedUrl,
-            unavailable: false,
-          });
+        const nextObjectUrl = URL.createObjectURL(blob);
+        if (cancelled) {
+          URL.revokeObjectURL(nextObjectUrl);
+          return;
         }
+        objectUrl = nextObjectUrl;
+        setPersistentThumbnailState({
+          path: persistentThumbnailRelativePath,
+          url: nextObjectUrl,
+          unavailable: false,
+        });
       } catch {
         if (imageAsset?.relativePath && imageAsset.fileName) {
           try {
@@ -170,17 +264,20 @@ function CanvasImagePreviewInner({
               },
               imageUrl: src,
             });
-            const restoredUrl = await platformBridge.resolveWorkspaceAssetUrl(
+            const restoredBlob = await platformBridge.loadWorkspaceAssetBlob(
               persistentThumbnailRelativePath,
             );
-
-            if (!cancelled) {
-              setPersistentThumbnailState({
-                path: persistentThumbnailRelativePath,
-                url: restoredUrl,
-                unavailable: false,
-              });
+            const nextObjectUrl = URL.createObjectURL(restoredBlob);
+            if (cancelled) {
+              URL.revokeObjectURL(nextObjectUrl);
+              return;
             }
+            objectUrl = nextObjectUrl;
+            setPersistentThumbnailState({
+              path: persistentThumbnailRelativePath,
+              url: nextObjectUrl,
+              unavailable: false,
+            });
             return;
           } catch {
             // Fall back to the runtime thumbnail path below.
@@ -201,6 +298,7 @@ function CanvasImagePreviewInner({
 
     return () => {
       cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [
     imageAsset?.fileName,
@@ -209,12 +307,16 @@ function CanvasImagePreviewInner({
     imageAsset?.projectId,
     imageAsset?.relativePath,
     persistentThumbnailRelativePath,
+    isNearViewport,
+    shouldUseLowQualityPreview,
     src,
   ]);
 
   useEffect(() => {
     if (
       !src ||
+      !shouldUseLowQualityPreview ||
+      !isNearViewport ||
       getCachedThumbnailUrl(src) ||
       (persistentThumbnailRelativePath && !persistentThumbnailUnavailable)
     ) {
@@ -249,7 +351,13 @@ function CanvasImagePreviewInner({
       cancelled = true;
       cancelIdleTask();
     };
-  }, [persistentThumbnailRelativePath, persistentThumbnailUnavailable, src]);
+  }, [
+    isNearViewport,
+    persistentThumbnailRelativePath,
+    persistentThumbnailUnavailable,
+    shouldUseLowQualityPreview,
+    src,
+  ]);
 
   useEffect(() => {
     if (
@@ -281,20 +389,27 @@ function CanvasImagePreviewInner({
     renderedSource.type,
   ]);
 
-  const isLowQualitySource = renderedSource.type !== "original";
+  const isLowQualitySource =
+    renderedSource.type === "workspace-thumbnail" ||
+    renderedSource.type === "runtime-thumbnail";
 
   return (
     <img
+      ref={imageElementRef}
       src={renderedSource.src}
       alt={alt}
       className={className}
       draggable={draggable}
       loading="lazy"
       decoding="async"
+      onError={() => setIsNearViewport(true)}
       data-canvas-image-source={renderedSource.type}
       data-low-quality-preview={isLowQualitySource ? "true" : undefined}
       data-workspace-thumbnail-preview={
         renderedSource.type === "workspace-thumbnail" ? "true" : undefined
+      }
+      data-workspace-original-preview={
+        renderedSource.type === "workspace-original" ? "true" : undefined
       }
     />
   );

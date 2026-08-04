@@ -42,6 +42,7 @@ import {
   createCloudAssetUrlCache,
   getCloudAssetIdFromRelativePath,
 } from "@/platform/cloud/cloudAssetUrlCache";
+import { createCloudAssetBlobCache } from "@/platform/cloud/cloudAssetBlobCache";
 import { createCloudAssetUploader } from "@/platform/cloud/cloudAssetUpload";
 import {
   hydrateCanvasLocalModelReferences,
@@ -71,6 +72,13 @@ const cloudAssetUrlCache = createCloudAssetUrlCache({
     requestCloudJson<AssetUrlResponse>(
       `/assets/${encodeURIComponent(assetId)}/url`,
     ),
+});
+const cloudAssetBlobCache = createCloudAssetBlobCache({
+  resolveAssetUrl: (assetId) => cloudAssetUrlCache.resolve(assetId),
+  refreshAssetUrl: (assetId) => {
+    cloudAssetUrlCache.invalidate(assetId);
+    return cloudAssetUrlCache.resolve(assetId);
+  },
 });
 const cloudAssetUploader = createCloudAssetUploader({
   createUpload: (input) =>
@@ -150,6 +158,7 @@ function setCurrentWorkspace(workspaceId: string) {
 
 function resetCloudSessionCache() {
   clearWorkspaceAssetUrlCache();
+  cloudAssetBlobCache.clear();
   knownProjectSummaries.clear();
   cloudProjectStates.clear();
   currentWorkspaceId = null;
@@ -887,6 +896,16 @@ export const cloudPlatformBridge: PlatformBridge = {
     const cloudAssetId = getCloudAssetIdFromRelativePath(normalizedPath);
     if (cloudAssetId) {
       return cloudAssetUrlCache.resolve(cloudAssetId);
+    }
+
+    throw new Error("Cloud 资源定位符无效");
+  },
+
+  async loadWorkspaceAssetBlob(relativePath) {
+    const normalizedPath = normalizeAssetPath(relativePath);
+    const cloudAssetId = getCloudAssetIdFromRelativePath(normalizedPath);
+    if (cloudAssetId) {
+      return cloudAssetBlobCache.load(cloudAssetId);
     }
 
     throw new Error("Cloud 资源定位符无效");

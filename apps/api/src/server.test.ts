@@ -3132,3 +3132,17 @@ test("observability records bounded API metrics and readiness failure recovery",
     await closeApiServer(server, 1_000);
   }
 });
+
+test("single-host public runtime does not expose metrics beside the static site", async () => {
+  const server = await createFastifyApiServer({
+    config: { ...config, staticSiteRoot: "apps/web" },
+    authService: createFakeAuthService(),
+  });
+  const port = await listen(server);
+  try {
+    assert.equal((await requestText(port, "/metrics")).statusCode, 404);
+    assert.equal((await requestText(port, "/")).statusCode, 200);
+  } finally {
+    await closeApiServer(server, 1_000);
+  }
+});

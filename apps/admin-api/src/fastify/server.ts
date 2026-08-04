@@ -115,6 +115,7 @@ export async function createFastifyAdminApiServer(options: AdminServerOptions) {
   });
   registerAdminSystemRoutes(app, {
     metrics,
+    exposeMetrics: !staticSite,
     readinessChecks: options.readinessChecks,
   });
   registerAdminAuthRoutes(app, {

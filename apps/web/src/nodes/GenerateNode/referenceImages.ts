@@ -44,9 +44,9 @@ export function decodeReferenceImageKey(
 export function buildReferenceImageAsset(
   item: ReferenceImageItem,
 ): WorkspaceImageAsset | null {
-  return item.thumbnailRelativePath
+  return item.assetRelativePath || item.thumbnailRelativePath
     ? {
-        relativePath: "",
+        relativePath: item.assetRelativePath ?? "",
         mimeType: "",
         fileName: "",
         thumbnailRelativePath: item.thumbnailRelativePath,

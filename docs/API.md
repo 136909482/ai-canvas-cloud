@@ -85,7 +85,7 @@ GET /health/ready
 
 `live` 只表示进程可响应。普通 API `ready` 并行执行 PostgreSQL query、Redis `PING` 和 S3 `HeadBucket`；Admin API `ready` 只执行 PostgreSQL query 与 S3 `HeadBucket`。失败返回 `503`、`status=degraded`，错误分类只允许 `connection_refused|timeout|authentication_failed|permission_denied|bucket_unavailable|unknown`。响应不含连接串、主机凭据、Bucket/object key 或底层错误正文。
 
-`/metrics` 仅用于受控内网抓取。普通 API 包含请求/延迟、错误、认证失败、限流、项目冲突、配额、迁移阶段、依赖和数据库连接池；Admin API 额外暴露同进程的 SMTP 测试投递计数。邮件指标仅使用 operation/outcome/reason/source 低基数标签，不含主机或邮箱。不存在 Worker metrics、任务 backlog/running/retry/lease、Provider/模型维度或结果转存指标；生成运营聚合只通过独立 Admin dashboard 读取。标签禁止 workspace/user/project/request ID、URL、邮箱、正文和凭据。
+`/metrics` 仅用于受控内网抓取。分离部署的普通 API 与 Admin API 保留该路由，由部署内网直接访问；单机镜像中同时提供静态站点的普通和 Admin 运行时不注册该路由，对外返回 `404`。普通 API 包含请求/延迟、错误、认证失败、限流、项目冲突、配额、迁移阶段、依赖和数据库连接池；Admin API 额外暴露同进程的 SMTP 测试投递计数。邮件指标仅使用 operation/outcome/reason/source 低基数标签，不含主机或邮箱。不存在 Worker metrics、任务 backlog/running/retry/lease、Provider/模型维度或结果转存指标；生成运营聚合只通过独立 Admin dashboard 读取。标签禁止 workspace/user/project/request ID、URL、邮箱、正文和凭据。
 
 ## 公开站点配置
 

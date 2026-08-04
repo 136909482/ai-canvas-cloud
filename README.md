@@ -48,7 +48,7 @@ npm run dev:admin-api
 
 ## Docker 生产部署
 
-`infra/deploy/production` 提供面向宝塔和 2 核 2G ECS 的轻量 Compose。ECS 只常驻 Web、API、Admin Web 和 Admin API；PostgreSQL、Redis、私有对象存储分别使用 RDS、阿里云 Redis 和 OSS。镜像必须在本地或 CI 构建并推送到 ACR，生产服务器只拉取镜像，不在 2G 内存机器上执行前端构建。
+`infra/deploy/production` 提供面向宝塔和 2 核 2G ECS 的轻量 Compose。ECS 只常驻 Web、API、Admin Web 和 Admin API；PostgreSQL、Redis、私有对象存储分别使用 RDS、阿里云 Redis 和 OSS。镜像必须在本地或 CI 构建并推送到 Docker Hub，生产服务器只拉取镜像，不在 2G 内存机器上执行前端构建。
 
 生产配置从 `infra/deploy/production/production.env.example` 复制为同目录未跟踪的 `production.env`。首次发布、宝塔反向代理、迁移、升级和回滚顺序见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#docker-生产部署)。安全组只需开放 `22`、`80` 和 `443`，`8787`、`8788`、PostgreSQL 与 Redis 端口不得暴露公网。
 

@@ -126,6 +126,25 @@ async function withServer(
   }
 }
 
+test("single-host Admin runtime does not expose metrics beside the static site", async () => {
+  const server = await createFastifyAdminApiServer({
+    config: { ...config, staticSiteRoot: "apps/admin-web" },
+    adminService: createUnavailableAdminService(),
+    logger,
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert(address && typeof address === "object");
+  try {
+    assert.equal(
+      (await request(address.port, { path: "/metrics" })).status,
+      404,
+    );
+  } finally {
+    await closeAdminApiServer(server, 1_000);
+  }
+});
+
 test("Admin asset cleanup routes require CSRF and dispatch preview or apply", async () => {
   const calls: string[] = [];
   const response = {

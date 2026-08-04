@@ -2003,10 +2003,39 @@ body:has(.auth-modal-backdrop) .home-scene-node {
     box-shadow 180ms ease;
 }
 
+@keyframes handle-orb-glow-pulse {
+  0%,
+  100% {
+    opacity: 0.36;
+    transform: scale(0.94);
+  }
+
+  50% {
+    opacity: 0.6;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes handle-orb-ring-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 10px
+      color-mix(in srgb, var(--handle-orb-color) 16%, transparent);
+  }
+
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 16px
+      color-mix(in srgb, var(--handle-orb-color) 28%, transparent);
+  }
+}
+
 .react-flow__handle:hover .handle-orb__glow,
 .react-flow__handle.connectingfrom .handle-orb__glow {
   opacity: 0.52;
   transform: scale(1.02);
+  animation: handle-orb-glow-pulse 1.45s ease-in-out infinite;
 }
 
 .react-flow__handle:hover .handle-orb__ring,
@@ -2015,6 +2044,7 @@ body:has(.auth-modal-backdrop) .home-scene-node {
   transform: scale(1);
   box-shadow: 0 0 12px
     color-mix(in srgb, var(--handle-orb-color) 22%, transparent);
+  animation: handle-orb-ring-pulse 1.45s ease-in-out infinite;
 }
 
 .react-flow__handle:hover .handle-orb__dot,

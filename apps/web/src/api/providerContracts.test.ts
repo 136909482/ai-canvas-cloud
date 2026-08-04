@@ -180,6 +180,62 @@ test("OpenAI compatible sync image provider preserves model options and extracts
   assert.equal("resolution" in body, false);
 });
 
+test("OpenAI compatible image provider accepts provider-defined GPT image aliases", async () => {
+  const { result, requests } = await withMockFetch(
+    () => Response.json({ data: [{ url: "https://cdn.example/alias.png" }] }),
+    () =>
+      generateWithOpenAI({
+        prompt: "draw with an alias",
+        ratio: "1:1",
+        resolution: "2K",
+        quality: "high",
+        apiKey: "alias-key",
+        apiUrl: "https://images.example",
+        model: "gpt-image-2-all",
+        provider: "openai",
+        operationType: "text-to-image",
+      }),
+  );
+
+  assert.equal(result, "https://cdn.example/alias.png");
+  assert.equal(
+    String(requests[0]?.input),
+    "https://images.example/v1/images/generations",
+  );
+  const body = JSON.parse(String(requests[0]?.init?.body));
+  assert.equal(body.model, "gpt-image-2-all");
+  assert.equal(body.size, "2048x2048");
+  assert.equal(body.quality, "high");
+  assert.equal(body.output_format, "png");
+});
+
+test("unknown image aliases fall back to the minimal compatible request", async () => {
+  const { result, requests } = await withMockFetch(
+    () => Response.json({ data: [{ url: "https://cdn.example/custom.png" }] }),
+    () =>
+      generateWithOpenAI({
+        prompt: "draw with a custom model",
+        ratio: "16:9",
+        resolution: "1K",
+        quality: "high",
+        apiKey: "custom-key",
+        apiUrl: "https://images.example/v1",
+        model: "provider-custom-model-all",
+        provider: "openai",
+        operationType: "text-to-image",
+      }),
+  );
+
+  assert.equal(result, "https://cdn.example/custom.png");
+  const body = JSON.parse(String(requests[0]?.init?.body));
+  assert.deepEqual(body, {
+    model: "provider-custom-model-all",
+    prompt: "draw with a custom model",
+    n: 1,
+    size: "1536x864",
+  });
+});
+
 test("OpenAI compatible image requests use every documented ratio and resolution size", async () => {
   for (const [ratio, resolution, expectedSize] of GPT_IMAGE_SIZE_CASES) {
     const { requests } = await withMockFetch(

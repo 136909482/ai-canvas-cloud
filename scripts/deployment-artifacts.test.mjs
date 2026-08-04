@@ -58,6 +58,12 @@ const adminNginx = readFileSync(
   "infra/deploy/production/admin.nginx.conf",
   "utf8",
 );
+const baotaLocationTemplates = [
+  "infra/deploy/production/baota-web.location.conf.example",
+  "infra/deploy/production/baota-admin.location.conf.example",
+  "infra/deploy/single-host/baota-public.location.conf.example",
+  "infra/deploy/single-host/baota-admin.location.conf.example",
+].map((path) => [path, readFileSync(path, "utf8")]);
 const prometheus = readFileSync("infra/deploy/staging/prometheus.yml", "utf8");
 const alerts = readFileSync("infra/deploy/staging/alerts.yml", "utf8");
 const applyMigrations = readFileSync("scripts/apply-migrations.mjs", "utf8");
@@ -190,6 +196,28 @@ test("production deployment stays lightweight and loopback-only", () => {
   );
 });
 
+test("baota public proxies hide application metrics", () => {
+  for (const [path, config] of baotaLocationTemplates) {
+    const metricsLocation = config.indexOf("location = /metrics {");
+    const fallbackLocation = config.indexOf("location / {");
+
+    assert.ok(
+      metricsLocation >= 0,
+      `${path} must define an exact /metrics location`,
+    );
+    assert.ok(fallbackLocation >= 0, `${path} must define a fallback proxy`);
+    assert.match(
+      config.slice(metricsLocation, fallbackLocation),
+      /location = \/metrics \{\s*return 404;\s*\}/,
+      `${path} must return 404 for /metrics`,
+    );
+    assert.ok(
+      metricsLocation < fallbackLocation,
+      `${path} must block /metrics before the fallback proxy`,
+    );
+  }
+});
+
 test("single-host production uses one image, two application containers, and private state", () => {
   for (const [name, script] of [
     ["setup.sh", singleHostSetup],
@@ -302,9 +330,11 @@ test("single-host production uses one image, two application containers, and pri
   assert.match(staticAssetPrewarm, /\/app\/apps\/web\/dist/);
   assert.match(staticAssetPrewarm, /\/app\/apps\/admin-web\/dist/);
   assert.match(singleHostStatus, /single-host status/);
-  assert.match(singleHostWorkflow, /target: single-host-app/);
-  assert.match(singleHostWorkflow, /:stable/);
-  assert.match(singleHostWorkflow, /linux\/amd64/);
+  assert.doesNotMatch(
+    singleHostWorkflow,
+    /docker\/login-action|build-push-action/,
+  );
+  assert.doesNotMatch(singleHostWorkflow, /secrets\.|vars\.|push: true/);
   assert.match(singleHostOfflineBuild, /"--target", "single-host-app"/);
   assert.match(
     singleHostOfflineBuild,

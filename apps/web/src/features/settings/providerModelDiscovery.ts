@@ -262,9 +262,13 @@ export function normalizeModelsEndpoint(
   parsed.hash = "";
 
   const path = parsed.pathname.replace(/\/+$/, "");
-  parsed.pathname = path.endsWith("/models")
-    ? path || "/models"
-    : `${path || ""}/models`.replace(/^\/{2,}/, "/");
+  if (path.endsWith("/models")) {
+    parsed.pathname = path || "/models";
+  } else if (path.endsWith("/v1")) {
+    parsed.pathname = `${path}/models`;
+  } else {
+    parsed.pathname = `${path || ""}/v1/models`.replace(/^\/{2,}/, "/");
+  }
 
   return {
     ok: true,

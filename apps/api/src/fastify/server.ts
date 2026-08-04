@@ -121,6 +121,7 @@ export async function createFastifyApiServer(options: ServerOptions) {
   });
   registerSystemRoutes(app, {
     metrics,
+    exposeMetrics: !staticSite,
     siteConfigService,
     postgresPoolStats: options.postgresPoolStats,
     readinessChecks: options.readinessChecks,

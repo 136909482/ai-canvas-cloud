@@ -69,6 +69,7 @@ export function createCloudAssetUrlCache(options: CloudAssetUrlCacheOptions) {
     options.refreshSkewMs ?? CLOUD_ASSET_URL_REFRESH_SKEW_MS;
   const cachedUrls = new Map<string, CachedAssetUrl>();
   const inFlightLoads = new Map<string, Promise<string>>();
+  const assetGenerations = new Map<string, number>();
   let generation = 0;
 
   if (!Number.isFinite(refreshSkewMs) || refreshSkewMs < 0) {
@@ -89,10 +90,15 @@ export function createCloudAssetUrlCache(options: CloudAssetUrlCacheOptions) {
     }
 
     const requestGeneration = generation;
+    const requestAssetGeneration = assetGenerations.get(normalizedAssetId) ?? 0;
     const request = options
       .loadAssetUrl(normalizedAssetId)
       .then((response) => {
-        if (requestGeneration !== generation) {
+        if (
+          requestGeneration !== generation ||
+          requestAssetGeneration !==
+            (assetGenerations.get(normalizedAssetId) ?? 0)
+        ) {
           throw new Error(
             "Cloud asset URL cache was cleared while the request was in flight",
           );
@@ -134,14 +140,26 @@ export function createCloudAssetUrlCache(options: CloudAssetUrlCacheOptions) {
     return request;
   }
 
+  function invalidate(assetId: string) {
+    const normalizedAssetId = validateAssetId(assetId);
+    assetGenerations.set(
+      normalizedAssetId,
+      (assetGenerations.get(normalizedAssetId) ?? 0) + 1,
+    );
+    cachedUrls.delete(normalizedAssetId);
+    inFlightLoads.delete(normalizedAssetId);
+  }
+
   function clear() {
     generation += 1;
     cachedUrls.clear();
     inFlightLoads.clear();
+    assetGenerations.clear();
   }
 
   return {
     resolve,
+    invalidate,
     clear,
   };
 }

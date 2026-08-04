@@ -85,10 +85,8 @@ const OPENAI_ENDPOINT_PATHS = [
 const OPENAI_ASYNC_POLL_INTERVAL_MS = 3500;
 const OPENAI_ASYNC_POLL_TIMEOUT_MS = 30 * 60 * 1000;
 const GPT_IMAGE_2_INITIAL_POLL_DELAY_MS = 10 * 1000;
-const GPT_IMAGE_MODEL_ID = "gpt-image-2";
-const UNSUPPORTED_OPENAI_IMAGE_MODEL_MESSAGE = `OpenAI compatible image generation only supports ${GPT_IMAGE_MODEL_ID} or Gemini image model ids.`;
 
-type OpenAiCompatibleImageRequestFamily = "openai" | "gemini";
+type OpenAiCompatibleImageRequestFamily = "openai" | "gemini" | "generic";
 
 function getOrdinalLabel(order: number) {
   switch (order) {
@@ -146,7 +144,7 @@ function buildOpenAiReferenceAwarePrompt(
 }
 
 export function isGptImageModel(model: string) {
-  return model.trim().toLowerCase() === GPT_IMAGE_MODEL_ID;
+  return /(?:^|[-_/])gpt[-_]?image(?:[-_/]|$)/.test(model.trim().toLowerCase());
 }
 
 function isGeminiImageModel(model: string) {
@@ -160,7 +158,7 @@ function isGeminiImageModel(model: string) {
 
 function getOpenAiCompatibleImageRequestFamily(
   model: string,
-): OpenAiCompatibleImageRequestFamily | null {
+): OpenAiCompatibleImageRequestFamily {
   if (isGptImageModel(model)) {
     return "openai";
   }
@@ -169,7 +167,7 @@ function getOpenAiCompatibleImageRequestFamily(
     return "gemini";
   }
 
-  return null;
+  return "generic";
 }
 
 function normalizeGptImage2Resolution(resolution?: string): GptImageResolution {
@@ -307,9 +305,9 @@ function resolveOpenAiRequestSize(
   params: GenerateImageParams,
   effectiveRatio: string,
 ) {
-  return getOpenAiCompatibleImageRequestFamily(params.model) === "openai"
-    ? resolveGptImage2RequestSize(params, effectiveRatio)
-    : resolveGeminiImageRequestSize(params, effectiveRatio);
+  return getOpenAiCompatibleImageRequestFamily(params.model) === "gemini"
+    ? resolveGeminiImageRequestSize(params, effectiveRatio)
+    : resolveGptImage2RequestSize(params, effectiveRatio);
 }
 
 export function resolveOpenAiEndpoint(
@@ -420,14 +418,6 @@ function addGeminiImageFormFields(
   appendStringFormField(formData, "image_size", imageSize);
   appendStringFormField(formData, "image_config", JSON.stringify(imageConfig));
   appendStringFormField(formData, "aspect_ratio", size);
-}
-
-function assertSupportedOpenAiImageModel(
-  params: Pick<GenerateImageParams, "model">,
-) {
-  if (!getOpenAiCompatibleImageRequestFamily(params.model)) {
-    throw new Error(UNSUPPORTED_OPENAI_IMAGE_MODEL_MESSAGE);
-  }
 }
 
 async function buildGptImageGenerationPayload(
@@ -633,8 +623,6 @@ function getAsyncTaskErrorMessage(payload: unknown) {
 export async function generateWithOpenAI(
   params: GenerateImageParams,
 ): Promise<string> {
-  assertSupportedOpenAiImageModel(params);
-
   const operationType = resolveImageOperationType(params);
   const endpointPath = resolveOpenAiImageEndpointPath(params, operationType);
   const generationsEndpoint = getOpenAiRequestUrl(params.apiUrl, endpointPath);
@@ -682,8 +670,6 @@ export async function submitOpenAiAsyncImageGeneration(
   params: GenerateImageParams,
   resolvedSize?: string,
 ): Promise<AsyncImageTaskSubmission> {
-  assertSupportedOpenAiImageModel(params);
-
   const operationType = resolveImageOperationType(params);
 
   const endpointPath = resolveOpenAiImageEndpointPath(params, operationType);
@@ -781,8 +767,6 @@ export async function waitForOpenAiAsyncImageGeneration(
   taskId: string,
   onStatusChange?: (status: AsyncImageTaskStatus) => void,
 ): Promise<string> {
-  assertSupportedOpenAiImageModel(params);
-
   const startedAt = Date.now();
   let hasWaitedInitialDelay = false;
 

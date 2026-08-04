@@ -12,6 +12,7 @@ import type { AdminFastifyInstance } from "../types.js";
 
 interface SystemRouteOptions {
   metrics: MetricsRegistry;
+  exposeMetrics?: boolean;
   readinessChecks?: {
     postgres?: () => Promise<MeasuredDependencyStatus>;
     objectStorage?: () => Promise<MeasuredDependencyStatus>;
@@ -31,20 +32,22 @@ export function registerAdminSystemRoutes(
   app: AdminFastifyInstance,
   options: SystemRouteOptions,
 ) {
-  app.get(
-    "/metrics",
-    {
-      schema: {
-        operationId: adminOperation("getAdminPrometheusMetrics"),
-        tags: ["system"],
-        response: { 200: Type.String() },
+  if (options.exposeMetrics !== false) {
+    app.get(
+      "/metrics",
+      {
+        schema: {
+          operationId: adminOperation("getAdminPrometheusMetrics"),
+          tags: ["system"],
+          response: { 200: Type.String() },
+        },
       },
-    },
-    async (_request, reply) =>
-      reply
-        .header("content-type", "text/plain; version=0.0.4; charset=utf-8")
-        .send(options.metrics.renderPrometheus()),
-  );
+      async (_request, reply) =>
+        reply
+          .header("content-type", "text/plain; version=0.0.4; charset=utf-8")
+          .send(options.metrics.renderPrometheus()),
+    );
+  }
 
   app.get(
     "/health/live",

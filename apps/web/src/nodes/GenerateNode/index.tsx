@@ -537,6 +537,7 @@ export const GenerateNode = memo(function GenerateNode({
                         imageAsset={buildReferenceImageAsset(referenceImage)}
                         className="h-full w-full object-cover"
                         draggable={false}
+                        forceLowQualityPreview
                       />
                       <span className={themeClasses.nodeAssetIndexBadge}>
                         {getReferenceOrderLabel(index + 1)}
@@ -586,6 +587,7 @@ export const GenerateNode = memo(function GenerateNode({
                     }
                     className="h-full w-full object-cover"
                     draggable={false}
+                    forceLowQualityPreview
                   />
                   <span className="absolute left-0.5 top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-400/90 px-1 text-[7px] font-bold leading-none text-amber-950 shadow-[0_2px_8px_rgba(0,0,0,0.35)]">
                     M

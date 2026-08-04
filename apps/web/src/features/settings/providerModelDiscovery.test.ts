@@ -18,8 +18,23 @@ test("normalizes the supported OpenAI-compatible model endpoints", () => {
   });
   assert.equal(origin.ok, true);
   if (origin.ok) {
-    assert.equal(origin.endpoint.toString(), "https://api.example.com/models");
-    assert.equal(origin.baseUrl, "https://api.example.com");
+    assert.equal(
+      origin.endpoint.toString(),
+      "https://api.example.com/v1/models",
+    );
+    assert.equal(origin.baseUrl, "https://api.example.com/v1");
+  }
+
+  const versionBase = normalizeModelsEndpoint("https://api.example.com/v1", {
+    production: true,
+  });
+  assert.equal(versionBase.ok, true);
+  if (versionBase.ok) {
+    assert.equal(
+      versionBase.endpoint.toString(),
+      "https://api.example.com/v1/models",
+    );
+    assert.equal(versionBase.baseUrl, "https://api.example.com/v1");
   }
 
   const versioned = normalizeModelsEndpoint(
@@ -35,6 +50,28 @@ test("normalizes the supported OpenAI-compatible model endpoints", () => {
     assert.equal(versioned.baseUrl, "https://api.example.com/v1");
     assert.equal(versioned.ignoredQuery, true);
     assert.equal(versioned.ignoredFragment, true);
+  }
+
+  const gatewayRoot = normalizeModelsEndpoint(
+    "https://gateway.example/tenant-a",
+    { production: true },
+  );
+  const gatewayVersioned = normalizeModelsEndpoint(
+    "https://gateway.example/tenant-a/v1",
+    { production: true },
+  );
+  assert.equal(gatewayRoot.ok, true);
+  assert.equal(gatewayVersioned.ok, true);
+  if (gatewayRoot.ok && gatewayVersioned.ok) {
+    assert.equal(
+      gatewayRoot.endpoint.toString(),
+      "https://gateway.example/tenant-a/v1/models",
+    );
+    assert.equal(
+      gatewayRoot.endpoint.toString(),
+      gatewayVersioned.endpoint.toString(),
+    );
+    assert.equal(gatewayRoot.baseUrl, gatewayVersioned.baseUrl);
   }
 });
 
@@ -125,6 +162,10 @@ test("caps discovered models and leaves unknown categories for confirmation", ()
     category: "video",
     requiresConfirmation: false,
   });
+  assert.deepEqual(suggestModelCategory("gpt-image-2-all"), {
+    category: "image",
+    requiresConfirmation: false,
+  });
   assert.deepEqual(suggestModelCategory("gpt-5.5"), {
     category: "chat",
     requiresConfirmation: false,
@@ -188,6 +229,38 @@ test("direct discovery uses only the controlled browser request shape", async ()
     Authorization: "Bearer test-key",
     Accept: "application/json",
   });
+});
+
+test("direct discovery accepts a base URL with or without the v1 suffix", async () => {
+  const requestedUrls: string[] = [];
+
+  for (const baseUrl of [
+    "https://provider.example",
+    "https://provider.example/v1",
+  ]) {
+    const result = await fetchProviderModelsDirect(
+      baseUrl,
+      "test-key",
+      undefined,
+      {
+        production: true,
+        fetch: async (url) => {
+          requestedUrls.push(String(url));
+          return new Response(JSON.stringify({ data: [{ id: "gpt-4o" }] }));
+        },
+      },
+    );
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.baseUrl, "https://provider.example/v1");
+    }
+  }
+
+  assert.deepEqual(requestedUrls, [
+    "https://provider.example/v1/models",
+    "https://provider.example/v1/models",
+  ]);
 });
 
 test("stops reading oversized model-list responses", async () => {

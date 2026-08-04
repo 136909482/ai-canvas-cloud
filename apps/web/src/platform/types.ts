@@ -269,6 +269,7 @@ export interface PlatformBridge {
     input: WriteWorkspaceAssetAtPathInput,
   ) => Promise<WorkspaceAssetWriteResult>;
   resolveWorkspaceAssetUrl: (relativePath: string) => Promise<string>;
+  loadWorkspaceAssetBlob: (relativePath: string) => Promise<Blob>;
   clearWorkspaceAssetUrlCache: () => void;
   inspectWorkspaceAssets: (
     data: WorkspaceData,

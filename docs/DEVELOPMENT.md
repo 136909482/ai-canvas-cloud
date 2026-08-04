@@ -69,17 +69,17 @@ ECS 安全组只开放 `22`、`80`、`443`。RDS 与 Redis 使用 VPC 私网地�
 
 ### 构建和配置
 
-不要在 2G ECS 构建镜像。在本地 Docker Desktop、CI 或 ACR 构建服务中，以同一个不可变 Git SHA 分别构建并推送五个 target：
+不要在 2G ECS 构建镜像。在本地 Docker Desktop 或 CI 中，以同一个不可变 Git SHA 分别构建并推送五个 Docker Hub target：
 
 ```bash
-docker buildx build --platform linux/amd64 --target api -t <acr>/ai-canvas-cloud-api:<git-sha> --push .
-docker buildx build --platform linux/amd64 --target web -t <acr>/ai-canvas-cloud-web:<git-sha> --push .
-docker buildx build --platform linux/amd64 --target admin-api -t <acr>/ai-canvas-cloud-admin-api:<git-sha> --push .
-docker buildx build --platform linux/amd64 --target admin-web -t <acr>/ai-canvas-cloud-admin-web:<git-sha> --push .
-docker buildx build --platform linux/amd64 --target release -t <acr>/ai-canvas-cloud-release:<git-sha> --push .
+docker buildx build --platform linux/amd64 --target api -t <docker-hub-namespace>/ai-canvas-cloud-api:<git-sha> --push .
+docker buildx build --platform linux/amd64 --target web -t <docker-hub-namespace>/ai-canvas-cloud-web:<git-sha> --push .
+docker buildx build --platform linux/amd64 --target admin-api -t <docker-hub-namespace>/ai-canvas-cloud-admin-api:<git-sha> --push .
+docker buildx build --platform linux/amd64 --target admin-web -t <docker-hub-namespace>/ai-canvas-cloud-admin-web:<git-sha> --push .
+docker buildx build --platform linux/amd64 --target release -t <docker-hub-namespace>/ai-canvas-cloud-release:<git-sha> --push .
 ```
 
-把 `infra/deploy/production` 上传到服务器固定目录，将 `production.env.example` 复制为 `production.env`，权限设置为 `600`，再填写域名、五个 ACR 镜像、RDS、Redis、OSS、邮件和密钥配置。`BETTER_AUTH_SECRET` 至少 32 字符；`SMTP_CREDENTIAL_KEYS` 与 `OBJECT_STORAGE_CREDENTIAL_KEYS` 中每个值都是独立的 32 字节 Base64 密钥。数据库和 Redis 密码中的保留字符必须进行 URL 编码。
+把 `infra/deploy/production` 上传到服务器固定目录，将 `production.env.example` 复制为 `production.env`，权限设置为 `600`，再填写域名、五个 Docker Hub 镜像、RDS、Redis、OSS、邮件和密钥配置。`BETTER_AUTH_SECRET` 至少 32 字符；`SMTP_CREDENTIAL_KEYS` 与 `OBJECT_STORAGE_CREDENTIAL_KEYS` 中每个值都是独立的 32 字节 Base64 密钥。数据库和 Redis 密码中的保留字符必须进行 URL 编码。
 
 阿里云 OSS 使用区域 endpoint 和虚拟主机样式：`S3_FORCE_PATH_STYLE=false`，`S3_PUBLIC_ENDPOINT` 填 `https://oss-<region>.aliyuncs.com`，`S3_PUBLIC_ORIGIN` 填 `https://<bucket>.oss-<region>.aliyuncs.com`。Bucket CORS 至少允许普通站点和管理站点两个 HTTPS Origin、`GET/PUT/HEAD` 方法、`Content-Type` 与 `x-amz-*` 请求头，并暴露 `ETag`；不要把 Bucket 改成公共读。
 
@@ -89,7 +89,7 @@ docker buildx build --platform linux/amd64 --target release -t <acr>/ai-canvas-c
 
 ### 首次发布
 
-先创建 RDS 数据库、Redis 实例、私有 OSS Bucket 和两个已签发 HTTPS 证书的域名。进入服务器上的 `infra/deploy/production` 目录并登录 ACR，然后依次执行：
+先创建 RDS 数据库、Redis 实例、私有 OSS Bucket 和两个已签发 HTTPS 证书的域名。进入服务器上的 `infra/deploy/production` 目录；公开 Docker Hub 仓库无需登录，然后依次执行：
 
 ```bash
 docker compose --env-file production.env --profile release pull
@@ -104,7 +104,7 @@ docker compose --env-file production.env ps
 
 `database-roles` 会原地更新 `production.env` 中的普通 API/Admin API 最小权限数据库 URL，并在留空时生成独立的 `ADMIN_BETTER_AUTH_SECRET`；因此该文件必须可写，且角色配置后必须新建应用容器。`admin-bootstrap` 要求交互终端，只用于创建首个 `super_admin`。
 
-宝塔为普通站点和管理站点分别创建网站、申请 HTTPS 并启用强制 HTTPS。普通站点反向代理到 `http://127.0.0.1:8080`，管理站点反向代理到 `http://127.0.0.1:8081`；可使用同目录的 `baota-web.location.conf.example` 和 `baota-admin.location.conf.example`。宝塔不直接代理 API 端口，容器内 Web Nginx 分别代理 `/api/` 和 `/admin/`。
+宝塔为普通站点和管理站点分别创建网站、申请 HTTPS 并启用强制 HTTPS。普通站点反向代理到 `http://127.0.0.1:8080`，管理站点反向代理到 `http://127.0.0.1:8081`；可使用同目录的 `baota-web.location.conf.example` 和 `baota-admin.location.conf.example`。两个公网站点都必须在兜底反向代理前用精确 `location = /metrics` 返回 `404`，不得暴露应用指标；受控监控系统应从部署内网直接抓取 API 容器。宝塔不直接代理 API 端口，容器内 Web Nginx 分别代理 `/api/` 和 `/admin/`。
 
 ### 升级和回滚
 
@@ -150,7 +150,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build-single-host-offline-image
 
 PostgreSQL 与 Redis 继续使用 Compose 中固定版本的 Docker 官方镜像。服务器已经存在 `postgres:17.6-alpine3.22` 和 `redis:8.2.1-alpine3.22` 时不需要本地重复导出；缺少时首次启动会从 Docker Hub 拉取，因此国内服务器需要可用的 Docker 镜像加速。
 
-单机新安装默认使用 `APP_IMAGE_SOURCE=registry` 和 `APP_REPOSITORY=hao136909482/ai-canvas-cloud`，公共仓库不要求服务器登录。离线安装时把 `release.env.example` 改为 `APP_IMAGE_SOURCE=archive`，并把镜像 tar 上传到部署目录。仓库中的 GitHub Actions ACR 工作流仍可作为其他环境的可选发布通道。
+单机新安装默认使用 `APP_IMAGE_SOURCE=registry` 和 `APP_REPOSITORY=hao136909482/ai-canvas-cloud`，公共 Docker Hub 仓库不要求服务器登录。国内服务器可通过 Docker daemon 的 registry mirror 使用 `https://docker.1ms.run` 拉取加速。离线安装时把 `release.env.example` 改为 `APP_IMAGE_SOURCE=archive`，并把镜像 tar 上传到部署目录。GitHub Actions 只运行质量检查，不发布镜像。
 
 ### 单机首次发布
 
@@ -164,7 +164,7 @@ sudo bash setup.sh
 
 首次登录 Admin 后进入“对象存储”，填写 Endpoint、签名 Endpoint、Bucket Origin、Region、Bucket 和 RAM AccessKey，先执行读写删除测试，再保存启用。发布前普通站点和 Admin 均可登录，但依赖 readiness 显示 degraded，图片和视频上传不可用；发布后无需重启容器。单机模式没有环境 OSS 回退，因此后台不会提供“恢复环境配置”操作。
 
-宝塔普通站点反向代理到 `http://127.0.0.1:8080`，管理站点反向代理到 `http://127.0.0.1:8081`；使用目录中的 `baota-public.location.conf.example` 和 `baota-admin.location.conf.example`。安全组只开放 `22`、`80` 和 `443`。
+宝塔普通站点反向代理到 `http://127.0.0.1:8080`，管理站点反向代理到 `http://127.0.0.1:8081`；使用目录中的 `baota-public.location.conf.example` 和 `baota-admin.location.conf.example`。两个模板都在兜底反向代理前用精确 `location = /metrics` 返回 `404`，单机应用运行时也不注册该路由，公网不得访问应用指标。分离部署需要监控时，只能从部署内网直接抓取不承载静态站点的 API 容器。安全组只开放 `22`、`80` 和 `443`。
 
 首次安装按以下顺序验收：
 
@@ -279,6 +279,8 @@ Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户�
 
 媒体只存私有对象存储。上传流程为创建会话、无 Cookie 预签名直传、服务端重新读取 metadata 并完成确认。仍被当前节点或有效 checkpoint 引用的资产不得 GC；删除采用软删除和宽限期。
 
+浏览器图片预览以 `cloud-assets/<asset-id>` 为稳定身份，不把 OSS 签名 URL 当作长期来源。高清原图和持久缩略图按稳定资产 ID 合并下载到有容量上限的会话内 Blob LRU；同一登录会话和项目往返优先复用 Blob，签名读取失败只失效并刷新当前资产后重试一次。退出、换账号或 workspace 变化清空私有 Blob，不写入未加密的浏览器持久缓存。
+
 目录包导入必须先预检、暂存上传，再事务化 commit。导出从冻结版本组装包。包和 API 均不得包含 object key、签名 URL、租户内部字段、Provider 配置、Key 或浏览器任务缓存。
 
 ## 浏览器 Vault 与本地生成
@@ -291,6 +293,7 @@ Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户�
 - 云端图只保存 `local:<uuid>` 匿名模型引用。新设备必须由用户明确绑定本机同类型模型，不按名称或 ID 猜测。
 - 图片与视频分别使用独立 FIFO 执行通道；本地并发策略固定为图片 8、视频 1。调度器通过原子 claim 领取任务，Provider 请求、异步轮询、结果下载和 Cloud 入库完成后才释放槽位；第 9 个图片任务继续留在当前项目的浏览器队列。
 - 图片 Provider 通过受控 adapter 注册表统一返回同步完成结果或受控 remote task ID，不自动探测协议。Provider POST 不自动重试；异步查询 GET 只对网络错误、429 和 5xx 执行有限退避，Cloud 保存失败只从加密临时 Blob 继续保存，不重新调用 Provider。
+- OpenAI Compatible 图片模型的真实模型 ID 原样透传；可识别的 GPT Image 与 Gemini 家族使用各自扩展参数，服务商自定义且无法识别的图片模型 ID 使用最小通用 Images 请求，不以官方模型 ID 白名单阻断执行。
 - 每次生成都创建 UUID 任务和独立结果节点。来源节点状态聚合全部关联任务，并只选择创建时间最新且成功的图片作为当前输出，旧任务即使后返回也不能覆盖较新的成功结果；排队任务可取消，运行中任务首期不提供统一取消。
 - 无 remote task ID 的同步任务在页面关闭后中断；已有受控 remote task ID 的异步任务在重新取得并发槽位后，只可于同一设备恢复轮询。切换项目会保存并停止当前运行时，返回项目后恢复其排队、轮询或待保存任务；同步图片运行时离开页面或切换项目必须提示可能中断且仍可能计费。
 - 新任务冻结生成参数、`modelEntryId`、受控 adapter、执行模式和 Provider 绑定指纹，但不复制真实模型 ID、endpoint 或 Key 到任务。Provider 配置变化后，旧远程任务不得使用新配置继续轮询；v2 排队任务首次执行时绑定当前配置。

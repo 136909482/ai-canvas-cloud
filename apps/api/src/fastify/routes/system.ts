@@ -13,6 +13,7 @@ import type { PublicSiteConfigService } from "@ai-canvas-cloud/server/modules/ad
 
 interface SystemRouteOptions {
   metrics: MetricsRegistry;
+  exposeMetrics?: boolean;
   siteConfigService: PublicSiteConfigService;
   postgresPoolStats?: () => { total: number; idle: number; waiting: number };
   readinessChecks?: {
@@ -116,33 +117,35 @@ export function registerSystemRoutes(
   registerReadyRoute(app, "/health/ready", "getSystemHealthReady", options);
   registerReadyRoute(app, "/api/v1/health/ready", "getApiHealthReady", options);
 
-  app.get(
-    "/metrics",
-    {
-      schema: {
-        operationId: operation("getPrometheusMetrics"),
-        tags: ["system"],
-        response: { 200: Type.String() },
+  if (options.exposeMetrics !== false) {
+    app.get(
+      "/metrics",
+      {
+        schema: {
+          operationId: operation("getPrometheusMetrics"),
+          tags: ["system"],
+          response: { 200: Type.String() },
+        },
       },
-    },
-    async (_request, reply) => {
-      if (options.postgresPoolStats) {
-        const pool = options.postgresPoolStats();
-        options.metrics.setGauge("postgres_pool_connections", pool.total, {
-          state: "total",
-        });
-        options.metrics.setGauge("postgres_pool_connections", pool.idle, {
-          state: "idle",
-        });
-        options.metrics.setGauge("postgres_pool_connections", pool.waiting, {
-          state: "waiting",
-        });
-      }
-      return reply
-        .header("content-type", "text/plain; version=0.0.4; charset=utf-8")
-        .send(options.metrics.renderPrometheus());
-    },
-  );
+      async (_request, reply) => {
+        if (options.postgresPoolStats) {
+          const pool = options.postgresPoolStats();
+          options.metrics.setGauge("postgres_pool_connections", pool.total, {
+            state: "total",
+          });
+          options.metrics.setGauge("postgres_pool_connections", pool.idle, {
+            state: "idle",
+          });
+          options.metrics.setGauge("postgres_pool_connections", pool.waiting, {
+            state: "waiting",
+          });
+        }
+        return reply
+          .header("content-type", "text/plain; version=0.0.4; charset=utf-8")
+          .send(options.metrics.renderPrometheus());
+      },
+    );
+  }
 
   app.get(
     "/api/v1/site-config",
