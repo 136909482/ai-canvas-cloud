@@ -3,6 +3,7 @@ import type { AppNodeType } from "@/types";
 import {
   buildManualCompareNode,
   buildManualGenerateNode,
+  buildManualInteriorDesignNode,
   buildManualGeneratedPreviewNode,
   buildManualImageCropNode,
   buildManualImageEditNode,
@@ -20,6 +21,8 @@ import {
   DEFAULT_COMPARE_NODE_WIDTH,
   DEFAULT_GENERATE_NODE_HEIGHT,
   DEFAULT_GENERATE_NODE_WIDTH,
+  DEFAULT_INTERIOR_DESIGN_NODE_HEIGHT,
+  DEFAULT_INTERIOR_DESIGN_NODE_WIDTH,
   DEFAULT_IMAGE_CROP_NODE_HEIGHT,
   DEFAULT_IMAGE_CROP_NODE_WIDTH,
   DEFAULT_IMAGE_EDIT_NODE_HEIGHT,
@@ -60,7 +63,8 @@ export type NodeLibraryIcon =
   | "crop"
   | "compare"
   | "panorama"
-  | "preview";
+  | "preview"
+  | "house";
 export type NodeLibraryCategoryId =
   "common" | "text-tools" | "image-tools" | "ai-tools";
 
@@ -265,6 +269,31 @@ const registrations = {
       keywords: ["ai", "生成", "绘图", "generate"],
     },
   },
+  interiorDesignNode: {
+    type: "interiorDesignNode",
+    idPrefix: "interior",
+    manual: {
+      size: size(
+        DEFAULT_INTERIOR_DESIGN_NODE_WIDTH,
+        DEFAULT_INTERIOR_DESIGN_NODE_HEIGHT,
+      ),
+      build: buildManualInteriorDesignNode,
+    },
+    connection: {
+      inputs: { image: ["image"] },
+      quickCreateTargetHandle: "image",
+    },
+    outputLayout: "generated-preview",
+    library: {
+      id: "interior-design",
+      category: "ai-tools",
+      order: 5,
+      icon: "house",
+      label: "室内设计",
+      description: "把模型图按专业室内参数转换为写实图像。",
+      keywords: ["interior", "室内", "设计", "SU", "酷家乐", "3ds Max"],
+    },
+  },
   imageEditNode: {
     type: "imageEditNode",
     idPrefix: "edit",
@@ -420,6 +449,7 @@ export type ManualCanvasNodeType =
   | "textNode"
   | "inlineTextSplitterNode"
   | "generateNode"
+  | "interiorDesignNode"
   | "imageEditNode"
   | "llmFileNode"
   | "generatedPreviewNode"

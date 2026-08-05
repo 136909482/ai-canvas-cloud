@@ -5,6 +5,7 @@ import {
   Crop,
   Globe,
   Image,
+  Home,
   MonitorPlay,
   ScissorsLineDashed,
   Sparkles,
@@ -25,6 +26,7 @@ export interface CanvasNodeCatalogActions {
   addTextNode: CreateCanvasNode;
   addImageNode: CreateCanvasNode;
   addGenerateNode: CreateCanvasNode;
+  addInteriorDesignNode: CreateCanvasNode;
   addLLMNode: CreateCanvasNode;
   addVideoGenerateNode: CreateCanvasNode;
   addTextSplitterNode: CreateCanvasNode;
@@ -78,6 +80,7 @@ function createIcon(icon: NodeLibraryIcon) {
     compare: <ArrowLeftRight className={className} />,
     panorama: <Globe className={className} />,
     preview: <MonitorPlay className={className} />,
+    house: <Home className={className} />,
   };
   return icons[icon];
 }
@@ -90,6 +93,7 @@ export function createCanvasNodeCatalog(
       textNode: actions.addTextNode,
       imageNode: actions.addImageNode,
       generateNode: actions.addGenerateNode,
+      interiorDesignNode: actions.addInteriorDesignNode,
       llmFileNode: actions.addLLMNode,
       videoGenerateNode: actions.addVideoGenerateNode,
       inlineTextSplitterNode: actions.addTextSplitterNode,

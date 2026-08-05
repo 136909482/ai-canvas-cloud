@@ -8,6 +8,7 @@ import type {
 } from "@ai-canvas-cloud/contracts";
 import type { ProviderId } from "@/config/modelCatalog";
 import type { RichPromptDocument } from "@/features/richPrompt/types";
+import type { InteriorDesignConfigV1 } from "@/features/interiorDesign/types";
 
 export type ModelTestStatus = "idle" | "testing" | "success" | "error";
 export type ThemeMode = CanvasThemeMode;
@@ -167,6 +168,18 @@ export interface GenerateNodeData extends Record<string, unknown> {
   referenceSourceOrder: string[];
   maskInputEnabled: boolean;
   maskSourceNodeId: string | null;
+  activeTaskId: string | null;
+}
+
+export interface InteriorDesignNodeData extends Record<string, unknown> {
+  config: InteriorDesignConfigV1;
+  compiledPrompt: string;
+  sourceImageNodeId: string | null;
+  model: string;
+  ratio: string;
+  resolution: string;
+  status: GenerateStatus;
+  errorMsg: string;
   activeTaskId: string | null;
 }
 
@@ -438,6 +451,7 @@ export type AppNodeType =
   | "textSplitterNode"
   | "inlineTextSplitterNode"
   | "generateNode"
+  | "interiorDesignNode"
   | "imageEditNode"
   | "experimentalGenerateNode"
   | "generatedPreviewNode"
@@ -494,6 +508,7 @@ export interface AppNodeDataMap {
   textSplitterNode: TextSplitterNodeData;
   inlineTextSplitterNode: InlineTextSplitterNodeData;
   generateNode: GenerateNodeData;
+  interiorDesignNode: InteriorDesignNodeData;
   imageEditNode: ImageEditNodeData;
   experimentalGenerateNode: GenerateNodeData;
   generatedPreviewNode: GeneratedPreviewNodeData;

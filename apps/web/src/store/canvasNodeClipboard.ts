@@ -7,6 +7,7 @@ import type {
   ImageCropNodeData,
   ImageEditNodeData,
   ImageNodeData,
+  InteriorDesignNodeData,
   InlineTextSplitterNodeData,
   LLMFileNodeData,
   LLMNodeData,
@@ -16,6 +17,7 @@ import type {
   VideoGenerateNodeData,
   VideoNodeData,
 } from "@/types";
+import type { InteriorDesignConfigV1 } from "@/features/interiorDesign/types";
 import {
   createImageCropNodeData,
   createImageNodeData,
@@ -38,6 +40,7 @@ export function canDuplicateNode(node: Node) {
     "videoGenerateNode",
     "imageCropNode",
     "generateNode",
+    "interiorDesignNode",
     "imageEditNode",
     "llmNode",
     "llmFileNode",
@@ -227,6 +230,37 @@ export function cloneNodeForDuplicate(
         activeTaskId: null,
       } satisfies GenerateNodeData,
     } satisfies Node<GenerateNodeData>;
+  }
+
+  if (node.type === "interiorDesignNode") {
+    return {
+      ...node,
+      id: nextId,
+      position: duplicatedPosition,
+      parentId: undefined,
+      extent: undefined,
+      selected: true,
+      data: {
+        config: structuredClone(node.data?.config as InteriorDesignConfigV1),
+        compiledPrompt:
+          typeof node.data?.compiledPrompt === "string"
+            ? node.data.compiledPrompt
+            : "",
+        sourceImageNodeId: null,
+        model:
+          typeof node.data?.model === "string"
+            ? node.data.model
+            : DEFAULT_IMAGE_MODEL_ID,
+        ratio: typeof node.data?.ratio === "string" ? node.data.ratio : "Auto",
+        resolution:
+          typeof node.data?.resolution === "string"
+            ? node.data.resolution
+            : "1K",
+        status: "idle",
+        errorMsg: "",
+        activeTaskId: null,
+      } satisfies InteriorDesignNodeData,
+    } satisfies Node<InteriorDesignNodeData>;
   }
 
   if (node.type === "imageEditNode") {

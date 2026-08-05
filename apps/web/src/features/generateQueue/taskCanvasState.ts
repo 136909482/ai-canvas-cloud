@@ -145,6 +145,7 @@ export function syncSourceNodeWithTask(
   if (
     !sourceNode ||
     (sourceNode.type !== "generateNode" &&
+      sourceNode.type !== "interiorDesignNode" &&
       sourceNode.type !== "imageEditNode" &&
       sourceNode.type !== "videoGenerateNode")
   ) {
@@ -162,6 +163,7 @@ export function syncSourceNodeWithTask(
 
   if (
     sourceNode.type === "generateNode" ||
+    sourceNode.type === "interiorDesignNode" ||
     sourceNode.type === "imageEditNode"
   ) {
     patch.negativePrompt = task.negativePrompt;

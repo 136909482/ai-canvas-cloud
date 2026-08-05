@@ -82,6 +82,18 @@ export function getGenerateMaskSourceNode(nodes: Node[], nodeId: string) {
   return isConnectedImageSourceNode(maskSourceNode) ? maskSourceNode : null;
 }
 
+export function getInteriorDesignSourceNode(nodes: Node[], nodeId: string) {
+  const targetNode = getCanvasNodeById(nodes, nodeId);
+  if (targetNode?.type !== "interiorDesignNode") return null;
+
+  const sourceNodeId =
+    typeof targetNode.data?.sourceImageNodeId === "string"
+      ? targetNode.data.sourceImageNodeId
+      : null;
+  const sourceNode = getCanvasNodeById(nodes, sourceNodeId);
+  return isConnectedImageSourceNode(sourceNode) ? sourceNode : null;
+}
+
 export function getImageEditReferenceSourceNodes(
   nodes: Node[],
   nodeId: string,

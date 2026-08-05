@@ -12,6 +12,8 @@ import { getOrderedStringIds } from "./canvasNodeData";
 import {
   DEFAULT_GENERATE_NODE_HEIGHT,
   DEFAULT_GENERATE_NODE_WIDTH,
+  DEFAULT_INTERIOR_DESIGN_NODE_HEIGHT,
+  DEFAULT_INTERIOR_DESIGN_NODE_WIDTH,
   DEFAULT_IMAGE_CROP_NODE_HEIGHT,
   DEFAULT_IMAGE_CROP_NODE_WIDTH,
   DEFAULT_IMAGE_EDIT_NODE_HEIGHT,
@@ -79,7 +81,9 @@ function layoutGeneratedPreviewNodes(
         ? DEFAULT_IMAGE_CROP_NODE_WIDTH
         : sourceNode.type === "imageEditNode"
           ? DEFAULT_IMAGE_EDIT_NODE_WIDTH
-          : DEFAULT_GENERATE_NODE_WIDTH;
+          : sourceNode.type === "interiorDesignNode"
+            ? DEFAULT_INTERIOR_DESIGN_NODE_WIDTH
+            : DEFAULT_GENERATE_NODE_WIDTH;
   const sourceHeight =
     typeof sourceNode.height === "number"
       ? sourceNode.height
@@ -87,7 +91,9 @@ function layoutGeneratedPreviewNodes(
         ? DEFAULT_IMAGE_CROP_NODE_HEIGHT
         : sourceNode.type === "imageEditNode"
           ? DEFAULT_IMAGE_EDIT_NODE_HEIGHT
-          : DEFAULT_GENERATE_NODE_HEIGHT;
+          : sourceNode.type === "interiorDesignNode"
+            ? DEFAULT_INTERIOR_DESIGN_NODE_HEIGHT
+            : DEFAULT_GENERATE_NODE_HEIGHT;
   const slotWidth = Math.max(
     DEFAULT_PREVIEW_NODE_WIDTH,
     ...relatedPreviewNodes.map((node) =>
@@ -389,6 +395,7 @@ export function applyDragStopSideEffects(
 
     if (
       draggedNode.type === "generateNode" ||
+      draggedNode.type === "interiorDesignNode" ||
       draggedNode.type === "imageEditNode"
     ) {
       affectedGenerateNodeIds.add(draggedNode.id);

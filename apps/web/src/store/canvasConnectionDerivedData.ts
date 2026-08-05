@@ -132,6 +132,38 @@ export function syncConnectionDerivedNodeData(nodes: Node[], edges: Edge[]) {
     );
   }
 
+  const interiorDesignNodes = nextNodes.filter(
+    (node) => node.type === "interiorDesignNode",
+  );
+
+  for (const node of interiorDesignNodes) {
+    const incomingImageEdge = edges.find(
+      (edge) =>
+        edge.target === node.id &&
+        edge.targetHandle === "image" &&
+        isConnectedImageSourceNode(getCanvasNodeById(nextNodes, edge.source)),
+    );
+    const nextSourceImageNodeId = incomingImageEdge?.source ?? null;
+    const currentSourceImageNodeId =
+      typeof node.data?.sourceImageNodeId === "string"
+        ? node.data.sourceImageNodeId
+        : null;
+    if (currentSourceImageNodeId === nextSourceImageNodeId) continue;
+
+    hasChanges = true;
+    nextNodes = nextNodes.map((candidate) =>
+      candidate.id === node.id
+        ? {
+            ...candidate,
+            data: {
+              ...candidate.data,
+              sourceImageNodeId: nextSourceImageNodeId,
+            },
+          }
+        : candidate,
+    );
+  }
+
   const videoGenerateNodes = nextNodes.filter(
     (node) => node.type === "videoGenerateNode",
   );

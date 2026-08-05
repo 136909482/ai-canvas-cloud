@@ -5,10 +5,14 @@ import {
 } from "@/components/AuthenticatedAppBoundary";
 import { PublicThemeProvider } from "@/components/PublicThemeProvider";
 import { AuthGate } from "@/features/auth/AuthGate";
-import { PublicContentPage } from "@/features/public/PublicContentPage";
 import { getPublicPageKind } from "@/features/public/publicPages";
 
 const AuthenticatedApp = lazy(() => import("@/AuthenticatedApp"));
+const PublicContentPage = lazy(() =>
+  import("@/features/public/PublicContentPage").then((module) => ({
+    default: module.PublicContentPage,
+  })),
+);
 
 function AuthenticatedAppHost() {
   return (
@@ -27,7 +31,15 @@ export default function App() {
     return (
       <>
         <PublicThemeProvider />
-        <PublicContentPage kind={publicPageKind} />
+        <Suspense
+          fallback={
+            <main className="public-page" role="status" aria-live="polite">
+              正在加载...
+            </main>
+          }
+        >
+          <PublicContentPage kind={publicPageKind} />
+        </Suspense>
       </>
     );
   }

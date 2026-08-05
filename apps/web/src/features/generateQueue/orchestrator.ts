@@ -351,7 +351,9 @@ function createQueuedVideoNode(sourceNodeId: string, reusableTaskId?: string) {
 export function enqueueGenerateTask(input: EnqueueGenerateTaskInput) {
   const canvasStore = useCanvasStore.getState();
   const sourceNode = canvasStore.nodes.find(
-    (node) => node.id === input.sourceNodeId && node.type === "generateNode",
+    (node) =>
+      node.id === input.sourceNodeId &&
+      (node.type === "generateNode" || node.type === "interiorDesignNode"),
   );
 
   if (!sourceNode) {

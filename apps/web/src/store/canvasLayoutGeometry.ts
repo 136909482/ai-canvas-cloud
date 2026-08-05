@@ -15,6 +15,8 @@ export const DEFAULT_IMAGE_CROP_NODE_WIDTH = 420;
 export const DEFAULT_IMAGE_CROP_NODE_HEIGHT = 420;
 export const DEFAULT_GENERATE_NODE_WIDTH = 480;
 export const DEFAULT_GENERATE_NODE_HEIGHT = 360;
+export const DEFAULT_INTERIOR_DESIGN_NODE_WIDTH = 560;
+export const DEFAULT_INTERIOR_DESIGN_NODE_HEIGHT = 620;
 export const DEFAULT_IMAGE_EDIT_NODE_WIDTH = 520;
 export const DEFAULT_IMAGE_EDIT_NODE_HEIGHT = 430;
 export const DEFAULT_PREVIEW_NODE_WIDTH = 300;
@@ -66,23 +68,26 @@ export function getNodeSize(node: Node) {
                     ? DEFAULT_INLINE_TEXT_SPLITTER_NODE_WIDTH
                     : node.type === "generateNode"
                       ? DEFAULT_GENERATE_NODE_WIDTH
-                      : node.type === "imageEditNode"
-                        ? DEFAULT_IMAGE_EDIT_NODE_WIDTH
-                        : node.type === "llmNode" || node.type === "llmFileNode"
-                          ? DEFAULT_LLM_NODE_WIDTH
-                          : node.type === "llmOutputTextNode"
-                            ? DEFAULT_LLM_OUTPUT_TEXT_NODE_WIDTH
-                            : node.type === "generatedPreviewNode"
-                              ? DEFAULT_PREVIEW_NODE_WIDTH
-                              : node.type === "compareNode"
-                                ? DEFAULT_COMPARE_NODE_WIDTH
-                                : node.type === "groupNode"
-                                  ? DEFAULT_GROUP_NODE_WIDTH
-                                  : node.type === "testImageNode"
-                                    ? DEFAULT_IMAGE_NODE_WIDTH
-                                    : node.type === "panoramaNode"
-                                      ? DEFAULT_PANORAMA_NODE_WIDTH
-                                      : 240;
+                      : node.type === "interiorDesignNode"
+                        ? DEFAULT_INTERIOR_DESIGN_NODE_WIDTH
+                        : node.type === "imageEditNode"
+                          ? DEFAULT_IMAGE_EDIT_NODE_WIDTH
+                          : node.type === "llmNode" ||
+                              node.type === "llmFileNode"
+                            ? DEFAULT_LLM_NODE_WIDTH
+                            : node.type === "llmOutputTextNode"
+                              ? DEFAULT_LLM_OUTPUT_TEXT_NODE_WIDTH
+                              : node.type === "generatedPreviewNode"
+                                ? DEFAULT_PREVIEW_NODE_WIDTH
+                                : node.type === "compareNode"
+                                  ? DEFAULT_COMPARE_NODE_WIDTH
+                                  : node.type === "groupNode"
+                                    ? DEFAULT_GROUP_NODE_WIDTH
+                                    : node.type === "testImageNode"
+                                      ? DEFAULT_IMAGE_NODE_WIDTH
+                                      : node.type === "panoramaNode"
+                                        ? DEFAULT_PANORAMA_NODE_WIDTH
+                                        : 240;
   const height =
     typeof node.height === "number"
       ? node.height
@@ -102,23 +107,26 @@ export function getNodeSize(node: Node) {
                     ? DEFAULT_INLINE_TEXT_SPLITTER_NODE_HEIGHT
                     : node.type === "generateNode"
                       ? DEFAULT_GENERATE_NODE_HEIGHT
-                      : node.type === "imageEditNode"
-                        ? DEFAULT_IMAGE_EDIT_NODE_HEIGHT
-                        : node.type === "llmNode" || node.type === "llmFileNode"
-                          ? DEFAULT_LLM_NODE_HEIGHT
-                          : node.type === "llmOutputTextNode"
-                            ? DEFAULT_LLM_OUTPUT_TEXT_NODE_HEIGHT
-                            : node.type === "generatedPreviewNode"
-                              ? DEFAULT_PREVIEW_NODE_HEIGHT
-                              : node.type === "compareNode"
-                                ? DEFAULT_COMPARE_NODE_HEIGHT
-                                : node.type === "groupNode"
-                                  ? DEFAULT_GROUP_NODE_HEIGHT
-                                  : node.type === "testImageNode"
-                                    ? DEFAULT_IMAGE_NODE_HEIGHT
-                                    : node.type === "panoramaNode"
-                                      ? DEFAULT_PANORAMA_NODE_HEIGHT
-                                      : 180;
+                      : node.type === "interiorDesignNode"
+                        ? DEFAULT_INTERIOR_DESIGN_NODE_HEIGHT
+                        : node.type === "imageEditNode"
+                          ? DEFAULT_IMAGE_EDIT_NODE_HEIGHT
+                          : node.type === "llmNode" ||
+                              node.type === "llmFileNode"
+                            ? DEFAULT_LLM_NODE_HEIGHT
+                            : node.type === "llmOutputTextNode"
+                              ? DEFAULT_LLM_OUTPUT_TEXT_NODE_HEIGHT
+                              : node.type === "generatedPreviewNode"
+                                ? DEFAULT_PREVIEW_NODE_HEIGHT
+                                : node.type === "compareNode"
+                                  ? DEFAULT_COMPARE_NODE_HEIGHT
+                                  : node.type === "groupNode"
+                                    ? DEFAULT_GROUP_NODE_HEIGHT
+                                    : node.type === "testImageNode"
+                                      ? DEFAULT_IMAGE_NODE_HEIGHT
+                                      : node.type === "panoramaNode"
+                                        ? DEFAULT_PANORAMA_NODE_HEIGHT
+                                        : 180;
 
   return { width, height };
 }

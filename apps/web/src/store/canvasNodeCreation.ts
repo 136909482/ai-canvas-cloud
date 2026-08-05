@@ -5,6 +5,7 @@ import type {
   CompareNodeData,
   GenerateStatus,
   GenerateNodeData,
+  InteriorDesignNodeData,
   GeneratedPreviewNodeData,
   GroupNodeData,
   ImageCropNodeData,
@@ -19,6 +20,11 @@ import type {
   VideoGenerateNodeData,
   VideoNodeData,
 } from "@/types";
+import {
+  compileInteriorDesignPrompt,
+  createDefaultInteriorDesignConfig,
+  getInteriorProviderRatio,
+} from "@/features/interiorDesign/compiler";
 import {
   createImageCropNodeData,
   createImageEditNodeData,
@@ -228,6 +234,34 @@ export function buildManualGenerateNode(
       referenceSourceOrder: [],
       maskInputEnabled: false,
       maskSourceNodeId: null,
+      activeTaskId: null,
+    },
+  };
+}
+
+export function buildManualInteriorDesignNode(
+  id: string,
+  position: { x: number; y: number },
+  size: { width: number; height: number },
+): Node<InteriorDesignNodeData> {
+  const config = createDefaultInteriorDesignConfig();
+  return {
+    id,
+    type: "interiorDesignNode",
+    dragHandle: NODE_DRAG_HANDLE,
+    position,
+    width: size.width,
+    height: size.height,
+    selected: true,
+    data: {
+      config,
+      compiledPrompt: compileInteriorDesignPrompt(config),
+      sourceImageNodeId: null,
+      model: DEFAULT_IMAGE_MODEL_ID,
+      ratio: getInteriorProviderRatio(config.output.aspectRatio),
+      resolution: "1K",
+      status: "idle",
+      errorMsg: "",
       activeTaskId: null,
     },
   };

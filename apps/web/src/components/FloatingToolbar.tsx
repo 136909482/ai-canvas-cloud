@@ -278,6 +278,9 @@ export function FloatingToolbar() {
   const addImageCropNode = useCanvasStore((state) => state.addImageCropNode);
   const addLLMNode = useCanvasStore((state) => state.addLLMNode);
   const addGenerateNode = useCanvasStore((state) => state.addGenerateNode);
+  const addInteriorDesignNode = useCanvasStore(
+    (state) => state.addInteriorDesignNode,
+  );
 
   const addGeneratedPreviewNode = useCanvasStore(
     (state) => state.addGeneratedPreviewNode,
@@ -382,6 +385,7 @@ export function FloatingToolbar() {
         addTextNode,
         addImageNode,
         addGenerateNode,
+        addInteriorDesignNode,
         addLLMNode,
         addVideoGenerateNode,
         addTextSplitterNode,
@@ -394,6 +398,7 @@ export function FloatingToolbar() {
     [
       addCompareNode,
       addGenerateNode,
+      addInteriorDesignNode,
       addGeneratedPreviewNode,
       addImageCropNode,
       addImageNode,

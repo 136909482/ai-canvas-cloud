@@ -104,6 +104,7 @@ export { getNodeSize } from "./canvasLayoutGeometry";
 export {
   makeSelectGenerateMaskSourceNode,
   makeSelectGenerateReferenceSourceNodes,
+  makeSelectInteriorDesignSourceNode,
   makeSelectImageEditReferenceSourceNodes,
   makeSelectLLMInputImageSourceNodes,
   selectHasCanvasContent,
@@ -141,6 +142,10 @@ interface CanvasStore {
     y: number;
   }) => string;
   addGenerateNode: (preferredPosition?: { x: number; y: number }) => string;
+  addInteriorDesignNode: (preferredPosition?: {
+    x: number;
+    y: number;
+  }) => string;
   addImageEditNode: (preferredPosition?: { x: number; y: number }) => string;
   addLLMNode: (preferredPosition?: { x: number; y: number }) => string;
   addLLMFileNode: (preferredPosition?: { x: number; y: number }) => string;
@@ -400,7 +405,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
             isTextSource) ||
           (targetNode?.type === "textSplitterNode" && isTextSource) ||
           (targetNode?.type === "inlineTextSplitterNode" && isTextSource) ||
-          targetNode?.type === "imageCropNode");
+          targetNode?.type === "imageCropNode" ||
+          targetNode?.type === "interiorDesignNode");
 
       const nextEdges = addEdge(
         { ...conn, animated: true },
@@ -416,6 +422,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
               if (
                 targetNode?.type === "compareNode" ||
                 targetNode?.type === "imageCropNode" ||
+                targetNode?.type === "interiorDesignNode" ||
                 (targetNode?.type === "generateNode" &&
                   conn.targetHandle === "mask") ||
                 (targetNode?.type === "videoGenerateNode" &&
@@ -456,7 +463,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       );
       const newNode = registration.build(id, position, registration.size);
       const defaultModelCategory =
-        type === "generateNode"
+        type === "generateNode" || type === "interiorDesignNode"
           ? "image"
           : type === "videoGenerateNode"
             ? "video"
@@ -502,6 +509,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     get().addNodeByType("inlineTextSplitterNode", preferredPosition),
   addGenerateNode: (preferredPosition) =>
     get().addNodeByType("generateNode", preferredPosition),
+  addInteriorDesignNode: (preferredPosition) =>
+    get().addNodeByType("interiorDesignNode", preferredPosition),
   addImageEditNode: (preferredPosition) =>
     get().addNodeByType("imageEditNode", preferredPosition),
   addLLMNode: (preferredPosition) =>

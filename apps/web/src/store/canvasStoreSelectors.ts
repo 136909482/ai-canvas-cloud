@@ -3,6 +3,7 @@ import {
   getGenerateMaskSourceNode,
   getGenerateReferenceSourceNodes,
   getImageEditReferenceSourceNodes,
+  getInteriorDesignSourceNode,
   getLLMInputImageSourceNodes,
 } from "./canvasConnectionSources";
 
@@ -29,6 +30,11 @@ export const makeSelectGenerateMaskSourceNode =
   (nodeId: string) =>
   ({ nodes }: { nodes: Node[] }) =>
     getGenerateMaskSourceNode(nodes, nodeId);
+
+export const makeSelectInteriorDesignSourceNode =
+  (nodeId: string) =>
+  ({ nodes }: { nodes: Node[] }) =>
+    getInteriorDesignSourceNode(nodes, nodeId);
 
 export const makeSelectImageEditReferenceSourceNodes =
   (nodeId: string) =>

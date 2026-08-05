@@ -92,3 +92,35 @@ test("same-device hydration resolves aliases while another device keeps them una
   assert.equal(sameDevice.nodes[0]?.data.model, "private-chat-model");
   assert.equal(otherDevice.nodes[0]?.data.model, reference);
 });
+
+test("interior design nodes keep compiled config but anonymize model and runtime state", () => {
+  const reference = createLocalModelReference();
+  const cloud = prepareCanvasForCloud(
+    {
+      nodes: [
+        {
+          id: "interior-1",
+          type: "interiorDesignNode",
+          position: { x: 0, y: 0 },
+          data: {
+            model: "private-interior-model",
+            compiledPrompt: '{"任务":"室内设计"}',
+            config: { schemaVersion: 1 },
+            status: "queued",
+            errorMsg: "private failure",
+            activeTaskId: "task-private",
+          },
+        },
+      ],
+      edges: [],
+    },
+    () => reference,
+  );
+
+  const data = cloud.nodes[0]?.data ?? {};
+  assert.equal(data.model, reference);
+  assert.equal(data.compiledPrompt, '{"任务":"室内设计"}');
+  assert.equal(data.status, "idle");
+  assert.equal(data.errorMsg, "");
+  assert.equal("activeTaskId" in data, false);
+});

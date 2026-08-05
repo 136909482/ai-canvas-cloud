@@ -53,6 +53,19 @@ export function sanitizeNodeForPersistence(node: Node): Node {
     return sanitizeNodeWithImageAsset(node, "");
   }
 
+  if (node.type === "interiorDesignNode") {
+    return {
+      ...node,
+      selected: false,
+      data: {
+        ...node.data,
+        status: "idle",
+        errorMsg: "",
+        activeTaskId: null,
+      },
+    };
+  }
+
   return {
     ...node,
     selected: false,
