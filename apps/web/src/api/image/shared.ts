@@ -511,14 +511,7 @@ function resolveClosestSupportedRatio(
   }, "1:1" as SupportedGenerateRatio);
 }
 
-export async function resolveEffectiveRatio(params: GenerateImageParams) {
-  if (
-    params.ratio &&
-    SUPPORTED_GENERATE_RATIOS.includes(params.ratio as SupportedGenerateRatio)
-  ) {
-    return params.ratio;
-  }
-
+function getPrimaryReferenceImageUrl(params: GenerateImageParams) {
   const primaryReferenceImageUrl =
     resolveImageOperationType(params) === "image-edit"
       ? (params.editImageUrl ?? null)
@@ -527,6 +520,13 @@ export async function resolveEffectiveRatio(params: GenerateImageParams) {
           params.referenceImageUrls,
         )[0] ?? null);
 
+  return primaryReferenceImageUrl;
+}
+
+export async function resolveReferenceImageRatio(params: GenerateImageParams) {
+  const primaryReferenceImageUrl = getPrimaryReferenceImageUrl(params);
+  if (!primaryReferenceImageUrl) return null;
+
   if (primaryReferenceImageUrl) {
     try {
       const { width, height } = await loadImageDimensions(
@@ -534,14 +534,33 @@ export async function resolveEffectiveRatio(params: GenerateImageParams) {
       );
       return resolveClosestSupportedRatio(width, height);
     } catch {
-      // Fall through to prompt-derived ratio when the reference cannot be inspected.
+      return null;
     }
   }
 
-  const promptRatio = parseRatioFromPrompt(params.prompt);
-  if (promptRatio) {
-    return resolveClosestSupportedRatio(promptRatio.width, promptRatio.height);
+  return null;
+}
+
+export function resolvePromptRatio(prompt: string) {
+  const promptRatio = parseRatioFromPrompt(prompt);
+  return promptRatio
+    ? resolveClosestSupportedRatio(promptRatio.width, promptRatio.height)
+    : null;
+}
+
+export async function resolveEffectiveRatio(params: GenerateImageParams) {
+  if (
+    params.ratio &&
+    SUPPORTED_GENERATE_RATIOS.includes(params.ratio as SupportedGenerateRatio)
+  ) {
+    return params.ratio;
   }
+
+  const referenceRatio = await resolveReferenceImageRatio(params);
+  if (referenceRatio) return referenceRatio;
+
+  const promptRatio = resolvePromptRatio(params.prompt);
+  if (promptRatio) return promptRatio;
 
   return "1:1";
 }

@@ -16,6 +16,8 @@ import {
   normalizeReferenceImages,
   parseJsonLikeResponse,
   resolveEffectiveRatio,
+  resolvePromptRatio,
+  resolveReferenceImageRatio,
   resolveImageOperationType,
   sleep,
 } from "./shared.ts";
@@ -243,17 +245,37 @@ function getGptImage2Size(ratio?: string, resolution?: string) {
   ];
 }
 
-function resolveGptImage2RequestSize(
-  params: GenerateImageParams,
-  effectiveRatio: string,
-) {
-  const requestedRatio = SUPPORTED_GENERATE_RATIOS.includes(
-    params.ratio as SupportedGenerateRatio,
-  )
-    ? params.ratio
-    : effectiveRatio;
+function hasOpenAiReferenceImage(params: GenerateImageParams) {
+  return Boolean(
+    params.editImageUrl ||
+    normalizeReferenceImages(
+      params.referenceImageUrl,
+      params.referenceImageUrls,
+    ).length > 0,
+  );
+}
 
-  return getGptImage2Size(requestedRatio, params.resolution);
+async function resolveGptImage2RequestSize(params: GenerateImageParams) {
+  if (
+    SUPPORTED_GENERATE_RATIOS.includes(params.ratio as SupportedGenerateRatio)
+  ) {
+    return getGptImage2Size(params.ratio, params.resolution);
+  }
+
+  if (!hasOpenAiReferenceImage(params)) {
+    const promptRatio = resolvePromptRatio(params.prompt);
+    return promptRatio
+      ? getGptImage2Size(promptRatio, params.resolution)
+      : "auto";
+  }
+
+  const promptRatio = resolvePromptRatio(params.prompt);
+  if (promptRatio) return getGptImage2Size(promptRatio, params.resolution);
+
+  const referenceRatio = await resolveReferenceImageRatio(params);
+  return referenceRatio
+    ? getGptImage2Size(referenceRatio, params.resolution)
+    : "auto";
 }
 
 function hasGeminiAutoRatioReference(params: GenerateImageParams) {
@@ -301,13 +323,17 @@ function resolveGeminiImageRequestSize(
   return normalizedRatio;
 }
 
-function resolveOpenAiRequestSize(
-  params: GenerateImageParams,
-  effectiveRatio: string,
-) {
-  return getOpenAiCompatibleImageRequestFamily(params.model) === "gemini"
+async function resolveOpenAiRequestSize(params: GenerateImageParams) {
+  const requestFamily = getOpenAiCompatibleImageRequestFamily(params.model);
+
+  if (requestFamily === "openai") {
+    return resolveGptImage2RequestSize(params);
+  }
+
+  const effectiveRatio = await resolveEffectiveRatio(params);
+  return requestFamily === "gemini"
     ? resolveGeminiImageRequestSize(params, effectiveRatio)
-    : resolveGptImage2RequestSize(params, effectiveRatio);
+    : getGptImage2Size(effectiveRatio, params.resolution);
 }
 
 export function resolveOpenAiEndpoint(
@@ -626,8 +652,7 @@ export async function generateWithOpenAI(
   const operationType = resolveImageOperationType(params);
   const endpointPath = resolveOpenAiImageEndpointPath(params, operationType);
   const generationsEndpoint = getOpenAiRequestUrl(params.apiUrl, endpointPath);
-  const effectiveRatio = await resolveEffectiveRatio(params);
-  const size = resolveOpenAiRequestSize(params, effectiveRatio);
+  const size = await resolveOpenAiRequestSize(params);
 
   if (params.requestMode === "async") {
     const submission = await submitOpenAiAsyncImageGeneration(params, size);
@@ -674,8 +699,7 @@ export async function submitOpenAiAsyncImageGeneration(
 
   const endpointPath = resolveOpenAiImageEndpointPath(params, operationType);
   const endpoint = resolveOpenAiEndpoint(params.apiUrl, endpointPath);
-  const effectiveRatio = await resolveEffectiveRatio(params);
-  const size = resolvedSize ?? resolveOpenAiRequestSize(params, effectiveRatio);
+  const size = resolvedSize ?? (await resolveOpenAiRequestSize(params));
   const isMultipartEdit = shouldUseOpenAiImageEditRequest(params);
   const requestBody = isMultipartEdit
     ? await buildGptImageEditFormData(params, size)

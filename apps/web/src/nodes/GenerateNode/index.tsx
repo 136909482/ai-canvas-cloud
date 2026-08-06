@@ -64,6 +64,9 @@ import {
   RESOLUTIONS,
   getRatioLabel,
   getResolutionLabel,
+  getGenerateSettingsSummary,
+  hasPromptRatio,
+  shouldShowResolutionSettings,
 } from "./modelSettings";
 import {
   type ReferenceImageItem,
@@ -250,15 +253,25 @@ export const GenerateNode = memo(function GenerateNode({
   const selectedModel = modelSelection.selectedModel;
   const isGptImageSettingsModel = isGptImageModel(selectedModel?.modelId ?? "");
   const ratio = normalizeGenerateRatio(data.ratio);
+  const promptForSettings = isConnected ? data.prompt || "" : promptDraft;
+  const hasExplicitPromptRatio = hasPromptRatio(promptForSettings);
   const resolution = RESOLUTIONS.includes(data.resolution)
     ? data.resolution
     : "1K";
   const quality = data.quality || "auto";
-  const ratioLabel = getRatioLabel(ratio);
-  const resolutionLabel = getResolutionLabel(resolution);
-  const settingsSummary = isGptImageSettingsModel
-    ? `${ratioLabel} / ${resolutionLabel} / ${GPT_IMAGE_QUALITY_LABELS[quality]}`
-    : `${ratioLabel} / ${resolutionLabel}`;
+  const settingsSummary = getGenerateSettingsSummary({
+    isGptImageModel: isGptImageSettingsModel,
+    ratio,
+    resolution,
+    quality,
+    hasAutoRatioSource:
+      referenceImageCount > 0 || hasMaskImage || hasExplicitPromptRatio,
+  });
+  const showResolutionSettings = shouldShowResolutionSettings(
+    isGptImageSettingsModel,
+    ratio,
+    referenceImageCount > 0 || hasMaskImage || hasExplicitPromptRatio,
+  );
 
   const stopCanvasGesture = (event: SyntheticEvent) => {
     event.stopPropagation();
@@ -741,22 +754,24 @@ export const GenerateNode = memo(function GenerateNode({
                       />
                     </SettingsSection>
 
-                    <SettingsSection title="清晰度">
-                      <SettingsSegment
-                        value={resolution}
-                        options={RESOLUTIONS}
-                        ariaLabel={UI_TEXT.chooseResolution}
-                        onChange={(value) =>
-                          runTracked(() =>
-                            updateNodeData(id, { resolution: value }),
-                          )
-                        }
-                        groupClassName="h-10 rounded-[9px] border-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] bg-[color-mix(in_srgb,var(--control-bg)_62%,transparent)] p-1 shadow-none"
-                        buttonClassName="rounded-[7px] text-[11px] hover:bg-[color-mix(in_srgb,var(--text-primary)_5%,transparent)]"
-                        slider
-                        renderOption={(value) => getResolutionLabel(value)}
-                      />
-                    </SettingsSection>
+                    {showResolutionSettings && (
+                      <SettingsSection title="清晰度">
+                        <SettingsSegment
+                          value={resolution}
+                          options={RESOLUTIONS}
+                          ariaLabel={UI_TEXT.chooseResolution}
+                          onChange={(value) =>
+                            runTracked(() =>
+                              updateNodeData(id, { resolution: value }),
+                            )
+                          }
+                          groupClassName="h-10 rounded-[9px] border-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] bg-[color-mix(in_srgb,var(--control-bg)_62%,transparent)] p-1 shadow-none"
+                          buttonClassName="rounded-[7px] text-[11px] hover:bg-[color-mix(in_srgb,var(--text-primary)_5%,transparent)]"
+                          slider
+                          renderOption={(value) => getResolutionLabel(value)}
+                        />
+                      </SettingsSection>
+                    )}
 
                     {isGptImageSettingsModel && (
                       <SettingsSection title="画质">

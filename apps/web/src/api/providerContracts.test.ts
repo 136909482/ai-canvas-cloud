@@ -180,6 +180,26 @@ test("OpenAI compatible sync image provider preserves model options and extracts
   assert.equal("resolution" in body, false);
 });
 
+test("GPT Image passes Auto through for text-to-image requests", async () => {
+  const { requests } = await withMockFetch(
+    () => Response.json({ data: [{ url: "https://cdn.example/auto.png" }] }),
+    () =>
+      generateWithOpenAI({
+        prompt: "a simple vertical illustration",
+        ratio: "Auto",
+        resolution: "4K",
+        apiKey: "openai-key",
+        apiUrl: "https://images.example/v1",
+        model: "gpt-image-2",
+        provider: "openai",
+        operationType: "text-to-image",
+      }),
+  );
+
+  const body = JSON.parse(String(requests[0]?.init?.body));
+  assert.equal(body.size, "auto");
+});
+
 test("OpenAI compatible image provider accepts provider-defined GPT image aliases", async () => {
   const { result, requests } = await withMockFetch(
     () => Response.json({ data: [{ url: "https://cdn.example/alias.png" }] }),
@@ -312,6 +332,117 @@ test("OpenAI compatible image-to-image uses the documented edits multipart contr
   assert.equal(body.has("resolution"), false);
 });
 
+test("GPT Image follows a reference ratio while preserving the selected K tier", async () => {
+  const sourceImageUrl = "https://assets.example/896x1200.png";
+  const originalImage = globalThis.Image;
+  class ReferenceImage {
+    naturalWidth = 896;
+    naturalHeight = 1200;
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+
+    set src(_value: string) {
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+
+  Object.defineProperty(globalThis, "Image", {
+    configurable: true,
+    writable: true,
+    value: ReferenceImage,
+  });
+
+  try {
+    const { requests } = await withMockFetch(
+      (request) =>
+        String(request.input) === sourceImageUrl
+          ? new Response(new Uint8Array([137, 80, 78, 71]), {
+              headers: { "content-type": "image/png" },
+            })
+          : Response.json({
+              data: [{ url: "https://cdn.example/auto-edited.png" }],
+            }),
+      () =>
+        generateWithOpenAI({
+          prompt: "turn this model image into a realistic interior render",
+          ratio: "Auto",
+          resolution: "2K",
+          referenceImageUrl: sourceImageUrl,
+          apiKey: "openai-key",
+          apiUrl: "https://images.example/v1",
+          model: "gpt-image-2",
+          provider: "openai",
+          operationType: "image-to-image",
+        }),
+    );
+
+    const body = requests.at(-1)?.init?.body;
+    assert.ok(body instanceof FormData);
+    assert.equal(body.get("size"), "1536x2048");
+    assert.equal(body.getAll("image[]").length, 1);
+  } finally {
+    Object.defineProperty(globalThis, "Image", {
+      configurable: true,
+      writable: true,
+      value: originalImage,
+    });
+  }
+});
+
+test("GPT Image prompt ratio takes precedence over a reference ratio", async () => {
+  const originalImage = globalThis.Image;
+  class ReferenceImage {
+    naturalWidth = 896;
+    naturalHeight = 1200;
+    onload: (() => void) | null = null;
+
+    set src(_value: string) {
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+
+  Object.defineProperty(globalThis, "Image", {
+    configurable: true,
+    writable: true,
+    value: ReferenceImage,
+  });
+
+  try {
+    const { requests } = await withMockFetch(
+      (request) =>
+        String(request.input) === "https://assets.example/reference.png"
+          ? new Response(new Uint8Array([137, 80, 78, 71]), {
+              headers: { "content-type": "image/png" },
+            })
+          : Response.json({
+              data: [{ url: "https://cdn.example/prompt-ratio.png" }],
+            }),
+      () =>
+        generateWithOpenAI({
+          prompt: "long comic strip, aspect ratio 2:6",
+          ratio: "Auto",
+          resolution: "1K",
+          referenceImageUrl: "https://assets.example/reference.png",
+          apiKey: "openai-key",
+          apiUrl: "https://images.example/v1",
+          model: "gpt-image-2",
+          provider: "openai",
+          operationType: "image-to-image",
+        }),
+    );
+
+    const body = requests.at(-1)?.init?.body;
+    assert.ok(body instanceof FormData);
+    assert.equal(body.get("size"), "512x1536");
+  } finally {
+    Object.defineProperty(globalThis, "Image", {
+      configurable: true,
+      writable: true,
+      value: originalImage,
+    });
+  }
+});
+
 test("OpenAI compatible image-to-image preserves multiple image file order", async () => {
   const sourceUrls = [
     "https://assets.example/first.png",
@@ -367,7 +498,8 @@ test("OpenAI compatible async provider accepts the task_id submission contract",
     () =>
       submitOpenAiAsyncImageGeneration({
         prompt: "draw a triangle",
-        ratio: "1:1",
+        ratio: "Auto",
+        resolution: "4K",
         apiKey: "async-key",
         apiUrl: "https://async.example/v1",
         model: "gpt-image-2",
@@ -386,6 +518,8 @@ test("OpenAI compatible async provider accepts the task_id submission contract",
     getHeader(requests[0]?.init, "authorization"),
     "Bearer async-key",
   );
+  const body = JSON.parse(String(requests[0]?.init?.body));
+  assert.equal(body.size, "auto");
 });
 
 test("chat provider uses the OpenAI-compatible completion contract", async () => {
