@@ -64,8 +64,9 @@ test("protocol owns manual factories, connection rules, output layouts, and libr
     width: 560,
     height: 620,
   });
-  assert.deepEqual(interiorRegistration.connection.inputs?.image, ["image"]);
-  assert.equal(interiorRegistration.outputLayout, "generated-preview");
+  assert.equal(interiorRegistration.connection.output, "text");
+  assert.equal(interiorRegistration.connection.inputs, undefined);
+  assert.equal(interiorRegistration.outputLayout, "none");
   assert.equal(interiorRegistration.library?.label, "室内设计");
   assert.equal(
     nodeLibraryRegistrations.some(

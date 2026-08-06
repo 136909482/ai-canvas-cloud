@@ -4,6 +4,7 @@ import type { RichPromptDocument } from "@/features/richPrompt/types";
 import type {
   GeneratedPreviewNodeData,
   ImageNodeData,
+  InteriorDesignNodeData,
   LLMOutputTextNodeData,
   TestImageNodeData,
   TextNodeData,
@@ -82,18 +83,6 @@ export function getGenerateMaskSourceNode(nodes: Node[], nodeId: string) {
   return isConnectedImageSourceNode(maskSourceNode) ? maskSourceNode : null;
 }
 
-export function getInteriorDesignSourceNode(nodes: Node[], nodeId: string) {
-  const targetNode = getCanvasNodeById(nodes, nodeId);
-  if (targetNode?.type !== "interiorDesignNode") return null;
-
-  const sourceNodeId =
-    typeof targetNode.data?.sourceImageNodeId === "string"
-      ? targetNode.data.sourceImageNodeId
-      : null;
-  const sourceNode = getCanvasNodeById(nodes, sourceNodeId);
-  return isConnectedImageSourceNode(sourceNode) ? sourceNode : null;
-}
-
 export function getImageEditReferenceSourceNodes(
   nodes: Node[],
   nodeId: string,
@@ -123,12 +112,13 @@ export function getLLMInputImageSourceNodes(nodes: Node[], nodeId: string) {
 
 export function isTextSourceNode(
   node: Node | undefined,
-): node is Node<TextNodeData | LLMOutputTextNodeData> {
+): node is Node<TextNodeData | LLMOutputTextNodeData | InteriorDesignNodeData> {
   return Boolean(
     node &&
     (node.type === "textNode" ||
       node.type === "llmOutputTextNode" ||
-      node.type === "inlineTextSplitterNode"),
+      node.type === "inlineTextSplitterNode" ||
+      node.type === "interiorDesignNode"),
   );
 }
 
@@ -164,6 +154,17 @@ export function getTextFromSourceEdge(nodes: Node[], edge: Edge | undefined) {
     return {
       sourceId: sourceNode.id,
       text: partIndex >= 0 ? (parts[partIndex] ?? "") : "",
+      richPrompt: null,
+    };
+  }
+
+  if (sourceNode.type === "interiorDesignNode") {
+    return {
+      sourceId: sourceNode.id,
+      text:
+        typeof sourceNode.data?.compiledPrompt === "string"
+          ? sourceNode.data.compiledPrompt
+          : "",
       richPrompt: null,
     };
   }

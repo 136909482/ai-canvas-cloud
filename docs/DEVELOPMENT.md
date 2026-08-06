@@ -285,8 +285,8 @@ Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户�
 
 ## 浏览器 Vault 与本地生成
 
-- `interiorDesignNode` 是独立于通用 `generateNode` 的图片生成来源节点。它只接受一个 `image` 输入，保存版本化 `InteriorDesignConfigV1` 和确定性编译的只读 JSON 提示词；预设和配置变更不得修改通用绘图节点的数据结构。
-- 室内设计任务固定为单参考图 `image-to-image`。入队时冻结编译 JSON、图片来源、匿名模型绑定、接口画幅和真实 Provider 分辨率，并复用现有图片任务、结果节点、临时结果加密和 Cloud 资产入库链路；提示词中的 4K/8K 画质描述不代表 Provider 接口能力。
+- `interiorDesignNode` 是独立于通用 `generateNode` 的确定性 JSON 提示词编译器。它不接受图片输入，不保存模型或任务运行态，只保存版本化 `InteriorDesignConfigV1`、编译结果和可选关联文本节点 ID；提示词中的画幅与 4K/8K 只描述期望画面，不代表 Provider 接口参数。
+- 首次输出室内提示词时创建普通可编辑 `textNode` 和可见文本边；关联存在期间，任意有效参数变化在同一次画布状态更新中重编译并覆盖文本内容。删除边即停止联动，删除任一节点不得级联删除另一侧内容。图片、模型、真实画幅/分辨率、Provider 调用、任务恢复和结果入云均由用户连接的通用 `generateNode` 负责。
 - Provider、endpoint、真实模型 ID、API Key、匿名引用绑定和可恢复本地任务只进入按 Origin、可信用户和项目隔离的加密 IndexedDB。任务缓存当前为 v3，兼容读取 v2；Provider 已返回但尚未入云的图片 Blob 也按用户、项目和任务加密暂存，保存成功后立即删除。
 - Vault 当前使用 `schemaVersion=2`、`cipherVersion=1`、不可导出的 AES-256-GCM `CryptoKey`；Key 凭据与 Provider 配置分槽保存。
 - 登出或换账号清除内存明文，但保留按账号隔离的设备密文；清除网站数据会删除密文、CryptoKey、绑定和任务缓存。

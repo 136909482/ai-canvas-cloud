@@ -174,13 +174,7 @@ export interface GenerateNodeData extends Record<string, unknown> {
 export interface InteriorDesignNodeData extends Record<string, unknown> {
   config: InteriorDesignConfigV1;
   compiledPrompt: string;
-  sourceImageNodeId: string | null;
-  model: string;
-  ratio: string;
-  resolution: string;
-  status: GenerateStatus;
-  errorMsg: string;
-  activeTaskId: string | null;
+  outputTextNodeId: string | null;
 }
 
 export interface ImageEditNodeData extends Record<string, unknown> {

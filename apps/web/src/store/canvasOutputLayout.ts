@@ -395,7 +395,6 @@ export function applyDragStopSideEffects(
 
     if (
       draggedNode.type === "generateNode" ||
-      draggedNode.type === "interiorDesignNode" ||
       draggedNode.type === "imageEditNode"
     ) {
       affectedGenerateNodeIds.add(draggedNode.id);

@@ -1,18 +1,8 @@
-import { memo, useMemo, useState, type SyntheticEvent } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
-import {
-  ChevronDown,
-  Clock3,
-  Home,
-  ImageIcon,
-  Loader2,
-  Play,
-} from "lucide-react";
+import { Braces, ChevronDown, FileOutput, Home } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { enqueueGenerateTask } from "@/features/generateQueue/orchestrator";
 import {
-  compileInteriorDesignPrompt,
-  getInteriorProviderRatio,
   normalizeInteriorDesignConfig,
   parseInteriorMaterialDefinition,
 } from "@/features/interiorDesign/compiler";
@@ -52,21 +42,10 @@ import type {
   InteriorDesignConfigV1,
   InteriorOption,
 } from "@/features/interiorDesign/types";
-import {
-  getNodeModelIssueLabel,
-  getNodeModelSelection,
-} from "@/features/settings/nodeModelSelection";
-import {
-  makeSelectInteriorDesignSourceNode,
-  useCanvasStore,
-} from "@/store/useCanvasStore";
-import { useProjectStore } from "@/store/useProjectStore";
-import { useSettingsStore } from "@/store/useSettingsStore";
-import { useTaskQueueStore } from "@/store/useTaskQueueStore";
-import { getWorkspaceAssetRelativePath } from "@/utils/workspaceImageAsset";
+import { useCanvasStore } from "@/store/useCanvasStore";
+import { useHistoryStore } from "@/store/useHistoryStore";
 import type { AppNodeProps } from "@/types";
 import { themeClasses } from "@/styles/themeClasses";
-import { NodeModelSelector } from "../NodeModelSelector";
 import { NodeDeleteButton, NodeHeader, NodeResizerPreset } from "../nodeShell";
 import { getNodeShellClassName } from "../nodeShellClassName";
 
@@ -75,6 +54,12 @@ type Props = AppNodeProps<"interiorDesignNode">;
 const controlClass = `nodrag nowheel h-9 w-full px-2.5 text-[11px] ${themeClasses.nodeInput}`;
 const labelClass =
   "space-y-1 text-[10px] font-medium leading-none text-[var(--text-muted)]";
+
+function serializeMaterialDefinition(
+  value: InteriorDesignConfigV1["constraints"]["materialDefinition"],
+) {
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
 
 function OptionSelect({
   label,
@@ -143,53 +128,51 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
   data,
   selected,
 }: Props) {
-  const { updateNodeData, deleteNode } = useCanvasStore(
+  const {
+    updateInteriorDesignConfig,
+    materializeInteriorDesignPrompt,
+    deleteNode,
+  } = useCanvasStore(
     useShallow((state) => ({
-      updateNodeData: state.updateNodeData,
+      updateInteriorDesignConfig: state.updateInteriorDesignConfig,
+      materializeInteriorDesignPrompt: state.materializeInteriorDesignPrompt,
       deleteNode: state.deleteNode,
     })),
   );
-  const sourceNode = useCanvasStore(
-    useMemo(() => makeSelectInteriorDesignSourceNode(id), [id]),
-  );
+  const runTracked = useHistoryStore((state) => state.runTracked);
   const config = data.config;
-  const settingsConfig = useSettingsStore((state) => state.config);
-  const setDefaultModel = useSettingsStore((state) => state.setDefaultModel);
-  const bindLocalModelReference = useSettingsStore(
-    (state) => state.bindLocalModelReference,
-  );
-  const projectId = useProjectStore((state) => state.activeProjectId);
-  const activeTaskCount = useTaskQueueStore(
-    (state) =>
-      state.tasks.filter(
-        (task) =>
-          task.sourceNodeId === id &&
-          (task.status === "queued" || task.status === "running"),
-      ).length,
-  );
   const [materialDraft, setMaterialDraft] = useState(() =>
-    typeof config.constraints.materialDefinition === "string"
-      ? config.constraints.materialDefinition
-      : JSON.stringify(config.constraints.materialDefinition, null, 2),
+    serializeMaterialDefinition(config.constraints.materialDefinition),
   );
+  const materialDraftRef = useRef(materialDraft);
   const [materialError, setMaterialError] = useState("");
-  const modelSelection = useMemo(
-    () =>
-      getNodeModelSelection(settingsConfig, {
-        category: "image",
-        reference: data.model,
-      }),
-    [data.model, settingsConfig],
-  );
+
+  useEffect(() => {
+    try {
+      const parsedDraft = parseInteriorMaterialDefinition(
+        materialDraftRef.current,
+      );
+      if (
+        JSON.stringify(parsedDraft) ===
+        JSON.stringify(config.constraints.materialDefinition)
+      ) {
+        return;
+      }
+    } catch {
+      // An external history update should replace an invalid local draft.
+    }
+
+    const nextDraft = serializeMaterialDefinition(
+      config.constraints.materialDefinition,
+    );
+    materialDraftRef.current = nextDraft;
+    setMaterialDraft(nextDraft);
+    setMaterialError("");
+  }, [config.constraints.materialDefinition]);
 
   const persistConfig = (next: InteriorDesignConfigV1) => {
     const normalized = normalizeInteriorDesignConfig(next);
-    updateNodeData(id, {
-      config: normalized.config,
-      compiledPrompt: compileInteriorDesignPrompt(normalized.config),
-      ratio: getInteriorProviderRatio(normalized.config.output.aspectRatio),
-      errorMsg: "",
-    });
+    runTracked(() => updateInteriorDesignConfig(id, normalized.config));
   };
 
   const patchConfig = (patch: Partial<InteriorDesignConfigV1>) =>
@@ -212,62 +195,16 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
     if (!preset) return;
     const next = applyInteriorPreset(config, preset.id);
     persistConfig(next);
-    setMaterialDraft(
-      typeof next.constraints.materialDefinition === "string"
-        ? next.constraints.materialDefinition
-        : JSON.stringify(next.constraints.materialDefinition, null, 2),
+    const nextMaterialDraft = serializeMaterialDefinition(
+      next.constraints.materialDefinition,
     );
+    materialDraftRef.current = nextMaterialDraft;
+    setMaterialDraft(nextMaterialDraft);
     setMaterialError("");
   };
 
-  const selectModel = (modelId: string) => {
-    if (
-      modelSelection.issue === "unbound" &&
-      modelId !== data.model &&
-      !bindLocalModelReference(data.model, modelId)
-    )
-      return;
-    updateNodeData(id, { model: modelId, errorMsg: "" });
-    if (modelId) setDefaultModel(modelId);
-  };
-
   const validation = normalizeInteriorDesignConfig(config);
-  const disabledReasons = [
-    !sourceNode ? "请连接一张图片" : "",
-    !modelSelection.canExecute
-      ? getNodeModelIssueLabel(modelSelection) || "请选择可执行的图片模型"
-      : "",
-    ...validation.errors,
-    materialError,
-  ].filter(Boolean);
-  const isBusy = data.status === "queued" || data.status === "generating";
-
-  const enqueue = () => {
-    if (!sourceNode || disabledReasons.length > 0) return;
-    const prompt = compileInteriorDesignPrompt(validation.config);
-    const taskId = enqueueGenerateTask({
-      projectId,
-      sourceNodeId: id,
-      prompt,
-      model: modelSelection.modelEntryId ?? data.model,
-      ratio: getInteriorProviderRatio(validation.config.output.aspectRatio),
-      resolution: data.resolution,
-      operationType: "image-to-image",
-      referenceImages: [
-        {
-          sourceNodeId: sourceNode.id,
-          imageUrl: sourceNode.data.imageUrl as string,
-          assetRelativePath:
-            getWorkspaceAssetRelativePath(sourceNode.data.imageAsset) ?? null,
-        },
-      ],
-    });
-    if (!taskId) {
-      updateNodeData(id, { status: "error", errorMsg: "生成任务创建失败" });
-    }
-  };
-
-  const stopCanvasGesture = (event: SyntheticEvent) => event.stopPropagation();
+  const outputIssues = [...validation.errors, materialError].filter(Boolean);
   const isEnclosed = config.scene.exteriorView === "enclosed";
   const sourceLabel =
     config.sourceSoftware === "custom"
@@ -300,29 +237,17 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
           <span
             className={`${themeClasses.nodeBadge} ${themeClasses.nodeBadgeViolet}`}
           >
-            <ImageIcon className="h-3 w-3" />
-            图生图
+            <Braces className="h-3 w-3" />
+            JSON
           </span>
         }
       />
       <Handle
-        type="target"
-        position={Position.Left}
-        id="image"
-        className="handle-orb-anchor !h-[18px] !w-[18px] !rounded-full !border-0 !bg-transparent !p-0"
-        style={{ top: "50%" }}
-      >
-        <span className="handle-orb handle-orb--target">
-          <span className="handle-orb__glow" />
-          <span className="handle-orb__ring" />
-          <span className="handle-orb__dot" />
-        </span>
-      </Handle>
-      <Handle
         type="source"
         position={Position.Right}
-        id="image"
+        id="prompt"
         className="handle-orb-anchor !h-[18px] !w-[18px] !rounded-full !border-0 !bg-transparent !p-0"
+        style={{ top: "50%" }}
       >
         <span className="handle-orb handle-orb--source">
           <span className="handle-orb__glow" />
@@ -334,22 +259,6 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
       <div className="flex min-h-0 flex-1 flex-col gap-1.5 p-2.5">
         <div className="nowheel min-h-0 flex-1 overflow-y-auto pr-1">
           <div className="flex items-center gap-2 pb-2.5">
-            <div
-              className={`h-12 w-16 shrink-0 overflow-hidden ${themeClasses.nodeAssetThumb}`}
-            >
-              {sourceNode ? (
-                <img
-                  src={sourceNode.data.imageUrl as string}
-                  alt="室内设计主图"
-                  className="h-full w-full object-cover"
-                  draggable={false}
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center text-[var(--text-muted)]">
-                  <ImageIcon className="h-4 w-4" />
-                </div>
-              )}
-            </div>
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-[var(--text-primary)]">
                 <span className="truncate">{sourceLabel}</span>
@@ -357,7 +266,7 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                 <span className="truncate">{targetLabel}</span>
               </div>
               <p className="mt-1 truncate text-[10px] text-[var(--text-muted)]">
-                {sourceNode ? "已连接主图" : "从左侧连接一张主图"}
+                {data.outputTextNodeId ? "提示词已联动" : "尚未输出提示词"}
               </p>
             </div>
             <span
@@ -650,6 +559,7 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                 maxLength={12000}
                 onChange={(event) => {
                   const value = event.target.value;
+                  materialDraftRef.current = value;
                   setMaterialDraft(value);
                   try {
                     const parsed = parseInteriorMaterialDefinition(value);
@@ -708,99 +618,37 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
               />
             </label>
           </Section>
-
-          <details className="group/json border-t border-[var(--border-subtle)]">
-            <summary className="nodrag nopan flex h-9 cursor-pointer list-none items-center gap-2 px-0.5 text-[10px] text-[var(--text-muted)] select-none">
-              <ChevronDown className="h-3.5 w-3.5 transition-transform group-open/json:rotate-180 group-open/json:text-[var(--accent-violet-strong)]" />
-              <span>只读 JSON 预览</span>
-              <span className="ml-auto font-mono text-[9px]">JSON</span>
-            </summary>
-            <pre className="nowheel mb-2.5 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--border-subtle)] bg-[var(--node-control-bg)] p-2.5 text-[9px] leading-4 text-[var(--text-secondary)]">
-              {data.compiledPrompt}
-            </pre>
-          </details>
         </div>
 
         <div className={themeClasses.nodeFooter}>
-          <div className="flex items-center gap-1.5">
-            <NodeModelSelector
-              category="image"
-              config={settingsConfig}
-              selection={modelSelection}
-              onSelectModel={selectModel}
-              stopCanvasGesture={stopCanvasGesture}
-              providerAriaLabel="选择图片服务商"
-              modelAriaLabel="选择图片模型"
-              className="min-w-0 flex-1"
-              menuClassName="min-w-[240px]"
-              layout="grouped"
-            />
+          <button
+            type="button"
+            className={`${themeClasses.nodePrimaryButton} flex h-9 w-full items-center justify-center gap-2 px-3 text-[11px] font-semibold shadow-none`}
+            disabled={outputIssues.length > 0}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              runTracked(() => materializeInteriorDesignPrompt(id));
+            }}
+            aria-label={
+              data.outputTextNodeId ? "重置 JSON 提示词" : "输出 JSON 提示词"
+            }
+          >
+            <FileOutput className="h-3.5 w-3.5" />
+            {data.outputTextNodeId ? "重置提示词" : "输出提示词"}
+          </button>
 
-            <label className="relative w-20 shrink-0" title="真实接口分辨率">
-              <span className="sr-only">真实接口分辨率</span>
-              <select
-                className={`${controlClass} appearance-none pr-7 font-semibold`}
-                value={data.resolution}
-                aria-label="真实接口分辨率"
-                onChange={(event) =>
-                  updateNodeData(id, { resolution: event.target.value })
-                }
-              >
-                {["1K", "2K", "4K"].map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
-            </label>
-
-            <button
-              type="button"
-              className={`${themeClasses.nodePrimaryButton} relative h-9 w-9 shrink-0 shadow-none`}
-              disabled={disabledReasons.length > 0 || isBusy}
-              onClick={enqueue}
-              aria-label={
-                data.status === "queued"
-                  ? "排队中"
-                  : data.status === "generating"
-                    ? "生成中"
-                    : "生成室内设计图"
-              }
-            >
-              {isBusy ? (
-                data.status === "queued" ? (
-                  <Clock3 className="h-3.5 w-3.5" />
-                ) : (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                )
-              ) : (
-                <Play className="h-3.5 w-3.5 fill-current" />
-              )}
-              {activeTaskCount > 0 ? (
-                <span className="pointer-events-none absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[var(--node-bg)] bg-[var(--accent-violet)] px-1 text-[8px] font-semibold leading-none text-white shadow">
-                  {activeTaskCount}
-                </span>
-              ) : null}
-            </button>
-          </div>
-
-          {disabledReasons.length > 0 ? (
+          {outputIssues.length > 0 ? (
             <p
               className={`${themeClasses.nodeInlineNotice} ${themeClasses.nodeWarningText}`}
             >
-              {disabledReasons.join("；")}
-            </p>
-          ) : data.errorMsg ? (
-            <p
-              className={`${themeClasses.nodeInlineNotice} ${themeClasses.nodeErrorText}`}
-            >
-              {data.errorMsg}
+              {outputIssues.join("；")}
             </p>
           ) : (
             <p className={`${themeClasses.nodeInlineNotice} truncate`}>
-              接口画幅 {data.ratio} · 提示词清晰度{" "}
-              {config.output.promptResolution}
+              {data.outputTextNodeId
+                ? `已联动 · ${findInteriorOption(ASPECT_RATIO_OPTIONS, config.output.aspectRatio).label} · ${config.output.promptResolution}`
+                : `${findInteriorOption(ASPECT_RATIO_OPTIONS, config.output.aspectRatio).label} · ${config.output.promptResolution}`}
             </p>
           )}
         </div>

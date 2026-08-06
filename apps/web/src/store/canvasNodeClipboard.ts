@@ -246,19 +246,7 @@ export function cloneNodeForDuplicate(
           typeof node.data?.compiledPrompt === "string"
             ? node.data.compiledPrompt
             : "",
-        sourceImageNodeId: null,
-        model:
-          typeof node.data?.model === "string"
-            ? node.data.model
-            : DEFAULT_IMAGE_MODEL_ID,
-        ratio: typeof node.data?.ratio === "string" ? node.data.ratio : "Auto",
-        resolution:
-          typeof node.data?.resolution === "string"
-            ? node.data.resolution
-            : "1K",
-        status: "idle",
-        errorMsg: "",
-        activeTaskId: null,
+        outputTextNodeId: null,
       } satisfies InteriorDesignNodeData,
     } satisfies Node<InteriorDesignNodeData>;
   }

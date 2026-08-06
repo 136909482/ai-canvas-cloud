@@ -93,8 +93,8 @@ test("same-device hydration resolves aliases while another device keeps them una
   assert.equal(otherDevice.nodes[0]?.data.model, reference);
 });
 
-test("interior design nodes keep compiled config but anonymize model and runtime state", () => {
-  const reference = createLocalModelReference();
+test("interior design prompt nodes do not participate in local model binding", () => {
+  let createdReference = false;
   const cloud = prepareCanvasForCloud(
     {
       nodes: [
@@ -103,24 +103,22 @@ test("interior design nodes keep compiled config but anonymize model and runtime
           type: "interiorDesignNode",
           position: { x: 0, y: 0 },
           data: {
-            model: "private-interior-model",
             compiledPrompt: '{"任务":"室内设计"}',
             config: { schemaVersion: 1 },
-            status: "queued",
-            errorMsg: "private failure",
-            activeTaskId: "task-private",
+            outputTextNodeId: "text-1",
           },
         },
       ],
       edges: [],
     },
-    () => reference,
+    () => {
+      createdReference = true;
+      return createLocalModelReference();
+    },
   );
 
   const data = cloud.nodes[0]?.data ?? {};
-  assert.equal(data.model, reference);
+  assert.equal(createdReference, false);
   assert.equal(data.compiledPrompt, '{"任务":"室内设计"}');
-  assert.equal(data.status, "idle");
-  assert.equal(data.errorMsg, "");
-  assert.equal("activeTaskId" in data, false);
+  assert.equal(data.outputTextNodeId, "text-1");
 });

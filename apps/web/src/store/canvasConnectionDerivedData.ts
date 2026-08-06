@@ -137,18 +137,18 @@ export function syncConnectionDerivedNodeData(nodes: Node[], edges: Edge[]) {
   );
 
   for (const node of interiorDesignNodes) {
-    const incomingImageEdge = edges.find(
+    const outgoingTextEdge = edges.find(
       (edge) =>
-        edge.target === node.id &&
-        edge.targetHandle === "image" &&
-        isConnectedImageSourceNode(getCanvasNodeById(nextNodes, edge.source)),
+        edge.source === node.id &&
+        edge.sourceHandle === "prompt" &&
+        getCanvasNodeById(nextNodes, edge.target)?.type === "textNode",
     );
-    const nextSourceImageNodeId = incomingImageEdge?.source ?? null;
-    const currentSourceImageNodeId =
-      typeof node.data?.sourceImageNodeId === "string"
-        ? node.data.sourceImageNodeId
+    const nextOutputTextNodeId = outgoingTextEdge?.target ?? null;
+    const currentOutputTextNodeId =
+      typeof node.data?.outputTextNodeId === "string"
+        ? node.data.outputTextNodeId
         : null;
-    if (currentSourceImageNodeId === nextSourceImageNodeId) continue;
+    if (currentOutputTextNodeId === nextOutputTextNodeId) continue;
 
     hasChanges = true;
     nextNodes = nextNodes.map((candidate) =>
@@ -157,7 +157,7 @@ export function syncConnectionDerivedNodeData(nodes: Node[], edges: Edge[]) {
             ...candidate,
             data: {
               ...candidate.data,
-              sourceImageNodeId: nextSourceImageNodeId,
+              outputTextNodeId: nextOutputTextNodeId,
             },
           }
         : candidate,

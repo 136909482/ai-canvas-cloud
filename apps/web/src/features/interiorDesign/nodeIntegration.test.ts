@@ -1,131 +1,339 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Node } from "@xyflow/react";
+import type { Edge, Node } from "@xyflow/react";
 import { canvasNodeRegistrations } from "@/features/nodeRegistry/protocol.ts";
+import { compileInteriorDesignPrompt } from "@/features/interiorDesign/compiler.ts";
 import { enqueueGenerateTask } from "@/features/generateQueue/orchestrator.ts";
 import { cloneNodeForDuplicate } from "@/store/canvasNodeClipboard.ts";
 import { useCanvasStore } from "@/store/useCanvasStore.ts";
+import { useHistoryStore } from "@/store/useHistoryStore.ts";
 import { useTaskQueueStore } from "@/store/useTaskQueueStore.ts";
+import type { InteriorDesignNodeData } from "@/types/index.ts";
 
-function createImageNode(id: string): Node {
-  return {
-    id,
-    type: "imageNode",
-    position: { x: 0, y: 0 },
-    data: {
-      imageUrl: `blob:${id}`,
-      imageAsset: null,
-      status: "idle",
-    },
-  };
-}
-
-function createInteriorNode() {
+function createInteriorNode(id = "interior-1"): Node<InteriorDesignNodeData> {
   const registration = canvasNodeRegistrations.interiorDesignNode.manual!;
-  return registration.build("interior-1", { x: 300, y: 0 }, registration.size);
+  return registration.build(
+    id,
+    { x: 300, y: 0 },
+    registration.size,
+  ) as Node<InteriorDesignNodeData>;
 }
 
-test("interior design input accepts one image and a new connection replaces it", () => {
-  const first = createImageNode("image-1");
-  const second = createImageNode("image-2");
+function resetCanvas(nodes: Node[], edges: Edge[] = []) {
+  useCanvasStore.setState({ nodes, edges, copiedNode: null });
+  useHistoryStore.getState().clearHistory();
+  useTaskQueueStore.getState().resetToEmpty();
+}
+
+test("interior design materializes and reuses one editable text output", () => {
   const interior = createInteriorNode();
-  useCanvasStore.setState({ nodes: [first, second, interior], edges: [] });
+  resetCanvas([interior]);
 
-  useCanvasStore.getState().onConnect({
-    source: first.id,
-    sourceHandle: null,
-    target: interior.id,
-    targetHandle: "image",
-  });
-  useCanvasStore.getState().onConnect({
-    source: second.id,
-    sourceHandle: null,
-    target: interior.id,
-    targetHandle: "image",
-  });
-
-  const state = useCanvasStore.getState();
-  assert.equal(state.edges.length, 1);
-  assert.equal(state.edges[0]?.source, second.id);
-  assert.equal(
-    state.nodes.find((node) => node.id === interior.id)?.data.sourceImageNodeId,
-    second.id,
+  const firstOutputId = useCanvasStore
+    .getState()
+    .materializeInteriorDesignPrompt(interior.id);
+  const firstState = useCanvasStore.getState();
+  const outputNode = firstState.nodes.find(
+    (node) => node.id === firstOutputId && node.type === "textNode",
   );
 
-  state.deleteEdge(state.edges[0]!.id);
+  assert.ok(outputNode);
+  assert.equal(outputNode.selected, true);
+  assert.equal(outputNode.data.label, "室内设计 JSON 提示词");
+  assert.equal(outputNode.data.text, interior.data.compiledPrompt);
+  assert.equal(firstState.edges.length, 1);
+  assert.deepEqual(firstState.edges[0], {
+    id: `edge-${interior.id}-${firstOutputId}`,
+    source: interior.id,
+    sourceHandle: "prompt",
+    target: firstOutputId,
+    targetHandle: "input",
+    animated: true,
+  });
+
+  useCanvasStore.getState().updateNodeData(firstOutputId, { text: "手工修改" });
+  const secondOutputId = useCanvasStore
+    .getState()
+    .materializeInteriorDesignPrompt(interior.id);
+  const secondState = useCanvasStore.getState();
+
+  assert.equal(secondOutputId, firstOutputId);
+  assert.equal(secondState.nodes.length, 2);
+  assert.equal(secondState.edges.length, 1);
   assert.equal(
-    useCanvasStore.getState().nodes.find((node) => node.id === interior.id)
-      ?.data.sourceImageNodeId,
-    null,
+    secondState.nodes.find((node) => node.id === firstOutputId)?.selected,
+    true,
+  );
+  assert.equal(
+    secondState.nodes.find((node) => node.id === firstOutputId)?.data.text,
+    interior.data.compiledPrompt,
   );
 });
 
-test("duplicating an interior node keeps configuration but resets input and runtime", () => {
+test("changing interior parameters overwrites the linked text atomically", () => {
   const interior = createInteriorNode();
-  interior.data.sourceImageNodeId = "image-1";
-  interior.data.status = "generating";
-  interior.data.activeTaskId = "task-1";
-  interior.data.errorMsg = "stale";
+  resetCanvas([interior]);
+  const outputId = useCanvasStore
+    .getState()
+    .materializeInteriorDesignPrompt(interior.id);
+  useCanvasStore.getState().updateNodeData(outputId, { text: "手工修改" });
+
+  const nextConfig = structuredClone(interior.data.config);
+  nextConfig.customRequirement = "增加一张深绿色单椅";
+  useCanvasStore.getState().updateInteriorDesignConfig(interior.id, nextConfig);
+
+  const state = useCanvasStore.getState();
+  const expectedPrompt = compileInteriorDesignPrompt(nextConfig);
+  assert.equal(
+    state.nodes.find((node) => node.id === interior.id)?.data.compiledPrompt,
+    expectedPrompt,
+  );
+  assert.equal(
+    state.nodes.find((node) => node.id === outputId)?.data.text,
+    expectedPrompt,
+  );
+});
+
+test("deleting the output edge stops synchronization and preserves text", () => {
+  const interior = createInteriorNode();
+  resetCanvas([interior]);
+  const outputId = useCanvasStore
+    .getState()
+    .materializeInteriorDesignPrompt(interior.id);
+  const edgeId = useCanvasStore.getState().edges[0]!.id;
+
+  useCanvasStore.getState().deleteEdge(edgeId);
+  useCanvasStore.getState().updateNodeData(outputId, { text: "独立文本" });
+  const nextConfig = structuredClone(interior.data.config);
+  nextConfig.customRequirement = "不会覆盖独立文本";
+  useCanvasStore.getState().updateInteriorDesignConfig(interior.id, nextConfig);
+
+  const state = useCanvasStore.getState();
+  assert.equal(
+    state.nodes.find((node) => node.id === interior.id)?.data.outputTextNodeId,
+    null,
+  );
+  assert.equal(
+    state.nodes.find((node) => node.id === outputId)?.data.text,
+    "独立文本",
+  );
+});
+
+test("deleting either side keeps the remaining prompt content safe", () => {
+  const interior = createInteriorNode();
+  resetCanvas([interior]);
+  const outputId = useCanvasStore
+    .getState()
+    .materializeInteriorDesignPrompt(interior.id);
+
+  useCanvasStore.getState().deleteNode(interior.id);
+  assert.equal(
+    useCanvasStore.getState().nodes.find((node) => node.id === outputId)?.data
+      .text,
+    interior.data.compiledPrompt,
+  );
+
+  const secondInterior = createInteriorNode("interior-2");
+  resetCanvas([secondInterior]);
+  const secondOutputId = useCanvasStore
+    .getState()
+    .materializeInteriorDesignPrompt(secondInterior.id);
+  useCanvasStore.getState().deleteNode(secondOutputId);
+  assert.equal(
+    useCanvasStore
+      .getState()
+      .nodes.find((node) => node.id === secondInterior.id)?.data
+      .outputTextNodeId,
+    null,
+  );
+
+  const recreatedOutputId = useCanvasStore
+    .getState()
+    .materializeInteriorDesignPrompt(secondInterior.id);
+  assert.notEqual(recreatedOutputId, secondOutputId);
+  assert.equal(useCanvasStore.getState().nodes.length, 2);
+  assert.equal(useCanvasStore.getState().edges.length, 1);
+});
+
+test("interior prompt can drive AI drawing directly without creating tasks", () => {
+  const interior = createInteriorNode();
+  const generateRegistration = canvasNodeRegistrations.generateNode.manual!;
+  const generate = generateRegistration.build(
+    "gen-2",
+    { x: 980, y: 0 },
+    generateRegistration.size,
+  );
+  resetCanvas([interior, generate]);
+
+  useCanvasStore.getState().onConnect({
+    source: interior.id,
+    sourceHandle: "prompt",
+    target: generate.id,
+    targetHandle: "prompt",
+  });
+
+  const connectedGenerate = useCanvasStore
+    .getState()
+    .nodes.find((node) => node.id === generate.id);
+  assert.equal(connectedGenerate?.data.connectedTextNode, interior.id);
+  assert.equal(connectedGenerate?.data.prompt, interior.data.compiledPrompt);
+
+  const outputId = useCanvasStore
+    .getState()
+    .materializeInteriorDesignPrompt(interior.id);
+  useCanvasStore.getState().onConnect({
+    source: outputId,
+    sourceHandle: "output",
+    target: generate.id,
+    targetHandle: "prompt",
+  });
+  const textConnectedGenerate = useCanvasStore
+    .getState()
+    .nodes.find((node) => node.id === generate.id);
+  assert.equal(textConnectedGenerate?.data.connectedTextNode, outputId);
+  assert.equal(
+    textConnectedGenerate?.data.prompt,
+    interior.data.compiledPrompt,
+  );
+
+  assert.equal(
+    enqueueGenerateTask({
+      projectId: "project-1",
+      sourceNodeId: interior.id,
+      prompt: interior.data.compiledPrompt,
+      model: "image-model-1",
+      ratio: "Auto",
+      resolution: "1K",
+      referenceImages: [],
+    }),
+    null,
+  );
+  assert.equal(useTaskQueueStore.getState().tasks.length, 0);
+});
+
+test("duplicating an interior node keeps configuration without sharing output", () => {
+  const interior = createInteriorNode();
+  interior.data.outputTextNodeId = "text-1";
 
   const clone = cloneNodeForDuplicate(interior, [interior], () => "interior-2");
   assert.ok(clone);
   assert.deepEqual(clone.data.config, interior.data.config);
   assert.notEqual(clone.data.config, interior.data.config);
-  assert.equal(clone.data.sourceImageNodeId, null);
-  assert.equal(clone.data.status, "idle");
-  assert.equal(clone.data.activeTaskId, null);
-  assert.equal(clone.data.errorMsg, "");
+  assert.equal(clone.data.outputTextNodeId, null);
 });
 
-test("enqueue freezes compiled JSON, one image, model, ratio and resolution", () => {
-  const image = createImageNode("image-1");
+test("prompt output creation is one undoable graph transaction", () => {
   const interior = createInteriorNode();
-  useCanvasStore.setState({ nodes: [image, interior], edges: [] });
-  useTaskQueueStore.getState().resetToEmpty();
+  resetCanvas([interior]);
 
-  const frozenPrompt = '{"图生图任务指令":{"任务":"室内设计"}}';
-  const taskId = enqueueGenerateTask({
-    projectId: "project-1",
-    sourceNodeId: interior.id,
-    prompt: frozenPrompt,
-    model: "image-model-1",
-    ratio: "Auto",
+  useHistoryStore.getState().runTracked(() => {
+    useCanvasStore.getState().materializeInteriorDesignPrompt(interior.id);
+  });
+  assert.equal(useCanvasStore.getState().nodes.length, 2);
+
+  useHistoryStore.getState().undo();
+  assert.equal(useCanvasStore.getState().nodes.length, 1);
+  assert.equal(useCanvasStore.getState().edges.length, 0);
+
+  useHistoryStore.getState().redo();
+  assert.equal(useCanvasStore.getState().nodes.length, 2);
+  assert.equal(useCanvasStore.getState().edges.length, 1);
+});
+
+test("linked prompt updates undo and redo as one graph transaction", () => {
+  const interior = createInteriorNode();
+  resetCanvas([interior]);
+  const outputId = useCanvasStore
+    .getState()
+    .materializeInteriorDesignPrompt(interior.id);
+  useHistoryStore.getState().clearHistory();
+
+  const nextConfig = structuredClone(interior.data.config);
+  nextConfig.customRequirement = "增加一张深绿色单椅";
+  useHistoryStore.getState().runTracked(() => {
+    useCanvasStore
+      .getState()
+      .updateInteriorDesignConfig(interior.id, nextConfig);
+  });
+
+  const updatedPrompt = compileInteriorDesignPrompt(nextConfig);
+  assert.equal(
+    useCanvasStore.getState().nodes.find((node) => node.id === outputId)?.data
+      .text,
+    updatedPrompt,
+  );
+
+  useHistoryStore.getState().undo();
+  assert.equal(
+    useCanvasStore.getState().nodes.find((node) => node.id === interior.id)
+      ?.data.compiledPrompt,
+    interior.data.compiledPrompt,
+  );
+  assert.equal(
+    useCanvasStore.getState().nodes.find((node) => node.id === outputId)?.data
+      .text,
+    interior.data.compiledPrompt,
+  );
+
+  useHistoryStore.getState().redo();
+  assert.equal(
+    useCanvasStore.getState().nodes.find((node) => node.id === outputId)?.data
+      .text,
+    updatedPrompt,
+  );
+});
+
+test("legacy interior snapshots shed image execution state without losing previews", () => {
+  const interior = createInteriorNode();
+  const image: Node = {
+    id: "image-1",
+    type: "imageNode",
+    position: { x: 0, y: 0 },
+    data: { imageUrl: "blob:image" },
+  };
+  const preview: Node = {
+    id: "preview-1",
+    type: "generatedPreviewNode",
+    position: { x: 980, y: 0 },
+    data: { imageUrl: "blob:preview", sourceGenerateNodeId: interior.id },
+  };
+  interior.data = {
+    ...interior.data,
+    sourceImageNodeId: image.id,
+    model: "private-model",
+    ratio: "16:9",
     resolution: "2K",
-    operationType: "image-to-image",
-    referenceImages: [
+    status: "queued",
+    errorMsg: "legacy",
+    activeTaskId: "task-1",
+  };
+
+  useCanvasStore.getState().replaceSnapshot({
+    nodes: [image, interior, preview],
+    edges: [
       {
-        sourceNodeId: image.id,
-        imageUrl: image.data.imageUrl as string,
-        assetRelativePath: "images/source.png",
+        id: "edge-image-interior",
+        source: image.id,
+        target: interior.id,
+        targetHandle: "image",
+      },
+      {
+        id: "edge-interior-preview",
+        source: interior.id,
+        sourceHandle: "image",
+        target: preview.id,
       },
     ],
   });
 
-  assert.ok(taskId);
-  useCanvasStore.getState().updateNodeData(interior.id, {
-    compiledPrompt: "changed after enqueue",
-    ratio: "16:9",
-    resolution: "4K",
-  });
-  const task = useTaskQueueStore
-    .getState()
-    .tasks.find((candidate) => candidate.id === taskId);
-  assert.ok(task);
-  assert.equal(task.prompt, frozenPrompt);
-  assert.equal(task.operationType, "image-to-image");
-  assert.equal(task.model, "image-model-1");
-  assert.equal(task.ratio, "Auto");
-  assert.equal(task.resolution, "2K");
-  assert.deepEqual(task.referenceImages, [
-    {
-      sourceNodeId: image.id,
-      imageUrl: "blob:image-1",
-      assetRelativePath: "images/source.png",
-    },
+  const state = useCanvasStore.getState();
+  const restoredInterior = state.nodes.find((node) => node.id === interior.id);
+  assert.deepEqual(Object.keys(restoredInterior?.data ?? {}).sort(), [
+    "compiledPrompt",
+    "config",
+    "outputTextNodeId",
   ]);
-  const preview = useCanvasStore
-    .getState()
-    .nodes.find((node) => node.id === task.previewNodeId);
-  assert.equal(preview?.type, "generatedPreviewNode");
-  assert.equal(preview?.data.sourceGenerateNodeId, interior.id);
+  assert.equal(restoredInterior?.data.outputTextNodeId, null);
+  assert.ok(state.nodes.some((node) => node.id === preview.id));
+  assert.equal(state.edges.length, 0);
 });

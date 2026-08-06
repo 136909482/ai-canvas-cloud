@@ -6,7 +6,6 @@ const MODEL_NODE_TYPES = new Set([
   "imageNode",
   "videoNode",
   "generateNode",
-  "interiorDesignNode",
   "imageEditNode",
   "generatedPreviewNode",
   "videoGenerateNode",

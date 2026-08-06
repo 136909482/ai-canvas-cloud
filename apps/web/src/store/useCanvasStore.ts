@@ -19,6 +19,7 @@ import type {
   GenerateNodeData,
   WorkflowTemplate,
 } from "@/types";
+import type { InteriorDesignConfigV1 } from "@/features/interiorDesign/types";
 import { instantiateWorkflowTemplate } from "@/features/workflowTemplates/runtime";
 import { getPreferredSelectableModelEntryId } from "@/features/settings/nodeModelSelection";
 import {
@@ -92,6 +93,10 @@ import {
   buildSelectedElementsDeletedGraphState,
 } from "./canvasGraphDeletion";
 import { buildNodeDataUpdatedState } from "./canvasNodeDataUpdates";
+import {
+  buildInteriorDesignConfigUpdatedState,
+  buildInteriorDesignPromptOutputState,
+} from "./canvasInteriorDesignPrompt";
 import { useSettingsStore } from "./useSettingsStore";
 import {
   buildConnectedComponentNodeIds,
@@ -104,7 +109,6 @@ export { getNodeSize } from "./canvasLayoutGeometry";
 export {
   makeSelectGenerateMaskSourceNode,
   makeSelectGenerateReferenceSourceNodes,
-  makeSelectInteriorDesignSourceNode,
   makeSelectImageEditReferenceSourceNodes,
   makeSelectLLMInputImageSourceNodes,
   selectHasCanvasContent,
@@ -186,6 +190,11 @@ interface CanvasStore {
   duplicateSelectedNode: () => string | null;
   pasteCopiedNode: () => string | null;
   updateNodeData: (id: string, patch: Record<string, unknown>) => void;
+  updateInteriorDesignConfig: (
+    id: string,
+    config: InteriorDesignConfigV1,
+  ) => void;
+  materializeInteriorDesignPrompt: (id: string) => string;
   syncTextSplitterOutputs: (id: string) => void;
   syncInlineTextSplitterParts: (id: string) => void;
   runImageCropNode: (id: string, projectId: string | null) => Promise<void>;
@@ -405,8 +414,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
             isTextSource) ||
           (targetNode?.type === "textSplitterNode" && isTextSource) ||
           (targetNode?.type === "inlineTextSplitterNode" && isTextSource) ||
-          targetNode?.type === "imageCropNode" ||
-          targetNode?.type === "interiorDesignNode");
+          targetNode?.type === "imageCropNode");
 
       const nextEdges = addEdge(
         { ...conn, animated: true },
@@ -422,7 +430,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
               if (
                 targetNode?.type === "compareNode" ||
                 targetNode?.type === "imageCropNode" ||
-                targetNode?.type === "interiorDesignNode" ||
                 (targetNode?.type === "generateNode" &&
                   conn.targetHandle === "mask") ||
                 (targetNode?.type === "videoGenerateNode" &&
@@ -463,7 +470,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       );
       const newNode = registration.build(id, position, registration.size);
       const defaultModelCategory =
-        type === "generateNode" || type === "interiorDesignNode"
+        type === "generateNode"
           ? "image"
           : type === "videoGenerateNode"
             ? "video"
@@ -816,6 +823,36 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   updateNodeData: (id, patch) =>
     set((s) => buildNodeDataUpdatedState(s.nodes, s.edges, id, patch)),
+
+  updateInteriorDesignConfig: (id, config) =>
+    set((s) => {
+      const updatedState = buildInteriorDesignConfigUpdatedState({
+        nodes: s.nodes,
+        edges: s.edges,
+        sourceNodeId: id,
+        config,
+      });
+      return buildSyncedGraphState(updatedState.nodes, s.edges);
+    }),
+
+  materializeInteriorDesignPrompt: (id) => {
+    let outputTextNodeId = "";
+
+    set((s) => {
+      const outputState = buildInteriorDesignPromptOutputState({
+        nodes: s.nodes,
+        edges: s.edges,
+        sourceNodeId: id,
+        nextTextNodeId: () => takeNextNodeId("textNode"),
+      });
+      if (!outputState) return s;
+
+      outputTextNodeId = outputState.outputTextNodeId;
+      return buildSyncedGraphState(outputState.nodes, outputState.edges);
+    });
+
+    return outputTextNodeId;
+  },
 
   syncTextSplitterOutputs: (id) =>
     set((s) => {

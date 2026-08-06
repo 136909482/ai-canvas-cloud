@@ -23,7 +23,6 @@ import type {
 import {
   compileInteriorDesignPrompt,
   createDefaultInteriorDesignConfig,
-  getInteriorProviderRatio,
 } from "@/features/interiorDesign/compiler";
 import {
   createImageCropNodeData,
@@ -256,13 +255,7 @@ export function buildManualInteriorDesignNode(
     data: {
       config,
       compiledPrompt: compileInteriorDesignPrompt(config),
-      sourceImageNodeId: null,
-      model: DEFAULT_IMAGE_MODEL_ID,
-      ratio: getInteriorProviderRatio(config.output.aspectRatio),
-      resolution: "1K",
-      status: "idle",
-      errorMsg: "",
-      activeTaskId: null,
+      outputTextNodeId: null,
     },
   };
 }
