@@ -73,7 +73,7 @@ const TOOLBAR_ICON_BUTTON_CLASS = `${themeClasses.iconButton} h-7 w-7 disabled:c
 const TOOLBAR_ICON_BUTTON_ACTIVE_CLASS =
   "h-7 w-7 border-violet-400/30 bg-violet-400/10 text-violet-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] hover:border-violet-400/30 hover:bg-violet-400/10 hover:text-violet-500";
 const EDITOR_ACTION_BUTTON_CLASS =
-  "flex h-9 items-center gap-2 rounded-lg border border-violet-400/25 bg-violet-400/10 px-3 text-xs font-semibold text-violet-100 transition hover:border-violet-300/45 hover:bg-violet-400/18";
+  "flex h-9 items-center gap-2 rounded-lg border border-[var(--accent-violet-muted)] bg-[var(--accent-violet-soft)] px-3 text-xs font-semibold text-[var(--accent-violet-strong)] transition hover:border-[var(--accent-violet-strong)] hover:bg-[var(--accent-violet-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-violet-soft)] disabled:cursor-not-allowed disabled:border-[var(--border-subtle)] disabled:bg-[var(--control-bg)] disabled:text-[var(--text-muted)] disabled:opacity-70";
 
 export function ImageFullscreenEditor() {
   const session = useImageEditorStore((state) => state.session);
