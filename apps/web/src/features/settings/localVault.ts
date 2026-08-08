@@ -1,18 +1,22 @@
 import type {
+  CustomImageProviderManifestV1,
   ModelCategory,
   ModelEntry,
   ProviderProfileConfig,
   TaskQueueSnapshot,
 } from "@/types";
+import { inferProviderFromApiUrl } from "@/config/modelCatalog";
 import { normalizeLocalModelBindings } from "./localModelReferences.ts";
 
-export const LOCAL_VAULT_SCHEMA_VERSION = 2;
+export const LOCAL_VAULT_SCHEMA_VERSION = 3;
 export const LOCAL_VAULT_CIPHER_VERSION = 1;
-export const LOCAL_TASK_CACHE_SCHEMA_VERSION = 3;
+export const LOCAL_TASK_CACHE_SCHEMA_VERSION = 4;
+const LEGACY_LOCAL_VAULT_SCHEMA_VERSION = 2;
+const LEGACY_LOCAL_TASK_CACHE_SCHEMA_VERSION = 3;
 const PENDING_TASK_RESULT_SCHEMA_VERSION = 1;
 
 const DATABASE_NAME = "ai-canvas-cloud-local-vault";
-const DATABASE_VERSION = 3;
+const DATABASE_VERSION = 4;
 const VAULT_STORE = "vaults";
 const KEY_STORE = "keys";
 const TASK_STORE = "taskQueues";
@@ -32,6 +36,7 @@ export interface LocalVaultDocument {
   lastUsedModelEntryIds?: Partial<Record<ModelCategory, string>>;
   modelEntries: ModelEntry[];
   providerProfiles: ProviderProfileConfig[];
+  customImageProviderManifests: CustomImageProviderManifestV1[];
   providerApiKeys: Record<string, string>;
   localModelBindings: Record<string, string>;
   updatedAt: number;
@@ -40,7 +45,7 @@ export interface LocalVaultDocument {
 interface EncryptedLocalVaultRecord {
   id: string;
   cipherVersion: typeof LOCAL_VAULT_CIPHER_VERSION;
-  schemaVersion: typeof LOCAL_VAULT_SCHEMA_VERSION;
+  schemaVersion: number;
   iv: ArrayBuffer;
   ciphertext: ArrayBuffer;
   updatedAt: number;
@@ -58,7 +63,7 @@ interface EncryptedLocalTaskQueueRecord {
   id: string;
   ownerId: string;
   cipherVersion: typeof LOCAL_VAULT_CIPHER_VERSION;
-  schemaVersion: typeof LOCAL_TASK_CACHE_SCHEMA_VERSION;
+  schemaVersion: number;
   iv: ArrayBuffer;
   ciphertext: ArrayBuffer;
   updatedAt: number;
@@ -110,12 +115,16 @@ function getTaskResultRecordId(
   return `${getTaskRecordId(userId, projectId)}:task:${normalizedTaskId}`;
 }
 
-function createAdditionalData(origin: string, userId: string) {
+function createAdditionalData(
+  origin: string,
+  userId: string,
+  schemaVersion: number,
+) {
   return new TextEncoder().encode(
     [
       AAD_NAMESPACE,
       `cipher=${LOCAL_VAULT_CIPHER_VERSION}`,
-      `schema=${LOCAL_VAULT_SCHEMA_VERSION}`,
+      `schema=${schemaVersion}`,
       `origin=${origin}`,
       `user=${userId}`,
     ].join("\n"),
@@ -126,12 +135,13 @@ function createTaskAdditionalData(
   origin: string,
   userId: string,
   projectId: string,
+  schemaVersion: number,
 ) {
   return new TextEncoder().encode(
     [
       TASK_AAD_NAMESPACE,
       `cipher=${LOCAL_VAULT_CIPHER_VERSION}`,
-      `schema=${LOCAL_TASK_CACHE_SCHEMA_VERSION}`,
+      `schema=${schemaVersion}`,
       `origin=${origin}`,
       `user=${userId}`,
       `project=${projectId}`,
@@ -178,7 +188,11 @@ export async function encryptLocalVaultDocument(
     {
       name: "AES-GCM",
       iv,
-      additionalData: createAdditionalData(origin, document.userId),
+      additionalData: createAdditionalData(
+        origin,
+        document.userId,
+        LOCAL_VAULT_SCHEMA_VERSION,
+      ),
       tagLength: 128,
     },
     key,
@@ -210,6 +224,7 @@ function isLocalVaultDocument(value: unknown): value is LocalVaultDocument {
       )) &&
     Array.isArray(document.modelEntries) &&
     Array.isArray(document.providerProfiles) &&
+    Array.isArray(document.customImageProviderManifests) &&
     Boolean(
       document.providerApiKeys && typeof document.providerApiKeys === "object",
     ) &&
@@ -225,7 +240,8 @@ export async function decryptLocalVaultDocument(
 ): Promise<LocalVaultDocument> {
   if (
     record.cipherVersion !== LOCAL_VAULT_CIPHER_VERSION ||
-    record.schemaVersion !== LOCAL_VAULT_SCHEMA_VERSION
+    (record.schemaVersion !== LOCAL_VAULT_SCHEMA_VERSION &&
+      record.schemaVersion !== LEGACY_LOCAL_VAULT_SCHEMA_VERSION)
   ) {
     throw new Error("本地密钥 Vault 版本不受支持");
   }
@@ -234,7 +250,11 @@ export async function decryptLocalVaultDocument(
     {
       name: "AES-GCM",
       iv: record.iv,
-      additionalData: createAdditionalData(origin, userId),
+      additionalData: createAdditionalData(
+        origin,
+        userId,
+        record.schemaVersion,
+      ),
       tagLength: 128,
     },
     key,
@@ -242,13 +262,51 @@ export async function decryptLocalVaultDocument(
   );
   const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as unknown;
 
-  if (!isLocalVaultDocument(parsed) || parsed.userId !== userId) {
-    throw new Error("本地密钥 Vault 内容无效");
+  if (record.schemaVersion === LOCAL_VAULT_SCHEMA_VERSION) {
+    if (!isLocalVaultDocument(parsed) || parsed.userId !== userId) {
+      throw new Error("本地密钥 Vault 内容无效");
+    }
+    return {
+      ...parsed,
+      localModelBindings: normalizeLocalModelBindings(
+        parsed.localModelBindings,
+      ),
+    };
   }
 
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("本地密钥 Vault 内容无效");
+  }
+  const legacy = parsed as Omit<
+    LocalVaultDocument,
+    "schemaVersion" | "customImageProviderManifests"
+  > & {
+    schemaVersion?: number;
+  };
+  if (
+    legacy.schemaVersion !== LEGACY_LOCAL_VAULT_SCHEMA_VERSION ||
+    legacy.userId !== userId ||
+    !Array.isArray(legacy.providerProfiles) ||
+    !Array.isArray(legacy.modelEntries) ||
+    !legacy.providerApiKeys ||
+    typeof legacy.providerApiKeys !== "object"
+  ) {
+    throw new Error("本地密钥 Vault 内容无效");
+  }
   return {
-    ...parsed,
-    localModelBindings: normalizeLocalModelBindings(parsed.localModelBindings),
+    ...legacy,
+    schemaVersion: LOCAL_VAULT_SCHEMA_VERSION,
+    providerProfiles: legacy.providerProfiles.map((profile) => ({
+      ...profile,
+      protocol:
+        inferProviderFromApiUrl(profile.baseUrl) === "aliyun"
+          ? "dashscope"
+          : "openai-compatible",
+      authMode: "bearer",
+      imageRequestMode: "sync",
+    })),
+    customImageProviderManifests: [],
+    localModelBindings: normalizeLocalModelBindings(legacy.localModelBindings),
   };
 }
 
@@ -268,6 +326,7 @@ export async function encryptLocalTaskQueueDocument(
         origin,
         document.userId,
         document.projectId,
+        LOCAL_TASK_CACHE_SCHEMA_VERSION,
       ),
       tagLength: 128,
     },
@@ -288,13 +347,14 @@ export async function encryptLocalTaskQueueDocument(
 
 function isLocalTaskQueueDocument(
   value: unknown,
+  schemaVersion = LOCAL_TASK_CACHE_SCHEMA_VERSION,
 ): value is LocalTaskQueueDocument {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const document = value as Partial<LocalTaskQueueDocument> & {
     schemaVersion?: number;
   };
   return (
-    document.schemaVersion === LOCAL_TASK_CACHE_SCHEMA_VERSION &&
+    document.schemaVersion === schemaVersion &&
     typeof document.userId === "string" &&
     typeof document.projectId === "string" &&
     Boolean(document.taskQueue && typeof document.taskQueue === "object") &&
@@ -312,7 +372,8 @@ export async function decryptLocalTaskQueueDocument(
 ): Promise<LocalTaskQueueDocument> {
   if (
     record.cipherVersion !== LOCAL_VAULT_CIPHER_VERSION ||
-    record.schemaVersion !== LOCAL_TASK_CACHE_SCHEMA_VERSION
+    (record.schemaVersion !== LOCAL_TASK_CACHE_SCHEMA_VERSION &&
+      record.schemaVersion !== LEGACY_LOCAL_TASK_CACHE_SCHEMA_VERSION)
   ) {
     throw new Error("本地任务缓存版本不受支持");
   }
@@ -321,7 +382,12 @@ export async function decryptLocalTaskQueueDocument(
     {
       name: "AES-GCM",
       iv: record.iv,
-      additionalData: createTaskAdditionalData(origin, userId, projectId),
+      additionalData: createTaskAdditionalData(
+        origin,
+        userId,
+        projectId,
+        record.schemaVersion,
+      ),
       tagLength: 128,
     },
     key,
@@ -330,14 +396,17 @@ export async function decryptLocalTaskQueueDocument(
   const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as unknown;
 
   if (
-    !isLocalTaskQueueDocument(parsed) ||
+    !isLocalTaskQueueDocument(parsed, record.schemaVersion) ||
     parsed.userId !== userId ||
     parsed.projectId !== projectId
   ) {
     throw new Error("本地任务缓存内容无效");
   }
 
-  return parsed;
+  return {
+    ...parsed,
+    schemaVersion: LOCAL_TASK_CACHE_SCHEMA_VERSION,
+  };
 }
 
 export async function encryptPendingTaskResult(
@@ -524,7 +593,14 @@ export async function loadRememberedLocalVault(userId: string) {
         "本地密钥 Vault 记录不完整，请清除当前网站数据后重新配置",
       );
 
-    return decryptLocalVaultDocument(record, key, userId);
+    const document = await decryptLocalVaultDocument(record, key, userId);
+    if (record.schemaVersion !== LOCAL_VAULT_SCHEMA_VERSION) {
+      const migratedRecord = await encryptLocalVaultDocument(document, key);
+      const migration = database.transaction(VAULT_STORE, "readwrite");
+      migration.objectStore(VAULT_STORE).put(migratedRecord);
+      await transactionToPromise(migration);
+    }
+    return document;
   } finally {
     database.close();
   }
@@ -581,7 +657,19 @@ export async function loadRememberedLocalTaskQueue(
     if (!record) return null;
     if (!key)
       throw new Error("本地任务缓存缺少设备密钥，请清除当前网站数据后重新配置");
-    return decryptLocalTaskQueueDocument(record, key, userId, projectId);
+    const document = await decryptLocalTaskQueueDocument(
+      record,
+      key,
+      userId,
+      projectId,
+    );
+    if (record.schemaVersion !== LOCAL_TASK_CACHE_SCHEMA_VERSION) {
+      const migratedRecord = await encryptLocalTaskQueueDocument(document, key);
+      const migration = database.transaction(TASK_STORE, "readwrite");
+      migration.objectStore(TASK_STORE).put(migratedRecord);
+      await transactionToPromise(migration);
+    }
+    return document;
   } finally {
     database.close();
   }

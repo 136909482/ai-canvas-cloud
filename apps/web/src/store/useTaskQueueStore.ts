@@ -36,6 +36,8 @@ interface TaskQueueStore {
       | "executionMode"
       | "adapterId"
       | "providerBindingFingerprint"
+      | "providerManifestId"
+      | "providerManifestVersion"
     >,
   ) => void;
   markTaskQueued: (id: string, patch?: Partial<GenerateTaskSnapshot>) => void;
@@ -132,6 +134,8 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
           executionMode: input.executionMode ?? null,
           adapterId: input.adapterId ?? null,
           providerBindingFingerprint: input.providerBindingFingerprint ?? null,
+          providerManifestId: input.providerManifestId ?? null,
+          providerManifestVersion: input.providerManifestVersion ?? null,
           errorMsg: "",
           remoteTaskId: null,
           remoteStatus: null,

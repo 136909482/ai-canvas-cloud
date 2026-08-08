@@ -1,4 +1,4 @@
-export type ProviderId = "openai" | "aliyun";
+export type ProviderId = "openai" | "aliyun" | "custom";
 
 export interface ProviderDefinition {
   id: ProviderId;
@@ -22,6 +22,11 @@ export const PROVIDERS: ProviderDefinition[] = [
     id: "openai",
     label: "OpenAI Compatible",
     defaultApiUrl: DEFAULT_OPENAI_BASE_URL,
+  },
+  {
+    id: "custom",
+    label: "自定义图片服务商",
+    defaultApiUrl: "",
   },
 ] as const;
 

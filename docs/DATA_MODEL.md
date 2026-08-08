@@ -10,7 +10,7 @@
 - 需要恢复或延迟清理的资源使用软删除；硬删除只由受控 GC 完成。
 - JSONB 必须有运行时 schema、大小上限和版本；可查询、排序、授权或外键字段必须关系化。
 - schema 只通过显式迁移升级，应用启动不自动改表。
-- 浏览器 Provider、endpoint、模型 ID、API Key、本地生成任务和上游正文不进入 PostgreSQL；只允许 `generation_telemetry` 保存脱敏运营计数所需的有限元数据。
+- 浏览器 Provider、endpoint、模型 ID、API Key、自定义 Manifest、本地生成任务、remote task ID 和上游正文不进入 PostgreSQL；只允许 `generation_telemetry` 保存脱敏运营计数所需的有限元数据。
 
 ## 用户与租户
 
@@ -240,18 +240,18 @@ commit 在一个事务中完成项目策略、资产 UUID 映射、图/引用/ch
 
 ## 浏览器本地状态
 
-浏览器 Vault 不是 PostgreSQL 数据模型，也不通过 Cloud 同步。当前格式为 `schemaVersion=2`、`cipherVersion=1`：单个版本化文档保存 Provider 配置、按 `providerProfileId` 索引的 API Key 凭据、模型条目和匿名绑定。`ModelEntry.id` 是唯一身份；`modelId` 仅在运行时请求上游，不能作为任何持久化引用身份。设备模式使用不可导出的 WebCrypto AES-256-GCM `CryptoKey`、96 位随机 IV 和 128 位认证标签加密，AAD 绑定 cipher/schema version、当前 Origin 和可信 session 用户 ID。IndexedDB 的密文记录与 Key 记录按可信用户 ID 分区；两个独立浏览器设备各自持有独立数据库与 Key，不存在隐式同步。账户注销无法远程删除任何设备的 Vault 密文或 CryptoKey，但已撤销可信会话使其不能再用于 Cloud 或受控 Provider 操作。
+浏览器 Vault 不是 PostgreSQL 数据模型，也不通过 Cloud 同步。当前格式为 `schemaVersion=3`、`cipherVersion=1`：单个版本化文档保存 Provider 配置、按 `providerProfileId` 索引的 API Key 凭据、模型条目、匿名绑定和版本化自定义图片 Provider Manifest。Manifest 不包含 Key；内部 Profile/Manifest ID 在确认导入时生成。解密按密文记录自身的 schema version 构造 AAD，兼容读取 v2 并迁移后重新加密为 v3。`ModelEntry.id` 是唯一身份；`modelId` 仅在运行时请求上游，不能作为任何持久化引用身份。设备模式使用不可导出的 WebCrypto AES-256-GCM `CryptoKey`、96 位随机 IV 和 128 位认证标签加密，AAD 绑定 cipher/schema version、当前 Origin 和可信 session 用户 ID。IndexedDB 的密文记录与 Key 记录按可信用户 ID 分区；两个独立浏览器设备各自持有独立数据库与 Key，不存在隐式同步。账户注销无法远程删除任何设备的 Vault 密文或 CryptoKey，但已撤销可信会话使其不能再用于 Cloud 或受控 Provider 操作。
 
-模型发现的导入以单个 Vault 文档写入为边界：Provider、其 `providerProfileId` 凭据槽和选中的新 `ModelEntry` 必须一起写入；取消不创建或更新任何 Vault 内容。再次发现按 `(providerProfileId, modelId)` 精确 reconcile：仅 `source=discovered` 条目可更新 `lastSeenAt/status`，上游缺失为 `missing`、重现为 `available`；`displayName/category/enabled` 和全部 `source=manual` 条目不被覆盖。
+模型发现的导入以单个 Vault 文档写入为边界：Provider、其 `providerProfileId` 凭据槽和选中的新 `ModelEntry` 必须一起写入；取消不创建或更新任何 Vault 内容。再次发现按 `(providerProfileId, modelId)` 精确 reconcile：仅 `source=discovered` 条目可更新 `lastSeenAt/status`，上游缺失为 `missing`、重现为 `available`；`displayName/category/enabled` 和全部 `source=manual` 条目不被覆盖。自定义图片 Provider 不执行模型发现，Manifest 导入先校验和预览，确认后才与 Provider 配置写入 Vault；导入包可携带建议模型但不得携带 API Key。
 
 设备持久化是唯一用户可见模式，不提供 persistence 或单独删除入口。Vault 保存与本地任务写入在浏览器内串行执行；登出/session 失效/换账号只清空内存明文并保留按账号隔离的设备密文。用户清除当前网站数据时，浏览器删除 IndexedDB 中的密文、CryptoKey、模型绑定和本地任务缓存。异步完成只有在可信用户、内部持久化状态与状态代次仍一致时才能更新运行态。
 
-当前运行时只读取当前版本的浏览器 Vault、任务缓存和项目快照。非敏感画布与外观偏好通过 `workspace_user_state` 跨设备同步；项目图、checkpoint、迁移包、偏好 API、日志、指标、诊断、PostgreSQL 和 Admin 均不保存真实 Provider、endpoint、模型 ID、绑定或 Key。
+当前运行时只读取当前版本或明确兼容迁移版本的浏览器 Vault、任务缓存和项目快照。非敏感画布与外观偏好通过 `workspace_user_state` 跨设备同步；项目图、checkpoint、迁移包、偏好 API、日志、指标、诊断、PostgreSQL 和 Admin 均不保存真实 Provider、endpoint、模型 ID、Manifest、绑定或 Key。
 
-浏览器本地生成与任务恢复不创建服务端任务表，也不把执行状态同步到 Cloud；`generation_telemetry` 只是不可执行的有限运营记录。项目图中的模型字段仅保存 `local:<uuid>`，其 Vault 绑定值是 `modelEntryId`；真实模型 ID 只存在对应 Vault 模型条目中。Cloud 图还会移除 profile/Provider/endpoint/Key、task ID、remote task、上游错误和运行态。生成媒体先作为私有 `assets` 上传，完成后项目图只引用 Cloud asset UUID，不保存 Provider 临时 URL。
+浏览器本地生成与任务恢复不创建服务端任务表，也不把执行状态同步到 Cloud；`generation_telemetry` 只是不可执行的有限运营记录。项目图中的模型字段仅保存 `local:<uuid>`，其 Vault 绑定值是 `modelEntryId`；真实模型 ID 只存在对应 Vault 模型条目中。Cloud 图还会移除 profile/Provider/protocol/auth/endpoint/Key、Manifest ID、task ID、remote task、上游错误和运行态。生成媒体先作为私有 `assets` 上传，完成后项目图只引用 Cloud asset UUID，不保存 Provider 临时 URL。
 
 节点先按类别过滤可执行 `ModelEntry`，再按上游 `modelId` 分组；同名模型在不同服务商下仍是不同的 `modelEntryId` 路由，界面必须让用户明确选择具体服务商，不能按名称合并为同一持久化身份。未绑定、已删除、上游缺失、模型/服务商停用或凭据无效的引用可作为节点当前状态显示，但不得执行。对已绑定匿名引用，运行时只使用绑定的 `modelEntryId` 解析其唯一 Provider 和凭据；本地任务记录同样保存解析后的 `modelEntryId`，不会以匿名引用或显示名称猜测路由。
 
-本地任务缓存是独立加密文档：`schemaVersion=3`、`cipherVersion=1`，IndexedDB 数据库版本为 3，只接受 v3 文档；复用同一不可导出 AES-256-GCM 设备 Key，AAD 在 Origin/可信用户之外额外绑定项目 ID。任务使用 UUID，保存冻结的 Prompt/参考图/比例/分辨率、`modelEntryId`、adapter、执行模式、Provider 绑定指纹、`queued|running|done|error` 主状态、`requesting|polling|persisting` 本地阶段和受控 `remoteTaskId`；不保存真实模型 ID、endpoint 或 API Key。
+本地任务缓存是独立加密文档：`schemaVersion=4`、`cipherVersion=1`，IndexedDB 数据库版本为 4，兼容读取 v3 并迁移后重新加密为 v4；复用同一不可导出 AES-256-GCM 设备 Key，AAD 在 Origin/可信用户之外额外绑定项目 ID。任务使用 UUID，保存冻结的 Prompt/参考图/比例/分辨率、`modelEntryId`、adapter、执行模式、Manifest ID/版本、Provider 绑定指纹、`queued|running|done|error` 主状态、`requesting|polling|persisting` 本地阶段和受控 `remoteTaskId`；不保存 Manifest 正文、真实模型 ID、endpoint 或 API Key。`custom-http-image-v1` 使用固定 adapter ID，绑定指纹覆盖协议、Manifest 规范化内容、Base URL、凭据槽和模型。
 
 Provider 返回而 Cloud 资产尚未完成时，图片 Blob 存入独立 `taskResults` 对象仓库，使用同一设备 Key 加密，AAD 额外绑定 Origin、可信用户、项目和任务 ID。Cloud 保存失败只重试该 Blob，不重新发起 Provider POST；保存成功、任务删除、项目任务缓存删除或用户 Vault 清除时同步删除临时结果。任务文档和临时结果均按用户/项目分区，只属于当前浏览器，不进入 workspace/project record、checkpoint、迁移包、Cloud API、日志、诊断或 PostgreSQL。

@@ -1,7 +1,10 @@
 import { normalizeLocalModelBindings } from "../features/settings/localModelReferences.ts";
+import { normalizeStoredCustomImageProviderManifest } from "../features/settings/customImageProviderManifest.ts";
+import { inferProviderFromApiUrl } from "../config/modelCatalog.ts";
 import { DEFAULT_CANVAS_PREFERENCES } from "@ai-canvas-cloud/contracts/canvas-preferences";
 import type {
   ApiConfig,
+  CustomImageProviderManifestV1,
   ModelCategory,
   ModelEntry,
   ModelEntryStatus,
@@ -69,13 +72,41 @@ export function createProviderProfile(
   overrides: Partial<ProviderProfileConfig> = {},
 ): ProviderProfileConfig {
   const now = Date.now();
+  const baseUrl = overrides.baseUrl?.trim() ?? "";
+  const protocol =
+    overrides.protocol === "dashscope" ||
+    overrides.protocol === "custom-http-image-v1"
+      ? overrides.protocol
+      : inferProviderFromApiUrl(baseUrl) === "aliyun"
+        ? "dashscope"
+        : "openai-compatible";
+  // Standard protocols deliberately use one predictable configuration. The
+  // advanced auth/mode fields remain part of the persisted type for custom
+  // manifests and future re-opening, but are not user-configurable here.
+  const authMode =
+    protocol === "custom-http-image-v1"
+      ? overrides.authMode === "none" ||
+        overrides.authMode === "x-api-key" ||
+        overrides.authMode === "api-key"
+        ? overrides.authMode
+        : "bearer"
+      : "bearer";
   return {
     id: overrides.id?.trim() || createEntityId(),
     name: overrides.name?.trim() || "New Provider",
-    protocol: "openai-compatible",
-    baseUrl: overrides.baseUrl?.trim() ?? "",
+    protocol,
+    authMode,
+    ...(protocol === "custom-http-image-v1" &&
+    overrides.customManifestId?.trim()
+      ? { customManifestId: overrides.customManifestId.trim() }
+      : {}),
+    baseUrl,
     enabled: overrides.enabled ?? true,
-    imageRequestMode: "sync",
+    imageRequestMode:
+      protocol === "custom-http-image-v1" &&
+      overrides.imageRequestMode === "async"
+        ? "async"
+        : "sync",
     createdAt: normalizeTimestamp(overrides.createdAt, now),
     updatedAt: normalizeTimestamp(overrides.updatedAt, now),
     ...(typeof overrides.lastDiscoveryAt === "number" &&
@@ -190,10 +221,37 @@ function normalizeLastUsedModelEntryIds(
 }
 
 export function normalizeConfig(config: ConfigInput = {}): ApiConfig {
+  const customImageProviderManifests = Array.isArray(
+    config.customImageProviderManifests,
+  )
+    ? config.customImageProviderManifests
+        .map(normalizeStoredCustomImageProviderManifest)
+        .filter(
+          (manifest): manifest is CustomImageProviderManifestV1 =>
+            manifest !== null,
+        )
+        .filter(
+          (manifest, index, manifests) =>
+            manifests.findIndex((candidate) => candidate.id === manifest.id) ===
+            index,
+        )
+    : [];
   const providerProfiles = Array.isArray(config.providerProfiles)
-    ? config.providerProfiles.map((profile) =>
-        normalizeProviderProfile(profile),
-      )
+    ? config.providerProfiles
+        .map((profile) => normalizeProviderProfile(profile))
+        .map((profile) => {
+          if (profile.protocol !== "custom-http-image-v1") return profile;
+          const manifest = customImageProviderManifests.find(
+            (candidate) => candidate.id === profile.customManifestId,
+          );
+          return {
+            ...profile,
+            imageRequestMode:
+              manifest?.executionMode === "polling"
+                ? ("async" as const)
+                : ("sync" as const),
+          };
+        })
     : [];
   const profileIds = new Set(providerProfiles.map((profile) => profile.id));
   const modelEntries = Array.isArray(config.modelEntries)
@@ -237,6 +295,7 @@ export function normalizeConfig(config: ConfigInput = {}): ApiConfig {
     lastUsedModelEntryIds,
     modelEntries,
     providerProfiles,
+    customImageProviderManifests,
     providerApiKeys,
     localModelBindings,
     storage: normalizeStorageConfig(config.storage),

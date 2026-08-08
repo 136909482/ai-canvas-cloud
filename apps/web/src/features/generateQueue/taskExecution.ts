@@ -31,6 +31,7 @@ import {
   createProviderBindingFingerprint,
   getImageProviderAdapter,
   resolveTaskAdapterId,
+  resolveTaskExecutionMode,
 } from "./imageProviderAdapters";
 import { runWithTaskImageInputRefresh } from "./taskImageInputs";
 import { getPreviewNodeSize, loadImageDimensions } from "./previewUtils";
@@ -164,11 +165,15 @@ function getTaskModelConfig(task: GenerateTask) {
       apiProfileId: resolution.profile.id,
       apiProfileName: resolution.profile.name,
       provider: resolution.runtimeConfig.provider,
-      executionMode: currentAdapterId.includes("polling")
-        ? ("polling" as const)
-        : ("sync" as const),
+      executionMode: resolveTaskExecutionMode(
+        resolution.runtimeConfig,
+        task.kind,
+      ),
       adapterId: currentAdapterId,
       providerBindingFingerprint: currentFingerprint,
+      providerManifestId: resolution.runtimeConfig.customManifest?.id ?? null,
+      providerManifestVersion:
+        resolution.runtimeConfig.customManifest?.schemaVersion ?? null,
     },
   };
 }
@@ -231,6 +236,8 @@ function buildTaskRequestParams(task: GenerateTask) {
       apiUrl,
       model: modelConfig.modelId,
       provider,
+      authMode: modelConfig.authMode,
+      customManifest: modelConfig.customManifest,
       requestMode: modelConfig.requestMode,
       operationType: task.operationType,
     } as const,
@@ -518,12 +525,6 @@ async function resumeRemoteGenerateTask(taskId: string) {
       return;
     }
 
-    if (adapterId !== "openai-compatible-task-polling") {
-      throw new Error(
-        "\u5f53\u524d\u4efb\u52a1\u4e0d\u652f\u6301\u8fdc\u7a0b\u8f6e\u8be2\u6062\u590d",
-      );
-    }
-
     syncPreviewNodeWithTask(runningTask, "generating");
     const adapter = getImageProviderAdapter(adapterId);
     if (!adapter.waitForRemote) {
@@ -647,7 +648,7 @@ export async function restoreTaskQueueAfterSnapshotLoad() {
         const { provider } = buildTaskRequestParams(task);
 
         if (
-          provider === "openai" ||
+          task.kind === "image" ||
           (task.kind === "video" && provider === "aliyun")
         ) {
           syncSourceNodeWithTask(task, "generating");

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { resolveRuntimeModelConfig } from "./providerConfig.ts";
 import { normalizeConfig } from "@/store/settingsConfig.ts";
+import { createDefaultCustomImageProviderManifest } from "./customImageProviderManifest.ts";
 
 test("runtime resolution uses model entry identity and its owning provider", () => {
   const config = normalizeConfig({
@@ -10,6 +11,7 @@ test("runtime resolution uses model entry identity and its owning provider", () 
         id: "provider-a",
         name: "Provider A",
         protocol: "openai-compatible",
+        authMode: "bearer",
         baseUrl: "https://example.com/v1",
         enabled: true,
         imageRequestMode: "async",
@@ -42,6 +44,8 @@ test("runtime resolution uses model entry identity and its owning provider", () 
   if (resolved.ok) {
     assert.equal(resolved.runtimeConfig.modelId, "gpt-image");
     assert.equal(resolved.runtimeConfig.apiKey, "key-a");
+    assert.equal(resolved.runtimeConfig.authMode, "bearer");
+    assert.equal(resolved.runtimeConfig.imageRequestMode, "sync");
     assert.equal(resolved.runtimeConfig.requestMode, "sync");
   }
 });
@@ -53,6 +57,7 @@ test("same upstream model ids resolve to their selected provider route", () => {
         id: "provider-a",
         name: "Provider A",
         protocol: "openai-compatible",
+        authMode: "bearer",
         baseUrl: "https://a.example/v1",
         enabled: true,
         imageRequestMode: "sync",
@@ -63,6 +68,7 @@ test("same upstream model ids resolve to their selected provider route", () => {
         id: "provider-b",
         name: "Provider B",
         protocol: "openai-compatible",
+        authMode: "bearer",
         baseUrl: "https://b.example/v1",
         enabled: true,
         imageRequestMode: "async",
@@ -118,6 +124,60 @@ test("same upstream model ids resolve to their selected provider route", () => {
     assert.equal(routeA.runtimeConfig.apiKey, "key-a");
     assert.equal(routeB.runtimeConfig.apiUrl, "https://b.example/v1");
     assert.equal(routeB.runtimeConfig.apiKey, "key-b");
+    assert.equal(routeA.runtimeConfig.authMode, "bearer");
+    assert.equal(routeB.runtimeConfig.authMode, "bearer");
+    assert.equal(routeA.runtimeConfig.requestMode, "sync");
+    assert.equal(routeB.runtimeConfig.requestMode, "sync");
+  }
+});
+
+test("custom image providers retain manifest-selected auth and async execution", () => {
+  const manifest = createDefaultCustomImageProviderManifest("polling");
+  const config = normalizeConfig({
+    providerProfiles: [
+      {
+        id: "custom-provider",
+        name: "Custom Provider",
+        protocol: "custom-http-image-v1",
+        authMode: "x-api-key",
+        customManifestId: manifest.id,
+        baseUrl: "https://custom.example.com",
+        enabled: true,
+        imageRequestMode: "sync",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+    customImageProviderManifests: [manifest],
+    providerApiKeys: { "custom-provider": "key-custom" },
+    modelEntries: [
+      {
+        id: "custom-entry",
+        providerProfileId: "custom-provider",
+        modelId: "custom-image",
+        displayName: "Custom Image",
+        category: "image",
+        source: "manual",
+        status: "available",
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+  });
+
+  const resolved = resolveRuntimeModelConfig(config, {
+    modelEntryId: "custom-entry",
+    category: "image",
+    requireCredentials: true,
+  });
+
+  assert.equal(resolved.ok, true);
+  if (resolved.ok) {
+    assert.equal(resolved.runtimeConfig.authMode, "x-api-key");
+    assert.equal(resolved.runtimeConfig.imageRequestMode, "async");
+    assert.equal(resolved.runtimeConfig.requestMode, "async");
+    assert.equal(resolved.runtimeConfig.customManifest?.id, manifest.id);
   }
 });
 

@@ -11,6 +11,10 @@ import type {
   ModelCategory,
   RuntimeModelConfig,
 } from "@/types";
+import {
+  startCustomImageGeneration,
+  waitForCustomImageGeneration,
+} from "@/api/image/custom";
 
 export type ImageProviderAdapterId = Exclude<
   GenerateTaskAdapterId,
@@ -56,13 +60,25 @@ export function resolveTaskAdapterId(
     return "dashscope-video-polling";
   }
 
-  if (modelConfig.provider === "openai") {
+  if (modelConfig.protocol === "custom-http-image-v1") {
+    return "custom-http-image-v1";
+  }
+
+  if (modelConfig.protocol === "openai-compatible") {
     return modelConfig.requestMode === "async"
       ? "openai-compatible-task-polling"
       : "openai-compatible-sync";
   }
 
   return "dashscope-image-sync";
+}
+
+export function resolveTaskExecutionMode(
+  modelConfig: RuntimeModelConfig,
+  category: ModelCategory,
+): GenerateTaskExecutionMode {
+  if (category === "video") return "polling";
+  return modelConfig.requestMode === "async" ? "polling" : "sync";
 }
 
 export function createProviderBindingFingerprint(
@@ -78,6 +94,11 @@ export function createProviderBindingFingerprint(
     modelConfig.modelId,
     modelConfig.baseUrl,
     modelConfig.apiKey,
+    modelConfig.protocol,
+    modelConfig.authMode,
+    modelConfig.customManifest
+      ? JSON.stringify(modelConfig.customManifest)
+      : null,
     modelConfig.updatedAt,
     profileUpdatedAt,
   ]);
@@ -109,6 +130,13 @@ const pollingOpenAiAdapter: ImageProviderAdapter = {
   waitForRemote: waitForAsyncImageGeneration,
 };
 
+const customHttpImageAdapter: ImageProviderAdapter = {
+  id: "custom-http-image-v1",
+  executionMode: "polling",
+  start: startCustomImageGeneration,
+  waitForRemote: waitForCustomImageGeneration,
+};
+
 const imageProviderAdapters: Record<
   ImageProviderAdapterId,
   ImageProviderAdapter
@@ -116,6 +144,7 @@ const imageProviderAdapters: Record<
   "openai-compatible-sync": syncOpenAiAdapter,
   "openai-compatible-task-polling": pollingOpenAiAdapter,
   "dashscope-image-sync": syncDashscopeAdapter,
+  "custom-http-image-v1": customHttpImageAdapter,
 };
 
 export function getImageProviderAdapter(id: GenerateTaskAdapterId) {

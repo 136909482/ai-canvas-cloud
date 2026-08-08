@@ -323,7 +323,7 @@ function resolveGeminiImageRequestSize(
   return normalizedRatio;
 }
 
-async function resolveOpenAiRequestSize(params: GenerateImageParams) {
+export async function resolveOpenAiRequestSize(params: GenerateImageParams) {
   const requestFamily = getOpenAiCompatibleImageRequestFamily(params.model);
 
   if (requestFamily === "openai") {

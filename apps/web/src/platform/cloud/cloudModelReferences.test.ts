@@ -20,6 +20,12 @@ test("Cloud graph replaces private model identity and removes local task/provide
           apiProfileId: "private-provider-id",
           apiProfileName: "Private Provider",
           provider: "openai",
+          protocol: "custom-http-image-v1",
+          authMode: "bearer",
+          customManifestId: "manifest-private-id",
+          providerManifestVersion: 1,
+          providerBindingFingerprint: "private-route-fingerprint",
+          taskPhase: "polling",
           apiUrl: "https://provider.example/v1",
           apiKey: "private-key-value",
           activeTaskId: "task-1",
@@ -57,6 +63,8 @@ test("Cloud graph replaces private model identity and removes local task/provide
   assert.equal("apiProfileName" in data, false);
   assert.equal("apiKey" in data, false);
   assert.equal("activeTaskId" in data, false);
+  assert.equal("customManifestId" in data, false);
+  assert.equal("providerBindingFingerprint" in data, false);
   assert.equal(JSON.stringify(cloud).includes("private-image-model"), false);
   assert.equal(JSON.stringify(cloud).includes("private-provider-id"), false);
   assert.equal(JSON.stringify(cloud).includes("private-key-value"), false);

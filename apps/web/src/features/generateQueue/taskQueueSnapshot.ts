@@ -44,6 +44,8 @@ export interface GenerateTaskSnapshot {
   executionMode?: GenerateTaskExecutionMode | null;
   adapterId?: GenerateTaskAdapterId | null;
   providerBindingFingerprint?: string | null;
+  providerManifestId?: string | null;
+  providerManifestVersion?: 1 | null;
 }
 
 const INTERRUPTED_LOCAL_TASK_MESSAGE =
@@ -133,6 +135,8 @@ function sanitizeTask(
     executionMode: task.executionMode ?? null,
     adapterId: task.adapterId ?? null,
     providerBindingFingerprint: task.providerBindingFingerprint ?? null,
+    providerManifestId: task.providerManifestId ?? null,
+    providerManifestVersion: task.providerManifestVersion === 1 ? 1 : null,
     telemetryAttemptId: task.telemetryAttemptId ?? null,
     telemetryStartedAt: task.telemetryStartedAt ?? null,
     finishedAt: task.finishedAt ?? null,
@@ -340,5 +344,17 @@ export function mergeTaskSnapshot(
       patch && "providerBindingFingerprint" in patch
         ? (patch.providerBindingFingerprint ?? null)
         : (task.providerBindingFingerprint ?? null),
+    providerManifestId:
+      patch && "providerManifestId" in patch
+        ? (patch.providerManifestId ?? null)
+        : (task.providerManifestId ?? null),
+    providerManifestVersion:
+      patch && "providerManifestVersion" in patch
+        ? patch.providerManifestVersion === 1
+          ? 1
+          : null
+        : task.providerManifestVersion === 1
+          ? 1
+          : null,
   };
 }

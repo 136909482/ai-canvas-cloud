@@ -154,11 +154,26 @@ export function NodeModelSelector({
     }
 
     options.push(
-      ...selectableModels.map((model) => ({
-        value: model.id,
-        label: model.displayName || model.modelId,
-        icon: renderModelIcon?.(model) ?? <ModelOptionIcon model={model} />,
-      })),
+      ...selectableModels.map((model) => {
+        const providerName = model.providerProfileId
+          ? (config.providerProfiles.find(
+              (profile) => profile.id === model.providerProfileId,
+            )?.name ?? NODE_MODEL_SELECTION_LABELS.noProvider)
+          : NODE_MODEL_SELECTION_LABELS.noProvider;
+        const modelLabel = model.displayName || model.modelId;
+        return {
+          value: model.id,
+          label: `${modelLabel} · ${providerName}`,
+          title: `${modelLabel} / ${providerName}`,
+          triggerLabel: modelLabel,
+          triggerTrailing: (
+            <span className="block max-w-[8em] shrink-0 overflow-hidden text-right text-[10px] font-normal text-[var(--text-muted)] text-ellipsis whitespace-nowrap">
+              {providerName}
+            </span>
+          ),
+          icon: renderModelIcon?.(model) ?? <ModelOptionIcon model={model} />,
+        };
+      }),
     );
 
     if (options.length === 0) {
@@ -177,6 +192,7 @@ export function NodeModelSelector({
     modelValue,
     modelWasCleared,
     selectableModels,
+    config.providerProfiles,
     selection,
     renderModelIcon,
   ]);

@@ -1,9 +1,11 @@
 import type { ProviderId } from "@/config/modelCatalog";
 import type {
+  CustomImageProviderManifestV1,
   GptImageQuality,
   ImageInputFidelity,
   ImageOperationType,
   ImageRequestMode,
+  ProviderAuthMode,
 } from "@/types";
 
 export interface GenerateImageParams {
@@ -19,6 +21,9 @@ export interface GenerateImageParams {
   apiUrl: string;
   model: string;
   provider?: ProviderId;
+  authMode?: ProviderAuthMode;
+  customManifest?: CustomImageProviderManifestV1;
+  signal?: AbortSignal;
   requestMode?: ImageRequestMode;
   operationType?: ImageOperationType;
   inputFidelity?: ImageInputFidelity | null;

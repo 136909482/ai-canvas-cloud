@@ -12,7 +12,7 @@
 - 时间使用 ISO 8601 UTC，ID 对客户端是不透明字符串。
 - 所有资源作用域由可信 session 推导，客户端 `userId/workspaceId` 不参与授权。
 - 其他 workspace 与不存在资源使用相同 `404 RESOURCE_NOT_FOUND` 语义。
-- 平台 API 不接收用户 Provider Key、endpoint、真实模型 ID 或任意 target URL。
+- 平台 API 不接收用户 Provider Key、endpoint、真实模型 ID、Manifest、remote task ID 或任意 target URL。
 
 普通 API 使用 `WEB_ALLOWED_ORIGINS` 精确匹配 CORS/Origin。Cookie 写请求和认证写入口要求允许 Origin，所有非安全方法拒绝 `Sec-Fetch-Site: cross-site`。预检只开放固定 method/header，不使用 `*`。Admin 使用独立 allowlist 和 SameSite=Strict Cookie。
 
@@ -22,15 +22,15 @@ API 响应发送 nosniff、frame deny、Referrer/Permissions/COOP/CORP 及 `defa
 
 ## 浏览器 Vault 与 API 边界
 
-浏览器 Vault、任务缓存和临时生成结果没有 Cloud HTTP 资源。配置 Vault 只接受 `schemaVersion=2`，任务缓存只接受 `schemaVersion=3`，二者的 `cipherVersion=1`；IndexedDB 数据库版本为 3。设备存储使用不可导出的 WebCrypto AES-256-GCM `CryptoKey`，AAD 绑定版本、Origin 和可信 session 用户 ID，任务缓存额外绑定项目 ID，临时结果额外绑定任务 ID。Provider 配置不含 Key，Key 按 `providerProfileId` 存在独立凭据槽，模型条目以 `modelEntryId` 为唯一身份。Provider 与模型配置保存后固定把密文与 Key 写入当前 Origin 的 IndexedDB，不提供 persistence 或单独删除入口；登出/session 失效/换账号清空内存但不删除设备记录；清除当前网站数据会由浏览器删除密文、Key、模型绑定、任务缓存和临时结果。当前运行时只读取当前版本的 IndexedDB 记录。
+浏览器 Vault、任务缓存和临时生成结果没有 Cloud HTTP 资源。配置 Vault 当前为 `schemaVersion=3`，兼容读取 v2；任务缓存当前为 `schemaVersion=4`，兼容读取 v3；二者的 `cipherVersion=1`，IndexedDB 数据库版本为 4。兼容记录按密文自身版本构造 AAD，读取成功后迁移并以当前版本重新加密。设备存储使用不可导出的 WebCrypto AES-256-GCM `CryptoKey`，AAD 绑定版本、Origin 和可信 session 用户 ID，任务缓存额外绑定项目 ID，临时结果额外绑定任务 ID。Provider 配置不含 Key，Key 按 `providerProfileId` 存在独立凭据槽，版本化自定义图片 Provider Manifest 与 Profile 分离保存，模型条目以 `modelEntryId` 为唯一身份。Provider 与模型配置保存后固定把密文与 Key 写入当前 Origin 的 IndexedDB，不提供 persistence 或单独删除入口；登出/session 失效/换账号清空内存但不删除设备记录；清除当前网站数据会由浏览器删除密文、Key、Manifest、模型绑定、任务缓存和临时结果。
 
-`GET /v1/models` 是浏览器到用户 Provider 的直接受控请求，不是 Cloud HTTP 契约：平台 API 不接收其 URL、Key、请求或响应。请求固定为 Bearer/Accept、无 Cookie、无 Referrer、禁止重定向、CORS、15 秒超时和 2 MiB 响应限制；弹窗取消不写入 Vault，确认把 Provider、凭据槽和模型条目作为同一次本地 Vault 更新保存。
+`GET /v1/models` 是浏览器到 OpenAI Compatible 或 DashScope Provider 的直接受控请求，不是 Cloud HTTP 契约：平台 API 不接收其 URL、Key、请求或响应。请求使用受控鉴权、无 Cookie、无 Referrer、禁止重定向、CORS、15 秒超时和 2 MiB 响应限制；弹窗取消不写入 Vault，确认把 Provider、凭据槽和模型条目作为同一次本地 Vault 更新保存。自定义图片 Provider 不调用 `/v1/models`，模型仅由用户手动添加，导入包中的建议模型只作为待选项。
 
 设备保存与本地任务写入串行执行；异步结果只能更新同一可信用户、同一内部 persistence 和同一状态代次。两个浏览器设备的 IndexedDB/Key 相互独立，认证、工作区或项目 API 不上传、下载或同步 Vault、任务缓存或临时结果。
 
-workspace 文件与 workspace/localStorage 缓存、项目图/checkpoint、迁移包、Cloud API 请求/响应、日志、指标和诊断均不得携带 Provider、endpoint、真实模型 ID、绑定、Key、remote task ID 或本地任务缓存。项目图只存 `local:<uuid>`，其本机绑定值为 `modelEntryId`。平台不新增 Provider 代理、连接测试或任务 API；浏览器只对受控 OpenAI Compatible/DashScope 路径发起请求，无 CORS 服务使用用户自有的固定目标网关。
+workspace 文件与 workspace/localStorage 缓存、项目图/checkpoint、迁移包、Cloud API 请求/响应、日志、指标和诊断均不得携带 Provider、protocol、auth mode、endpoint、真实模型 ID、Manifest/Manifest ID、绑定、Key、remote task ID 或本地任务缓存。项目图只存 `local:<uuid>`，其本机绑定值为 `modelEntryId`。平台不新增 Provider 代理、连接测试或任务 API；浏览器只对受控 OpenAI Compatible、DashScope 和 `custom-http-image-v1` 相对路径发起请求，无 CORS 服务使用用户自有的固定目标网关。
 
-同一设备重新打开项目时，浏览器从按可信用户/项目隔离的加密任务缓存恢复任务：排队任务重新进入本地调度；无 remote task ID 的运行中同步任务转为已中断；已有受控 remote task ID 且 Provider 绑定指纹未变化的异步任务继续轮询；已暂存结果的 `persisting` 任务只重试 Cloud 保存。新设备只收到图中的 `local:<uuid>`，必须由用户在节点上明确选择本机同类型模型完成绑定；认证和项目 API 不参与绑定、匹配或同步。
+同一设备重新打开项目时，浏览器从按可信用户/项目隔离的加密任务缓存恢复任务：排队任务重新进入本地调度；无 remote task ID 的运行中同步任务转为已中断；已有受控 remote task ID 且协议、Manifest、Base URL、凭据槽和模型组成的 Provider 绑定指纹未变化时继续轮询；已暂存结果的 `persisting` 任务只重试 Cloud 保存。任务只保存 Manifest ID/版本和绑定指纹，不保存 Manifest 正文、endpoint、Key 或真实模型 ID。新设备只收到图中的 `local:<uuid>`，必须由用户在节点上明确选择本机同类型模型完成绑定；认证和项目 API 不参与绑定、匹配或同步。
 
 服务商和模型选择全部在浏览器内完成，不存在对应 Cloud API。节点把当前类别下可执行的 `ModelEntry` 按上游 `modelId` 分组，同名模型的不同服务商作为独立路由展示和选择；未绑定、已删除、缺失、停用或凭据无效的当前引用仍可见，但请求在浏览器适配器前被拒绝。匿名引用绑定后，执行请求和本地任务使用该绑定解析出的 `modelEntryId`，而项目图字段继续保留 `local:<uuid>`。
 

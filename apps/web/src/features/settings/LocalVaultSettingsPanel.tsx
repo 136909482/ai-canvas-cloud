@@ -3,8 +3,12 @@ import { createPortal } from "react-dom";
 import {
   Check,
   Copy,
+  Clipboard,
+  Download,
   Eye,
   EyeOff,
+  FileJson,
+  FileUp,
   KeyRound,
   Link2,
   LoaderCircle,
@@ -24,6 +28,8 @@ import { useDialogFocus } from "@/hooks/useDialogFocus";
 import type {
   CustomModelKind,
   ModelEntry,
+  ProviderAuthMode,
+  ProviderProtocol,
   ProviderProfileConfig,
 } from "@/types";
 import { CanvasSettingsSwitch } from "@/components/toolbar/settingsComponents";
@@ -47,6 +53,13 @@ import {
   validateProviderProfileDraft,
 } from "./providerConfig";
 import { ProviderModelImportDialog } from "./ProviderModelImportDialog";
+import {
+  createCustomImageProviderImport,
+  createDefaultCustomImageProviderManifest,
+  CUSTOM_IMAGE_PROVIDER_LLM_PROMPT,
+  parseCustomImageProviderImportText,
+  parseCustomImageProviderManifest,
+} from "./customImageProviderManifest";
 
 async function copyTextToClipboard(text: string) {
   if (navigator.clipboard?.writeText) {
@@ -65,22 +78,37 @@ async function copyTextToClipboard(text: string) {
   if (!copied) throw new Error("Clipboard is unavailable");
 }
 
+function formatManifestFeedback(error: unknown, action: string) {
+  const detail = error instanceof Error ? error.message : String(error);
+  if (detail.includes("不是有效 JSON")) {
+    return `${action}失败：这不是有效的 JSON。请检查括号、引号和逗号。`;
+  }
+  if (detail.includes("导入文件.defaults.apiKey")) {
+    return `${action}失败：导入包不能包含 API Key，请删除密钥后再试。`;
+  }
+  return `${action}失败：${detail}。请按字段路径检查 Manifest。`;
+}
+
 export function LocalVaultSettingsPanel() {
   const {
     config,
+    customImageProviderManifests,
     deleteCustomModel,
     deleteProviderProfile,
     persistLocalVault,
     saveCustomModel,
+    saveCustomImageProviderManifest,
     saveProviderDiscoveryImport,
     saveProviderProfile,
   } = useSettingsStore(
     useShallow((state) => ({
       config: state.config,
+      customImageProviderManifests: state.config.customImageProviderManifests,
       deleteCustomModel: state.deleteCustomModel,
       deleteProviderProfile: state.deleteProviderProfile,
       persistLocalVault: state.persistLocalVault,
       saveCustomModel: state.saveCustomModel,
+      saveCustomImageProviderManifest: state.saveCustomImageProviderManifest,
       saveProviderDiscoveryImport: state.saveProviderDiscoveryImport,
       saveProviderProfile: state.saveProviderProfile,
     })),
@@ -97,6 +125,10 @@ export function LocalVaultSettingsPanel() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [isApiKeyEditing, setIsApiKeyEditing] = useState(false);
   const [providerSearch, setProviderSearch] = useState("");
+  const [providerPickerOpen, setProviderPickerOpen] = useState(false);
+  const [manifestText, setManifestText] = useState("");
+  const [manifestStatus, setManifestStatus] = useState<string | null>(null);
+  const manifestFileRef = useRef<HTMLInputElement | null>(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [isModelEditorOpen, setIsModelEditorOpen] = useState(false);
   const [isModelDirty, setIsModelDirty] = useState(false);
@@ -144,6 +176,11 @@ export function LocalVaultSettingsPanel() {
       : showApiKey
         ? savedProviderApiKey
         : "********";
+  const activeCustomManifest = providerDraft?.customManifestId
+    ? customImageProviderManifests.find(
+        (manifest) => manifest.id === providerDraft.customManifestId,
+      )
+    : undefined;
 
   useEffect(() => {
     if (isProviderDirty) return;
@@ -158,11 +195,23 @@ export function LocalVaultSettingsPanel() {
     setProviderDraft(
       profile ? { ...toDraftProviderProfile(profile), apiKey: "" } : null,
     );
+    const manifest = profile?.customManifestId
+      ? config.customImageProviderManifests.find(
+          (candidate) => candidate.id === profile.customManifestId,
+        )
+      : undefined;
+    setManifestText(
+      manifest
+        ? JSON.stringify(createCustomImageProviderImport(manifest), null, 2)
+        : "",
+    );
+    setManifestStatus(null);
     setShowApiKey(false);
     setIsApiKeyEditing(false);
   }, [
     config.providerApiKeys,
     config.providerProfiles,
+    config.customImageProviderManifests,
     isProviderDirty,
     providerDraft?.id,
     selectedProviderId,
@@ -196,14 +245,43 @@ export function LocalVaultSettingsPanel() {
     selectedProviderId,
   ]);
 
-  const createProvider = () => {
+  const createProvider = (protocol: ProviderProtocol) => {
     const draft = createEmptyProviderDraft("image");
+    const defaults: Record<ProviderProtocol, Partial<DraftProviderProfile>> = {
+      "openai-compatible": {
+        name: "OpenAI Compatible",
+        authMode: "bearer",
+        baseUrl: "https://api.openai.com/v1",
+      },
+      dashscope: {
+        name: "阿里百炼",
+        authMode: "bearer",
+        baseUrl: "https://dashscope.aliyuncs.com/api/v1",
+      },
+      "custom-http-image-v1": {
+        name: "我的自定义服务商",
+        authMode: "bearer",
+        baseUrl: "",
+      },
+    };
+    Object.assign(draft, defaults[protocol], { protocol });
+    if (protocol === "custom-http-image-v1") {
+      const manifest = createDefaultCustomImageProviderManifest("sync");
+      saveCustomImageProviderManifest(manifest);
+      draft.customManifestId = manifest.id;
+      setManifestText(
+        JSON.stringify(createCustomImageProviderImport(manifest), null, 2),
+      );
+    } else {
+      setManifestText("");
+    }
     setSelectedProviderId(draft.id);
     setProviderDraft(draft);
     setShowApiKey(false);
     setIsApiKeyEditing(false);
     setIsProviderDirty(false);
     setProviderSaveStatus({ state: "idle" });
+    setProviderPickerOpen(false);
   };
 
   const createModel = () => {
@@ -239,6 +317,17 @@ export function LocalVaultSettingsPanel() {
     setModelSaveStatus({ state: "idle" });
     setIsProviderDirty(false);
     setProviderSaveStatus({ state: "idle" });
+    const manifest = profile.customManifestId
+      ? config.customImageProviderManifests.find(
+          (candidate) => candidate.id === profile.customManifestId,
+        )
+      : undefined;
+    setManifestText(
+      manifest
+        ? JSON.stringify(createCustomImageProviderImport(manifest), null, 2)
+        : "",
+    );
+    setManifestStatus(null);
   };
 
   const openModelEditor = (id: string) => {
@@ -297,6 +386,9 @@ export function LocalVaultSettingsPanel() {
       const existingProfile = config.providerProfiles.find(
         (candidate) => candidate.id === draft.id,
       );
+      // A saved provider's protocol is immutable. The only way to use a
+      // different protocol is to create a new provider profile.
+      const protocol = existingProfile?.protocol ?? draft.protocol;
       const needsRediscovery =
         (draft.apiKey
           ? draft.apiKey !== (config.providerApiKeys[draft.id] ?? "")
@@ -307,10 +399,16 @@ export function LocalVaultSettingsPanel() {
       const profile: ProviderProfileConfig = {
         id: draft.id,
         name: draft.name,
-        protocol: draft.protocol,
+        protocol,
+        authMode:
+          protocol === "custom-http-image-v1" ? draft.authMode : "bearer",
         baseUrl: draft.baseUrl,
         enabled: draft.enabled,
-        imageRequestMode: "sync",
+        ...(protocol === "custom-http-image-v1" && draft.customManifestId
+          ? { customManifestId: draft.customManifestId }
+          : {}),
+        imageRequestMode:
+          protocol === "custom-http-image-v1" ? draft.imageRequestMode : "sync",
         createdAt: draft.createdAt,
         updatedAt: draft.updatedAt,
         ...(draft.lastDiscoveryAt && !needsRediscovery
@@ -354,6 +452,91 @@ export function LocalVaultSettingsPanel() {
     return () => window.clearTimeout(timer);
   }, [isProviderDirty, providerDraft, providerSaveStatus.state, saveProvider]);
 
+  const validateAndSaveManifest = async () => {
+    if (!providerDraft || providerDraft.protocol !== "custom-http-image-v1")
+      return;
+    try {
+      const parsed = parseCustomImageProviderImportText(manifestText);
+      const manifest = parseCustomImageProviderManifest(parsed.manifest, {
+        id: providerDraft.customManifestId,
+      });
+      saveCustomImageProviderManifest(manifest);
+      updateProviderDraft((draft) => ({
+        ...draft,
+        customManifestId: manifest.id,
+        ...(parsed.defaults?.providerName
+          ? { name: parsed.defaults.providerName }
+          : {}),
+        ...(parsed.defaults?.baseUrl
+          ? { baseUrl: parsed.defaults.baseUrl }
+          : {}),
+        ...(parsed.defaults?.authMode
+          ? { authMode: parsed.defaults.authMode }
+          : {}),
+        imageRequestMode:
+          manifest.executionMode === "polling" ? "async" : "sync",
+      }));
+      await persistLocalVault();
+      setManifestText(
+        JSON.stringify(createCustomImageProviderImport(manifest), null, 2),
+      );
+      setManifestStatus(
+        `Manifest 已验证并保存，当前模式：${
+          manifest.executionMode === "polling" ? "异步轮询" : "同步"
+        }`,
+      );
+    } catch (error) {
+      setManifestStatus(formatManifestFeedback(error, "Manifest 验证"));
+    }
+  };
+
+  const importManifestFile = async (file: File) => {
+    try {
+      const text = await file.text();
+      const imported = parseCustomImageProviderImportText(text);
+      setManifestText(JSON.stringify(imported, null, 2));
+      const summary = [
+        imported.manifest.executionMode === "polling" ? "异步轮询" : "同步",
+        imported.manifest.capabilities.edit ? "支持编辑" : "仅生成",
+        imported.defaults?.suggestedModels?.length
+          ? `${imported.defaults.suggestedModels.length} 个建议模型`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      setManifestStatus(`校验通过：${summary}。点击“验证并保存”确认写入`);
+    } catch (error) {
+      setManifestStatus(formatManifestFeedback(error, "Manifest 导入"));
+    }
+  };
+
+  const exportManifest = () => {
+    if (!providerDraft?.customManifestId) return;
+    const manifest = customImageProviderManifests.find(
+      (candidate) => candidate.id === providerDraft.customManifestId,
+    );
+    if (!manifest) return;
+    const payload = createCustomImageProviderImport(manifest, {
+      providerName: providerDraft.name,
+      baseUrl: providerDraft.baseUrl,
+      authMode: providerDraft.authMode,
+      suggestedModels: providerModelEntries.map((entry) => ({
+        modelId: entry.modelId,
+        ...(entry.displayName ? { displayName: entry.displayName } : {}),
+      })),
+    });
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(payload, null, 2)], {
+        type: "application/json",
+      }),
+    );
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${providerDraft.name.trim() || "custom-image-provider"}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   const closeImportDialog = () => setImportDialogOpen(false);
 
   const importDiscoveredModels = async (input: {
@@ -387,6 +570,7 @@ export function LocalVaultSettingsPanel() {
       id: draft.id,
       name: draft.name,
       protocol: draft.protocol,
+      authMode: draft.authMode,
       baseUrl: input.baseUrl,
       enabled: draft.enabled,
       imageRequestMode: "sync",
@@ -577,7 +761,8 @@ export function LocalVaultSettingsPanel() {
     if (
       !(await confirm({
         title: "删除服务商",
-        message: "该服务商下的模型条目会一并删除。",
+        message:
+          "该服务商的 API Key、模型条目和自定义协议配置会从本设备删除。项目中的节点不会被删除，但原来绑定的模型需要重新选择。",
         confirmLabel: "删除",
         tone: "danger",
       }))
@@ -636,6 +821,13 @@ export function LocalVaultSettingsPanel() {
                     <span className="block truncate font-medium">
                       {profile.name}
                     </span>
+                    <span className="mt-0.5 block truncate text-[10px] text-[var(--text-muted)]">
+                      {profile.protocol === "dashscope"
+                        ? "阿里百炼"
+                        : profile.protocol === "custom-http-image-v1"
+                          ? "自定义服务商"
+                          : "OpenAI Compatible"}
+                    </span>
                   </button>
                 );
               })}
@@ -643,7 +835,7 @@ export function LocalVaultSettingsPanel() {
             <div className="p-2">
               <button
                 type="button"
-                onClick={createProvider}
+                onClick={() => setProviderPickerOpen(true)}
                 className={`${themeClasses.secondaryButton} h-8 w-full gap-1.5 rounded-[7px] text-xs`}
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -705,6 +897,7 @@ export function LocalVaultSettingsPanel() {
                 <label className="block space-y-1 text-xs text-[var(--text-secondary)]">
                   <span className="block leading-4">显示名称</span>
                   <input
+                    name="provider-display-name"
                     className={FIELD_INPUT_CLASS}
                     value={providerDraft.name}
                     onChange={(event) =>
@@ -722,6 +915,7 @@ export function LocalVaultSettingsPanel() {
                   </span>
                   <input
                     type="url"
+                    name="provider-base-url"
                     className={FIELD_INPUT_CLASS}
                     value={providerDraft.baseUrl}
                     onChange={(event) =>
@@ -730,7 +924,13 @@ export function LocalVaultSettingsPanel() {
                         baseUrl: event.target.value,
                       }))
                     }
-                    autoComplete="off"
+                    autoComplete="url"
+                    spellCheck={false}
+                    placeholder={
+                      providerDraft.protocol === "custom-http-image-v1"
+                        ? "例如 https://your-gateway.example.com"
+                        : "例如 https://api.openai.com/v1"
+                    }
                   />
                 </label>
                 <label className="block space-y-1 text-xs text-[var(--text-secondary)]">
@@ -741,6 +941,9 @@ export function LocalVaultSettingsPanel() {
                   <span className="relative block">
                     <input
                       type={showApiKey ? "text" : "password"}
+                      name="provider-api-key"
+                      data-1p-ignore="true"
+                      data-lpignore="true"
                       className={cx(FIELD_INPUT_CLASS, "pr-10")}
                       value={apiKeyDisplayValue}
                       onFocus={() => {
@@ -758,7 +961,7 @@ export function LocalVaultSettingsPanel() {
                           apiKey: event.target.value,
                         }))
                       }
-                      autoComplete="off"
+                      autoComplete="new-password"
                       placeholder="输入 API Key"
                     />
                     <button
@@ -775,6 +978,135 @@ export function LocalVaultSettingsPanel() {
                     </button>
                   </span>
                 </label>
+                {providerDraft.protocol === "custom-http-image-v1" ? (
+                  <>
+                    <div className="border-t border-[var(--border-subtle)] pt-3">
+                      <p className="text-xs font-medium text-[var(--text-primary)]">
+                        高级协议配置
+                      </p>
+                      <p className="mt-1 text-[10px] leading-4 text-[var(--text-muted)]">
+                        只有特殊接口才需要修改这里。API Key 不要粘贴进
+                        Manifest。
+                      </p>
+                    </div>
+                    <label className="block space-y-1 text-xs text-[var(--text-secondary)]">
+                      <span className="block leading-4">鉴权方式</span>
+                      <select
+                        className={FIELD_SELECT_CLASS}
+                        value={providerDraft.authMode}
+                        onChange={(event) =>
+                          updateProviderDraft((draft) => ({
+                            ...draft,
+                            authMode: event.target.value as ProviderAuthMode,
+                          }))
+                        }
+                      >
+                        <option value="bearer">Bearer</option>
+                        <option value="x-api-key">X-API-Key</option>
+                        <option value="api-key">API-Key</option>
+                        <option value="none">无需鉴权</option>
+                      </select>
+                    </label>
+                    <section className="space-y-2 border-t border-[var(--border-subtle)] pt-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-[var(--text-primary)]">
+                          自定义 Manifest
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <input
+                            ref={manifestFileRef}
+                            type="file"
+                            accept="application/json,.json"
+                            className="hidden"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              event.currentTarget.value = "";
+                              if (file) void importManifestFile(file);
+                            }}
+                          />
+                          <button
+                            type="button"
+                            title="导入 JSON"
+                            aria-label="导入 JSON"
+                            onClick={() => manifestFileRef.current?.click()}
+                            className={`${themeClasses.iconButton} h-7 w-7 rounded-[6px]`}
+                          >
+                            <FileUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            title="导出（不含密钥）"
+                            aria-label="导出（不含密钥）"
+                            onClick={exportManifest}
+                            className={`${themeClasses.iconButton} h-7 w-7 rounded-[6px]`}
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            title="复制 LLM 提示词"
+                            aria-label="复制 LLM 提示词"
+                            onClick={() =>
+                              void copyTextToClipboard(
+                                CUSTOM_IMAGE_PROVIDER_LLM_PROMPT,
+                              )
+                            }
+                            className={`${themeClasses.iconButton} h-7 w-7 rounded-[6px]`}
+                          >
+                            <Clipboard className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-[10px] leading-4 text-[var(--text-muted)]">
+                        把服务商接口文档转换成 JSON
+                        粘贴到这里；只有点击“验证并保存”后才会生效。
+                      </p>
+                      <p className="text-[10px] text-[var(--text-muted)]">
+                        执行模式：
+                        {activeCustomManifest
+                          ? activeCustomManifest.executionMode === "polling"
+                            ? "异步轮询"
+                            : "同步"
+                          : "未配置"}
+                      </p>
+                      <textarea
+                        className="min-h-48 w-full resize-y rounded-[8px] border border-[var(--border-subtle)] bg-[var(--control-bg)] p-3 font-mono text-[11px] leading-5 text-[var(--text-primary)] outline-none focus:border-violet-400/60"
+                        value={manifestText}
+                        onChange={(event) => {
+                          setManifestText(event.target.value);
+                          setManifestStatus(null);
+                        }}
+                        spellCheck={false}
+                      />
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span
+                          role={
+                            manifestStatus?.includes("失败")
+                              ? "alert"
+                              : "status"
+                          }
+                          aria-live="polite"
+                          className={cx(
+                            "text-[10px]",
+                            manifestStatus?.includes("失败")
+                              ? "text-red-300"
+                              : themeClasses.textMuted,
+                          )}
+                        >
+                          {manifestStatus || "Manifest 仅在验证并保存后生效"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void validateAndSaveManifest()}
+                          className="h-8 rounded-[7px] bg-[var(--text-primary)] px-3 text-xs font-semibold text-[var(--canvas-bg)]"
+                        >
+                          <FileJson className="mr-1.5 inline h-3.5 w-3.5" />
+                          验证并保存
+                        </button>
+                      </div>
+                    </section>
+                  </>
+                ) : null}
                 <section className="space-y-3 border-t border-[var(--border-subtle)] pt-4">
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-xs font-medium text-[var(--text-primary)]">
@@ -788,7 +1120,10 @@ export function LocalVaultSettingsPanel() {
                       <button
                         type="button"
                         onClick={() => setImportDialogOpen(true)}
-                        className="inline-flex items-center gap-1.5 px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400/60"
+                        disabled={
+                          providerDraft.protocol === "custom-http-image-v1"
+                        }
+                        className="inline-flex items-center gap-1.5 px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400/60"
                       >
                         <RefreshCw className="h-3.5 w-3.5" />
                         获取模型列表
@@ -879,6 +1214,75 @@ export function LocalVaultSettingsPanel() {
         onClose={closeImportDialog}
         onAddModel={importDiscoveredModels}
       />
+      {providerPickerOpen
+        ? createPortal(
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm">
+              <button
+                type="button"
+                aria-label="关闭协议选择"
+                className="absolute inset-0 cursor-default"
+                onClick={() => setProviderPickerOpen(false)}
+              />
+              <div
+                role="dialog"
+                aria-modal="true"
+                className="relative w-[min(30rem,calc(100vw-1.5rem))] rounded-[8px] border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] p-4 shadow-2xl"
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+                    选择服务商协议
+                  </h2>
+                  <button
+                    type="button"
+                    aria-label="关闭"
+                    title="关闭"
+                    onClick={() => setProviderPickerOpen(false)}
+                    className={`${themeClasses.iconButton} h-7 w-7 rounded-[6px]`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div className="grid gap-2">
+                  {(
+                    [
+                      [
+                        "openai-compatible",
+                        "OpenAI Compatible",
+                        "官方及大多数兼容接口，默认使用同步图片生成",
+                      ],
+                      ["dashscope", "阿里百炼", "使用内置 DashScope 受控协议"],
+                      [
+                        "custom-http-image-v1",
+                        "自定义服务商",
+                        "用 Manifest 适配特殊同步或异步图片接口",
+                      ],
+                    ] as const
+                  ).map(([protocol, title, description]) => (
+                    <button
+                      key={protocol}
+                      type="button"
+                      onClick={() => createProvider(protocol)}
+                      className="flex items-start gap-3 rounded-[7px] border border-[var(--border-subtle)] bg-[var(--control-bg)] p-3 text-left transition hover:bg-[var(--control-bg-hover)]"
+                    >
+                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] bg-[var(--accent-violet-soft)] text-[var(--text-primary)]">
+                        <FileJson className="h-3.5 w-3.5" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-xs font-medium text-[var(--text-primary)]">
+                          {title}
+                        </span>
+                        <span className="mt-1 block text-[10px] leading-4 text-[var(--text-muted)]">
+                          {description}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
       {providerDraft && modelDraft && isModelEditorOpen
         ? createPortal(
             <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-5">
@@ -991,7 +1395,11 @@ export function LocalVaultSettingsPanel() {
                             modelDraftRef.current = nextDraft;
                           }}
                         >
-                          {MODEL_TABS.map((tab) => (
+                          {MODEL_TABS.filter(
+                            (tab) =>
+                              providerDraft.protocol !==
+                                "custom-http-image-v1" || tab.id === "image",
+                          ).map((tab) => (
                             <option key={tab.id} value={tab.id}>
                               {tab.label}
                             </option>

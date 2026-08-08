@@ -18,7 +18,9 @@ export type ModelCategory = "chat" | "image" | "video";
 export type CustomModelKind = ModelCategory;
 export type ModelSource = "discovered" | "manual";
 export type ModelEntryStatus = "available" | "missing" | "unbound";
-export type ProviderProtocol = "openai-compatible";
+export type ProviderProtocol =
+  "openai-compatible" | "dashscope" | "custom-http-image-v1";
+export type ProviderAuthMode = "none" | "bearer" | "x-api-key" | "api-key";
 export type ImageRequestMode = "sync" | "async";
 export type ImageOperationType =
   "text-to-image" | "image-to-image" | "image-edit";
@@ -40,12 +42,90 @@ export interface ProviderProfileConfig {
   id: string;
   name: string;
   protocol: ProviderProtocol;
+  authMode: ProviderAuthMode;
+  customManifestId?: string;
   baseUrl: string;
   enabled: boolean;
   imageRequestMode: ImageRequestMode;
   createdAt: number;
   updatedAt: number;
   lastDiscoveryAt?: number;
+}
+
+export type CustomImageTemplateValue =
+  | string
+  | number
+  | boolean
+  | null
+  | CustomImageTemplateValue[]
+  | { [key: string]: CustomImageTemplateValue };
+
+export interface CustomImageResultMapping {
+  imageUrlPaths: string[];
+  base64Paths: string[];
+}
+
+export interface CustomImageFileMapping {
+  field: string;
+  source: "referenceImages" | "editImage" | "mask";
+  multiple?: boolean;
+}
+
+export interface CustomImageRequestMapping {
+  path: string;
+  method: "POST";
+  contentType: "json" | "multipart";
+  query?: Record<string, CustomImageTemplateValue>;
+  body?: Record<string, CustomImageTemplateValue>;
+  files?: CustomImageFileMapping[];
+  taskIdPath?: string;
+  result?: CustomImageResultMapping;
+}
+
+export interface CustomImagePollMapping {
+  path: string;
+  method: "GET" | "POST";
+  query?: Record<string, CustomImageTemplateValue>;
+  body?: Record<string, CustomImageTemplateValue>;
+  intervalSeconds: number;
+  timeoutSeconds: number;
+  statusPath: string;
+  successValues: string[];
+  failureValues: string[];
+  errorPath?: string;
+  result: CustomImageResultMapping;
+}
+
+export interface CustomImageProviderManifestV1 {
+  id: string;
+  schemaVersion: 1;
+  name: string;
+  executionMode: "sync" | "polling";
+  capabilities: {
+    generate: true;
+    edit: boolean;
+  };
+  submit: {
+    generate: CustomImageRequestMapping;
+    edit?: CustomImageRequestMapping;
+  };
+  poll?: CustomImagePollMapping;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CustomImageProviderImportV1 {
+  schemaVersion: 1;
+  manifest: Omit<
+    CustomImageProviderManifestV1,
+    "id" | "createdAt" | "updatedAt"
+  >;
+  defaults?: {
+    providerName?: string;
+    baseUrl?: string;
+    authMode?: ProviderAuthMode;
+    suggestedModels?: Array<{ modelId: string; displayName?: string }>;
+  };
 }
 
 export interface ModelEntry {
@@ -67,6 +147,9 @@ export interface RuntimeModelConfig extends ModelEntry {
   baseUrl: string;
   apiUrl: string;
   provider: ProviderId;
+  protocol: ProviderProtocol;
+  authMode: ProviderAuthMode;
+  customManifest?: CustomImageProviderManifestV1;
   imageRequestMode: ImageRequestMode;
   requestMode: ImageRequestMode;
 }
@@ -76,6 +159,7 @@ export interface ApiConfig {
   lastUsedModelEntryIds?: Partial<Record<ModelCategory, string>>;
   modelEntries: ModelEntry[];
   providerProfiles: ProviderProfileConfig[];
+  customImageProviderManifests: CustomImageProviderManifestV1[];
   providerApiKeys: Record<string, string>;
   localModelBindings: Record<string, string>;
   storage: StorageConfig;
@@ -336,6 +420,7 @@ export type GenerateTaskAdapterId =
   | "openai-compatible-sync"
   | "openai-compatible-task-polling"
   | "dashscope-image-sync"
+  | "custom-http-image-v1"
   | "dashscope-video-polling";
 
 export interface GenerateTaskImageSource {
@@ -378,6 +463,8 @@ export interface GenerateTask {
   executionMode?: GenerateTaskExecutionMode | null;
   adapterId?: GenerateTaskAdapterId | null;
   providerBindingFingerprint?: string | null;
+  providerManifestId?: string | null;
+  providerManifestVersion?: 1 | null;
   errorMsg: string;
   remoteTaskId: string | null;
   remoteStatus: GenerateTaskRemoteStatus | null;

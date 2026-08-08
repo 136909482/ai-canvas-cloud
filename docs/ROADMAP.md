@@ -44,8 +44,8 @@ HTTP 接入层 Fastify 迁移已完成并收口为单一实现：Node 20 门禁�
 ### 浏览器本地生成
 
 - 独立室内设计节点 V1 已落地：六套原创光影预设、完整室内参数、确定性 JSON 编译，以及可联动、可编辑并能继续连接通用 AI 绘图的文本输出；图片输入、模型选择、任务队列和结果入云继续由通用 AI 绘图节点负责，景观设计与建筑设计节点仍未开始。
-- 加密设备 Vault v2：Provider、独立 Key 槽、模型条目和匿名绑定；本地任务缓存只接受 v3，并加密暂存待入云图片结果。
-- 受控 OpenAI Compatible/DashScope chat、image、video 协议；平台不代理 Provider，也不接收用户 Key/endpoint/真实模型 ID。
+- 加密设备 Vault v3：Provider、独立 Key 槽、模型条目、匿名绑定和版本化自定义图片 Provider Manifest，兼容迁移 v2；本地任务缓存 v4 兼容迁移 v3，并加密暂存待入云图片结果。
+- 受控 OpenAI Compatible/DashScope chat、image、video 协议；标准图片服务商配置默认固定为 Bearer + 同步，底层 OpenAI 异步 adapter 暂保留；特殊接口使用声明式 `custom-http-image-v1` 同步/轮询 Manifest。平台不代理 Provider，也不接收用户 Key、endpoint、真实模型 ID、Manifest 或远程任务 ID。
 - 服务商模型发现、服务商下模型管理、节点按模型分组并选择具体服务商路由，以及不可执行状态提示。
 - 云端图只保存 `local:<uuid>`，新设备由用户显式绑定，不自动按名称或上游 ID 替换。
 - 画布管理和外观设置的九项非敏感偏好按账号与工作区同步；旧本地配置只在云端未初始化时迁移，Provider Vault 与本地任务继续保持设备隔离。

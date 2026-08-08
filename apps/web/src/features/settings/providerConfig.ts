@@ -1,4 +1,3 @@
-import { inferProviderFromApiUrl } from "../../config/modelCatalog.ts";
 import { validateProviderEndpoint } from "./providerEndpoint.ts";
 import type {
   ApiConfig,
@@ -17,6 +16,7 @@ export const PROVIDER_CONFIG_MESSAGES = {
   modelUnbound: "当前模型未绑定到此设备的服务商",
   providerProfileMissing: "当前模型对应的服务商不存在",
   providerProfileDisabled: "当前模型对应的服务商已被停用",
+  customManifestMissing: "当前自定义服务商缺少有效的图片协议配置",
   providerCategoryMismatch: "当前模型与请求类型不匹配",
   emptyApiKey: "请先填写 API Key",
   emptyApiUrl: "请先填写 API 请求地址",
@@ -60,6 +60,7 @@ const ISSUE_FIELDS: Record<ProviderConfigIssueCode, ProviderConfigField> = {
   modelUnbound: "modelEntryId",
   providerProfileMissing: "providerProfile",
   providerProfileDisabled: "providerProfile",
+  customManifestMissing: "providerProfile",
   providerCategoryMismatch: "modelEntryId",
   emptyApiKey: "apiKey",
   emptyApiUrl: "apiUrl",
@@ -96,12 +97,14 @@ export function getModelDraftValidationMessage(
 }
 
 export function validateProviderProfileDraft(
-  profile: Pick<ProviderProfileConfig, "baseUrl"> | null | undefined,
+  profile:
+    Pick<ProviderProfileConfig, "baseUrl" | "authMode"> | null | undefined,
   apiKey: string,
   options?: { requireHttps?: boolean },
 ) {
   if (!profile) return createDiagnostic("emptyProviderProfile");
-  if (!apiKey.trim()) return createDiagnostic("emptyApiKey");
+  if (profile.authMode !== "none" && !apiKey.trim())
+    return createDiagnostic("emptyApiKey");
 
   const endpointValidation = validateProviderEndpoint(profile.baseUrl, {
     production: options?.requireHttps ?? Boolean(import.meta.env?.PROD),
@@ -111,7 +114,8 @@ export function validateProviderProfileDraft(
 }
 
 export function getProviderProfileValidationMessage(
-  profile: Pick<ProviderProfileConfig, "baseUrl"> | null | undefined,
+  profile:
+    Pick<ProviderProfileConfig, "baseUrl" | "authMode"> | null | undefined,
   apiKey: string,
 ) {
   return validateProviderProfileDraft(profile, apiKey)?.message ?? "";
@@ -161,12 +165,43 @@ export function resolveRuntimeModelConfig(
       ok: false,
       diagnostic: createDiagnostic("providerProfileDisabled"),
     };
+  if (
+    profile.protocol === "custom-http-image-v1" &&
+    model.category !== "image"
+  ) {
+    return {
+      ok: false,
+      diagnostic: createDiagnostic("providerCategoryMismatch"),
+    };
+  }
+
+  const customManifest =
+    profile.protocol === "custom-http-image-v1"
+      ? config.customImageProviderManifests.find(
+          (manifest) => manifest.id === profile.customManifestId,
+        )
+      : undefined;
+  if (profile.protocol === "custom-http-image-v1" && !customManifest) {
+    return {
+      ok: false,
+      diagnostic: createDiagnostic("customManifestMissing"),
+    };
+  }
 
   const apiKey = config.providerApiKeys[profile.id]?.trim() ?? "";
-  if (options.requireCredentials && !apiKey)
+  const effectiveAuthMode =
+    profile.protocol === "custom-http-image-v1" ? profile.authMode : "bearer";
+  const effectiveImageRequestMode =
+    profile.protocol === "custom-http-image-v1"
+      ? profile.imageRequestMode
+      : "sync";
+  if (options.requireCredentials && effectiveAuthMode !== "none" && !apiKey)
     return { ok: false, diagnostic: createDiagnostic("emptyApiKey") };
   if (options.requireCredentials) {
-    const endpointDiagnostic = validateProviderProfileDraft(profile, apiKey);
+    const endpointDiagnostic = validateProviderProfileDraft(
+      { ...profile, authMode: effectiveAuthMode },
+      apiKey,
+    );
     if (endpointDiagnostic)
       return { ok: false, diagnostic: endpointDiagnostic };
   }
@@ -180,9 +215,17 @@ export function resolveRuntimeModelConfig(
       apiKey,
       baseUrl: resolveProviderApiUrl(profile),
       apiUrl: resolveProviderApiUrl(profile),
-      provider: inferProviderFromApiUrl(profile.baseUrl),
-      imageRequestMode: "sync",
-      requestMode: "sync",
+      provider:
+        profile.protocol === "dashscope"
+          ? "aliyun"
+          : profile.protocol === "custom-http-image-v1"
+            ? "custom"
+            : "openai",
+      protocol: profile.protocol,
+      authMode: effectiveAuthMode,
+      ...(customManifest ? { customManifest } : {}),
+      imageRequestMode: effectiveImageRequestMode,
+      requestMode: effectiveImageRequestMode,
     },
   };
 }

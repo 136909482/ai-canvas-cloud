@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { platformBridge } from "@/platform";
 import { useCanvasStore } from "@/store/useCanvasStore";
 import { useProjectStore } from "@/store/useProjectStore";
@@ -8,8 +8,10 @@ import { useAuthStore } from "@/features/auth/useAuthStore";
 import type { CanvasSnapshot } from "@/types";
 import { hasGraphDeletion } from "@/features/projectManager/projectAutosave";
 import { hasInterruptibleSynchronousImageTask } from "@/features/generateQueue/taskQueueView";
+import { themeClasses } from "@/styles/themeClasses";
 
 const AUTOSAVE_IDLE_TIMEOUT_MS = 2_000;
+const PROJECT_BOOTSTRAP_TIMEOUT_MS = 12_000;
 
 function hasDraggingNode({ nodes }: CanvasSnapshot) {
   return nodes.some((node) => node.dragging);
@@ -50,16 +52,28 @@ export function ProjectBootstrap() {
     (state) => state.runtime.vaultPersistence,
   );
   const vaultUserId = useSettingsStore((state) => state.runtime.vaultUserId);
+  const [retryCount, setRetryCount] = useState(0);
+  const [bootstrapState, setBootstrapState] = useState<
+    "idle" | "loading" | "error" | "timed-out"
+  >("idle");
   const initializedSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!userId || !workspaceId) {
+      setBootstrapState("idle");
       return;
     }
 
     const sessionKey = `${userId}\n${workspaceId}`;
-    if (initializedSessionRef.current === sessionKey) return;
-    initializedSessionRef.current = sessionKey;
+    const attemptKey = `${sessionKey}\n${retryCount}`;
+    if (initializedSessionRef.current === attemptKey) return;
+    initializedSessionRef.current = attemptKey;
+
+    let cancelled = false;
+    setBootstrapState("loading");
+    const timeoutId = window.setTimeout(() => {
+      if (!cancelled) setBootstrapState("timed-out");
+    }, PROJECT_BOOTSTRAP_TIMEOUT_MS);
 
     void (async () => {
       try {
@@ -77,14 +91,30 @@ export function ProjectBootstrap() {
         });
       }
 
+      if (cancelled) return;
       await hydrateFromWorkspace(userId, workspaceId);
+      if (cancelled) return;
       await hydrateLocalVault(userId);
+      if (cancelled) return;
       await ensureInitialized();
-    })();
+      if (!cancelled) setBootstrapState("idle");
+    })()
+      .catch(() => {
+        if (!cancelled) setBootstrapState("error");
+      })
+      .finally(() => {
+        window.clearTimeout(timeoutId);
+      });
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
   }, [
     ensureInitialized,
     hydrateFromWorkspace,
     hydrateLocalVault,
+    retryCount,
     setWorkspaceRuntimeStatus,
     userId,
     workspaceId,
@@ -328,6 +358,41 @@ export function ProjectBootstrap() {
     vaultPersistence,
     vaultUserId,
   ]);
+
+  if (bootstrapState === "error" || bootstrapState === "timed-out") {
+    return (
+      <div
+        role="alert"
+        className={`fixed inset-0 z-[10000] flex items-center justify-center px-4 ${themeClasses.canvas}`}
+      >
+        <div
+          className={`w-full max-w-md rounded-xl p-6 text-center ${themeClasses.strongPanel}`}
+        >
+          <div
+            className={`text-base font-semibold ${themeClasses.textPrimary}`}
+          >
+            项目加载遇到问题
+          </div>
+          <p className={`mt-2 text-sm leading-6 ${themeClasses.textMuted}`}>
+            {bootstrapState === "timed-out"
+              ? "初始化等待时间较长，可能是 Cloud 服务暂时没有响应。"
+              : "项目初始化没有完成，可能是 Cloud 服务暂时不可用。"}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              useProjectStore.getState().resetForSession();
+              setBootstrapState("loading");
+              setRetryCount((value) => value + 1);
+            }}
+            className="mt-5 inline-flex h-10 items-center justify-center rounded-lg bg-violet-500 px-4 text-sm font-semibold text-white transition hover:bg-violet-400"
+          >
+            重新加载项目
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return null;
 }

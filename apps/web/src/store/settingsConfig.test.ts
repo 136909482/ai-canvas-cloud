@@ -10,6 +10,7 @@ test("v2 settings config keeps provider keys and model identity local", () => {
         id: "provider-entry",
         name: "Provider",
         protocol: "openai-compatible",
+        authMode: "bearer",
         baseUrl: "https://example.com/v1",
         enabled: true,
         imageRequestMode: "sync",
@@ -43,6 +44,73 @@ test("v2 settings config keeps provider keys and model identity local", () => {
   ]);
 });
 
+test("standard providers normalize to bearer and synchronous image requests", () => {
+  const config = normalizeConfig({
+    providerProfiles: [
+      {
+        id: "openai-provider",
+        name: "OpenAI legacy",
+        protocol: "openai-compatible",
+        authMode: "x-api-key",
+        baseUrl: "https://example.com/v1",
+        enabled: true,
+        imageRequestMode: "async",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: "dashscope-provider",
+        name: "DashScope legacy",
+        protocol: "dashscope",
+        authMode: "none",
+        baseUrl: "https://dashscope.aliyuncs.com/api/v1",
+        enabled: true,
+        imageRequestMode: "async",
+        createdAt: 2,
+        updatedAt: 2,
+      },
+      {
+        id: "custom-provider",
+        name: "Custom",
+        protocol: "custom-http-image-v1",
+        authMode: "x-api-key",
+        baseUrl: "https://custom.example.com",
+        enabled: true,
+        imageRequestMode: "async",
+        createdAt: 3,
+        updatedAt: 3,
+      },
+    ],
+    providerApiKeys: {
+      "openai-provider": "openai-key",
+      "dashscope-provider": "dashscope-key",
+      "custom-provider": "custom-key",
+    },
+  });
+
+  const openai = config.providerProfiles.find(
+    (profile) => profile.id === "openai-provider",
+  );
+  const dashscope = config.providerProfiles.find(
+    (profile) => profile.id === "dashscope-provider",
+  );
+  const custom = config.providerProfiles.find(
+    (profile) => profile.id === "custom-provider",
+  );
+
+  assert.equal(openai?.authMode, "bearer");
+  assert.equal(openai?.imageRequestMode, "sync");
+  assert.equal(dashscope?.authMode, "bearer");
+  assert.equal(dashscope?.imageRequestMode, "sync");
+  assert.equal(custom?.authMode, "x-api-key");
+  assert.equal(custom?.imageRequestMode, "sync");
+  assert.deepEqual(config.providerApiKeys, {
+    "openai-provider": "openai-key",
+    "dashscope-provider": "dashscope-key",
+    "custom-provider": "custom-key",
+  });
+});
+
 test("deleted model bindings remain available for node-level recovery UI", () => {
   const config = normalizeConfig({
     localModelBindings: {
@@ -68,6 +136,7 @@ test("last used model ids are normalized by category", () => {
         id: "provider-entry",
         name: "Provider",
         protocol: "openai-compatible",
+        authMode: "bearer",
         baseUrl: "https://example.com/v1",
         enabled: true,
         imageRequestMode: "sync",

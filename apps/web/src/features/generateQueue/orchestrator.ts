@@ -20,6 +20,7 @@ import { clearStagedGeneratedImageResult } from "./generatedAssets";
 import {
   createProviderBindingFingerprint,
   resolveTaskAdapterId,
+  resolveTaskExecutionMode,
 } from "./imageProviderAdapters";
 import {
   getActiveSourceTaskState,
@@ -157,6 +158,8 @@ function getTaskProviderSnapshot(
   | "executionMode"
   | "adapterId"
   | "providerBindingFingerprint"
+  | "providerManifestId"
+  | "providerManifestVersion"
 > {
   const settings = useSettingsStore.getState();
   const resolution = resolveRuntimeModelConfig(settings.config, {
@@ -173,6 +176,8 @@ function getTaskProviderSnapshot(
       executionMode: null,
       adapterId: null,
       providerBindingFingerprint: null,
+      providerManifestId: null,
+      providerManifestVersion: null,
     };
   }
 
@@ -182,13 +187,16 @@ function getTaskProviderSnapshot(
     apiProfileId: resolution.profile.id,
     apiProfileName: resolution.profile.name,
     provider: resolution.runtimeConfig.provider,
-    executionMode: adapterId.includes("polling") ? "polling" : "sync",
+    executionMode: resolveTaskExecutionMode(resolution.runtimeConfig, category),
     adapterId,
     providerBindingFingerprint: createProviderBindingFingerprint(
       resolution.runtimeConfig,
       resolution.profile.updatedAt,
       category,
     ),
+    providerManifestId: resolution.runtimeConfig.customManifest?.id ?? null,
+    providerManifestVersion:
+      resolution.runtimeConfig.customManifest?.schemaVersion ?? null,
   };
 }
 

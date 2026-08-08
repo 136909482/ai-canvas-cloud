@@ -25,6 +25,8 @@ function runtimeConfig(
     baseUrl: "https://provider.example/v1",
     apiUrl: "https://provider.example/v1",
     provider: "openai",
+    protocol: "openai-compatible",
+    authMode: "bearer",
     imageRequestMode: "sync",
     requestMode: "sync",
     ...overrides,
@@ -73,6 +75,51 @@ test("provider binding fingerprint changes with private routing configuration", 
     originalFingerprint,
     createProviderBindingFingerprint(
       { ...original, apiKey: "rotated-secret" },
+      10,
+      "image",
+    ),
+  );
+  assert.notEqual(
+    originalFingerprint,
+    createProviderBindingFingerprint(
+      { ...original, baseUrl: "https://provider-rotated.example/v1" },
+      10,
+      "image",
+    ),
+  );
+  assert.notEqual(
+    originalFingerprint,
+    createProviderBindingFingerprint(
+      { ...original, protocol: "dashscope" },
+      10,
+      "image",
+    ),
+  );
+  assert.notEqual(
+    originalFingerprint,
+    createProviderBindingFingerprint(
+      {
+        ...original,
+        customManifest: {
+          id: "manifest-1",
+          schemaVersion: 1,
+          name: "Manifest",
+          executionMode: "sync",
+          capabilities: { generate: true, edit: false },
+          submit: {
+            generate: {
+              path: "v1/images/generations",
+              method: "POST",
+              contentType: "json",
+              body: { model: "$model", prompt: "$prompt" },
+              result: { imageUrlPaths: ["data.0.url"], base64Paths: [] },
+            },
+          },
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        protocol: "custom-http-image-v1",
+      },
       10,
       "image",
     ),

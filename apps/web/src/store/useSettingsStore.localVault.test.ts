@@ -13,6 +13,7 @@ test("deleting a provider cascades to its model entries", () => {
             id: "provider-a",
             name: "Provider",
             protocol: "openai-compatible",
+            authMode: "bearer",
             baseUrl: "https://example.com/v1",
             enabled: true,
             imageRequestMode: "sync",
@@ -56,6 +57,53 @@ test("deleting a provider cascades to its model entries", () => {
   }
 });
 
+test("saving an existing provider keeps its creation-time protocol", () => {
+  const originalConfig = structuredClone(useSettingsStore.getState().config);
+  try {
+    useSettingsStore.setState({
+      config: {
+        ...originalConfig,
+        providerProfiles: [
+          {
+            id: "provider-a",
+            name: "OpenAI",
+            protocol: "openai-compatible",
+            authMode: "bearer",
+            baseUrl: "https://example.com/v1",
+            enabled: true,
+            imageRequestMode: "sync",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+        providerApiKeys: { "provider-a": "key" },
+      },
+    });
+
+    useSettingsStore.getState().saveProviderProfile({
+      id: "provider-a",
+      name: "OpenAI renamed",
+      protocol: "custom-http-image-v1",
+      authMode: "x-api-key",
+      customManifestId: "manifest-id",
+      baseUrl: "https://custom.example.com",
+      enabled: true,
+      imageRequestMode: "async",
+      createdAt: 1,
+      updatedAt: 2,
+    });
+
+    const [profile] = useSettingsStore.getState().config.providerProfiles;
+    assert.equal(profile?.protocol, "openai-compatible");
+    assert.equal(profile?.authMode, "bearer");
+    assert.equal(profile?.imageRequestMode, "sync");
+    assert.equal(profile?.customManifestId, undefined);
+    assert.equal(profile?.baseUrl, "https://custom.example.com");
+  } finally {
+    useSettingsStore.setState({ config: originalConfig });
+  }
+});
+
 test("discovery import stores a provider, credential slot, and selected models together", async () => {
   const originalConfig = structuredClone(useSettingsStore.getState().config);
   try {
@@ -73,6 +121,7 @@ test("discovery import stores a provider, credential slot, and selected models t
         id: "provider-a",
         name: "Provider",
         protocol: "openai-compatible",
+        authMode: "bearer",
         baseUrl: "https://example.com/v1",
         enabled: true,
         imageRequestMode: "sync",
@@ -91,6 +140,7 @@ test("discovery import stores a provider, credential slot, and selected models t
         id: "provider-a",
         name: "Provider",
         protocol: "openai-compatible",
+        authMode: "bearer",
         baseUrl: "https://example.com/v1",
         enabled: true,
         imageRequestMode: "sync",

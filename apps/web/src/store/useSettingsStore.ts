@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { inferProviderFromApiUrl } from "../config/modelCatalog.ts";
 import { reportDiagnostic } from "./useDiagnosticsStore.ts";
 import { platformBridge } from "../platform/index.ts";
 import {
@@ -31,6 +30,7 @@ import type {
 } from "../platform/types.ts";
 import type {
   ApiConfig,
+  CustomImageProviderManifestV1,
   ModelCategory,
   ModelEntry,
   ProviderProfileConfig,
@@ -116,6 +116,10 @@ interface SettingsStore {
     profile: ProviderProfileConfig,
     apiKey?: string,
   ) => void;
+  saveCustomImageProviderManifest: (
+    manifest: CustomImageProviderManifestV1,
+  ) => void;
+  deleteCustomImageProviderManifest: (id: string) => void;
   saveProviderDiscoveryImport: (
     input: ProviderDiscoveryImport,
   ) => Promise<void>;
@@ -161,6 +165,7 @@ function withoutPrivateSettings(config: ApiConfig): ApiConfig {
     lastUsedModelEntryIds: {},
     modelEntries: [],
     providerProfiles: [],
+    customImageProviderManifests: [],
     providerApiKeys: {},
     localModelBindings: {},
     storage: config.storage,
@@ -176,6 +181,7 @@ function mergeLocalVaultDocument(
     lastUsedModelEntryIds: document.lastUsedModelEntryIds,
     modelEntries: document.modelEntries,
     providerProfiles: document.providerProfiles,
+    customImageProviderManifests: document.customImageProviderManifests,
     providerApiKeys: document.providerApiKeys,
     localModelBindings: document.localModelBindings,
     storage: config.storage,
@@ -195,6 +201,7 @@ function createLocalVaultDocument(
     lastUsedModelEntryIds: normalized.lastUsedModelEntryIds,
     modelEntries: normalized.modelEntries,
     providerProfiles: normalized.providerProfiles,
+    customImageProviderManifests: normalized.customImageProviderManifests,
     providerApiKeys: normalized.providerApiKeys,
     localModelBindings: normalized.localModelBindings,
     updatedAt,
@@ -863,6 +870,9 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
       );
       const nextProfile = normalizeProviderProfile({
         ...profile,
+        // Provider protocol is selected at creation time and remains stable
+        // for the lifetime of the profile. Re-adding is required to switch.
+        ...(previous ? { protocol: previous.protocol } : {}),
         createdAt: previous?.createdAt ?? profile.createdAt,
         updatedAt: Date.now(),
       });
@@ -891,6 +901,63 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
           ...normalized,
           providerProfiles,
           providerApiKeys,
+        }),
+      };
+    });
+    void get()
+      .persistLocalVault()
+      .catch(() => undefined);
+  },
+
+  saveCustomImageProviderManifest: (manifest) => {
+    set((state) => {
+      const normalized = normalizeConfig(state.config);
+      const existingIndex = normalized.customImageProviderManifests.findIndex(
+        (candidate) => candidate.id === manifest.id,
+      );
+      const nextManifest = {
+        ...manifest,
+        createdAt:
+          existingIndex >= 0
+            ? normalized.customImageProviderManifests[existingIndex].createdAt
+            : manifest.createdAt,
+        updatedAt: Date.now(),
+      };
+      return {
+        config: normalizeConfig({
+          ...normalized,
+          customImageProviderManifests:
+            existingIndex >= 0
+              ? normalized.customImageProviderManifests.map(
+                  (candidate, index) =>
+                    index === existingIndex ? nextManifest : candidate,
+                )
+              : [...normalized.customImageProviderManifests, nextManifest],
+        }),
+      };
+    });
+    void get()
+      .persistLocalVault()
+      .catch(() => undefined);
+  },
+
+  deleteCustomImageProviderManifest: (id) => {
+    set((state) => {
+      const normalized = normalizeConfig(state.config);
+      if (
+        normalized.providerProfiles.some(
+          (profile) => profile.customManifestId === id,
+        )
+      ) {
+        return state;
+      }
+      return {
+        config: normalizeConfig({
+          ...normalized,
+          customImageProviderManifests:
+            normalized.customImageProviderManifests.filter(
+              (manifest) => manifest.id !== id,
+            ),
         }),
       };
     });
@@ -951,6 +1018,9 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
   deleteProviderProfile: (id) => {
     set((state) => {
       const normalized = normalizeConfig(state.config);
+      const deletedManifestId = normalized.providerProfiles.find(
+        (profile) => profile.id === id,
+      )?.customManifestId;
       const providerProfiles = normalized.providerProfiles.filter(
         (profile) => profile.id !== id,
       );
@@ -967,6 +1037,15 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
         config: normalizeConfig({
           ...normalized,
           providerProfiles,
+          customImageProviderManifests:
+            deletedManifestId &&
+            !providerProfiles.some(
+              (profile) => profile.customManifestId === deletedManifestId,
+            )
+              ? normalized.customImageProviderManifests.filter(
+                  (manifest) => manifest.id !== deletedManifestId,
+                )
+              : normalized.customImageProviderManifests,
           modelEntries,
           providerApiKeys: Object.fromEntries(
             Object.entries(normalized.providerApiKeys).filter(
@@ -1139,7 +1218,16 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
       ? normalized.providerApiKeys[profile.id]?.trim()
       : "";
 
-    if (!model || !profile || !apiKey) {
+    if (!model || !profile || (profile.authMode !== "none" && !apiKey)) {
+      return undefined;
+    }
+    const customManifest =
+      profile.protocol === "custom-http-image-v1"
+        ? normalized.customImageProviderManifests.find(
+            (manifest) => manifest.id === profile.customManifestId,
+          )
+        : undefined;
+    if (profile.protocol === "custom-http-image-v1" && !customManifest) {
       return undefined;
     }
 
@@ -1148,9 +1236,17 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
       apiKey,
       baseUrl: profile.baseUrl,
       apiUrl: profile.baseUrl,
-      provider: inferProviderFromApiUrl(profile.baseUrl),
-      imageRequestMode: "sync",
-      requestMode: "sync",
+      provider:
+        profile.protocol === "dashscope"
+          ? "aliyun"
+          : profile.protocol === "custom-http-image-v1"
+            ? "custom"
+            : "openai",
+      protocol: profile.protocol,
+      authMode: profile.authMode,
+      ...(customManifest ? { customManifest } : {}),
+      imageRequestMode: profile.imageRequestMode,
+      requestMode: profile.imageRequestMode,
     };
   },
 }));

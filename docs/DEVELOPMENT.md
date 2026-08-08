@@ -287,22 +287,22 @@ Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户�
 
 - `interiorDesignNode` 是独立于通用 `generateNode` 的确定性 JSON 提示词编译器。它不接受图片输入，不保存模型或任务运行态，只保存版本化 `InteriorDesignConfigV1`、编译结果和可选关联文本节点 ID；提示词中的画幅与 4K/8K 只描述期望画面，不代表 Provider 接口参数。
 - 首次输出室内提示词时创建普通可编辑 `textNode` 和可见文本边；关联存在期间，任意有效参数变化在同一次画布状态更新中重编译并覆盖文本内容。删除边即停止联动，删除任一节点不得级联删除另一侧内容。图片、模型、真实画幅/分辨率、Provider 调用、任务恢复和结果入云均由用户连接的通用 `generateNode` 负责。
-- Provider、endpoint、真实模型 ID、API Key、匿名引用绑定和可恢复本地任务只进入按 Origin、可信用户和项目隔离的加密 IndexedDB。任务缓存当前为 v3，兼容读取 v2；Provider 已返回但尚未入云的图片 Blob 也按用户、项目和任务加密暂存，保存成功后立即删除。
-- Vault 当前使用 `schemaVersion=2`、`cipherVersion=1`、不可导出的 AES-256-GCM `CryptoKey`；Key 凭据与 Provider 配置分槽保存。
+- Provider、endpoint、真实模型 ID、API Key、自定义图片 Provider Manifest、匿名引用绑定和可恢复本地任务只进入按 Origin、可信用户和项目隔离的加密 IndexedDB。任务缓存当前为 v4，兼容读取并迁移 v3；Provider 已返回但尚未入云的图片 Blob 也按用户、项目和任务加密暂存，保存成功后立即删除。
+- Vault 当前使用 `schemaVersion=3`、`cipherVersion=1`、不可导出的 AES-256-GCM `CryptoKey`，兼容按密文记录自身版本读取 v2 并重新加密迁移；Key 凭据与 Provider 配置分槽保存，版本化自定义图片 Manifest 只保存于 Vault 且不包含 Key。
 - 登出或换账号清除内存明文，但保留按账号隔离的设备密文；清除网站数据会删除密文、CryptoKey、绑定和任务缓存。
-- 浏览器只实现固定 OpenAI Compatible/DashScope chat、image、video 协议，不接受任意脚本、Header/Body 模板或 target URL。
-- 普通服务商配置固定使用同步图像请求，不向用户暴露异步任务协议；受控异步 adapter 仅保留给未来明确适配并验证过协议能力的服务商。
+- 浏览器继续实现受控 OpenAI Compatible/DashScope chat、image、video 协议；图片额外支持版本化 `custom-http-image-v1` Manifest。Manifest 只允许受控相对路径、固定鉴权模式和声明式 JSON/multipart 映射，不接受 JavaScript、表达式求值、任意 Header、凭据变量或任意 target URL。
+- OpenAI Compatible 与 DashScope 的标准图片配置对普通用户固定为 Bearer + 同步；底层 OpenAI 异步 adapter 保留但暂不提供设置入口。`custom-http-image-v1` 可通过已验证 Manifest 声明同步结果或轮询任务，只用于图片生成与编辑，自定义服务商不调用 `/v1/models`。
 - 云端图只保存 `local:<uuid>` 匿名模型引用。新设备必须由用户明确绑定本机同类型模型，不按名称或 ID 猜测。
 - 图片与视频分别使用独立 FIFO 执行通道；本地并发策略固定为图片 8、视频 1。调度器通过原子 claim 领取任务，Provider 请求、异步轮询、结果下载和 Cloud 入库完成后才释放槽位；第 9 个图片任务继续留在当前项目的浏览器队列。
-- 图片 Provider 通过受控 adapter 注册表统一返回同步完成结果或受控 remote task ID，不自动探测协议。Provider POST 不自动重试；异步查询 GET 只对网络错误、429 和 5xx 执行有限退避，Cloud 保存失败只从加密临时 Blob 继续保存，不重新调用 Provider。
+- 图片 Provider 通过按协议能力选择的受控 adapter 注册表统一返回同步完成结果或受控 remote task ID，不按 URL、服务商名称或运行时探测猜测协议。Provider POST 不自动重试；异步查询只对网络错误、429 和 5xx 执行有限退避，Cloud 保存失败只从加密临时 Blob 继续保存，不重新调用 Provider。
 - OpenAI Compatible 图片模型的真实模型 ID 原样透传；可识别的 GPT Image 与 Gemini 家族使用各自扩展参数，服务商自定义且无法识别的图片模型 ID 使用最小通用 Images 请求，不以官方模型 ID 白名单阻断执行。
 - GPT Image 家族的 Auto 分为两种语义：无明确提示词比例且无参考图时使用 Provider 原生自动尺寸，发送 `size: "auto"`；提示词包含明确比例时优先按提示词比例，带参考图但未写比例时读取第一张参考图并吸附到最近的支持比例，再按节点选择的 1K/2K/4K 发送固定像素。界面显式比例始终优先。参考图无法读取时回退 Provider Auto。Gemini、通义和未知兼容模型继续使用各自的比例与尺寸适配逻辑。
 - 每次生成都创建 UUID 任务和独立结果节点。来源节点状态聚合全部关联任务，并只选择创建时间最新且成功的图片作为当前输出，旧任务即使后返回也不能覆盖较新的成功结果；排队任务可取消，运行中任务首期不提供统一取消。
 - 无 remote task ID 的同步任务在页面关闭后中断；已有受控 remote task ID 的异步任务在重新取得并发槽位后，只可于同一设备恢复轮询。切换项目会保存并停止当前运行时，返回项目后恢复其排队、轮询或待保存任务；同步图片运行时离开页面或切换项目必须提示可能中断且仍可能计费。
-- 新任务冻结生成参数、`modelEntryId`、受控 adapter、执行模式和 Provider 绑定指纹，但不复制真实模型 ID、endpoint 或 Key 到任务。Provider 配置变化后，旧远程任务不得使用新配置继续轮询；v2 排队任务首次执行时绑定当前配置。
+- 新任务冻结生成参数、`modelEntryId`、受控 adapter、执行模式、Manifest 身份/版本和 Provider 绑定指纹，但不复制 Manifest 正文、真实模型 ID、endpoint 或 Key 到任务。绑定指纹覆盖协议、Manifest 规范化内容、Base URL、凭据槽和模型；任一配置变化后，旧远程任务不得使用新配置继续轮询。
 - Provider 请求真正开始时发送随机 attempt 的脱敏遥测，终态只回传类别、耗时、结果数或受限失败分类。遥测失败不得阻断生成，也不得携带 Prompt、输出、Provider、模型、endpoint、Key、上游正文或 remote task ID。
 
-平台 API 不新增 Provider 测试、发现、代理或生成任务路由，也不接收 Key、endpoint、真实模型 ID、remote task ID 或任意 target URL。`/telemetry/generations` 是不可执行的有限运营入口，不改变浏览器生成和本地任务的事实边界。
+平台 API 不新增 Provider 测试、发现、代理或生成任务路由，也不接收 Key、endpoint、真实模型 ID、Manifest、remote task ID 或任意 target URL。`/telemetry/generations` 是不可执行的有限运营入口，不改变浏览器生成和本地任务的事实边界。
 
 ## 安全与运行
 

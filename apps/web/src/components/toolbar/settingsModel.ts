@@ -55,7 +55,7 @@ export const UI_TEXT = {
   deleteProvider: "\u5220\u9664\u670d\u52a1\u5546",
   deleteProviderConfirmTitle: "\u5220\u9664\u670d\u52a1\u5546\u63a5\u53e3",
   deleteProviderConfirmMessage:
-    "\u5220\u9664\u540e\uff0c\u5df2\u7ed1\u5b9a\u8fd9\u4e2a\u63a5\u53e3\u7684\u6a21\u578b\u4f1a\u81ea\u52a8\u56de\u9000\u5230\u5206\u7c7b\u9ed8\u8ba4\u63a5\u53e3\u3002\u786e\u5b9a\u5220\u9664\u5417\uff1f",
+    "\u8be5\u670d\u52a1\u5546\u7684 API Key\u3001\u6a21\u578b\u6761\u76ee\u548c\u81ea\u5b9a\u4e49\u534f\u8bae\u914d\u7f6e\u4f1a\u4ece\u672c\u8bbe\u5907\u5220\u9664\u3002\u9879\u76ee\u4e2d\u7684\u8282\u70b9\u4e0d\u4f1a\u88ab\u5220\u9664\uff0c\u4f46\u539f\u6765\u7ed1\u5b9a\u7684\u6a21\u578b\u9700\u8981\u91cd\u65b0\u9009\u62e9\u3002",
   setDefault: "设为默认模型",
   setActiveProvider: "设为当前接口",
   defaultBadge: "默认",
@@ -296,6 +296,7 @@ export function createEmptyProviderDraft(
     name: `New ${category} Provider`,
     apiKey: "",
     protocol: "openai-compatible",
+    authMode: "bearer",
     baseUrl: "",
     imageRequestMode: "sync",
     enabled: true,
@@ -352,17 +353,23 @@ export function sanitizeProviderProfile(
     name: profile.name.trim() || UI_TEXT.providerCompatible,
     apiKey: profile.apiKey.trim(),
     baseUrl,
-    imageRequestMode: "sync",
+    authMode:
+      profile.protocol === "custom-http-image-v1" ? profile.authMode : "bearer",
+    imageRequestMode:
+      profile.protocol === "custom-http-image-v1"
+        ? profile.imageRequestMode
+        : "sync",
   };
 }
 
 export function getProviderLabel(
-  profile: Pick<DraftProviderProfile, "baseUrl">,
+  profile: Pick<DraftProviderProfile, "baseUrl" | "protocol">,
 ) {
   if (!profile.baseUrl.trim()) {
     return "";
   }
-
+  if (profile.protocol === "dashscope") return UI_TEXT.providerAliyun;
+  if (profile.protocol === "custom-http-image-v1") return "自定义服务商";
   return UI_TEXT.providerCompatible;
 }
 
