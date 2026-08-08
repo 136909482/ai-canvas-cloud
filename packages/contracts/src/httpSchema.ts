@@ -1063,7 +1063,13 @@ export const RenameProjectRequestSchema = Type.Unsafe<RenameProjectRequest>({
   additionalProperties: true,
 });
 
-export const DeleteProjectResponseSchema = OkResponseSchema;
+export const DeleteProjectResponseSchema = Type.Object(
+  {
+    ok: Type.Literal(true),
+    releasedBytes: Type.Optional(NonNegativeIntegerSchema),
+  },
+  { additionalProperties: false },
+);
 
 const ProjectGraphNodeSchema = Type.Object(
   {

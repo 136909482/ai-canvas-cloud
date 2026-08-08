@@ -94,7 +94,7 @@
 
 ### `assets`
 
-保存 ID、workspace、来源项目、创建者、内部 object key、文件名、MIME、字节数、SHA-256、尺寸、asset kind、状态、软删除和时间戳。object key 唯一，只由服务端 ID 构成。
+保存 ID、workspace、来源项目、创建者、内部 object key、文件名、MIME、字节数、SHA-256、尺寸、asset kind、状态、软删除、`quota_released_at` 和时间戳。object key 唯一，只由服务端 ID 构成。`quota_released_at` 非空表示额度已立即释放，但对象仍在 7 天安全保留期内。
 
 状态为 pending/completed/failed/quarantined/deleted。只有同一可信 workspace、未删除的 completed 资产可读取或引用。数据库不保存媒体 blob、签名 URL 或对象存储凭据。
 
@@ -107,6 +107,8 @@
 当前保存 `asset_id`、`workspace_id`、`project_id`、非空 `node_id`、reference role 和时间戳。每条引用都属于同项目节点。
 
 图 upsert 先删除节点旧引用，再写入去重的新引用；delete 节点同步删除引用。checkpoint 的历史引用集合在 manifest 中保护，不在本表复制。
+
+删除整个项目时，项目软删除、该项目 `asset_references` 清理、该项目 `project_snapshots.is_valid=false` 与 workspace user state 清理必须在同一事务中完成。工作区额度统计活动项目当前引用的资产；尚未完成的 `pending` 上传在来源项目活动期间继续占用预留额度，workspace 级资产继续计费。删除项目或单个节点后，没有其他活动节点引用的项目资产立即退出额度统计，但对象记录与对象存储文件继续保留至 7 天宽限期后的 GC。有效检查点只保护文件可恢复，不继续占用用户额度；恢复检查点重新建立当前引用后，资产重新计入额度。来源项目被删除的共享资产只要仍被活动项目当前引用就继续计费和保留。
 
 ## 生成运营遥测
 
@@ -122,7 +124,7 @@ Admin dashboard 按 `Asia/Shanghai` 自然日聚合请求、结果、成功/失�
 
 ## 资产对象诊断与 GC
 
-通用维护命令默认只读。后台无引用资产清理固定使用 7 天宽限期，并拆分为只读 preview 与显式 apply。`pending` 已过期、`failed`、`quarantined`、软删除资产，以及已完成但不再被引用的 `completed` 资产，在宽限期后都可成为候选；当前 `asset_references` 或任一有效 `project_snapshots.asset_manifest_json` 引用存在时必须保留。宽限期按 pending 上传到期时间或资产最近的 `deleted_at/updated_at/created_at` 计算；首版不新增“引用移除时间”字段。
+通用维护命令默认只读。后台无引用资产清理固定使用 7 天宽限期，并拆分为只读 preview 与显式 apply。`pending` 已过期、`failed`、`quarantined`、软删除资产，以及已完成但不再被引用的 `completed` 资产，在宽限期后都可成为候选；只有未删除项目的当前 `asset_references` 或未删除项目的有效 `project_snapshots.asset_manifest_json` 引用才能保护资产，已删除项目遗留的引用和检查点不阻止回收。宽限期优先使用 `quota_released_at`，再回退到 pending 上传到期时间或资产最近的 `deleted_at/updated_at/created_at`；`quota_released_at` 清空后资产恢复正常计费和生命周期。
 
 apply 逐资产加排他锁，并在持锁后的新语句快照中复查当前引用和有效 checkpoint manifest。completed 资产对象缺失时只在显式 apply 中把数据库状态收敛为 deleted；preview 只汇总可释放对象、容量和缺失对象记录。Admin 数据库角色不读取 asset ID、object key 或项目内容，聚合结果由普通 API 的最小权限角色计算。
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { useSettingsStore } from "./useSettingsStore.ts";
+import { createDefaultCustomImageProviderManifest } from "../features/settings/customImageProviderManifest.ts";
 
 test("deleting a provider cascades to its model entries", () => {
   const originalConfig = structuredClone(useSettingsStore.getState().config);
@@ -168,6 +169,49 @@ test("discovery import stores a provider, credential slot, and selected models t
         lastSeenAt: 10,
       },
     );
+  } finally {
+    useSettingsStore.setState({ config: originalConfig });
+  }
+});
+
+test("custom provider discovery keeps its manifest and execution mode", async () => {
+  const originalConfig = structuredClone(useSettingsStore.getState().config);
+  try {
+    const manifest = createDefaultCustomImageProviderManifest("polling");
+    useSettingsStore.setState({
+      config: {
+        ...originalConfig,
+        providerProfiles: [],
+        customImageProviderManifests: [manifest],
+        providerApiKeys: {},
+        modelEntries: [],
+      },
+    });
+
+    await useSettingsStore.getState().saveProviderDiscoveryImport({
+      profile: {
+        id: "custom-provider-a",
+        name: "Custom Image",
+        protocol: "custom-http-image-v1",
+        authMode: "x-api-key",
+        customManifestId: manifest.id,
+        baseUrl: "https://provider.example/v1",
+        enabled: true,
+        imageRequestMode: "async",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      apiKey: "test-key",
+      discoveredModelIds: ["nano-banana"],
+      selectedModels: [{ modelId: "nano-banana", category: "image" }],
+      discoveredAt: 10,
+    });
+
+    const { config } = useSettingsStore.getState();
+    assert.equal(config.providerProfiles[0]?.customManifestId, manifest.id);
+    assert.equal(config.providerProfiles[0]?.authMode, "x-api-key");
+    assert.equal(config.providerProfiles[0]?.imageRequestMode, "async");
+    assert.equal(config.modelEntries[0]?.category, "image");
   } finally {
     useSettingsStore.setState({ config: originalConfig });
   }

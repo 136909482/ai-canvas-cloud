@@ -16,6 +16,7 @@ const WORKSPACE_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const WORKSPACE_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const PROJECT_A = "11111111-1111-4111-8111-111111111111";
 const PROJECT_B = "22222222-2222-4222-8222-222222222222";
+const PROJECT_DELETED = "12121212-1212-4212-8212-121212121212";
 const CURRENT_ASSET = "33333333-3333-4333-8333-333333333333";
 const CHECKPOINT_ASSET = "44444444-4444-4444-8444-444444444444";
 const ORPHAN_ASSET = "55555555-5555-4555-8555-555555555555";
@@ -25,6 +26,7 @@ const BUCKET_ORPHAN_ASSET = "88888888-8888-4888-8888-888888888888";
 const RECENT_BUCKET_ORPHAN_ASSET = "99999999-9999-4999-8999-999999999999";
 const COMPLETED_CLEANUP_ASSET = "aaaaaaaa-1111-4111-8111-111111111111";
 const RECENT_COMPLETED_ASSET = "aaaaaaaa-2222-4222-8222-222222222222";
+const DELETED_PROJECT_ASSET = "aaaaaaaa-3333-4333-8333-333333333333";
 
 function key(workspaceId: string, projectId: string, assetId: string) {
   return `workspaces/${workspaceId}/projects/${projectId}/uploads/${assetId}.png`;
@@ -80,16 +82,24 @@ test(
       await pool.query(
         `
       INSERT INTO projects (id, workspace_id, name, version, last_sequence, node_count)
-      VALUES ($1, $2, 'Project A', 5, 9, 1), ($3, $4, 'Project B', 0, 0, 0)
+      VALUES
+        ($1, $2, 'Project A', 5, 9, 1),
+        ($3, $4, 'Project B', 0, 0, 0),
+        ($5, $2, 'Deleted project', 0, 0, 0)
     `,
-        [PROJECT_A, WORKSPACE_A, PROJECT_B, WORKSPACE_B],
+        [PROJECT_A, WORKSPACE_A, PROJECT_B, WORKSPACE_B, PROJECT_DELETED],
       );
+      await pool.query(`UPDATE projects SET deleted_at = now() WHERE id = $1`, [
+        PROJECT_DELETED,
+      ]);
       await pool.query(
         `
       INSERT INTO project_nodes (project_id, node_id, node_type, position_x, position_y)
-      VALUES ($1, 'current-node', 'image', 0, 0)
+      VALUES
+        ($1, 'current-node', 'image', 0, 0),
+        ($2, 'deleted-project-node', 'image', 0, 0)
     `,
-        [PROJECT_A],
+        [PROJECT_A, PROJECT_DELETED],
       );
       await pool.query(
         `
@@ -127,6 +137,23 @@ test(
         );
       }
       await pool.query(
+        `
+          INSERT INTO assets (
+            id, workspace_id, origin_project_id, created_by_user_id, object_key,
+            original_file_name, mime_type, byte_size, asset_kind, status, created_at, updated_at
+          ) VALUES (
+            $1, $2, $3, 'maintenance-user-a', $4, 'deleted-project.png',
+            'image/png', 4, 'upload', 'completed', now() - interval '30 days', now() - interval '30 days'
+          )
+        `,
+        [
+          DELETED_PROJECT_ASSET,
+          WORKSPACE_A,
+          PROJECT_DELETED,
+          key(WORKSPACE_A, PROJECT_DELETED, DELETED_PROJECT_ASSET),
+        ],
+      );
+      await pool.query(
         `UPDATE assets SET status = 'failed' WHERE id IN ($1, $2)`,
         [ORPHAN_ASSET, FAILURE_ASSET],
       );
@@ -143,6 +170,14 @@ test(
       );
       await pool.query(
         `
+          INSERT INTO asset_references (
+            workspace_id, asset_id, project_id, node_id, reference_role
+          ) VALUES ($1, $2, $3, 'deleted-project-node', 'source')
+        `,
+        [WORKSPACE_A, DELETED_PROJECT_ASSET, PROJECT_DELETED],
+      );
+      await pool.query(
+        `
       INSERT INTO project_snapshots (
         project_id, project_version, last_sequence, snapshot_type, schema_version,
         record_json, byte_size, asset_manifest_json, is_valid, created_at
@@ -156,6 +191,15 @@ test(
           PROJECT_B,
           JSON.stringify([ORPHAN_ASSET]),
         ],
+      );
+      await pool.query(
+        `
+          INSERT INTO project_snapshots (
+            project_id, project_version, last_sequence, snapshot_type, schema_version,
+            record_json, byte_size, asset_manifest_json, is_valid, created_at
+          ) VALUES ($1, 0, 0, 'manual', 1, '{}'::jsonb, 2, $2::jsonb, true, now() - interval '20 days')
+        `,
+        [PROJECT_DELETED, JSON.stringify([DELETED_PROJECT_ASSET])],
       );
 
       const objects = new Map<
@@ -177,6 +221,10 @@ test(
           byteSize: 4,
         });
       }
+      objects.set(key(WORKSPACE_A, PROJECT_DELETED, DELETED_PROJECT_ASSET), {
+        lastModified: old,
+        byteSize: 4,
+      });
       const bucketOrphanKey = key(WORKSPACE_A, PROJECT_A, BUCKET_ORPHAN_ASSET);
       const recentBucketOrphanKey = key(
         WORKSPACE_A,
@@ -258,6 +306,12 @@ test(
           (item) => item.assetId === COMPLETED_CLEANUP_ASSET,
         )?.byteSize,
         4,
+      );
+      assert.equal(
+        cleanupPreview.items.find(
+          (item) => item.assetId === DELETED_PROJECT_ASSET,
+        )?.action,
+        "would_delete_asset_object",
       );
       assert.equal(
         cleanupPreview.items.some((item) => item.assetId === CURRENT_ASSET),

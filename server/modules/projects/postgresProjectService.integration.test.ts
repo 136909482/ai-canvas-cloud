@@ -133,7 +133,98 @@ test(
         (await service.getProject(createdA.project.id, actorA)).project.name,
         "A renamed",
       );
-      await service.deleteProject(createdA.project.id, actorA);
+      const sharedProject = await service.createProject(
+        { name: "A shared project" },
+        actorA,
+      );
+      const uniqueAssetId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+      const sharedAssetId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+      await pool.query(
+        `
+          INSERT INTO assets (
+            id, workspace_id, origin_project_id, created_by_user_id, object_key,
+            original_file_name, mime_type, byte_size, asset_kind, status
+          ) VALUES
+            ($1, $3, $4, 'user-a', $5, 'unique.png', 'image/png', 100, 'generated', 'completed'),
+            ($2, $3, $4, 'user-a', $6, 'shared.png', 'image/png', 200, 'generated', 'completed')
+        `,
+        [
+          uniqueAssetId,
+          sharedAssetId,
+          actorA.workspaceId,
+          createdA.project.id,
+          `workspaces/${actorA.workspaceId}/projects/${createdA.project.id}/generated/2026-07-15/${uniqueAssetId}.png`,
+          `workspaces/${actorA.workspaceId}/projects/${createdA.project.id}/generated/2026-07-15/${sharedAssetId}.png`,
+        ],
+      );
+      await pool.query(
+        `
+          INSERT INTO project_nodes (
+            project_id, node_id, node_type, position_x, position_y
+          ) VALUES
+            ($1, 'unique-asset-node', 'image', 0, 0),
+            ($2, 'shared-asset-node', 'image', 0, 0)
+        `,
+        [createdA.project.id, sharedProject.project.id],
+      );
+      await pool.query(
+        `
+          INSERT INTO asset_references (
+            workspace_id, asset_id, project_id, node_id, reference_role
+          ) VALUES
+            ($1, $2, $3, 'unique-asset-node', 'result'),
+            ($1, $4, $5, 'shared-asset-node', 'result')
+        `,
+        [
+          actorA.workspaceId,
+          uniqueAssetId,
+          createdA.project.id,
+          sharedAssetId,
+          sharedProject.project.id,
+        ],
+      );
+      await pool.query(
+        `
+          INSERT INTO project_snapshots (
+            project_id, project_version, last_sequence, snapshot_type,
+            schema_version, record_json, byte_size, asset_manifest_json, is_valid
+          ) VALUES ($1, 0, 0, 'manual', 1, '{}'::jsonb, 2, $2::jsonb, true)
+        `,
+        [createdA.project.id, JSON.stringify([uniqueAssetId])],
+      );
+
+      const deleteResponse = await service.deleteProject(
+        createdA.project.id,
+        actorA,
+      );
+      assert.deepEqual(deleteResponse, { ok: true, releasedBytes: 100 });
+      assert.equal(
+        (
+          await pool.query(
+            `SELECT count(*)::integer AS count FROM asset_references WHERE project_id = $1`,
+            [createdA.project.id],
+          )
+        ).rows[0]?.count,
+        0,
+      );
+      assert.equal(
+        (
+          await pool.query(
+            `SELECT count(*)::integer AS count FROM asset_references WHERE project_id = $1 AND asset_id = $2`,
+            [sharedProject.project.id, sharedAssetId],
+          )
+        ).rows[0]?.count,
+        1,
+      );
+      assert.equal(
+        (
+          await pool.query(
+            `SELECT is_valid FROM project_snapshots WHERE project_id = $1`,
+            [createdA.project.id],
+          )
+        ).rows[0]?.is_valid,
+        false,
+      );
       await assert.rejects(
         () => service.getProject(createdA.project.id, actorA),
         AuthServiceError,

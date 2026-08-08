@@ -13,8 +13,9 @@ test("schema release manifest describes the current baseline and repair", () => 
     "0001_current_schema.sql",
     "0038_initialize_login_security_settings.sql",
     "0039_add_announcements.sql",
+    "0040_add_asset_quota_release.sql",
   ]);
-  assert.equal(result.manifest.migrations.length, 3);
+  assert.equal(result.manifest.migrations.length, 4);
   assert.deepEqual(result.manifest.migrations[0], {
     version: "0001",
     name: "current_schema",
@@ -61,6 +62,37 @@ test("schema release manifest describes the current baseline and repair", () => 
       "rerun the idempotent role provisioning after applying the announcement tables",
     backupRequired: false,
   });
+  assert.deepEqual(result.manifest.migrations[3], {
+    version: "0040",
+    name: "add_asset_quota_release",
+    releaseTrain: "single-asset-quota-release",
+    phase: "expand",
+    oldAppReadable: true,
+    newAppReadable: true,
+    oldAppWithNewSchema: true,
+    lockRisk: "low",
+    statementTimeoutMs: 30000,
+    rollback:
+      "drop assets.quota_released_at only before deploying quota-release-aware application code",
+    forwardRepair:
+      "rerun the idempotent ALTER TABLE and verify the column exists",
+    backupRequired: false,
+  });
+});
+
+test("asset quota release migration adds an additive nullable timestamp", async () => {
+  const sql = await readFile(
+    join(
+      process.cwd(),
+      "server",
+      "db",
+      "migrations",
+      "0040_add_asset_quota_release.sql",
+    ),
+    "utf8",
+  );
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS quota_released_at/);
+  assert.doesNotMatch(sql, /DROP\s+(?:TABLE|COLUMN|DATABASE)/i);
 });
 
 test("announcement migration adds a bounded timeline and per-user receipts", async () => {

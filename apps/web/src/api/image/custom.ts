@@ -30,6 +30,7 @@ type TemplateContext = {
     size: string;
     width: number | null;
     height: number | null;
+    n: number;
   };
   inputImages: { urls: string[] };
   editImage: { url: string | null };
@@ -78,18 +79,21 @@ function getAllByPath(value: unknown, path: string): unknown[] {
 function getTemplateValue(context: TemplateContext, value: string) {
   switch (value) {
     case "$model":
+    case "$profile.model":
       return context.model;
     case "$prompt":
       return context.prompt;
     case "$negativePrompt":
       return context.negativePrompt;
     case "$inputImages.urls":
+    case "$inputImages.dataUrls":
       return context.inputImages.urls.length
         ? context.inputImages.urls
         : undefined;
     case "$editImage.url":
       return context.editImage.url ?? undefined;
     case "$mask.url":
+    case "$mask.dataUrl":
       return context.mask.url ?? undefined;
     case "$taskId":
       return context.taskId ?? undefined;
@@ -201,6 +205,7 @@ async function createTemplateContext(
       size,
       width: matched ? Number(matched[1]) : null,
       height: matched ? Number(matched[2]) : null,
+      n: 1,
     },
     inputImages: {
       urls: params.referenceImageUrls?.length
@@ -280,6 +285,21 @@ async function readProviderJson(response: Response) {
   return payload;
 }
 
+function getProviderBusinessError(payload: unknown) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+  const record = payload as Record<string, unknown>;
+  const error = record.error;
+  if (error && typeof error === "object" && !Array.isArray(error)) {
+    const message = (error as Record<string, unknown>).message;
+    if (typeof message === "string" && message.trim()) {
+      return message.trim().slice(0, 2000);
+    }
+  }
+  return null;
+}
+
 async function fetchProviderJson(url: URL, init: RequestInit, context: string) {
   let response: Response;
   try {
@@ -339,7 +359,7 @@ function extractImage(payload: unknown, result: CustomImageResultMapping) {
         : `data:image/png;base64,${match}`;
     }
   }
-  throw new Error("自定义服务商响应中没有可识别的图片结果");
+  throw new Error("Manifest 结果路径未提取到图片（imageUrlPaths/base64Paths）");
 }
 
 function getOperationMapping(
@@ -372,7 +392,11 @@ export async function startCustomImageGeneration(params: GenerateImageParams) {
     typeof rawTaskId === "string" || typeof rawTaskId === "number"
       ? String(rawTaskId).trim()
       : "";
-  if (!remoteTaskId) throw new Error("无法从自定义服务商响应中提取任务 ID");
+  if (!remoteTaskId) {
+    throw new Error(
+      `Manifest taskIdPath "${mapping.taskIdPath}" 未提取到任务 ID`,
+    );
+  }
   return { type: "remote" as const, remoteTaskId };
 }
 
@@ -402,13 +426,13 @@ async function queryCustomTask(
   const context = await createTemplateContext(params, taskId);
   const url = buildProviderUrl(params.apiUrl, poll.path, taskId);
   appendQuery(url, poll.query, context);
-  const headers: Record<string, string> = createAuthHeaders(
-    params.authMode ?? "bearer",
-    params.apiKey,
-  );
+  const headers: Record<string, string> = {
+    ...createAuthHeaders(params.authMode ?? "bearer", params.apiKey),
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
   let body: string | undefined;
   if (poll.method === "POST") {
-    headers["Content-Type"] = "application/json";
     body = JSON.stringify(renderTemplate(poll.body ?? {}, context));
   }
   const response = await fetchPollingRequestWithRetry(() =>
@@ -424,7 +448,10 @@ async function queryCustomTask(
     }),
   );
   if (!response.ok) throw await buildApiError(response, "Custom image task");
-  return readProviderJson(response);
+  const payload = await readProviderJson(response);
+  const businessError = getProviderBusinessError(payload);
+  if (businessError) throw new Error(businessError);
+  return payload;
 }
 
 export async function waitForCustomImageGeneration(
@@ -444,12 +471,20 @@ export async function waitForCustomImageGeneration(
   onStatusChange?.("IN_PROGRESS");
   while (Date.now() - startedAt < poll.timeoutSeconds * 1000) {
     const payload = await queryCustomTask(params, poll, taskId);
-    const status = String(getByPath(payload, poll.statusPath) ?? "")
+    const rawStatus = getByPath(payload, poll.statusPath);
+    if (rawStatus === undefined || rawStatus === null || rawStatus === "") {
+      throw new Error(
+        `Manifest statusPath "${poll.statusPath}" 未提取到任务状态`,
+      );
+    }
+    const status = String(rawStatus ?? "")
       .trim()
       .toUpperCase();
     if (failureValues.has(status)) {
       onStatusChange?.("FAILURE");
-      const error = poll.errorPath ? getByPath(payload, poll.errorPath) : null;
+      const error = poll.errorPath
+        ? getByPath(payload, poll.errorPath)
+        : undefined;
       throw new Error(
         typeof error === "string" && error.trim()
           ? error.slice(0, 2000)

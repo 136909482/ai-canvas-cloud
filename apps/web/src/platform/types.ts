@@ -1,4 +1,8 @@
-import type { AssetKind, AssetReferenceRole } from "@ai-canvas-cloud/contracts";
+import type {
+  AssetKind,
+  AssetReferenceRole,
+  DeleteProjectResponse,
+} from "@ai-canvas-cloud/contracts";
 import type {
   CanvasSnapshot,
   ProjectRecord,
@@ -255,7 +259,9 @@ export interface PlatformBridge {
     projectId: string,
     input?: CreateProjectCheckpointInput,
   ) => Promise<void>;
-  deleteWorkspaceProject: (input: DeleteWorkspaceProjectInput) => Promise<void>;
+  deleteWorkspaceProject: (
+    input: DeleteWorkspaceProjectInput,
+  ) => Promise<DeleteProjectResponse>;
   loadWorkspaceConfig: () => Promise<WorkspaceConfigFile | null>;
   saveWorkspaceConfig: (
     patch: Partial<WorkspaceConfigFile["storage"]>,

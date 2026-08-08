@@ -249,6 +249,9 @@ async function finalizeSuccessfulTask(
   imageUrl: string,
   runtimeVersion: number,
 ) {
+  // The provider has already completed at this point. Mark persistence before
+  // downloading the remote image so a slow CDN does not look like polling.
+  useTaskQueueStore.getState().setTaskPhase(task.id, "persisting");
   const blob = await stageGeneratedImageResult(task, imageUrl).catch(
     (error) => {
       const reason = error instanceof Error ? error.message : String(error);
@@ -257,7 +260,6 @@ async function finalizeSuccessfulTask(
       );
     },
   );
-  useTaskQueueStore.getState().setTaskPhase(task.id, "persisting");
   await finalizeStagedSuccessfulTask(task, runtimeVersion, blob);
 }
 

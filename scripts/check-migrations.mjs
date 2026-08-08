@@ -30,6 +30,7 @@ function loadMigrations() {
     "0001_current_schema.sql",
     "0038_initialize_login_security_settings.sql",
     "0039_add_announcements.sql",
+    "0040_add_asset_quota_release.sql",
   ]);
   return files.map((fileName) => {
     const match = migrationPattern.exec(fileName);

@@ -423,6 +423,11 @@ test(
         await assertUnchangedAtVersionTwo();
       }
 
+      await pool.query(
+        `UPDATE assets SET origin_project_id = NULL WHERE id = $1`,
+        [COMPLETED_RESULT],
+      );
+
       const deleted = await graphs.applyOperations(
         projectA.id,
         {
@@ -443,6 +448,51 @@ test(
           )
         ).rowCount,
         0,
+      );
+      assert.ok(
+        (
+          await pool.query(
+            `SELECT quota_released_at FROM assets WHERE id = $1`,
+            [COMPLETED_RESULT],
+          )
+        ).rows[0]?.quota_released_at,
+      );
+
+      const restoreBatch = {
+        ...replacementBatch,
+        baseVersion: 3,
+        batchId: "asset-batch-restore",
+        idempotencyKey: "asset-graph-restore",
+      };
+      await pool.query(
+        `UPDATE workspaces SET storage_quota_bytes = 0 WHERE id = $1`,
+        [WORKSPACE_A],
+      );
+      await assert.rejects(
+        () => graphs.applyOperations(projectA.id, restoreBatch, actorA),
+        (error: unknown) =>
+          error instanceof AuthServiceError &&
+          error.statusCode === 409 &&
+          error.apiCode === "QUOTA_EXCEEDED",
+      );
+      await pool.query(
+        `UPDATE workspaces SET storage_quota_bytes = 10737418240 WHERE id = $1`,
+        [WORKSPACE_A],
+      );
+      const restored = await graphs.applyOperations(
+        projectA.id,
+        restoreBatch,
+        actorA,
+      );
+      assert.equal(restored.version, 4);
+      assert.equal(
+        (
+          await pool.query(
+            `SELECT quota_released_at FROM assets WHERE id = $1`,
+            [COMPLETED_RESULT],
+          )
+        ).rows[0]?.quota_released_at,
+        null,
       );
     } finally {
       await pool?.end();

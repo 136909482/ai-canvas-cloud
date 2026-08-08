@@ -259,6 +259,8 @@ export interface RenameProjectRequest {
 
 export interface DeleteProjectResponse {
   ok: true;
+  /** Optional for compatibility with older API deployments. */
+  releasedBytes?: number;
 }
 
 export interface ProjectGraphNode {

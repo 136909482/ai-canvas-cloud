@@ -14,7 +14,7 @@ export function isolateCurrentSchemaSql(
   assertSchemaIdentifier(publicSchema);
   assertSchemaIdentifier(adminSchema);
 
-  return sql
+  const isolatedSql = sql
     .replace("CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;", "")
     .replace("CREATE SCHEMA admin;", `CREATE SCHEMA "${adminSchema}";`)
     .replace(
@@ -23,4 +23,9 @@ export function isolateCurrentSchemaSql(
     )
     .replaceAll("admin.", `"${adminSchema}".`)
     .replaceAll("public.", `"${publicSchema}".`);
+
+  // Integration schemas are created from the immutable 0001 baseline. Keep
+  // them compatible with the current asset accounting columns without
+  // rewriting that historical migration.
+  return `${isolatedSql}\nALTER TABLE "${publicSchema}".assets ADD COLUMN IF NOT EXISTS quota_released_at timestamp with time zone;`;
 }

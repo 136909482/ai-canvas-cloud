@@ -96,6 +96,31 @@ function formatResolution(width: number, height: number) {
   return `${width}x${height}`;
 }
 
+function greatestCommonDivisor(left: number, right: number): number {
+  let a = Math.abs(Math.round(left));
+  let b = Math.abs(Math.round(right));
+  while (b > 0) {
+    const remainder = a % b;
+    a = b;
+    b = remainder;
+  }
+  return a || 1;
+}
+
+function formatPreviewRatio(
+  ratio: string | undefined,
+  width: number,
+  height: number,
+) {
+  const selectedRatio = ratio?.trim();
+  if (selectedRatio && selectedRatio.toLowerCase() !== "auto") {
+    return selectedRatio;
+  }
+  if (width <= 0 || height <= 0) return null;
+  const divisor = greatestCommonDivisor(width, height);
+  return `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
+}
+
 function formatModelLabel(model: string, modelName?: string) {
   if (model.trim().toLowerCase() === "manual-edit") {
     return "图片编辑";
@@ -223,6 +248,11 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
   const previewTimestamp = getPreviewTimestamp(data);
   const previewDate = formatPreviewDate(previewTimestamp);
   const actualResolution = formatResolution(data.imageWidth, data.imageHeight);
+  const previewRatio = formatPreviewRatio(
+    data.ratio,
+    data.imageWidth,
+    data.imageHeight,
+  );
   const previewMetaParts = [formatModelLabel(data.model, modelName)];
   const apiProfileName =
     typeof data.apiProfileName === "string" ? data.apiProfileName.trim() : "";
@@ -363,7 +393,9 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
     updateNodeData,
   ]);
 
-  const imageMeta = actualResolution;
+  const imageMeta = [previewRatio, actualResolution]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ");
   const canApplyToSourceImage =
     hasImage &&
     data.originOperation === "image-edit" &&

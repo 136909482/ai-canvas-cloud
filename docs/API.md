@@ -173,7 +173,7 @@ DELETE /api/v1/projects/:projectId
 
 读取要求 workspace 成员，写操作要求 owner/admin/editor。列表支持 `status=active|archived`、`limit=1..100` 和不透明 cursor。创建只接受可选客户端 UUID 与 name；同工作区同 ID/name 幂等返回，不允许提交租户或所有者。
 
-项目摘要包含 ID、name、version、lastSequence、nodeCount、edgeCount、archive/创建/更新时间。删除为软删除并清理 workspace user state 引用。
+项目摘要包含 ID、name、version、lastSequence、nodeCount、edgeCount、archive/创建/更新时间。删除为软删除，并在同一事务中清理该项目的当前资产引用、使该项目检查点失效及清理 workspace user state 引用。成功响应为 `{ ok: true, releasedBytes? }`；新服务端返回 `releasedBytes`，旧响应仅含 `ok` 仍保持兼容。该字段表示没有被其他活动项目当前状态或有效检查点保护、因而立即退出工作区额度统计的字节数。对象存储文件不会在请求内同步删除，仍由资产 GC 在固定 7 天宽限期后清理。
 
 ## 项目图
 

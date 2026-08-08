@@ -7,6 +7,7 @@ import type {
   CanvasPreferencesResponse,
   CompleteAssetUploadResponse,
   CurrentWorkspaceResponse,
+  DeleteProjectResponse,
   ProjectCheckpointResponse,
   ProjectGraphChange,
   ProjectGraphChangesResponse,
@@ -26,6 +27,7 @@ import type {
 } from "@/types";
 import { CloudApiError, requestCloudJson } from "@/api/cloudApiClient";
 import { CURRENT_PROJECT_SNAPSHOT_SCHEMA_VERSION } from "@/features/projectManager/snapshotSchema";
+import { WORKSPACE_STORAGE_USAGE_INVALIDATED_EVENT } from "@/features/storage/storageOverview";
 import {
   extractProjectSearchDocuments,
   searchWorkspaceDocuments,
@@ -529,6 +531,9 @@ async function saveCloudProject(input: SaveWorkspaceProjectInput) {
   const operations = diffCanvasSnapshots(state.baselineCanvas, targetCanvas);
 
   if (operations.length > 0) {
+    const deletedNode = operations.some(
+      (operation) => operation.type === "deleteNode",
+    );
     const batches = buildProjectGraphOperationBatches(
       state.baselineCanvas,
       operations,
@@ -553,6 +558,11 @@ async function saveCloudProject(input: SaveWorkspaceProjectInput) {
       await flushPendingGraphSave(project.id, state);
     }
     state.baselineCanvas = cloneJson(targetCanvas);
+    if (deletedNode && typeof window !== "undefined") {
+      window.dispatchEvent(
+        new Event(WORKSPACE_STORAGE_USAGE_INVALIDATED_EVENT),
+      );
+    }
   }
 
   if (!state.summary.archivedAt && project.archivedAt) {
@@ -804,9 +814,10 @@ export const cloudPlatformBridge: PlatformBridge = {
   },
 
   async deleteWorkspaceProject(input) {
-    await requestCloudJson(`/projects/${encodeURIComponent(input.projectId)}`, {
-      method: "DELETE",
-    });
+    const result = await requestCloudJson<DeleteProjectResponse>(
+      `/projects/${encodeURIComponent(input.projectId)}`,
+      { method: "DELETE" },
+    );
     await useSettingsStore
       .getState()
       .deleteLocalTaskQueue(input.projectId)
@@ -826,6 +837,7 @@ export const cloudPlatformBridge: PlatformBridge = {
           ? (input.lastOpenedProjectId ?? null)
           : memoryWorkspaceData.lastOpenedProjectId,
     };
+    return result;
   },
 
   async loadWorkspaceConfig() {

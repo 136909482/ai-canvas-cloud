@@ -178,6 +178,35 @@ test("custom sync requests fall back to base64 results", async () => {
   });
 });
 
+test("custom requests support benchmark template variable aliases", async () => {
+  const manifest = createSyncManifest();
+  manifest.submit.generate.body = {
+    model: "$profile.model",
+    image_urls: "$inputImages.dataUrls",
+    mask: "$mask.dataUrl",
+    size: "$params.size",
+    n: "$params.n",
+  };
+  const params = createParams(manifest);
+  params.referenceImageUrls = ["data:image/png;base64,aW1hZ2U="];
+  params.maskImageUrl = "data:image/png;base64,bWFzaw==";
+  const { requests } = await withMockFetch(
+    () =>
+      Response.json({
+        data: { items: [{ url: "https://cdn.example/image.png" }] },
+      }),
+    () => startCustomImageGeneration(params),
+  );
+
+  assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {
+    model: "custom-image-v1",
+    image_urls: ["data:image/png;base64,aW1hZ2U="],
+    mask: "data:image/png;base64,bWFzaw==",
+    size: "1536x864",
+    n: 1,
+  });
+});
+
 test("custom requests emit only the selected controlled auth header", async () => {
   const cases: Array<{
     mode: ProviderAuthMode;
@@ -268,10 +297,99 @@ test("custom async submission extracts task IDs and GET polling normalizes statu
   assert.equal(requests.length, 3);
   assert.equal(requests[1]?.init?.method, "GET");
   assert.equal(requests[1]?.init?.body, undefined);
+  assert.equal(getHeader(requests[1]!, "accept"), "application/json");
+  assert.equal(getHeader(requests[1]!, "content-type"), "application/json");
   assert.equal(
     String(requests[1]?.input),
     "https://custom.example/api/v1/tasks/job%2F42?task=job%2F42",
   );
+});
+
+test("custom async submission rejects a task ID outside configured taskIdPath", async () => {
+  const manifest = createPollingManifest("GET");
+  manifest.submit.generate.taskIdPath = "id";
+  const { result: error } = await withMockFetch(
+    () =>
+      Response.json({ code: "success", data: { task_id: "nested-task-1" } }),
+    async () => {
+      try {
+        await startCustomImageGeneration(createParams(manifest));
+        return null;
+      } catch (caught) {
+        return caught;
+      }
+    },
+  );
+  assert.ok(error instanceof Error);
+  assert.match(error.message, /taskIdPath/);
+});
+
+test("custom polling rejects a status outside configured statusPath", async () => {
+  const manifest = createPollingManifest("GET");
+  manifest.submit.generate.taskIdPath = "id";
+  manifest.poll!.statusPath = "status";
+  manifest.poll!.successValues = ["SUCCEEDED"];
+  manifest.poll!.result = {
+    imageUrlPaths: ["data.data.data.*.url"],
+    base64Paths: [],
+  };
+  const { result: error } = await withMockFetch(
+    () =>
+      Response.json({
+        data: {
+          status: "SUCCESS",
+          data: { data: [{ url: "https://cdn.example/apilio.png" }] },
+        },
+      }),
+    async () => {
+      try {
+        await waitForCustomImageGeneration(
+          createParams(manifest),
+          "nested-task-1",
+        );
+        return null;
+      } catch (caught) {
+        return caught;
+      }
+    },
+  );
+  assert.ok(error instanceof Error);
+  assert.match(error.message, /statusPath/);
+});
+
+test("custom polling accepts the shallow task result envelope", async () => {
+  const manifest = createPollingManifest("GET");
+  manifest.poll!.statusPath = "data.status";
+  manifest.poll!.successValues = ["SUCCESS"];
+  manifest.poll!.result = {
+    imageUrlPaths: ["data.data.data.*.url"],
+    base64Paths: ["data.data.data.*.b64_json"],
+  };
+
+  const { result } = await withMockFetch(
+    () =>
+      Response.json({
+        task_id: "314c92d42f3e40f38897358cc87f02d8",
+        data: {
+          status: "SUCCESS",
+          data: {
+            data: [
+              {
+                url: "https://files.example/apilio-shallow.png",
+                b64_json: "",
+              },
+            ],
+          },
+        },
+      }),
+    () =>
+      waitForCustomImageGeneration(
+        createParams(manifest),
+        "314c92d42f3e40f38897358cc87f02d8",
+      ),
+  );
+
+  assert.equal(result, "https://files.example/apilio-shallow.png");
 });
 
 test("custom POST polling sends the task ID and surfaces normalized failure details", async () => {
@@ -312,4 +430,32 @@ test("custom POST polling sends the task ID and surfaces normalized failure deta
     String(requests[0]?.input),
     "https://custom.example/api/v1/tasks/remote-9?task=remote-9",
   );
+});
+
+test("custom polling surfaces JSON business errors instead of waiting forever", async () => {
+  const manifest = createPollingManifest("GET");
+  const { result: error } = await withMockFetch(
+    () =>
+      Response.json({
+        error: {
+          code: "invalid_request",
+          message: "missing token",
+          type: "new_api_error",
+        },
+      }),
+    async () => {
+      try {
+        await waitForCustomImageGeneration(
+          createParams(manifest),
+          "remote-error",
+        );
+        return null;
+      } catch (caught) {
+        return caught;
+      }
+    },
+  );
+
+  assert.ok(error instanceof Error);
+  assert.equal(error.message, "missing token");
 });

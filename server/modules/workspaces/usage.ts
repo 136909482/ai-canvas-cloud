@@ -30,6 +30,34 @@ interface WorkspaceProjectStorageRow {
   updated_at: Date | string;
 }
 
+function billableAssetPredicate(assetAlias: "a") {
+  return `
+    (
+      ${assetAlias}.quota_released_at IS NULL
+      AND (
+        ${assetAlias}.origin_project_id IS NULL
+        OR EXISTS (
+          SELECT 1
+          FROM projects origin_project
+          WHERE origin_project.workspace_id = ${assetAlias}.workspace_id
+            AND origin_project.id = ${assetAlias}.origin_project_id
+            AND origin_project.deleted_at IS NULL
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM asset_references ar
+          JOIN projects referenced_project
+            ON referenced_project.workspace_id = ar.workspace_id
+           AND referenced_project.id = ar.project_id
+          WHERE ar.workspace_id = ${assetAlias}.workspace_id
+            AND ar.asset_id = ${assetAlias}.id
+            AND referenced_project.deleted_at IS NULL
+        )
+      )
+    )
+  `;
+}
+
 export interface WorkspaceUsageService {
   getCurrentUsage: (actor: ProjectActor) => Promise<WorkspaceUsageResponse>;
 }
@@ -97,9 +125,42 @@ export async function readWorkspaceProjectStorageUsage(
       FROM projects p
       LEFT JOIN assets a
         ON a.workspace_id = p.workspace_id
-       AND a.origin_project_id = p.id
        AND a.deleted_at IS NULL
        AND a.status <> 'deleted'
+       AND ${billableAssetPredicate("a")}
+       AND p.id = COALESCE(
+         (
+           SELECT a.origin_project_id
+           FROM projects origin_project
+           WHERE origin_project.workspace_id = a.workspace_id
+             AND origin_project.id = a.origin_project_id
+             AND origin_project.deleted_at IS NULL
+         ),
+         (
+           SELECT ar.project_id
+           FROM asset_references ar
+           JOIN projects referenced_project
+             ON referenced_project.workspace_id = ar.workspace_id
+            AND referenced_project.id = ar.project_id
+           WHERE ar.workspace_id = a.workspace_id
+             AND ar.asset_id = a.id
+             AND referenced_project.deleted_at IS NULL
+           ORDER BY ar.project_id
+           LIMIT 1
+         ),
+         (
+           SELECT snapshot.project_id
+           FROM project_snapshots snapshot
+           JOIN projects snapshot_project
+             ON snapshot_project.id = snapshot.project_id
+           WHERE snapshot_project.workspace_id = a.workspace_id
+             AND snapshot_project.deleted_at IS NULL
+             AND snapshot.is_valid
+             AND snapshot.asset_manifest_json ? a.id::text
+           ORDER BY snapshot.project_id
+           LIMIT 1
+         )
+       )
       WHERE p.workspace_id = $1
         AND p.deleted_at IS NULL
       GROUP BY p.id, p.name, p.node_count, p.archived_at, p.updated_at
@@ -136,15 +197,26 @@ export async function readWorkspaceStorageUsage(
         ), 0) + COALESCE((
           SELECT SUM(miau.expected_byte_size)
           FROM migration_import_asset_uploads miau
+          LEFT JOIN migration_imports mi
+            ON mi.workspace_id = miau.workspace_id
+           AND mi.id = miau.import_id
           WHERE miau.workspace_id = w.id
             AND miau.status IN ('pending', 'uploading', 'validating', 'completed')
             AND miau.committed_asset_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM projects migration_project
+              WHERE migration_project.workspace_id = miau.workspace_id
+                AND migration_project.id = COALESCE(mi.committed_project_id, mi.target_project_id)
+                AND migration_project.deleted_at IS NOT NULL
+            )
         ), 0) AS reserved_bytes
       FROM workspaces w
       LEFT JOIN assets a
         ON a.workspace_id = w.id
        AND a.deleted_at IS NULL
        AND a.status <> 'deleted'
+       AND ${billableAssetPredicate("a")}
       WHERE w.id = $1
         AND w.status <> 'deleted'
       GROUP BY w.id, w.storage_quota_bytes

@@ -6,11 +6,7 @@ import { TASK_QUEUE_COPY } from "@/components/taskQueueCopy";
 import { TaskQueueTaskRow } from "@/components/TaskQueueTaskRow";
 import { LOCAL_IMAGE_CONCURRENCY_LIMIT } from "@/features/generateQueue/concurrencyPolicy";
 import { clearFinishedGenerateTasks } from "@/features/generateQueue/orchestrator";
-import {
-  filterTaskQueueTasks,
-  getTaskQueuePosition,
-  type TaskQueueFilter,
-} from "@/features/generateQueue/taskQueueView";
+import { getTaskQueuePosition } from "@/features/generateQueue/taskQueueView";
 import { useCanvasStore } from "@/store/useCanvasStore";
 import { useProjectStore } from "@/store/useProjectStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
@@ -23,14 +19,7 @@ type TaskQueuePanelProps = {
   onClose: () => void;
 };
 
-const FILTERS: ReadonlyArray<readonly [TaskQueueFilter, string]> = [
-  ["all", TASK_QUEUE_COPY.allTasks],
-  ["active", TASK_QUEUE_COPY.activeTasks],
-  ["finished", TASK_QUEUE_COPY.finishedTasks],
-];
-
 export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
-  const [filter, setFilter] = useState<TaskQueueFilter>("all");
   const [now, setNow] = useState(() => Date.now());
   const reactFlow = useReactFlow();
   const selectNode = useCanvasStore((state) => state.selectNode);
@@ -66,10 +55,6 @@ export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
         return right.createdAt - left.createdAt;
       }),
     [tasks],
-  );
-  const filteredTasks = useMemo(
-    () => filterTaskQueueTasks(sortedTasks, filter),
-    [filter, sortedTasks],
   );
   const modelNameById = useMemo(
     () =>
@@ -119,7 +104,7 @@ export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
       aria-label={TASK_QUEUE_COPY.panelTitle}
       tabIndex={-1}
       data-testid="task-queue-panel"
-      className={`fixed left-4 right-4 top-14 z-30 w-auto overflow-hidden rounded-xl [--font-mono:'JetBrains_Mono','Cascadia_Mono','Consolas',monospace] sm:left-auto sm:w-[26rem] ${themeClasses.strongPanel}`}
+      className={`fixed left-4 right-4 top-14 z-30 w-auto overflow-hidden rounded-lg [--font-mono:'JetBrains_Mono','Cascadia_Mono','Consolas',monospace] sm:left-auto sm:w-[28rem] ${themeClasses.strongPanel}`}
     >
       <div className="border-b border-[var(--border-subtle)] px-3 py-2.5">
         <div className="flex items-center justify-between gap-3">
@@ -131,7 +116,7 @@ export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
                 {TASK_QUEUE_COPY.panelTitle}
               </div>
               <span className="inline-flex items-center rounded border border-[var(--border-subtle)] bg-[var(--control-bg)] px-1.5 py-0.5 text-[11px] font-medium leading-none text-[var(--text-muted)]">
-                {filteredTasks.length} {TASK_QUEUE_COPY.itemUnit}
+                {tasks.length} {TASK_QUEUE_COPY.itemUnit}
               </span>
               {tasks.length > 0 ? (
                 <span className="inline-flex items-center rounded border border-[var(--accent-violet-muted)] bg-[var(--accent-violet-soft)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--accent-violet-strong)]">
@@ -163,33 +148,10 @@ export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
         </div>
       </div>
 
-      {tasks.length > 0 ? (
-        <div className="border-b border-[var(--border-subtle)] px-3 py-2">
-          <div
-            className="grid h-7 grid-cols-3 gap-1 rounded-md bg-[var(--control-bg)] p-0.5"
-            role="tablist"
-            aria-label={TASK_QUEUE_COPY.panelTitle}
-          >
-            {FILTERS.map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={filter === value}
-                onClick={() => setFilter(value)}
-                className={`rounded-[5px] text-[10px] font-medium transition ${filter === value ? "bg-[var(--control-bg-hover)] text-[var(--text-primary)]" : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {filteredTasks.length > 0 ? (
+      {sortedTasks.length > 0 ? (
         <div className="task-queue-scrollbar max-h-[16rem] overflow-x-hidden overflow-y-auto px-2 py-2">
-          <div className="space-y-1.5">
-            {filteredTasks.map((task) => (
+          <div className="space-y-1">
+            {sortedTasks.map((task) => (
               <TaskQueueTaskRow
                 key={task.id}
                 task={task}
@@ -202,12 +164,6 @@ export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
               />
             ))}
           </div>
-        </div>
-      ) : tasks.length > 0 ? (
-        <div
-          className={`flex min-h-24 items-center justify-center px-4 text-center text-xs ${themeClasses.textMuted}`}
-        >
-          {TASK_QUEUE_COPY.filterEmpty}
         </div>
       ) : (
         <div

@@ -152,8 +152,8 @@ test("project reads hide projects outside the actor workspace", async () => {
 test("project metadata mutations and soft delete remain workspace-scoped", async () => {
   const authorization = createAuthorizationService();
   const { pool, calls } = createMockPool((call) => {
-    if (call.text.includes("SELECT EXISTS")) {
-      return { rows: [{ deleted: true }] };
+    if (call.text.includes("released_bytes")) {
+      return { rows: [{ deleted: true, released_bytes: "2048" }] };
     }
 
     return { rows: [projectRow()] };
@@ -168,11 +168,14 @@ test("project metadata mutations and soft delete remain workspace-scoped", async
   await service.restoreProject(PROJECT_ID, actor);
   assert.deepEqual(await service.deleteProject(PROJECT_ID, actor), {
     ok: true,
+    releasedBytes: 2048,
   });
 
   assert(calls.every((call) => call.values?.[1] === "workspace-a"));
   assert.match(calls[3]!.text, /SET deleted_at = now\(\)/);
   assert.match(calls[3]!.text, /UPDATE workspace_user_state/);
+  assert.match(calls[3]!.text, /UPDATE project_snapshots/);
+  assert.match(calls[3]!.text, /DELETE FROM asset_references/);
 });
 
 test("project service rejects invalid names, ids, filters, and cursors", async () => {

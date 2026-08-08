@@ -20,6 +20,7 @@ const WORKSPACE_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const PROJECT_A = "11111111-1111-4111-8111-111111111111";
 const PROJECT_A_EMPTY = "22222222-2222-4222-8222-222222222222";
 const PROJECT_B = "33333333-3333-4333-8333-333333333333";
+const PROJECT_A_DELETED = "44444444-4444-4444-8444-444444444444";
 
 test(
   "PostgreSQL workspace usage is status-aware and isolates two accounts",
@@ -87,10 +88,21 @@ test(
       VALUES
         ($1, $4, 'Usage project A', 7),
         ($2, $4, 'Empty project A', 2),
-        ($3, $5, 'Usage project B', 1)
+        ($3, $5, 'Usage project B', 1),
+        ($6, $4, 'Deleted project A', 1)
     `,
-        [PROJECT_A, PROJECT_A_EMPTY, PROJECT_B, WORKSPACE_A, WORKSPACE_B],
+        [
+          PROJECT_A,
+          PROJECT_A_EMPTY,
+          PROJECT_B,
+          WORKSPACE_A,
+          WORKSPACE_B,
+          PROJECT_A_DELETED,
+        ],
       );
+      await pool.query(`UPDATE projects SET deleted_at = now() WHERE id = $1`, [
+        PROJECT_A_DELETED,
+      ]);
 
       const rows = [
         [WORKSPACE_A, PROJECT_A, "usage-user-a", 100, "completed"],
@@ -98,6 +110,8 @@ test(
         [WORKSPACE_A, PROJECT_A, "usage-user-a", 25, "failed"],
         [WORKSPACE_A, PROJECT_A, "usage-user-a", 10, "quarantined"],
         [WORKSPACE_A, PROJECT_A, "usage-user-a", 999, "deleted"],
+        [WORKSPACE_A, PROJECT_A_DELETED, "usage-user-a", 200, "completed"],
+        [WORKSPACE_A, PROJECT_A_DELETED, "usage-user-a", 300, "completed"],
         [WORKSPACE_B, PROJECT_B, "usage-user-b", 1000, "completed"],
       ] as const;
       for (const [
@@ -124,7 +138,35 @@ test(
           ],
         );
       }
-
+      const sharedDeletedOriginAsset = (
+        await pool.query<{ id: string }>(
+          `
+            SELECT id::text
+            FROM assets
+            WHERE workspace_id = $1
+              AND origin_project_id = $2
+              AND byte_size = 300
+            LIMIT 1
+          `,
+          [WORKSPACE_A, PROJECT_A_DELETED],
+        )
+      ).rows[0]!.id;
+      await pool.query(
+        `
+          INSERT INTO project_nodes (
+            project_id, node_id, node_type, position_x, position_y
+          ) VALUES ($1, 'shared-deleted-origin-node', 'image', 0, 0)
+        `,
+        [PROJECT_A],
+      );
+      await pool.query(
+        `
+          INSERT INTO asset_references (
+            workspace_id, asset_id, project_id, node_id, reference_role
+          ) VALUES ($1, $2, $3, 'shared-deleted-origin-node', 'source')
+        `,
+        [WORKSPACE_A, sharedDeletedOriginAsset, PROJECT_A],
+      );
       const service = createPostgresWorkspaceUsageService(pool);
       const usageA = await service.getCurrentUsage({
         userId: "usage-user-a",
@@ -132,11 +174,11 @@ test(
       });
       assert.equal(usageA.workspaceId, WORKSPACE_A);
       assert.deepEqual(usageA.storage, {
-        usedBytes: 135,
+        usedBytes: 435,
         reservedBytes: 50,
-        totalBytes: 185,
+        totalBytes: 485,
         quotaBytes: DEFAULT_PERSONAL_WORKSPACE_STORAGE_QUOTA_BYTES,
-        availableBytes: DEFAULT_PERSONAL_WORKSPACE_STORAGE_QUOTA_BYTES - 185,
+        availableBytes: DEFAULT_PERSONAL_WORKSPACE_STORAGE_QUOTA_BYTES - 485,
       });
       assert.deepEqual(
         usageA.projects.map((project) => ({
@@ -150,9 +192,9 @@ test(
           {
             projectId: PROJECT_A,
             name: "Usage project A",
-            fileCount: 4,
+            fileCount: 5,
             nodeCount: 7,
-            storageBytes: 185,
+            storageBytes: 485,
           },
           {
             projectId: PROJECT_A_EMPTY,

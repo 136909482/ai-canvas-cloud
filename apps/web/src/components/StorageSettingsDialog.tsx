@@ -14,6 +14,7 @@ import { requestCloudJson } from "@/api/cloudApiClient";
 import {
   formatStorageBytes,
   getStorageUsagePercentage,
+  WORKSPACE_STORAGE_USAGE_INVALIDATED_EVENT,
 } from "@/features/storage/storageOverview";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { useStorageDialogStore } from "@/store/useStorageDialogStore";
@@ -43,6 +44,19 @@ export function StorageSettingsPanel({ active = true }: { active?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const refreshUsage = () => setRefreshKey((value) => value + 1);
+    window.addEventListener(
+      WORKSPACE_STORAGE_USAGE_INVALIDATED_EVENT,
+      refreshUsage,
+    );
+    return () =>
+      window.removeEventListener(
+        WORKSPACE_STORAGE_USAGE_INVALIDATED_EVENT,
+        refreshUsage,
+      );
+  }, []);
 
   useEffect(() => {
     if (!active) {

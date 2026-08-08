@@ -1,3 +1,6 @@
+export const WORKSPACE_STORAGE_USAGE_INVALIDATED_EVENT =
+  "workspace-storage-usage-invalidated";
+
 export function formatStorageBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) {
     return "0 B";

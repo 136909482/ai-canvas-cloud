@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Check,
+  ChevronDown,
   Copy,
   Clipboard,
   Download,
@@ -78,6 +79,96 @@ async function copyTextToClipboard(text: string) {
   if (!copied) throw new Error("Clipboard is unavailable");
 }
 
+type SettingsSelectOption = { value: string; label: string };
+
+function SettingsSelect({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+}: {
+  value: string;
+  options: SettingsSelectOption[];
+  onChange: (value: string) => void;
+  ariaLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const selected =
+    options.find((option) => option.value === value) ?? options[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        containerRef.current &&
+        event.target instanceof Node &&
+        !containerRef.current.contains(event.target)
+      ) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className={`${FIELD_SELECT_CLASS} flex h-10 w-full items-center justify-between gap-3 pr-10 text-left text-sm`}
+      >
+        <span className="truncate">{selected?.label ?? "请选择"}</span>
+        <ChevronDown
+          aria-hidden="true"
+          className={cx(
+            "pointer-events-none absolute right-3 h-4 w-4 text-[var(--text-muted)] transition-transform",
+            open && "rotate-180 text-[var(--text-primary)]",
+          )}
+        />
+      </button>
+      {open ? (
+        <div
+          role="listbox"
+          aria-label={ariaLabel}
+          className="absolute inset-x-0 top-[calc(100%+0.35rem)] z-50 max-h-56 overflow-auto rounded-[9px] border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] p-1 shadow-xl shadow-black/30"
+        >
+          {options.map((option) => {
+            const selectedOption = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={selectedOption}
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+                className={cx(
+                  "flex min-h-9 w-full items-center justify-between rounded-[7px] px-3 text-left text-sm transition-colors",
+                  selectedOption
+                    ? "bg-[var(--accent-violet-soft)] text-[var(--text-primary)]"
+                    : "text-[var(--text-secondary)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]",
+                )}
+              >
+                <span className="truncate">{option.label}</span>
+                {selectedOption ? (
+                  <Check className="ml-3 h-3.5 w-3.5 shrink-0 text-violet-300" />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function formatManifestFeedback(error: unknown, action: string) {
   const detail = error instanceof Error ? error.message : String(error);
   if (detail.includes("不是有效 JSON")) {
@@ -126,6 +217,9 @@ export function LocalVaultSettingsPanel() {
   const [isApiKeyEditing, setIsApiKeyEditing] = useState(false);
   const [providerSearch, setProviderSearch] = useState("");
   const [providerPickerOpen, setProviderPickerOpen] = useState(false);
+  const [providerCreationName, setProviderCreationName] = useState("");
+  const [providerCreationProtocol, setProviderCreationProtocol] =
+    useState<ProviderProtocol>("openai-compatible");
   const [manifestText, setManifestText] = useState("");
   const [manifestStatus, setManifestStatus] = useState<string | null>(null);
   const manifestFileRef = useRef<HTMLInputElement | null>(null);
@@ -140,6 +234,9 @@ export function LocalVaultSettingsPanel() {
     "idle",
   );
   const [isProviderDirty, setIsProviderDirty] = useState(false);
+  const [providerFocusedField, setProviderFocusedField] = useState<
+    "name" | "baseUrl" | "apiKey" | null
+  >(null);
   const [providerSaveStatus, setProviderSaveStatus] = useState<{
     state: "idle" | "saving" | "saved" | "error";
     message?: string;
@@ -245,7 +342,7 @@ export function LocalVaultSettingsPanel() {
     selectedProviderId,
   ]);
 
-  const createProvider = (protocol: ProviderProtocol) => {
+  const createProvider = (protocol: ProviderProtocol, requestedName = "") => {
     const draft = createEmptyProviderDraft("image");
     const defaults: Record<ProviderProtocol, Partial<DraftProviderProfile>> = {
       "openai-compatible": {
@@ -264,7 +361,10 @@ export function LocalVaultSettingsPanel() {
         baseUrl: "",
       },
     };
-    Object.assign(draft, defaults[protocol], { protocol });
+    Object.assign(draft, defaults[protocol], {
+      protocol,
+      ...(requestedName.trim() ? { name: requestedName.trim() } : {}),
+    });
     if (protocol === "custom-http-image-v1") {
       const manifest = createDefaultCustomImageProviderManifest("sync");
       saveCustomImageProviderManifest(manifest);
@@ -280,8 +380,17 @@ export function LocalVaultSettingsPanel() {
     setShowApiKey(false);
     setIsApiKeyEditing(false);
     setIsProviderDirty(false);
+    setProviderFocusedField(null);
     setProviderSaveStatus({ state: "idle" });
     setProviderPickerOpen(false);
+    setProviderCreationName("");
+    setProviderCreationProtocol("openai-compatible");
+  };
+
+  const openProviderPicker = () => {
+    setProviderCreationName("");
+    setProviderCreationProtocol("openai-compatible");
+    setProviderPickerOpen(true);
   };
 
   const createModel = () => {
@@ -316,6 +425,7 @@ export function LocalVaultSettingsPanel() {
     setIsModelDirty(false);
     setModelSaveStatus({ state: "idle" });
     setIsProviderDirty(false);
+    setProviderFocusedField(null);
     setProviderSaveStatus({ state: "idle" });
     const manifest = profile.customManifestId
       ? config.customImageProviderManifests.find(
@@ -350,6 +460,11 @@ export function LocalVaultSettingsPanel() {
     providerDraftRevision.current += 1;
     setProviderDraft((current) => (current ? updater(current) : current));
     setIsProviderDirty(true);
+    setProviderSaveStatus({ state: "idle" });
+  };
+
+  const focusProviderField = (field: "name" | "baseUrl" | "apiKey") => {
+    setProviderFocusedField(field);
     setProviderSaveStatus({ state: "idle" });
   };
 
@@ -441,16 +556,31 @@ export function LocalVaultSettingsPanel() {
     if (
       !providerDraft ||
       !isProviderDirty ||
+      providerFocusedField !== null ||
       providerSaveStatus.state === "saving"
     )
       return;
+    const draftApiKey =
+      providerDraft.apiKey || config.providerApiKeys[providerDraft.id] || "";
+    const hasRequiredFields =
+      providerDraft.name.trim().length > 0 &&
+      providerDraft.baseUrl.trim().length > 0 &&
+      (providerDraft.authMode === "none" || draftApiKey.trim().length > 0);
+    if (!hasRequiredFields) return;
     const revision = providerDraftRevision.current;
     const timer = window.setTimeout(() => {
       setProviderSaveStatus({ state: "saving", message: "正在自动保存" });
       void saveProvider(providerDraft, revision);
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [isProviderDirty, providerDraft, providerSaveStatus.state, saveProvider]);
+  }, [
+    isProviderDirty,
+    config.providerApiKeys,
+    providerDraft,
+    providerFocusedField,
+    providerSaveStatus.state,
+    saveProvider,
+  ]);
 
   const validateAndSaveManifest = async () => {
     if (!providerDraft || providerDraft.protocol !== "custom-http-image-v1")
@@ -460,6 +590,14 @@ export function LocalVaultSettingsPanel() {
       const manifest = parseCustomImageProviderManifest(parsed.manifest, {
         id: providerDraft.customManifestId,
       });
+      const manifestJson = JSON.stringify(manifest.submit);
+      const hasSizingMapping = [
+        "$params.size",
+        "$params.width",
+        "$params.height",
+        "$params.ratio",
+        "$params.resolution",
+      ].some((variable) => manifestJson.includes(variable));
       saveCustomImageProviderManifest(manifest);
       updateProviderDraft((draft) => ({
         ...draft,
@@ -483,6 +621,10 @@ export function LocalVaultSettingsPanel() {
       setManifestStatus(
         `Manifest 已验证并保存，当前模式：${
           manifest.executionMode === "polling" ? "异步轮询" : "同步"
+        }${
+          hasSizingMapping
+            ? ""
+            : "；未映射画幅/尺寸参数，服务商可能默认生成 1:1"
         }`,
       );
     } catch (error) {
@@ -573,7 +715,13 @@ export function LocalVaultSettingsPanel() {
       authMode: draft.authMode,
       baseUrl: input.baseUrl,
       enabled: draft.enabled,
-      imageRequestMode: "sync",
+      ...(draft.protocol === "custom-http-image-v1" && draft.customManifestId
+        ? { customManifestId: draft.customManifestId }
+        : {}),
+      imageRequestMode:
+        draft.protocol === "custom-http-image-v1"
+          ? draft.imageRequestMode
+          : "sync",
       createdAt: draft.createdAt,
       updatedAt: draft.updatedAt,
       lastDiscoveryAt: discoveredAt,
@@ -835,7 +983,7 @@ export function LocalVaultSettingsPanel() {
             <div className="p-2">
               <button
                 type="button"
-                onClick={() => setProviderPickerOpen(true)}
+                onClick={openProviderPicker}
                 className={`${themeClasses.secondaryButton} h-8 w-full gap-1.5 rounded-[7px] text-xs`}
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -900,6 +1048,8 @@ export function LocalVaultSettingsPanel() {
                     name="provider-display-name"
                     className={FIELD_INPUT_CLASS}
                     value={providerDraft.name}
+                    onFocus={() => focusProviderField("name")}
+                    onBlur={() => setProviderFocusedField(null)}
                     onChange={(event) =>
                       updateProviderDraft((draft) => ({
                         ...draft,
@@ -918,6 +1068,8 @@ export function LocalVaultSettingsPanel() {
                     name="provider-base-url"
                     className={FIELD_INPUT_CLASS}
                     value={providerDraft.baseUrl}
+                    onFocus={() => focusProviderField("baseUrl")}
+                    onBlur={() => setProviderFocusedField(null)}
                     onChange={(event) =>
                       updateProviderDraft((draft) => ({
                         ...draft,
@@ -947,6 +1099,7 @@ export function LocalVaultSettingsPanel() {
                       className={cx(FIELD_INPUT_CLASS, "pr-10")}
                       value={apiKeyDisplayValue}
                       onFocus={() => {
+                        focusProviderField("apiKey");
                         if (isApiKeyEditing || !savedProviderApiKey) return;
                         setProviderDraft((current) =>
                           current
@@ -955,6 +1108,7 @@ export function LocalVaultSettingsPanel() {
                         );
                         setIsApiKeyEditing(true);
                       }}
+                      onBlur={() => setProviderFocusedField(null)}
                       onChange={(event) =>
                         updateProviderDraft((draft) => ({
                           ...draft,
@@ -991,21 +1145,22 @@ export function LocalVaultSettingsPanel() {
                     </div>
                     <label className="block space-y-1 text-xs text-[var(--text-secondary)]">
                       <span className="block leading-4">鉴权方式</span>
-                      <select
-                        className={FIELD_SELECT_CLASS}
+                      <SettingsSelect
+                        ariaLabel="鉴权方式"
                         value={providerDraft.authMode}
-                        onChange={(event) =>
+                        onChange={(value) =>
                           updateProviderDraft((draft) => ({
                             ...draft,
-                            authMode: event.target.value as ProviderAuthMode,
+                            authMode: value as ProviderAuthMode,
                           }))
                         }
-                      >
-                        <option value="bearer">Bearer</option>
-                        <option value="x-api-key">X-API-Key</option>
-                        <option value="api-key">API-Key</option>
-                        <option value="none">无需鉴权</option>
-                      </select>
+                        options={[
+                          { value: "bearer", label: "Bearer" },
+                          { value: "x-api-key", label: "X-API-Key" },
+                          { value: "api-key", label: "API-Key" },
+                          { value: "none", label: "无需鉴权" },
+                        ]}
+                      />
                     </label>
                     <section className="space-y-2 border-t border-[var(--border-subtle)] pt-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1046,11 +1201,23 @@ export function LocalVaultSettingsPanel() {
                             type="button"
                             title="复制 LLM 提示词"
                             aria-label="复制 LLM 提示词"
-                            onClick={() =>
+                            onClick={() => {
                               void copyTextToClipboard(
                                 CUSTOM_IMAGE_PROVIDER_LLM_PROMPT,
                               )
-                            }
+                                .then(() =>
+                                  notify({
+                                    title: "已复制 LLM 提示词",
+                                    tone: "success",
+                                  }),
+                                )
+                                .catch(() =>
+                                  notify({
+                                    title: "复制失败，请重试",
+                                    tone: "error",
+                                  }),
+                                );
+                            }}
                             className={`${themeClasses.iconButton} h-7 w-7 rounded-[6px]`}
                           >
                             <Clipboard className="h-3.5 w-3.5" />
@@ -1061,6 +1228,14 @@ export function LocalVaultSettingsPanel() {
                         把服务商接口文档转换成 JSON
                         粘贴到这里；只有点击“验证并保存”后才会生效。
                       </p>
+                      <p className="text-[10px] leading-4 text-[var(--text-muted)]">
+                        画幅和分辨率不会自动猜字段：常见 OpenAI 格式请在请求
+                        body 映射 <code>$params.size</code>
+                        ；如果服务商使用独立字段，再映射
+                        <code>$params.resolution</code>、
+                        <code>$params.width</code> 和<code>$params.height</code>
+                        。
+                      </p>
                       <p className="text-[10px] text-[var(--text-muted)]">
                         执行模式：
                         {activeCustomManifest
@@ -1070,7 +1245,8 @@ export function LocalVaultSettingsPanel() {
                           : "未配置"}
                       </p>
                       <textarea
-                        className="min-h-48 w-full resize-y rounded-[8px] border border-[var(--border-subtle)] bg-[var(--control-bg)] p-3 font-mono text-[11px] leading-5 text-[var(--text-primary)] outline-none focus:border-violet-400/60"
+                        aria-label="自定义 Manifest JSON"
+                        className="project-manager-scrollbar h-56 max-h-[45vh] min-h-40 w-full resize-none overflow-auto rounded-[10px] border border-[var(--border-subtle)] bg-[var(--control-bg)] px-4 py-3 font-mono text-[11px] leading-5 text-[var(--text-primary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] outline-none transition-[border-color,background-color,box-shadow] focus:border-violet-400/60 focus:bg-[var(--control-bg-hover)] focus:shadow-[0_0_0_3px_rgba(139,92,246,0.1),inset_0_1px_0_rgba(255,255,255,0.035)]"
                         value={manifestText}
                         onChange={(event) => {
                           setManifestText(event.target.value);
@@ -1120,9 +1296,7 @@ export function LocalVaultSettingsPanel() {
                       <button
                         type="button"
                         onClick={() => setImportDialogOpen(true)}
-                        disabled={
-                          providerDraft.protocol === "custom-http-image-v1"
-                        }
+                        title="获取模型列表"
                         className="inline-flex items-center gap-1.5 px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400/60"
                       >
                         <RefreshCw className="h-3.5 w-3.5" />
@@ -1139,6 +1313,12 @@ export function LocalVaultSettingsPanel() {
                       </button>
                     </div>
                   </div>
+                  <p
+                    className={`text-[10px] leading-4 ${themeClasses.textMuted}`}
+                  >
+                    通过标准 OpenAI 兼容接口 /v1/models 获取模型，也可以点击右侧
+                    + 手工添加模型。
+                  </p>
                   {providerModelEntries.length > 0 ? (
                     <div className="overflow-hidden rounded-[7px] border border-[var(--border-subtle)] bg-[var(--control-bg)]">
                       {providerModelEntries.map((entry) => {
@@ -1228,55 +1408,76 @@ export function LocalVaultSettingsPanel() {
                 aria-modal="true"
                 className="relative w-[min(30rem,calc(100vw-1.5rem))] rounded-[8px] border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] p-4 shadow-2xl"
               >
-                <div className="mb-3 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-[var(--text-primary)]">
-                    选择服务商协议
+                <div className="mb-3 border-b border-[var(--border-subtle)] pb-3">
+                  <h2 className="text-xl font-semibold text-[var(--text-primary)]">
+                    添加服务商
                   </h2>
+                  <p className="mt-1 text-xs text-[var(--text-muted)]">
+                    先选择服务商类型，创建后类型不可修改
+                  </p>
+                </div>
+                <div className="mb-4 flex justify-center">
+                  <span className="flex h-16 w-16 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--control-bg)] text-3xl font-semibold text-[var(--text-primary)]">
+                    {providerCreationName.trim().slice(0, 1).toUpperCase() ||
+                      "P"}
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  <label className="block text-sm text-[var(--text-primary)]">
+                    <span className="mb-1.5 block">服务商名称</span>
+                    <input
+                      autoFocus
+                      value={providerCreationName}
+                      onChange={(event) =>
+                        setProviderCreationName(event.target.value)
+                      }
+                      placeholder="例如 OpenAI"
+                      className={`${FIELD_INPUT_CLASS} h-10 w-full text-sm`}
+                    />
+                  </label>
+                  <label className="block text-sm text-[var(--text-primary)]">
+                    <span className="mb-1.5 block">服务商类型</span>
+                    <SettingsSelect
+                      ariaLabel="服务商类型"
+                      value={providerCreationProtocol}
+                      onChange={(value) =>
+                        setProviderCreationProtocol(value as ProviderProtocol)
+                      }
+                      options={[
+                        {
+                          value: "openai-compatible",
+                          label: "OpenAI Compatible",
+                        },
+                        { value: "dashscope", label: "阿里百炼" },
+                        {
+                          value: "custom-http-image-v1",
+                          label: "自定义服务商",
+                        },
+                      ]}
+                    />
+                  </label>
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
                   <button
                     type="button"
-                    aria-label="关闭"
-                    title="关闭"
                     onClick={() => setProviderPickerOpen(false)}
-                    className={`${themeClasses.iconButton} h-7 w-7 rounded-[6px]`}
+                    className={`${themeClasses.secondaryButton} h-9 px-4 text-sm`}
                   >
-                    <X className="h-3.5 w-3.5" />
+                    取消
                   </button>
-                </div>
-                <div className="grid gap-2">
-                  {(
-                    [
-                      [
-                        "openai-compatible",
-                        "OpenAI Compatible",
-                        "官方及大多数兼容接口，默认使用同步图片生成",
-                      ],
-                      ["dashscope", "阿里百炼", "使用内置 DashScope 受控协议"],
-                      [
-                        "custom-http-image-v1",
-                        "自定义服务商",
-                        "用 Manifest 适配特殊同步或异步图片接口",
-                      ],
-                    ] as const
-                  ).map(([protocol, title, description]) => (
-                    <button
-                      key={protocol}
-                      type="button"
-                      onClick={() => createProvider(protocol)}
-                      className="flex items-start gap-3 rounded-[7px] border border-[var(--border-subtle)] bg-[var(--control-bg)] p-3 text-left transition hover:bg-[var(--control-bg-hover)]"
-                    >
-                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] bg-[var(--accent-violet-soft)] text-[var(--text-primary)]">
-                        <FileJson className="h-3.5 w-3.5" />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-xs font-medium text-[var(--text-primary)]">
-                          {title}
-                        </span>
-                        <span className="mt-1 block text-[10px] leading-4 text-[var(--text-muted)]">
-                          {description}
-                        </span>
-                      </span>
-                    </button>
-                  ))}
+                  <button
+                    type="button"
+                    disabled={!providerCreationName.trim()}
+                    onClick={() =>
+                      createProvider(
+                        providerCreationProtocol,
+                        providerCreationName,
+                      )
+                    }
+                    className={`${themeClasses.secondaryButton} h-9 px-4 text-sm disabled:cursor-not-allowed disabled:opacity-40`}
+                  >
+                    确定
+                  </button>
                 </div>
               </div>
             </div>,

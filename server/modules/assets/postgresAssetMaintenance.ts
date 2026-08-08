@@ -112,21 +112,33 @@ function assetSelect(lockClause = "") {
       a.byte_size,
       a.status,
       EXISTS (
-        SELECT 1 FROM asset_references ar
-        WHERE ar.workspace_id = a.workspace_id AND ar.asset_id = a.id
+        SELECT 1
+        FROM asset_references ar
+        JOIN projects referenced_project
+          ON referenced_project.workspace_id = ar.workspace_id
+         AND referenced_project.id = ar.project_id
+        WHERE ar.workspace_id = a.workspace_id
+          AND ar.asset_id = a.id
+          AND referenced_project.deleted_at IS NULL
       ) AS has_current_reference,
       EXISTS (
         SELECT 1
         FROM project_snapshots s
         JOIN projects p ON p.id = s.project_id
         WHERE p.workspace_id = a.workspace_id
+          AND p.deleted_at IS NULL
           AND s.is_valid
           AND s.asset_manifest_json ? a.id::text
       ) AS has_checkpoint_reference,
       to_char(
         CASE
           WHEN a.status = 'pending' THEN GREATEST(a.updated_at, COALESCE(au.expires_at, a.updated_at))
-          ELSE COALESCE(a.deleted_at, a.updated_at, a.created_at)
+          ELSE COALESCE(
+            a.quota_released_at,
+            a.deleted_at,
+            a.updated_at,
+            a.created_at
+          )
         END AT TIME ZONE 'UTC',
         'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
       ) AS gc_eligible_at,
@@ -173,14 +185,21 @@ async function readCleanupAssetBatch(
   const result = await client.query<AssetMaintenanceRow>(
     `${assetSelect()}
       WHERE NOT EXISTS (
-        SELECT 1 FROM asset_references ar
-        WHERE ar.workspace_id = a.workspace_id AND ar.asset_id = a.id
+        SELECT 1
+        FROM asset_references ar
+        JOIN projects referenced_project
+          ON referenced_project.workspace_id = ar.workspace_id
+         AND referenced_project.id = ar.project_id
+        WHERE ar.workspace_id = a.workspace_id
+          AND ar.asset_id = a.id
+          AND referenced_project.deleted_at IS NULL
       )
         AND NOT EXISTS (
           SELECT 1
           FROM project_snapshots s
           JOIN projects p ON p.id = s.project_id
           WHERE p.workspace_id = a.workspace_id
+            AND p.deleted_at IS NULL
             AND s.is_valid
             AND s.asset_manifest_json ? a.id::text
         )
@@ -188,7 +207,12 @@ async function readCleanupAssetBatch(
           CASE
             WHEN a.status = 'pending'
               THEN GREATEST(a.updated_at, COALESCE(au.expires_at, a.updated_at))
-            ELSE COALESCE(a.deleted_at, a.updated_at, a.created_at)
+            ELSE COALESCE(
+              a.quota_released_at,
+              a.deleted_at,
+              a.updated_at,
+              a.created_at
+            )
           END
         ) <= $1
         ${cursorClause}

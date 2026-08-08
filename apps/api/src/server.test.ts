@@ -306,7 +306,7 @@ function createFakeProjectService() {
     },
     async deleteProject(_projectId, actor) {
       capture(actor);
-      return { ok: true };
+      return { ok: true, releasedBytes: 0 };
     },
   };
 

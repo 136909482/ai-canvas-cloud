@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import type { DeleteProjectResponse } from "@ai-canvas-cloud/contracts";
+import { CloudApiError } from "@/api/cloudApiClient";
 import { restoreTaskQueueAfterSnapshotLoad } from "@/features/generateQueue/taskExecution";
 import {
   parseProjectRecordSnapshots,
@@ -81,7 +83,7 @@ interface ProjectStore {
   renameProject: (projectId: string, name?: string) => Promise<boolean>;
   archiveProject: (projectId: string) => Promise<boolean>;
   restoreProject: (projectId: string) => Promise<boolean>;
-  deleteProject: (projectId: string) => Promise<boolean>;
+  deleteProject: (projectId: string) => Promise<DeleteProjectResponse | null>;
   exportProject: (projectId: string) => Promise<boolean>;
   prepareProjectImport: () => Promise<ProjectBundleImportCandidate>;
   commitProjectImport: (
@@ -196,8 +198,12 @@ function setProjectPersistenceError(
       projectId: useProjectStore.getState().activeProjectId,
     },
   });
+  const userMessage =
+    error instanceof CloudApiError && error.code === "QUOTA_EXCEEDED"
+      ? "当前存储空间不足，无法撤销删除。请先删除其他图片后再试。"
+      : diagnostic.message;
   useProjectStore.setState({
-    lastPersistenceError: diagnostic.message,
+    lastPersistenceError: userMessage,
     ...(isProjectVersionConflictError(error) &&
     useProjectStore.getState().activeProjectId
       ? {
@@ -908,8 +914,27 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
       const project = state.projects.find((item) => item.id === projectId);
 
       if (!project) {
-        return false;
+        return null;
       }
+
+      const deleteWorkspaceProject = async (
+        activeProjectId: string | null,
+        lastOpenedProjectId: string | null,
+      ): Promise<DeleteProjectResponse> => {
+        if (!isStorageConfigured()) {
+          return { ok: true, releasedBytes: 0 };
+        }
+        try {
+          return await platformBridge.deleteWorkspaceProject({
+            projectId,
+            activeProjectId,
+            lastOpenedProjectId,
+          });
+        } catch (error) {
+          setProjectPersistenceError(error);
+          return { ok: true, releasedBytes: 0 };
+        }
+      };
 
       const remainingProjects = state.projects.filter(
         (item) => item.id !== projectId,
@@ -925,16 +950,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
           isReady: true,
         });
         resetWorkspaceToEmpty();
-        if (isStorageConfigured()) {
-          await platformBridge
-            .deleteWorkspaceProject({
-              projectId,
-              activeProjectId: null,
-              lastOpenedProjectId: null,
-            })
-            .catch(setProjectPersistenceError);
-        }
-        return true;
+        return deleteWorkspaceProject(null, null);
       }
 
       const availableProjects = remainingProjects.filter(
@@ -954,16 +970,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
           isReady: true,
         });
         resetWorkspaceToEmpty();
-        if (isStorageConfigured()) {
-          await platformBridge
-            .deleteWorkspaceProject({
-              projectId,
-              activeProjectId: null,
-              lastOpenedProjectId: null,
-            })
-            .catch(setProjectPersistenceError);
-        }
-        return true;
+        return deleteWorkspaceProject(null, null);
       }
 
       const fallbackProject =
@@ -1016,19 +1023,17 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
         );
         set({ isReady: true });
         if (isStorageConfigured()) {
-          await platformBridge
-            .deleteWorkspaceProject({
-              projectId,
-              activeProjectId: fallbackProject.id,
-              lastOpenedProjectId: fallbackProject.id,
-            })
-            .catch(setProjectPersistenceError);
+          const deleteResult = await deleteWorkspaceProject(
+            fallbackProject.id,
+            fallbackProject.id,
+          );
           await persistWorkspaceProjectIfConfigured(nextFallbackProject, {
             activeProjectId: fallbackProject.id,
             lastOpenedProjectId: fallbackProject.id,
           });
+          return deleteResult;
         }
-        return true;
+        return { ok: true, releasedBytes: 0 };
       }
 
       set({
@@ -1049,16 +1054,10 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
         ),
       });
 
-      if (isStorageConfigured()) {
-        await platformBridge
-          .deleteWorkspaceProject({
-            projectId,
-            activeProjectId: get().activeProjectId,
-            lastOpenedProjectId: get().lastOpenedProjectId,
-          })
-          .catch(setProjectPersistenceError);
-      }
-      return true;
+      return deleteWorkspaceProject(
+        get().activeProjectId,
+        get().lastOpenedProjectId,
+      );
     },
 
     exportProject: async (projectId) => {

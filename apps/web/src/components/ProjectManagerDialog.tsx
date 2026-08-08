@@ -15,6 +15,10 @@ import {
 } from "lucide-react";
 import { getProjectManagerStatusView } from "@/features/projectManager/projectManagerStatus";
 import { hasInterruptibleSynchronousImageTask } from "@/features/generateQueue/taskQueueView";
+import {
+  formatStorageBytes,
+  WORKSPACE_STORAGE_USAGE_INVALIDATED_EVENT,
+} from "@/features/storage/storageOverview";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { useFeedbackStore } from "@/store/useFeedbackStore";
 import { useProjectDialogStore } from "@/store/useProjectDialogStore";
@@ -367,9 +371,9 @@ export function ProjectManagerDialog() {
       message:
         project.id === activeProjectId
           ? interruptsSynchronousGeneration
-            ? "删除当前项目会中断同步生成，但服务商仍可能完成并计费；随后将切换到其他项目。确定继续吗？"
-            : "删除当前项目后会切换到其他项目，确定继续吗？"
-          : "确定删除这个项目吗？",
+            ? "删除当前项目会中断同步生成，但服务商仍可能完成并计费；未被其他项目使用的存储额度会立即释放，文件对象将在后台清理。确定继续吗？"
+            : "删除当前项目后会切换到其他项目；未被其他项目使用的存储额度会立即释放，文件对象将在后台清理。确定继续吗？"
+          : "删除后，未被其他项目使用的存储额度会立即释放，文件对象将在后台清理。确定继续吗？",
       confirmLabel: "删除",
       tone: "danger",
     });
@@ -382,7 +386,17 @@ export function ProjectManagerDialog() {
       return;
     }
 
-    await deleteProject(project.id);
+    const result = await deleteProject(project.id);
+    if (!result) return;
+    window.dispatchEvent(new Event(WORKSPACE_STORAGE_USAGE_INVALIDATED_EVENT));
+    notify({
+      tone: "success",
+      title: "项目已删除",
+      message:
+        (result.releasedBytes ?? 0) > 0
+          ? `已释放约 ${formatStorageBytes(result.releasedBytes ?? 0)} 存储额度，文件对象将在后台清理。`
+          : "项目资产仍被其他项目使用，暂未释放额外存储额度。",
+    });
     setSelectedProjectIds((current) =>
       current.filter((id) => id !== project.id),
     );
@@ -535,9 +549,21 @@ export function ProjectManagerDialog() {
       return;
     }
 
+    let releasedBytes = 0;
     for (const projectId of selectedProjectIds) {
-      await deleteProject(projectId);
+      const result = await deleteProject(projectId);
+      if (result) releasedBytes += result.releasedBytes ?? 0;
     }
+
+    window.dispatchEvent(new Event(WORKSPACE_STORAGE_USAGE_INVALIDATED_EVENT));
+    notify({
+      tone: "success",
+      title: "项目已批量删除",
+      message:
+        releasedBytes > 0
+          ? `已释放约 ${formatStorageBytes(releasedBytes)} 存储额度，文件对象将在后台清理。`
+          : "项目资产仍被其他项目使用，暂未释放额外存储额度。",
+    });
 
     setSelectedProjectIds([]);
     setBatchMode(false);

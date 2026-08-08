@@ -19,6 +19,7 @@ const DANGEROUS_PATH_SEGMENTS = new Set([
 ]);
 const TEMPLATE_VARIABLES = new Set([
   "$model",
+  "$profile.model",
   "$prompt",
   "$negativePrompt",
   "$params.ratio",
@@ -27,9 +28,12 @@ const TEMPLATE_VARIABLES = new Set([
   "$params.size",
   "$params.width",
   "$params.height",
+  "$params.n",
   "$inputImages.urls",
+  "$inputImages.dataUrls",
   "$editImage.url",
   "$mask.url",
+  "$mask.dataUrl",
   "$taskId",
 ]);
 const AUTH_MODES = new Set<ProviderAuthMode>([
@@ -466,6 +470,135 @@ function parseAuthMode(
   return value as ProviderAuthMode;
 }
 
+function mapBenchmarkResult(value: unknown, path: string) {
+  const record = requireRecord(value, path);
+  assertKeys(record, ["imageUrlPaths", "b64JsonPaths"], path);
+  return {
+    ...(record.imageUrlPaths === undefined
+      ? {}
+      : { imageUrlPaths: record.imageUrlPaths }),
+    ...(record.b64JsonPaths === undefined
+      ? {}
+      : { base64Paths: record.b64JsonPaths }),
+  };
+}
+
+function mapBenchmarkRequest(value: unknown, path: string) {
+  const record = requireRecord(value, path);
+  assertKeys(
+    record,
+    [
+      "path",
+      "method",
+      "contentType",
+      "query",
+      "body",
+      "files",
+      "taskIdPath",
+      "result",
+    ],
+    path,
+  );
+  const files = Array.isArray(record.files)
+    ? record.files.map((item, index) => {
+        const file = requireRecord(item, `${path}.files[${index}]`);
+        assertKeys(
+          file,
+          ["field", "source", "array"],
+          `${path}.files[${index}]`,
+        );
+        return {
+          field: file.field,
+          source:
+            file.source === "inputImages" ? "referenceImages" : file.source,
+          ...(file.array === true ? { multiple: true } : {}),
+        };
+      })
+    : record.files;
+  return {
+    path: record.path,
+    method: record.method ?? "POST",
+    contentType: record.contentType ?? "json",
+    ...(record.query === undefined ? {} : { query: record.query }),
+    ...(record.body === undefined ? {} : { body: record.body }),
+    ...(files === undefined ? {} : { files }),
+    ...(record.taskIdPath === undefined
+      ? {}
+      : { taskIdPath: record.taskIdPath }),
+    ...(record.result === undefined
+      ? {}
+      : { result: mapBenchmarkResult(record.result, `${path}.result`) }),
+  };
+}
+
+function convertBenchmarkImport(record: RecordValue) {
+  if (
+    !Array.isArray(record.customProviders) ||
+    record.customProviders.length === 0
+  )
+    return null;
+  const provider = requireRecord(
+    record.customProviders[0],
+    "customProviders[0]",
+  );
+  const providerId = typeof provider.id === "string" ? provider.id : undefined;
+  const profile = Array.isArray(record.profiles)
+    ? record.profiles
+        .map((item) => (isRecord(item) ? item : null))
+        .find((item) => item?.provider === providerId)
+    : undefined;
+  const submit = requireRecord(provider.submit, "customProviders[0].submit");
+  const editSubmit = provider.editSubmit;
+  const definition = {
+    schemaVersion: CUSTOM_IMAGE_MANIFEST_SCHEMA_VERSION,
+    name: requireString(provider.name, "customProviders[0].name"),
+    executionMode:
+      provider.poll || submit.taskIdPath
+        ? ("polling" as const)
+        : ("sync" as const),
+    capabilities: { generate: true as const, edit: editSubmit !== undefined },
+    submit: {
+      generate: mapBenchmarkRequest(submit, "customProviders[0].submit"),
+      ...(editSubmit === undefined
+        ? {}
+        : {
+            edit: mapBenchmarkRequest(
+              editSubmit,
+              "customProviders[0].editSubmit",
+            ),
+          }),
+    },
+    ...(provider.poll
+      ? {
+          poll: {
+            ...requireRecord(provider.poll, "customProviders[0].poll"),
+            result: mapBenchmarkResult(
+              requireRecord(provider.poll, "customProviders[0].poll").result,
+              "customProviders[0].poll.result",
+            ),
+            timeoutSeconds: 1800,
+          },
+        }
+      : {}),
+  };
+  return {
+    manifest: parseManifestDefinition(definition),
+    defaults: profile
+      ? {
+          ...(typeof profile.name === "string"
+            ? { providerName: profile.name }
+            : {}),
+          ...(typeof profile.baseUrl === "string"
+            ? { baseUrl: profile.baseUrl }
+            : {}),
+          ...(typeof profile.model === "string" && profile.model.trim()
+            ? { suggestedModels: [{ modelId: profile.model }] }
+            : {}),
+        }
+      : undefined,
+  };
+}
+
 export function parseCustomImageProviderImportText(
   text: string,
 ): CustomImageProviderImportV1 {
@@ -481,6 +614,28 @@ export function parseCustomImageProviderImportText(
     fail("导入文件", "不是有效 JSON");
   }
   const record = requireRecord(value, "导入文件");
+  const benchmarkBeforeValidation = convertBenchmarkImport(record);
+  if (benchmarkBeforeValidation) {
+    return {
+      schemaVersion: CUSTOM_IMAGE_MANIFEST_SCHEMA_VERSION,
+      manifest: benchmarkBeforeValidation.manifest,
+      ...(benchmarkBeforeValidation.defaults
+        ? { defaults: benchmarkBeforeValidation.defaults }
+        : {}),
+    };
+  }
+  if (
+    record.manifest === undefined &&
+    record.name !== undefined &&
+    record.executionMode !== undefined &&
+    record.capabilities !== undefined &&
+    record.submit !== undefined
+  ) {
+    return {
+      schemaVersion: CUSTOM_IMAGE_MANIFEST_SCHEMA_VERSION,
+      manifest: parseManifestDefinition(record),
+    };
+  }
   assertKeys(record, ["schemaVersion", "manifest", "defaults"], "导入文件");
   if (record.schemaVersion !== CUSTOM_IMAGE_MANIFEST_SCHEMA_VERSION) {
     fail("导入文件.schemaVersion", "当前只支持版本 1");
@@ -579,7 +734,7 @@ export function createDefaultCustomImageProviderManifest(
     capabilities: { generate: true as const, edit: false },
     submit: {
       generate: {
-        path: "v1/images/generations",
+        path: "images/generations",
         method: "POST" as const,
         contentType: "json" as const,
         body: { model: "$model", prompt: "$prompt", size: "$params.size" },
@@ -596,16 +751,16 @@ export function createDefaultCustomImageProviderManifest(
     ...(executionMode === "polling"
       ? {
           poll: {
-            path: "v1/images/tasks/$taskId",
+            path: "images/tasks/{task_id}",
             method: "GET" as const,
             intervalSeconds: 5,
             timeoutSeconds: 1800,
-            statusPath: "status",
+            statusPath: "data.status",
             successValues: ["SUCCEEDED", "SUCCESS", "DONE"],
             failureValues: ["FAILED", "ERROR", "CANCELED"],
             result: {
-              imageUrlPaths: ["data.*.url"],
-              base64Paths: ["data.*.b64_json"],
+              imageUrlPaths: ["data.data.data.*.url"],
+              base64Paths: ["data.data.data.*.b64_json"],
             },
           },
         }
@@ -627,6 +782,6 @@ export const CUSTOM_IMAGE_PROVIDER_LLM_PROMPT = `你是图像生成 API 文档�
 5. 异步接口使用 executionMode=polling，并配置 taskIdPath、poll.path、statusPath、successValues、failureValues 和结果路径。
 6. 路径必须是 Base URL 下的相对路径，不得包含完整 URL。
 7. 结果只使用 imageUrlPaths 或 base64Paths，路径支持点号、数字索引与 *。
-8. 模板变量仅可使用 $model、$prompt、$negativePrompt、$params.ratio、$params.resolution、$params.quality、$params.size、$params.width、$params.height、$inputImages.urls、$editImage.url、$mask.url、$taskId。
+8. 模板变量仅可使用 $model、$profile.model、$prompt、$negativePrompt、$params.ratio、$params.resolution、$params.quality、$params.size、$params.width、$params.height、$params.n、$inputImages.urls、$inputImages.dataUrls、$editImage.url、$mask.url、$mask.dataUrl、$taskId。
 9. defaults 可包含 providerName、baseUrl、authMode 和 suggestedModels；authMode 只能是 none、bearer、x-api-key、api-key。
 10. 最终只输出一个 JSON 代码块，不附加解释。`;

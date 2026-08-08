@@ -43,6 +43,20 @@
       "rollback": "drop announcement_receipts and announcements only before any announcement is published",
       "forwardRepair": "rerun the idempotent role provisioning after applying the announcement tables",
       "backupRequired": false
+    },
+    {
+      "version": "0040",
+      "name": "add_asset_quota_release",
+      "releaseTrain": "single-asset-quota-release",
+      "phase": "expand",
+      "oldAppReadable": true,
+      "newAppReadable": true,
+      "oldAppWithNewSchema": true,
+      "lockRisk": "low",
+      "statementTimeoutMs": 30000,
+      "rollback": "drop assets.quota_released_at only before deploying quota-release-aware application code",
+      "forwardRepair": "rerun the idempotent ALTER TABLE and verify the column exists",
+      "backupRequired": false
     }
   ]
 }

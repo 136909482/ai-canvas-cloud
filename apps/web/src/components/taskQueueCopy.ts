@@ -9,6 +9,7 @@ export const TASK_QUEUE_COPY = {
   queued: "\u6392\u961f\u4e2d",
   done: "\u5df2\u5b8c\u6210",
   error: "\u5931\u8d25",
+  errorDetail: "\u9519\u8bef\u8be6\u60c5",
   image: "\u56fe\u7247",
   video: "\u89c6\u9891",
   openTasks: "\u67e5\u770b\u751f\u6210\u4efb\u52a1",

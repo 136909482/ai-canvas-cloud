@@ -189,3 +189,72 @@ test("rejects imports containing API keys and oversized JSON", () => {
   );
   assert.throws(() => parseCustomImageProviderImportText(oversized));
 });
+
+test("imports the benchmark customProviders/profiles shape", () => {
+  const imported = parseCustomImageProviderImportText(
+    JSON.stringify({
+      customProviders: [
+        {
+          id: "custom-apilio",
+          name: "Apilio",
+          submit: {
+            path: "images/generations",
+            method: "POST",
+            contentType: "json",
+            query: { async: "true" },
+            body: {
+              model: "$profile.model",
+              prompt: "$prompt",
+              size: "$params.size",
+            },
+            taskIdPath: "data",
+          },
+          poll: {
+            path: "images/tasks/{task_id}",
+            method: "GET",
+            intervalSeconds: 5,
+            statusPath: "data.status",
+            successValues: ["SUCCESS"],
+            failureValues: ["FAILURE"],
+            errorPath: "data.fail_reason",
+            result: {
+              imageUrlPaths: ["data.data.data.*.url"],
+              b64JsonPaths: ["data.data.data.*.b64_json"],
+            },
+          },
+        },
+      ],
+      profiles: [
+        {
+          name: "Apilio",
+          provider: "custom-apilio",
+          baseUrl: "https://api.apilio.ai/v1",
+          model: "gpt-image-2",
+          apiMode: "images",
+        },
+      ],
+    }),
+  );
+
+  assert.equal(imported.manifest.name, "Apilio");
+  assert.equal(imported.manifest.executionMode, "polling");
+  assert.equal(imported.manifest.submit.generate.path, "images/generations");
+  assert.equal(imported.manifest.submit.generate.body?.model, "$profile.model");
+  assert.equal(imported.manifest.poll?.path, "images/tasks/{task_id}");
+  assert.deepEqual(imported.defaults, {
+    providerName: "Apilio",
+    baseUrl: "https://api.apilio.ai/v1",
+    suggestedModels: [{ modelId: "gpt-image-2" }],
+  });
+});
+
+test("imports a bare current Manifest pasted into the editor", () => {
+  const bareManifest = syncDefinition();
+  const imported = parseCustomImageProviderImportText(
+    JSON.stringify(bareManifest),
+  );
+
+  assert.equal(imported.manifest.name, "Sync image API");
+  assert.equal(imported.manifest.submit.generate.path, "v1/images/generations");
+  assert.equal("id" in imported.manifest, false);
+});

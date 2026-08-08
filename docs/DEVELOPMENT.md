@@ -85,7 +85,7 @@ docker buildx build --platform linux/amd64 --target release -t <docker-hub-names
 
 对象存储环境变量可作为启动和故障回退配置。设置 `OBJECT_STORAGE_ENVIRONMENT_FALLBACK=false` 时允许不提供 `S3_*`，此时服务可以启动和登录，但 readiness 保持 degraded，资产上传、读取和站点媒体操作在后台发布首个托管配置前不可用。API/Admin API 每次对象操作通过 `public.object_storage_config_publications` 的短缓存选择当前 revision，后台发布后无需重启；发布前必须完成随机探针对象的写入、读回比对和删除。AccessKey ID/Secret 作为同一 AES-256-GCM 信封保存，主密钥只能来自服务端环境。已有正式资产后存储身份不可在后台切换，避免历史 object key 指向另一 Bucket。通用生产部署的 `S3_PUBLIC_ORIGIN` 同时进入 Web/Admin Web 的 CSP，因此调整签名域名时必须先更新 Bucket CORS、生产环境变量并重建两个 Web 容器，再发布后台配置；无环境回退的单机 Admin CSP 允许托管配置使用 HTTPS 对象存储来源。
 
-无引用资产清理由普通 API 拥有，Admin API 只提供受 `asset_maintenance.write` 保护的控制入口。两个服务使用同一份至少 32 字符的 `ASSET_MAINTENANCE_TOKEN`，Admin API 通过仅部署网络可达的 `ASSET_MAINTENANCE_API_URL` 调用普通 API；该密钥不得进入浏览器、日志或审计。后台必须先 preview，再由超级管理员二次确认 apply。候选资产须超过固定 7 天宽限期，且没有当前 `asset_references` 或有效 checkpoint manifest 引用；apply 对每个候选加锁并重新检查后才删除 OSS 对象、收敛数据库状态。Admin 响应和审计只保留聚合数量与容量，不返回用户、项目、asset ID 或 object key。
+无引用资产清理由普通 API 拥有，Admin API 只提供受 `asset_maintenance.write` 保护的控制入口。两个服务使用同一份至少 32 字符的 `ASSET_MAINTENANCE_TOKEN`，Admin API 通过仅部署网络可达的 `ASSET_MAINTENANCE_API_URL` 调用普通 API；该密钥不得进入浏览器、日志或审计。后台必须先 preview，再由超级管理员二次确认 apply。候选资产须超过固定 7 天宽限期，且没有未删除项目的当前 `asset_references` 或有效 checkpoint manifest 引用；已删除项目的残留引用和检查点不构成保护。apply 对每个候选加锁并重新检查后才删除 OSS 对象、收敛数据库状态。Admin 响应和审计只保留聚合数量与容量，不返回用户、项目、asset ID 或 object key。
 
 ### 首次发布
 
@@ -277,7 +277,7 @@ Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户�
 
 手动或定期 checkpoint 由服务端从关系化图组装。恢复先校验 version/sequence、record 和资产 manifest，再创建 pre-restore、替换当前图、重建引用和追加 restore change。只有可恢复检查点才能保护资产或允许裁剪更早 change。
 
-媒体只存私有对象存储。上传流程为创建会话、无 Cookie 预签名直传、服务端重新读取 metadata 并完成确认。仍被当前节点或有效 checkpoint 引用的资产不得 GC；删除采用软删除和宽限期。
+媒体只存私有对象存储。上传流程为创建会话、无 Cookie 预签名直传、服务端重新读取 metadata 并完成确认。删除整个项目必须在同一数据库事务中软删除项目、清理该项目当前资产引用、使该项目检查点失效并清理 workspace user state。删除项目或单个节点后，不再被其他活动节点引用的项目资产立即退出额度统计，对象仍保留至固定 7 天宽限期后的 GC；有效 checkpoint 继续保护文件但不占用户额度，恢复后重新建立当前引用并重新计费。仍被活动项目当前节点引用的共享资产继续计费且不得 GC。
 
 浏览器图片预览以 `cloud-assets/<asset-id>` 为稳定身份，不把 OSS 签名 URL 当作长期来源。高清原图和持久缩略图按稳定资产 ID 合并下载到有容量上限的会话内 Blob LRU；同一登录会话和项目往返优先复用 Blob，签名读取失败只失效并刷新当前资产后重试一次。退出、换账号或 workspace 变化清空私有 Blob，不写入未加密的浏览器持久缓存。
 

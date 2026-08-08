@@ -334,15 +334,100 @@ export function createPostgresProjectService(
     async deleteProject(projectId, actor) {
       await authorize(authorizationService, actor, PROJECT_WRITE_ROLES);
       assertProjectId(projectId);
-      const result = await pool.query<{ deleted: boolean }>(
+      const result = await pool.query<{
+        deleted: boolean;
+        released_bytes: string | number;
+      }>(
         `
-          WITH deleted_project AS (
-            UPDATE projects
-            SET deleted_at = now(), updated_at = now()
+          WITH target_project AS MATERIALIZED (
+            SELECT id
+            FROM projects
             WHERE id = $1
               AND workspace_id = $2
               AND deleted_at IS NULL
+            FOR UPDATE
+          ), candidate_assets AS MATERIALIZED (
+            SELECT DISTINCT
+              a.id,
+              a.origin_project_id,
+              a.byte_size,
+              a.status,
+              EXISTS (
+                SELECT 1
+                FROM asset_references target_reference
+                WHERE target_reference.workspace_id = a.workspace_id
+                  AND target_reference.asset_id = a.id
+                  AND target_reference.project_id = tp.id
+              ) AS had_target_current_reference
+            FROM assets a
+            JOIN target_project tp ON true
+            WHERE a.workspace_id = $2
+              AND a.deleted_at IS NULL
+              AND a.status IN ('pending', 'completed', 'failed', 'quarantined')
+              AND (
+                a.origin_project_id = tp.id
+                OR EXISTS (
+                  SELECT 1
+                  FROM asset_references ar
+                  WHERE ar.workspace_id = a.workspace_id
+                    AND ar.asset_id = a.id
+                    AND ar.project_id = tp.id
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM project_snapshots s
+                  WHERE s.project_id = tp.id
+                    AND s.is_valid
+                    AND s.asset_manifest_json ? a.id::text
+                )
+              )
+          ), deleted_project AS (
+            UPDATE projects
+            SET deleted_at = now(), updated_at = now()
+            WHERE id IN (SELECT id FROM target_project)
+            RETURNING id, workspace_id
+          ), invalidated_snapshots AS (
+            UPDATE project_snapshots
+            SET is_valid = false
+            WHERE project_id IN (SELECT id FROM deleted_project)
+              AND is_valid
             RETURNING id
+          ), released_assets AS (
+            UPDATE assets a
+            SET quota_released_at = COALESCE(a.quota_released_at, now()), updated_at = now()
+            FROM candidate_assets ca
+            WHERE a.id = ca.id
+              AND ca.origin_project_id IS NOT NULL
+              AND (
+                ca.status = 'pending'
+                OR ca.had_target_current_reference
+                OR ca.origin_project_id = $1
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM projects origin_project
+                WHERE origin_project.id = ca.origin_project_id
+                  AND origin_project.workspace_id = $2
+                  AND origin_project.id <> $1
+                  AND origin_project.deleted_at IS NULL
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM asset_references ar
+                JOIN projects referenced_project
+                  ON referenced_project.workspace_id = ar.workspace_id
+                 AND referenced_project.id = ar.project_id
+                WHERE ar.workspace_id = $2
+                  AND ar.asset_id = ca.id
+                  AND ar.project_id <> $1
+                  AND referenced_project.deleted_at IS NULL
+              )
+            RETURNING a.byte_size
+          ), deleted_references AS (
+            DELETE FROM asset_references
+            WHERE workspace_id = $2
+              AND project_id IN (SELECT id FROM deleted_project)
+            RETURNING asset_id
           ), cleared_state AS (
             UPDATE workspace_user_state
             SET last_opened_project_id = CASE WHEN last_opened_project_id = $1 THEN NULL ELSE last_opened_project_id END,
@@ -352,7 +437,9 @@ export function createPostgresProjectService(
               AND (last_opened_project_id = $1 OR active_project_id = $1)
               AND EXISTS (SELECT 1 FROM deleted_project)
           )
-          SELECT EXISTS (SELECT 1 FROM deleted_project) AS deleted
+          SELECT
+            EXISTS (SELECT 1 FROM deleted_project) AS deleted,
+            COALESCE((SELECT SUM(byte_size) FROM released_assets), 0) AS released_bytes
         `,
         [projectId, actor.workspaceId],
       );
@@ -361,7 +448,12 @@ export function createPostgresProjectService(
         projectNotFound();
       }
 
-      return { ok: true };
+      const releasedBytes = Number(result.rows[0].released_bytes);
+      if (!Number.isSafeInteger(releasedBytes) || releasedBytes < 0) {
+        throw new Error("releasedBytes must be a non-negative safe integer");
+      }
+
+      return { ok: true, releasedBytes };
     },
   };
 }
