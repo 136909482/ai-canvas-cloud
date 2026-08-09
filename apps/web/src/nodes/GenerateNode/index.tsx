@@ -720,7 +720,7 @@ export const GenerateNode = memo(function GenerateNode({
 
               {settingsOpen && (
                 <div
-                  className="nodrag nopan absolute bottom-full left-1/2 z-50 mb-2 w-[min(15rem,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--text-primary)_9%,transparent)] bg-[color-mix(in_srgb,var(--panel-bg-strong)_94%,black)] p-3 shadow-[0_20px_48px_rgba(0,0,0,0.34)] backdrop-blur-2xl"
+                  className={`nodrag nopan absolute bottom-full left-1/2 z-50 mb-2 w-[min(15rem,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden p-3 ${themeClasses.strongPanel}`}
                   role="dialog"
                   aria-label={`${UI_TEXT.chooseRatio} / ${UI_TEXT.chooseResolution}`}
                   onPointerDown={stopCanvasGesture}
@@ -736,7 +736,7 @@ export const GenerateNode = memo(function GenerateNode({
                         onChange={(value) =>
                           runTracked(() => updateNodeData(id, { ratio: value }))
                         }
-                        groupClassName="!h-auto !grid-flow-row grid-cols-4 !auto-cols-auto gap-x-1 gap-y-2 rounded-[9px] border-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] bg-[color-mix(in_srgb,var(--control-bg)_62%,transparent)] p-2 shadow-none"
+                        groupClassName="!h-auto !grid-flow-row grid-cols-4 !auto-cols-auto gap-x-1 gap-y-2 rounded-[9px] border-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] bg-[var(--control-bg)] p-2 shadow-none"
                         buttonClassName="h-[3rem] flex-col gap-1 rounded-[7px] px-1.5 py-1.5 text-[10px] leading-none hover:bg-[color-mix(in_srgb,var(--text-primary)_6%,transparent)]"
                         gridSlider={{
                           columns: 4,
@@ -765,7 +765,7 @@ export const GenerateNode = memo(function GenerateNode({
                               updateNodeData(id, { resolution: value }),
                             )
                           }
-                          groupClassName="h-10 rounded-[9px] border-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] bg-[color-mix(in_srgb,var(--control-bg)_62%,transparent)] p-1 shadow-none"
+                          groupClassName="h-10 rounded-[9px] border-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] bg-[var(--control-bg)] p-1 shadow-none"
                           buttonClassName="rounded-[7px] text-[11px] hover:bg-[color-mix(in_srgb,var(--text-primary)_5%,transparent)]"
                           slider
                           renderOption={(value) => getResolutionLabel(value)}
@@ -784,7 +784,7 @@ export const GenerateNode = memo(function GenerateNode({
                               updateNodeData(id, { quality: value }),
                             )
                           }
-                          groupClassName="h-10 rounded-[9px] border-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] bg-[color-mix(in_srgb,var(--control-bg)_62%,transparent)] p-1 shadow-none"
+                          groupClassName="h-10 rounded-[9px] border-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] bg-[var(--control-bg)] p-1 shadow-none"
                           buttonClassName="rounded-[7px] text-[11px] hover:bg-[color-mix(in_srgb,var(--text-primary)_5%,transparent)]"
                           slider
                           renderOption={(value) =>

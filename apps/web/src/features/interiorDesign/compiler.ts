@@ -4,6 +4,7 @@ import {
   CAMERA_OPTIONS,
   COLOR_GRADING_OPTIONS,
   COLOR_TEMPERATURE_OPTIONS,
+  CONVERSION_LOGIC_OPTIONS,
   CONVERSION_GOAL_OPTIONS,
   CURTAIN_OPTIONS,
   DEFAULT_INTERIOR_CONFIG,
@@ -58,6 +59,21 @@ export function normalizeInteriorDesignConfig(
   config.schemaVersion = 1;
   config.customSourceSoftware = config.customSourceSoftware.trim().slice(0, 80);
   config.customRequirement = config.customRequirement.trim().slice(0, 2000);
+  config.conversionLogic ??=
+    config.conversionGoal === "realistic-visualization"
+      ? "realistic-visualization"
+      : "pbr-photoreal";
+  config.customSelections = Object.fromEntries(
+    Object.entries(config.customSelections ?? {})
+      .map(
+        ([key, value]) =>
+          [
+            key.trim().slice(0, 80),
+            String(value).trim().slice(0, 500),
+          ] as const,
+      )
+      .filter(([key, value]) => key && value),
+  );
 
   if (config.sourceSoftware === "custom" && !config.customSourceSoftware) {
     errors.push("请填写模型图来源软件");
@@ -125,7 +141,9 @@ export function parseInteriorMaterialDefinition(
 export function getInteriorProviderRatio(
   aspectRatio: InteriorDesignConfigV1["output"]["aspectRatio"],
 ) {
-  return aspectRatio === "original" ? "Auto" : aspectRatio;
+  return aspectRatio === "original" || aspectRatio === "custom"
+    ? "Auto"
+    : aspectRatio;
 }
 
 export function compileInteriorDesignPrompt(
@@ -137,14 +155,22 @@ export function compileInteriorDesignPrompt(
       ? config.customSourceSoftware
       : value(SOURCE_SOFTWARE_OPTIONS, config.sourceSoftware);
   const conversionGoal = value(CONVERSION_GOAL_OPTIONS, config.conversionGoal);
+  const conversionLogic =
+    config.conversionLogic === "custom"
+      ? config.customSelections.conversionLogic ||
+        value(CONVERSION_LOGIC_OPTIONS, config.conversionLogic)
+      : value(CONVERSION_LOGIC_OPTIONS, config.conversionLogic);
   const techniques = config.photography.techniques.map((id) =>
     value(TECHNIQUE_OPTIONS, id),
   );
 
   const output = {
     图生图任务指令: {
-      图生图任务: `将${source}转换为${config.conversionGoal === "photoreal-photo" ? "真实室内摄影照片" : "写实商业效果图"}`,
-      转换逻辑: conversionGoal,
+      图生图任务:
+        config.conversionGoal === "custom"
+          ? config.customSelections.conversionGoal || conversionGoal
+          : `将${source}转换为${config.conversionGoal === "photoreal-photo" ? "真实室内摄影照片" : "写实商业效果图"}`,
+      转换逻辑: conversionLogic,
     },
     场景类型: {
       空间类型: value(SPACE_TYPE_OPTIONS, config.scene.spaceType),
@@ -201,6 +227,159 @@ export function compileInteriorDesignPrompt(
         : {}),
     },
   };
+
+  const customAliases: Record<string, string[]> = {
+    "lighting.timeOfDay": ["时间"],
+    "lighting.interiorLight": ["室内灯光"],
+    "photography.camera": ["相机"],
+    "photography.focalLength": ["焦距"],
+    "photography.aperture": ["光圈"],
+    "photography.shutterSpeed": ["快门"],
+    "photography.iso": ["ISO"],
+  };
+  const customText = (path: string, fallback: string) =>
+    config.customSelections[path] ||
+    customAliases[path]
+      ?.map((alias) => config.customSelections[alias])
+      .find(Boolean) ||
+    fallback;
+  const replaceCustom = (selected: string, path: string, fallback: string) =>
+    selected === "custom" ? customText(path, fallback) : fallback;
+
+  output.场景类型.空间类型 = replaceCustom(
+    config.scene.spaceType,
+    "scene.spaceType",
+    output.场景类型.空间类型,
+  );
+  output.场景类型.设计风格 = replaceCustom(
+    config.scene.designStyle,
+    "scene.designStyle",
+    output.场景类型.设计风格,
+  );
+  output.场景类型.外景类型 = replaceCustom(
+    config.scene.exteriorView,
+    "scene.exteriorView",
+    output.场景类型.外景类型,
+  );
+  output.场景类型.地点 = replaceCustom(
+    config.scene.location,
+    "scene.location",
+    output.场景类型.地点,
+  );
+
+  output.光影氛围类型.季节 = replaceCustom(
+    config.lighting.season,
+    "lighting.season",
+    output.光影氛围类型.季节,
+  );
+  output.光影氛围类型.天气 = replaceCustom(
+    config.lighting.weather,
+    "lighting.weather",
+    output.光影氛围类型.天气,
+  );
+  output.光影氛围类型.时间段 = replaceCustom(
+    config.lighting.timeOfDay,
+    "lighting.timeOfDay",
+    output.光影氛围类型.时间段,
+  );
+  output.光影氛围类型.窗帘类型 = replaceCustom(
+    config.lighting.curtainType,
+    "lighting.curtainType",
+    output.光影氛围类型.窗帘类型,
+  );
+  output.光影氛围类型.太阳光光影 = replaceCustom(
+    config.lighting.sunlightEffect,
+    "lighting.sunlightEffect",
+    output.光影氛围类型.太阳光光影,
+  );
+  output.光影氛围类型.室内光 = replaceCustom(
+    config.lighting.interiorLight,
+    "lighting.interiorLight",
+    output.光影氛围类型.室内光,
+  );
+  output.光影氛围类型.室内灯光色温 = replaceCustom(
+    config.lighting.colorTemperature,
+    "lighting.colorTemperature",
+    output.光影氛围类型.室内灯光色温,
+  );
+  output.光影氛围类型.后期色调 = replaceCustom(
+    config.lighting.colorGrading,
+    "lighting.colorGrading",
+    output.光影氛围类型.后期色调,
+  );
+  output.光影氛围类型.光影品质 = replaceCustom(
+    config.lighting.tonalQuality,
+    "lighting.tonalQuality",
+    output.光影氛围类型.光影品质,
+  );
+  output.光影氛围类型.人物宠物配置 = replaceCustom(
+    config.lighting.occupants,
+    "lighting.occupants",
+    output.光影氛围类型.人物宠物配置,
+  );
+
+  output.摄影参数.相机型号 = replaceCustom(
+    config.photography.camera,
+    "photography.camera",
+    output.摄影参数.相机型号,
+  );
+  output.摄影参数.光圈 = replaceCustom(
+    config.photography.aperture,
+    "photography.aperture",
+    output.摄影参数.光圈,
+  );
+  output.摄影参数.快门速度 = replaceCustom(
+    config.photography.shutterSpeed,
+    "photography.shutterSpeed",
+    output.摄影参数.快门速度,
+  );
+  output.摄影参数.ISO = replaceCustom(
+    config.photography.iso,
+    "photography.iso",
+    output.摄影参数.ISO,
+  );
+  output.摄影参数.全画幅等效焦距 = replaceCustom(
+    config.photography.focalLength,
+    "photography.focalLength",
+    output.摄影参数.全画幅等效焦距,
+  );
+  output.摄影参数.拍摄技法 = output.摄影参数.拍摄技法.map((item, index) =>
+    config.photography.techniques[index] === "custom"
+      ? customText("photography.techniques", item)
+      : item,
+  );
+
+  output.核心约束.几何保真度 = replaceCustom(
+    config.constraints.geometryFidelity,
+    "constraints.geometryFidelity",
+    output.核心约束.几何保真度,
+  );
+  output.核心约束.物体完整一致性 = replaceCustom(
+    config.constraints.objectConsistency,
+    "constraints.objectConsistency",
+    output.核心约束.物体完整一致性,
+  );
+  output.核心约束.材质完整一致性 = replaceCustom(
+    config.constraints.materialConsistency,
+    "constraints.materialConsistency",
+    output.核心约束.材质完整一致性,
+  );
+  output.出图参数.出图比例 = replaceCustom(
+    config.output.aspectRatio,
+    "output.aspectRatio",
+    output.出图参数.出图比例,
+  );
+  output.出图参数.分辨率 = replaceCustom(
+    config.output.promptResolution,
+    "output.promptResolution",
+    output.出图参数.分辨率,
+  );
+
+  const customEntries = Object.entries(config.customSelections);
+  if (customEntries.length > 0) {
+    (output as Record<string, unknown>)["自定义参数"] =
+      Object.fromEntries(customEntries);
+  }
 
   return JSON.stringify(output, null, 2);
 }

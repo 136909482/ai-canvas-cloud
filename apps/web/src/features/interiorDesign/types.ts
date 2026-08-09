@@ -2,7 +2,10 @@ export type InteriorSourceSoftware =
   "sketchup" | "kujiale" | "3ds-max" | "existing-render" | "custom";
 
 export type InteriorConversionGoal =
-  "photoreal-photo" | "realistic-visualization";
+  "photoreal-photo" | "realistic-visualization" | "custom";
+
+export type InteriorConversionLogic =
+  "pbr-photoreal" | "realistic-visualization" | "custom";
 
 export type InteriorPresetId =
   | "diffuse-daylight"
@@ -52,8 +55,8 @@ export interface InteriorConstraintConfig {
 }
 
 export interface InteriorOutputConfig {
-  aspectRatio: "original" | "16:9" | "4:3" | "1:1" | "3:4" | "9:16";
-  promptResolution: "4K" | "8K";
+  aspectRatio: "original" | "16:9" | "4:3" | "1:1" | "3:4" | "9:16" | "custom";
+  promptResolution: "4K" | "8K" | "custom";
 }
 
 export interface InteriorDesignConfigV1 {
@@ -62,12 +65,15 @@ export interface InteriorDesignConfigV1 {
   sourceSoftware: InteriorSourceSoftware;
   customSourceSoftware: string;
   conversionGoal: InteriorConversionGoal;
+  conversionLogic: InteriorConversionLogic;
   scene: InteriorSceneConfig;
   lighting: InteriorLightingConfig;
   photography: InteriorPhotographyConfig;
   constraints: InteriorConstraintConfig;
   output: InteriorOutputConfig;
   customRequirement: string;
+  /** 用户为任意下拉/选项组填写的自定义值，键使用字段路径。 */
+  customSelections: Record<string, string>;
 }
 
 export interface InteriorOption<T extends string = string> {

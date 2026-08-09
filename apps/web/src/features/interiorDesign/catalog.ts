@@ -1,5 +1,6 @@
 import type {
   InteriorConversionGoal,
+  InteriorConversionLogic,
   InteriorDesignConfigV1,
   InteriorOption,
   InteriorPreset,
@@ -32,7 +33,22 @@ export const CONVERSION_GOAL_OPTIONS = [
     "写实商业效果图",
     "转换为高完成度的写实商业表现图，兼顾设计表达、材质层次和空间氛围",
   ),
+  option("custom", "➕ 自定义", "用户自定义图生图任务类型"),
 ] satisfies InteriorOption<InteriorConversionGoal>[];
+
+export const CONVERSION_LOGIC_OPTIONS = [
+  option(
+    "pbr-photoreal",
+    "真实摄影照片（PBR超写实物理材质）",
+    "基于模型截图进行写实转换，将所有模型表面替换为高精度 PBR 物理写实材质，严格遵循物理渲染原理，光影、反射、折射完全物理正确，具备真实粗糙度、金属度与法线细节，材质表现完全符合现实世界物理规律。",
+  ),
+  option(
+    "realistic-visualization",
+    "写实效果图",
+    "由模型截图渲染生成高清超写实照片级室内效果图，核心强化多层自然光影、明暗过渡层次与精细表面肌理，完全还原真实物理光照、光线追踪 Ray Tracing、全局光照 GI、柔和漫反射与真实阴影，高精度 PBR 物理材质，表面纹理细腻丰富，质感高度逼真，物理渲染完全正确。",
+  ),
+  option("custom", "➕ 自定义", "用户自定义转换逻辑"),
+] satisfies InteriorOption<InteriorConversionLogic>[];
 
 export const SPACE_TYPE_OPTIONS = [
   option("flat-home", "平层家装", "平层住宅室内空间"),
@@ -47,6 +63,12 @@ export const SPACE_TYPE_OPTIONS = [
   option("manufacturing", "生产制造", "生产、制造或工业功能空间"),
   option("basement-enclosed", "地下室封闭空间", "无自然采光的地下封闭空间"),
   option("commercial-enclosed", "工装封闭空间", "无自然采光的商业封闭空间"),
+  option("courtyard", "庭院空间", "住宅庭院与关联的半室外空间"),
+  option("storefront", "室外门头", "商铺门头与入口展示空间"),
+  option("villa-exterior", "别墅外立面", "别墅或自建房外立面空间"),
+  option("generic-outdoor", "通用室外", "通用建筑室外空间"),
+  option("commercial", "商业工装空间", "商业综合体及公共工装空间"),
+  option("custom", "➕ 自定义", "用户自定义空间类型"),
 ];
 
 export const DESIGN_STYLE_OPTIONS = [
@@ -71,6 +93,18 @@ export const DESIGN_STYLE_OPTIONS = [
   option("japanese", "现代日式", "现代日式风格，克制收纳与自然触感"),
   option("wabi-sabi", "侘寂", "侘寂风格，朴素材料、自然缺陷与安静光线"),
   option("cream", "奶油风", "奶油风格，柔软圆角与低对比暖白色系"),
+  option("french-luxury", "法式轻奢", "法式线脚与精致轻奢材质"),
+  option("baroque", "巴洛克风", "戏剧性曲线、雕饰与浓郁层次"),
+  option("rococo", "洛可可风", "轻盈曲线、柔和色彩与精巧装饰"),
+  option("traditional-chinese", "传统明清中式", "传统中式比例、木作与对称秩序"),
+  option("nordic-wood", "原木北欧风", "自然原木、明亮留白与功能主义"),
+  option("nordic-luxury", "北欧轻奢风", "北欧简洁与精致金属材质结合"),
+  option("japanese-wood", "原木日式风", "原木、留白与自然材质"),
+  option("japanese-zen", "日式禅意风", "克制、留白与禅意自然氛围"),
+  option("outdoor-general", "现代室外设计", "现代建筑与室外空间设计"),
+  option("commercial-general", "现代商业工装设计", "现代商业空间设计语言"),
+  option("courtyard-general", "通用庭院风格", "适配庭院与景观空间的通用风格"),
+  option("custom", "➕ 自定义", "用户自定义设计风格"),
 ];
 
 export const EXTERIOR_VIEW_OPTIONS = [
@@ -87,6 +121,25 @@ export const EXTERIOR_VIEW_OPTIONS = [
   option("courtyard", "庭院", "尺度真实的住宅庭院与景观绿植"),
   option("street", "临街商铺", "真实临街界面、道路与城市生活环境"),
   option("enclosed", "封闭空间无外景", "无窗、无室外景观的封闭空间"),
+  option("campus", "校园景", "校园建筑与绿化景观"),
+  option("wetland", "湿地景观", "湿地水系与自然植被"),
+  option("valley", "山谷景", "山谷地形与远景层次"),
+  option("snow", "雪景", "冬季积雪与冷色环境"),
+  option("villa-background", "别墅/自建房背景", "别墅或自建房周边环境"),
+  option("villa-courtyard", "别墅/庭院背景", "别墅庭院与景观背景"),
+  option("shopfront", "商铺/门头背景", "商铺门头与街道背景"),
+  option("night-shopfront", "夜晚商铺外景", "夜间商业街道与灯光"),
+  option("hongkong-street", "港式街道外景", "港式街区与城市生活氛围"),
+  option("misty-mountain", "深山烟雨", "低饱和灰蓝烟雨山景"),
+  option("autumn-mountain", "秋日深山庭院", "暖调秋日枫红庭院"),
+  option("snow-night-courtyard", "雪夜深山庭院", "冷调静谧雪夜庭院"),
+  option("jiangnan-courtyard", "江南烟雨庭院", "水墨诗意江南庭院"),
+  option("dry-courtyard", "日式枯山水庭院", "极简禅意枯山水庭院"),
+  option("bamboo-courtyard", "晨曦竹林庭院", "清新治愈竹林庭院"),
+  option("starry-courtyard", "星空萤火庭院", "梦幻浪漫夜间庭院"),
+  option("cherry-courtyard", "春樱漫舞庭院", "柔美浪漫樱花庭院"),
+  option("stone-courtyard", "山居石径庭院", "古朴野趣山居庭院"),
+  option("custom", "➕ 自定义", "用户自定义外景类型"),
 ];
 
 export const LOCATION_OPTIONS = [
@@ -102,6 +155,13 @@ export const LOCATION_OPTIONS = [
   option("haikou", "海口", "中国海口"),
   option("hong-kong", "香港", "中国香港"),
   option("enclosed", "封闭空间", "封闭室内，不设地域性外景"),
+  option("harbin", "哈尔滨", "中国哈尔滨"),
+  option("urumqi", "乌鲁木齐", "中国乌鲁木齐"),
+  option("changsha", "长沙", "中国长沙"),
+  option("taipei", "台北", "中国台北"),
+  option("core-business", "城市核心商圈", "城市核心商业区"),
+  option("southern-mountain", "南方深山地区", "南方山地气候与自然环境"),
+  option("custom", "➕ 自定义", "用户自定义地点"),
 ];
 
 export const SEASON_OPTIONS = [
@@ -110,6 +170,7 @@ export const SEASON_OPTIONS = [
   option("summer", "夏季", "夏季"),
   option("autumn", "秋季", "秋季"),
   option("winter", "冬季", "冬季"),
+  option("custom", "➕ 自定义", "用户自定义季节"),
 ];
 
 export const WEATHER_OPTIONS = [
@@ -119,9 +180,13 @@ export const WEATHER_OPTIONS = [
   option("foggy", "雾天", "轻雾天气，远景层次自然衰减"),
   option("rainy", "雨天", "雨天湿润环境与柔和漫射光"),
   option("snowy", "雪天", "雪天冷色环境光与真实积雪反射"),
+  option("windy", "风天", "风天动态植被与空气氛围"),
+  option("custom", "➕ 自定义", "用户自定义天气"),
 ];
 
 export const TIME_OPTIONS = [
+  option("late-night", "凌晨2点", "凌晨两点"),
+  option("pre-dawn", "黎明4点", "黎明四点"),
   option("dawn", "清晨 6 点", "清晨六点"),
   option("morning", "上午 9 点", "上午九点"),
   option("noon", "中午 12 点", "中午十二点"),
@@ -129,6 +194,9 @@ export const TIME_OPTIONS = [
   option("sunset", "日落 5 点", "日落前后的黄金时刻"),
   option("evening", "傍晚 6 点", "傍晚蓝调时刻"),
   option("night", "夜晚 8 点", "夜晚八点"),
+  option("late-evening", "晚上19点", "晚上七点"),
+  option("midnight", "深夜24点", "深夜零点"),
+  option("custom", "➕ 自定义", "用户自定义时间段"),
 ];
 
 export const CURTAIN_OPTIONS = [
@@ -143,6 +211,8 @@ export const CURTAIN_OPTIONS = [
   option("shangri-la", "香格里拉帘", "香格里拉帘，叶片角度真实"),
   option("dream", "梦幻帘", "垂直梦幻帘，帘片排列自然"),
   option("none", "无窗帘", "无窗帘，保持原始门窗结构"),
+  option("door-open", "无窗帘，有落地窗平开门", "无窗帘，保留落地窗和平开门"),
+  option("custom", "➕ 自定义", "用户自定义窗帘类型"),
 ];
 
 export const SUNLIGHT_OPTIONS = [
@@ -157,6 +227,10 @@ export const SUNLIGHT_OPTIONS = [
   option("dream", "梦幻帘影", "梦幻帘形成柔和竖向光影与渐变"),
   option("sheer", "纱帘柔光", "阳光经过纱帘形成柔和、无硬边的漫射光"),
   option("tyndall", "丁达尔光", "可控的体积光束，方向与窗户位置严格一致"),
+  option("top-spots", "顶部光斑", "顶部自然光斑与柔和反射"),
+  option("outdoor-tree", "室外晴天树影", "窗外晴天树影投射"),
+  option("outdoor-cloudy", "室外阴天", "窗外阴天漫射光"),
+  option("custom", "➕ 自定义", "用户自定义太阳光影"),
 ];
 
 export const INTERIOR_LIGHT_OPTIONS = [
@@ -170,6 +244,7 @@ export const INTERIOR_LIGHT_OPTIONS = [
     "以功能照明为主完整照亮封闭空间，暗部保留细节",
   ),
   option("commercial", "工装功能灯全开", "开启全部商业功能照明并保持真实照度"),
+  option("custom", "➕ 自定义", "用户自定义室内光"),
 ];
 
 export const COLOR_TEMPERATURE_OPTIONS = [
@@ -182,6 +257,7 @@ export const COLOR_TEMPERATURE_OPTIONS = [
     "青橙对比",
     "室外冷青环境光与室内暖橙人工光形成克制对比",
   ),
+  option("custom", "➕ 自定义", "用户自定义灯光色温"),
 ];
 
 export const COLOR_GRADING_OPTIONS = [
@@ -191,6 +267,8 @@ export const COLOR_GRADING_OPTIONS = [
   option("film", "电影胶片", "克制的电影胶片色彩与细微颗粒"),
   option("white-neutral", "白中性", "干净白中性色彩，不偏青不偏黄"),
   option("teal-orange", "青橙调色", "低饱和青橙对比调色"),
+  option("gray-blue", "低饱和灰蓝烟雨色调", "低饱和灰蓝烟雨色调"),
+  option("custom", "➕ 自定义", "用户自定义后期色调"),
 ];
 
 export const TONAL_QUALITY_OPTIONS = [
@@ -200,6 +278,8 @@ export const TONAL_QUALITY_OPTIONS = [
   option("cinematic", "电影质感", "电影级影调，层次丰富且高光受控"),
   option("natural", "自然纪实", "自然纪实影调，最少后期干预"),
   option("teal-orange", "青橙对比", "青橙对比影调，冷暖层次明确"),
+  option("gray-blue", "低饱和灰蓝烟雨影调", "低饱和灰蓝烟雨影调"),
+  option("custom", "➕ 自定义", "用户自定义光影品质"),
 ];
 
 export const OCCUPANT_OPTIONS = [
@@ -217,6 +297,12 @@ export const OCCUPANT_OPTIONS = [
   ),
   option("cat", "一只猫", "加入一只尺度真实、姿态自然的猫"),
   option("dog", "一只狗", "加入一只尺度真实、姿态自然的狗"),
+  option("zen-person", "禅意雅致文人风人物", "加入禅意雅致的文人风人物"),
+  option("family-person", "亲子空间人物", "加入自然互动的亲子人物"),
+  option("wood-relaxed", "原木风慵懒松弛人物", "加入原木风居家人物"),
+  option("bedroom-relaxed", "卧室慵懒风人物", "加入卧室休闲人物"),
+  option("motion-person-2", "2位动态虚影人物", "加入两位长曝光动态虚影人物"),
+  option("custom", "➕ 自定义", "用户自定义人物或宠物"),
 ];
 
 export const CAMERA_OPTIONS = [
@@ -230,6 +316,9 @@ export const CAMERA_OPTIONS = [
   option("sony-a7rv", "Sony A7R V", "Sony A7R V 全画幅相机"),
   option("canon-r5", "Canon R5", "Canon R5 全画幅相机"),
   option("iphone", "iPhone Pro", "高端手机主摄的自然计算摄影效果"),
+  option("leica-m11", "Leica M11", "Leica M11 全画幅相机"),
+  option("iphone17", "iPhone17 pro max", "iPhone17 pro max 主摄计算摄影"),
+  option("custom", "➕ 自定义", "用户自定义相机型号"),
 ];
 
 export const APERTURE_OPTIONS = [
@@ -238,14 +327,20 @@ export const APERTURE_OPTIONS = [
   option("f5.6", "f/5.6", "f/5.6 均衡光圈"),
   option("f8", "f/8", "f/8 建筑摄影常用光圈"),
   option("f11", "f/11", "f/11 大景深光圈"),
+  option("phone-f1.6", "主摄 f/1.6（手机专用）", "手机主摄 f/1.6"),
+  option("custom", "➕ 自定义", "用户自定义光圈"),
 ];
 
 export const SHUTTER_OPTIONS = [
+  option("1/1000s", "1/1000s", "极速快门"),
   option("1/250s", "1/250s", "1/250 秒快门"),
   option("1/60s", "1/60s", "1/60 秒快门"),
   option("1/30s", "1/30s", "1/30 秒慢速快门"),
   option("1s", "1s", "1 秒长曝光"),
   option("5s", "5s", "5 秒长曝光"),
+  option("30s", "30s", "30 秒超长曝光"),
+  option("1/15s", "1/15s（手机专用）", "手机低速快门"),
+  option("custom", "➕ 自定义", "用户自定义快门速度"),
 ];
 
 export const ISO_OPTIONS = [
@@ -254,6 +349,8 @@ export const ISO_OPTIONS = [
   option("200", "ISO 200", "ISO 200"),
   option("400", "ISO 400", "ISO 400"),
   option("800", "ISO 800", "ISO 800"),
+  option("1600", "ISO 1600", "ISO 1600"),
+  option("custom", "➕ 自定义", "用户自定义 ISO"),
 ];
 
 export const FOCAL_LENGTH_OPTIONS = [
@@ -262,6 +359,8 @@ export const FOCAL_LENGTH_OPTIONS = [
   option("28mm", "28mm 广角", "28mm 全画幅等效焦距"),
   option("48mm", "48mm 标准", "48mm 全画幅等效焦距"),
   option("90mm", "90mm 中长焦", "90mm 全画幅等效焦距"),
+  option("135mm", "135mm 长焦", "135mm 全画幅等效焦距"),
+  option("custom", "➕ 自定义", "用户自定义焦距"),
 ];
 
 export const TECHNIQUE_OPTIONS = [
@@ -270,6 +369,7 @@ export const TECHNIQUE_OPTIONS = [
   option("hdr", "HDR 包围曝光", "HDR 包围曝光，窗外不过曝、暗部不死黑"),
   option("tilt-shift", "移轴矫正", "移轴透视矫正，建筑竖线保持垂直"),
   option("tripod", "三脚架长曝", "稳定三脚架长曝光"),
+  option("custom", "➕ 自定义", "用户自定义拍摄技法"),
 ];
 
 export const GEOMETRY_OPTIONS = [
@@ -284,6 +384,7 @@ export const GEOMETRY_OPTIONS = [
     "保持主要几何与空间结构，仅允许不影响设计逻辑的局部微调",
   ),
   option("hard-finish", "硬装不动", "禁止改动硬装和建筑结构，允许优化家具布局"),
+  option("custom", "➕ 自定义", "用户自定义几何保真约束"),
 ];
 
 export const OBJECT_OPTIONS = [
@@ -295,6 +396,7 @@ export const OBJECT_OPTIONS = [
     "硬装保持一致，允许替换可移动家具与软装",
   ),
   option("replace-all", "允许整体替换", "保持建筑结构，允许替换软装与饰面材料"),
+  option("custom", "➕ 自定义", "用户自定义物体一致性约束"),
 ];
 
 export const MATERIAL_OPTIONS = [
@@ -304,6 +406,7 @@ export const MATERIAL_OPTIONS = [
     "允许优化材质",
     "保持材料类型与分区，提升纹理尺度、粗糙度和物理质感",
   ),
+  option("custom", "➕ 自定义", "用户自定义材质一致性约束"),
 ];
 
 export const ASPECT_RATIO_OPTIONS = [
@@ -313,11 +416,13 @@ export const ASPECT_RATIO_OPTIONS = [
   option("1:1", "1:1 方形", "1:1 方形构图"),
   option("3:4", "3:4 竖构图", "3:4 竖向构图"),
   option("9:16", "9:16 竖构图", "9:16 竖向构图"),
+  option("custom", "➕ 自定义", "用户自定义出图比例"),
 ];
 
 export const PROMPT_RESOLUTION_OPTIONS = [
   option("4K", "4K", "4K 超高清细节描述"),
   option("8K", "8K", "8K 级超精细完整细节描述"),
+  option("custom", "➕ 自定义", "用户自定义分辨率"),
 ];
 
 export const DEFAULT_INTERIOR_CONFIG: InteriorDesignConfigV1 = {
@@ -326,6 +431,7 @@ export const DEFAULT_INTERIOR_CONFIG: InteriorDesignConfigV1 = {
   sourceSoftware: "sketchup",
   customSourceSoftware: "",
   conversionGoal: "photoreal-photo",
+  conversionLogic: "pbr-photoreal",
   scene: {
     spaceType: "flat-home",
     designStyle: "modern-general",
@@ -362,6 +468,7 @@ export const DEFAULT_INTERIOR_CONFIG: InteriorDesignConfigV1 = {
   },
   output: { aspectRatio: "original", promptResolution: "8K" },
   customRequirement: "",
+  customSelections: {},
 };
 
 function preset(
@@ -469,7 +576,9 @@ export function applyInteriorPreset(
   next.sourceSoftware = current.sourceSoftware;
   next.customSourceSoftware = current.customSourceSoftware;
   next.conversionGoal = current.conversionGoal;
+  next.conversionLogic = current.conversionLogic;
   next.customRequirement = current.customRequirement;
+  next.customSelections = { ...(current.customSelections ?? {}) };
   return next;
 }
 
