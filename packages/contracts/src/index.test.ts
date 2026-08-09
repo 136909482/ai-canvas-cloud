@@ -30,6 +30,10 @@ import {
 test("contracts expose stable API error codes", () => {
   assert(apiErrorCodes.includes("PROJECT_VERSION_CONFLICT"));
   assert(apiErrorCodes.includes("USERNAME_UNAVAILABLE"));
+  assert(apiErrorCodes.includes("PUBLIC_NICKNAME_UNAVAILABLE"));
+  assert(apiErrorCodes.includes("COMMUNITY_POST_NOT_FOUND"));
+  assert(apiErrorCodes.includes("COMMUNITY_ASSET_NOT_ALLOWED"));
+  assert(apiErrorCodes.includes("COMMUNITY_POST_STATE_INVALID"));
   assert.equal(
     apiErrorCodes.includes("PROVIDER_CAPABILITY_UNSUPPORTED" as never),
     false,

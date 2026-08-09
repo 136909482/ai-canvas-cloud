@@ -285,7 +285,7 @@ export function suggestModelCategory(modelId: string): {
 } {
   const normalized = modelId.toLowerCase();
   if (
-    /(?:dall-e|flux|stable[-_ ]?diffusion|(?:^|[-_/])sd(?:[-_/]|$)|image)/.test(
+    /(?:dall-e|flux|nano[-_ ]?banana|stable[-_ ]?diffusion|(?:^|[-_/])sd(?:[-_/]|$)|image)/.test(
       normalized,
     )
   ) {

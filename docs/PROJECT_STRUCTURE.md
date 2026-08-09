@@ -30,6 +30,7 @@ server/
     assets/            上传、读取、动态加密 S3 配置、配额、诊断和 GC
     generation-telemetry/ 脱敏生成 attempt 校验、幂等收口与授权
     announcements/      站内通知发布生命周期、用户时间线和已读回执
+    community/           公开资料、投稿、审核状态机、撤回和举报
     migrations/        目录包预检、暂存、commit 和导出
     admin/             Admin 认证、RBAC、用户运营、设置和审计
 
@@ -103,6 +104,8 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 - `mail` 是 API 与 Admin API 共用的受控 SMTP 执行层；它不读取 HTTP 请求或数据库，主密钥只由两个服务器入口注入。
 
 普通 API 只注册当前路由清单，不提供 Provider 代理、官方模型、积分或服务器任务路由。
+
+`server/modules/community/` 独占公开昵称、投稿授权、帖子状态机、撤回和举报；`apps/api/src/fastify/routes/community.ts` 提供资料、投稿、我的投稿、撤回和举报路由。`apps/admin-api/src/fastify/routes/community.ts` 提供审核和举报处理路由。Web 在个人资料设置中显示我的投稿，并在有稳定 Cloud asset ID 的图片节点工具栏提供投稿入口。社区复用 `auth`、`workspaces` 和 `assets` 的授权与资产能力，不直接修改项目图；Admin 只读审核所需的最小社区字段，不读取 Provider Vault、项目正文或对象 key，社区列表不依赖浏览器本地生成任务。
 
 ### 数据库与部署
 

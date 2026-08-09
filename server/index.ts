@@ -6,6 +6,7 @@ export * from "./modules/assets/index.js";
 export * from "./modules/admin/index.js";
 export * from "./modules/announcements/index.js";
 export * from "./modules/auth/index.js";
+export * from "./modules/community/index.js";
 export * from "./modules/generation-telemetry/index.js";
 export * from "./modules/mail/index.js";
 export * from "./modules/migrations/index.js";

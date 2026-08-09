@@ -12,6 +12,7 @@ import {
   createAdminAssetCleanupService,
   createPostgresAdminUserOperationsService,
   createPostgresAdminAnnouncementService,
+  createPostgresAdminCommunityModerationService,
   createPostgresPool,
   createManagedS3ObjectStorage,
   createObjectStorageCredentialKeyring,
@@ -99,6 +100,11 @@ const announcementService = createPostgresAdminAnnouncementService(pool, {
   adminService,
   auditSecret: config.betterAuthSecret,
 });
+const communityModerationService =
+  createPostgresAdminCommunityModerationService(pool, {
+    adminService,
+    auditSecret: config.betterAuthSecret,
+  });
 const readinessChecks = {
   postgres: () =>
     measureDependencyCheck(async () => {
@@ -126,6 +132,7 @@ const serverOptions = {
   assetCleanupService,
   userOperationsService,
   announcementService,
+  communityModerationService,
   logger,
   metrics,
   readinessChecks,

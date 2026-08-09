@@ -14,8 +14,10 @@ test("schema release manifest describes the current baseline and repair", () => 
     "0038_initialize_login_security_settings.sql",
     "0039_add_announcements.sql",
     "0040_add_asset_quota_release.sql",
+    "0041_add_user_public_profiles.sql",
+    "0042_add_community_content.sql",
   ]);
-  assert.equal(result.manifest.migrations.length, 4);
+  assert.equal(result.manifest.migrations.length, 6);
   assert.deepEqual(result.manifest.migrations[0], {
     version: "0001",
     name: "current_schema",
@@ -78,6 +80,74 @@ test("schema release manifest describes the current baseline and repair", () => 
       "rerun the idempotent ALTER TABLE and verify the column exists",
     backupRequired: false,
   });
+  assert.deepEqual(result.manifest.migrations[4], {
+    version: "0041",
+    name: "add_user_public_profiles",
+    releaseTrain: "community-public-profile",
+    phase: "expand",
+    oldAppReadable: true,
+    newAppReadable: true,
+    oldAppWithNewSchema: true,
+    lockRisk: "low",
+    statementTimeoutMs: 30000,
+    rollback:
+      "drop user_public_profiles only before any public profile or consent is stored",
+    forwardRepair:
+      "rerun the idempotent profile table and index creation migration",
+    backupRequired: false,
+  });
+  assert.deepEqual(result.manifest.migrations[5], {
+    version: "0042",
+    name: "add_community_content",
+    releaseTrain: "community-submission-moderation",
+    phase: "expand",
+    oldAppReadable: true,
+    newAppReadable: true,
+    oldAppWithNewSchema: true,
+    lockRisk: "low",
+    statementTimeoutMs: 30000,
+    rollback:
+      "drop community_reports, community_post_tags and community_posts only before accepting the first submission",
+    forwardRepair:
+      "rerun the idempotent community content table and index creation migration, then reprovision database roles",
+    backupRequired: false,
+  });
+});
+
+test("community content migration adds moderated posts, tags, reports and asset protection indexes", async () => {
+  const sql = await readFile(
+    join(
+      process.cwd(),
+      "server",
+      "db",
+      "migrations",
+      "0042_add_community_content.sql",
+    ),
+    "utf8",
+  );
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS public\.community_posts/);
+  assert.match(sql, /submission_idempotency_key/);
+  assert.match(sql, /pending_review/);
+  assert.match(sql, /community_posts_asset_protection_idx/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS public\.community_reports/);
+  assert.doesNotMatch(sql, /DROP\s+(?:TABLE|COLUMN|DATABASE)/i);
+});
+
+test("community profile migration stores a bounded public identity and versioned consent", async () => {
+  const sql = await readFile(
+    join(
+      process.cwd(),
+      "server",
+      "db",
+      "migrations",
+      "0041_add_user_public_profiles.sql",
+    ),
+    "utf8",
+  );
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS public\.user_public_profiles/);
+  assert.match(sql, /community_consent_version/);
+  assert.match(sql, /ON DELETE CASCADE/);
+  assert.doesNotMatch(sql, /DROP\s+(?:TABLE|COLUMN|DATABASE)/i);
 });
 
 test("asset quota release migration adds an additive nullable timestamp", async () => {

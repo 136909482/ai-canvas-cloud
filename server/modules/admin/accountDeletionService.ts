@@ -506,6 +506,21 @@ export function createPostgresAdminAccountDeletionService(
           `DELETE FROM public.password_reset_email_challenges WHERE email_hash = $1`,
           [challengeHashes[1]],
         );
+        await client.query(
+          `UPDATE public.community_posts
+           SET status = 'withdrawn', withdrawn_at = COALESCE(withdrawn_at, $2::timestamptz),
+               moderation_reason = NULL, updated_at = now()
+           WHERE author_user_id = $1 AND status IN ('pending_review', 'published')`,
+          [normalizedUserId, deletedAt.toISOString()],
+        );
+        await client.query(
+          `DELETE FROM public.community_reports WHERE reporter_user_id = $1`,
+          [normalizedUserId],
+        );
+        await client.query(
+          `DELETE FROM public.user_public_profiles WHERE user_id = $1`,
+          [normalizedUserId],
+        );
 
         const tombstoneUsername = deletedUsername(normalizedUserId);
         await client.query(

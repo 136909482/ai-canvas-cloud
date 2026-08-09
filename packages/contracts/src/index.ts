@@ -8,12 +8,26 @@ export type {
   CanvasThemeMode,
   UpdateCanvasPreferencesRequest,
 } from "./canvasPreferences.js";
+export {
+  COMMUNITY_CONSENT_VERSION,
+  type CommunityProfile,
+  type CommunityProfileResponse,
+  type CommunityProfileStatus,
+  type UpdateCommunityProfileRequest,
+} from "./communityProfile.js";
+export * from "./communityContent.js";
 
 export const apiErrorCodes = [
   "AUTH_REQUIRED",
   "SESSION_EXPIRED",
   "ACTIVE_SESSION_EXISTS",
   "USERNAME_UNAVAILABLE",
+  "PUBLIC_NICKNAME_UNAVAILABLE",
+  "COMMUNITY_POST_NOT_FOUND",
+  "COMMUNITY_ASSET_NOT_ALLOWED",
+  "COMMUNITY_POST_STATE_INVALID",
+  "COMMUNITY_POST_DUPLICATE",
+  "COMMUNITY_REPORT_RATE_LIMITED",
   "EMAIL_NOT_VERIFIED",
   "ACCESS_DENIED",
   "RESOURCE_NOT_FOUND",

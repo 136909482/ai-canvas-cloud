@@ -1,7 +1,13 @@
 ﻿import { memo, useState, useRef, useCallback, useEffect } from "react";
 import { useMemo } from "react";
 import { Handle, Position, type OnResizeEnd } from "@xyflow/react";
-import { Brush, Image as ImageIcon, Maximize, Upload } from "lucide-react";
+import {
+  Brush,
+  Image as ImageIcon,
+  Maximize,
+  Send,
+  Upload,
+} from "lucide-react";
 import { importImageFile } from "@/features/imageImport/runtime";
 import type { AppNodeProps } from "@/types";
 import { useCanvasStore } from "@/store/useCanvasStore";
@@ -22,6 +28,7 @@ import {
 } from "../nodeShell";
 import { getNodeShellClassName } from "../nodeShellClassName";
 import { areNodeContentPropsEqual } from "../nodePropComparators";
+import { CommunitySubmissionDialog } from "@/features/community/CommunitySubmissionDialog";
 
 type ImageNodeProps = AppNodeProps<"imageNode">;
 
@@ -76,6 +83,7 @@ export const ImageNode = memo(function ImageNode({
   const [isDragging, setIsDragging] = useState(false);
   const [imageInfo, setImageInfo] = useState({ width: 0, height: 0, name: "" });
   const [showPreview, setShowPreview] = useState(false);
+  const [showCommunitySubmission, setShowCommunitySubmission] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const storedImageInfo = useMemo(() => {
     const width = getStoredImageDimension(
@@ -328,6 +336,17 @@ export const ImageNode = memo(function ImageNode({
             >
               <Upload className="h-3.5 w-3.5" />
             </button>
+            {data.imageAsset?.assetId ? (
+              <button
+                type="button"
+                onClick={() => setShowCommunitySubmission(true)}
+                className={NODE_TOOLBAR_BUTTON_CLASS_NAME}
+                aria-label="投稿社区"
+                title="投稿社区"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setShowPreview(true)}
@@ -475,6 +494,14 @@ export const ImageNode = memo(function ImageNode({
             </>
           ) : null}
         </ZoomableImagePreview>
+      ) : null}
+      {showCommunitySubmission && data.imageAsset?.assetId && data.imageUrl ? (
+        <CommunitySubmissionDialog
+          assetId={data.imageAsset.assetId}
+          imageUrl={data.imageUrl}
+          defaultTitle={nodeName}
+          onClose={() => setShowCommunitySubmission(false)}
+        />
       ) : null}
     </>
   );

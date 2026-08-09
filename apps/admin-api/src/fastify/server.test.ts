@@ -11,6 +11,7 @@ import type {
   AdminUserOperationsService,
 } from "@ai-canvas-cloud/server/modules/admin";
 import type { AdminAnnouncementService } from "@ai-canvas-cloud/server/modules/announcements";
+import type { AdminCommunityModerationService } from "@ai-canvas-cloud/server/modules/community";
 import { ADMIN_ROUTE_INVENTORY } from "../routeInventory.ts";
 import { closeAdminApiServer } from "../serverLifecycle.ts";
 import { createFastifyAdminApiServer } from "./server.ts";
@@ -123,7 +124,9 @@ function concretePath(path: string) {
   return path
     .replace(":userId", "user_123")
     .replace(":assetId", "123e4567-e89b-42d3-a456-426614174000")
-    .replace(":announcementId", "123e4567-e89b-42d3-a456-426614174001");
+    .replace(":announcementId", "123e4567-e89b-42d3-a456-426614174001")
+    .replace(":postId", "123e4567-e89b-42d3-a456-426614174002")
+    .replace(":reportId", "123e4567-e89b-42d3-a456-426614174003");
 }
 
 function bodyFor(path: string) {
@@ -148,6 +151,7 @@ async function listen(options: { env?: string } = {}) {
     assetCleanupService: serviceProxy<AdminAssetCleanupService>(),
     userOperationsService: serviceProxy<AdminUserOperationsService>(),
     announcementService: serviceProxy<AdminAnnouncementService>(),
+    communityModerationService: serviceProxy<AdminCommunityModerationService>(),
     logger,
     readinessChecks: {
       postgres: async () => ({ ok: true, latencyMs: 1 }),

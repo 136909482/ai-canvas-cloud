@@ -16,6 +16,8 @@ import {
   createWorkspaceAuthorizationService,
   createPostgresWorkspaceUsageService,
   createPostgresCanvasPreferencesService,
+  createPostgresCommunityProfileService,
+  createPostgresCommunityContentService,
   createPostgresMigrationImportService,
   createPostgresMigrationAssetUploadService,
   createPostgresMigrationExportService,
@@ -105,6 +107,8 @@ const workspaceUsageService = createPostgresWorkspaceUsageService(dbPool, {
 const settingsService = createPostgresCanvasPreferencesService(dbPool, {
   authorizationService: workspaceAuthorizationService,
 });
+const communityProfileService = createPostgresCommunityProfileService(dbPool);
+const communityContentService = createPostgresCommunityContentService(dbPool);
 const migrationImportService = createPostgresMigrationImportService(dbPool, {
   authorizationService: workspaceAuthorizationService,
 });
@@ -150,6 +154,8 @@ const serverOptions = {
   projectService,
   workspaceUsageService,
   settingsService,
+  communityProfileService,
+  communityContentService,
   migrationImportService,
   migrationAssetUploadService,
   migrationExportService,

@@ -22,6 +22,7 @@ export const ADMIN_PERMISSIONS = [
   "user.credentials.write",
   "user.delete",
   "announcement.write",
+  "community.moderate",
 ] as const;
 
 export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number];

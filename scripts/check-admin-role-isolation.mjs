@@ -8,8 +8,15 @@ const connections = {
   app: process.env.DATABASE_URL,
   admin: process.env.ADMIN_DATABASE_URL,
 };
-const currentBaselineMigrationVersions = ["0001", "0038", "0039", "0040"];
-const legacyMigrationVersions = Array.from({ length: 39 }, (_, index) =>
+const currentBaselineMigrationVersions = [
+  "0001",
+  "0038",
+  "0039",
+  "0040",
+  "0041",
+  "0042",
+];
+const legacyMigrationVersions = Array.from({ length: 42 }, (_, index) =>
   String(index + 1).padStart(4, "0"),
 );
 
@@ -45,6 +52,11 @@ const expectedPermissions = {
     generationTelemetryRead: true,
     generationTelemetryAttemptRead: true,
     accountErasureWrite: true,
+    communityProfileRead: true,
+    communityProfileWrite: true,
+    communityProfileDelete: true,
+    communityContentRead: true,
+    communityContentWrite: true,
   },
   admin: {
     isSuperuser: false,
@@ -74,6 +86,11 @@ const expectedPermissions = {
     generationTelemetryRead: true,
     generationTelemetryAttemptRead: false,
     accountErasureWrite: true,
+    communityProfileRead: false,
+    communityProfileWrite: false,
+    communityProfileDelete: true,
+    communityContentRead: true,
+    communityContentWrite: true,
   },
 };
 
@@ -103,6 +120,25 @@ for (const [connection, connectionString] of Object.entries(connections)) {
     let generationTelemetryRead = true;
     let generationTelemetryAttemptRead = true;
     let accountErasureWrite = true;
+    const communityProfileRead = await client.query(
+      `SELECT has_table_privilege(current_user, 'public.user_public_profiles', 'SELECT') AS allowed`,
+    );
+    const communityProfileWrite = await client.query(
+      `SELECT has_table_privilege(current_user, 'public.user_public_profiles', 'INSERT,UPDATE') AS allowed`,
+    );
+    const communityProfileDelete = await client.query(
+      `SELECT has_table_privilege(current_user, 'public.user_public_profiles', 'DELETE') AS allowed`,
+    );
+    const communityContentRead = await client.query(
+      `SELECT has_column_privilege(current_user, 'public.community_posts', 'id', 'SELECT')
+           AND has_table_privilege(current_user, 'public.community_post_tags', 'SELECT')
+           AND has_column_privilege(current_user, 'public.community_reports', 'id', 'SELECT') AS allowed`,
+    );
+    const communityContentWrite = await client.query(
+      `SELECT has_column_privilege(current_user, 'public.community_posts', 'status', 'UPDATE')
+           AND has_column_privilege(current_user, 'public.community_reports', 'status', 'UPDATE')
+           AND has_table_privilege(current_user, 'public.community_reports', 'DELETE') AS allowed`,
+    );
     try {
       await client.query('SELECT 1 FROM admin."user" LIMIT 1');
     } catch {
@@ -372,6 +408,11 @@ for (const [connection, connectionString] of Object.entries(connections)) {
       generationTelemetryRead,
       generationTelemetryAttemptRead,
       accountErasureWrite,
+      communityProfileRead: communityProfileRead.rows[0]?.allowed,
+      communityProfileWrite: communityProfileWrite.rows[0]?.allowed,
+      communityProfileDelete: communityProfileDelete.rows[0]?.allowed,
+      communityContentRead: communityContentRead.rows[0]?.allowed,
+      communityContentWrite: communityContentWrite.rows[0]?.allowed,
     };
     console.log({ connection, role: identity.rows[0]?.role, ...permissions });
     assert.deepEqual(

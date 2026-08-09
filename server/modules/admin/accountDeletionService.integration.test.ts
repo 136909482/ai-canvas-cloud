@@ -236,6 +236,14 @@ test(
       );
       await pool.query(
         `
+          INSERT INTO public.user_public_profiles (
+            user_id, public_nickname, community_consent_version, community_consent_at
+          ) VALUES ($1, $2, 1, now())
+        `,
+        [targetId, `Public_${suffix}`],
+      );
+      await pool.query(
+        `
           INSERT INTO public.registration_email_challenges (email_hash, code_hash, expires_at)
           VALUES ($1, repeat('a', 64), now() + interval '10 minutes')
         `,
@@ -329,6 +337,15 @@ test(
         (
           await pool.query(
             `SELECT count(*)::int AS count FROM public."account" WHERE user_id = $1`,
+            [targetId],
+          )
+        ).rows[0]?.count,
+        0,
+      );
+      assert.equal(
+        (
+          await pool.query(
+            `SELECT count(*)::int AS count FROM public.user_public_profiles WHERE user_id = $1`,
             [targetId],
           )
         ).rows[0]?.count,

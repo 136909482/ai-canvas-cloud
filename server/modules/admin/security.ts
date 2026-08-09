@@ -17,12 +17,14 @@ const ROLE_PERMISSIONS: Readonly<
     "user.credentials.write",
     "user.delete",
     "announcement.write",
+    "community.moderate",
   ]),
   operator: new Set([
     "audit.read",
     "dashboard.read",
     "site_config.write",
     "announcement.write",
+    "community.moderate",
   ]),
   support: new Set(["audit.read", "dashboard.read", "user.read", "user.write"]),
   auditor: new Set(["audit.read", "dashboard.read"]),
@@ -64,6 +66,9 @@ export class AdminAccessError extends Error {
     | "OBJECT_STORAGE_CONNECTION_FAILED"
     | "OBJECT_STORAGE_RATE_LIMITED"
     | "ASSET_CLEANUP_FAILED"
+    | "COMMUNITY_POST_NOT_FOUND"
+    | "COMMUNITY_POST_STATE_INVALID"
+    | "COMMUNITY_REPORT_NOT_FOUND"
     | "SERVICE_UNAVAILABLE";
 
   constructor(

@@ -5,6 +5,10 @@ import type {
   AssetService,
 } from "@ai-canvas-cloud/server/modules/assets";
 import type { AuthService } from "@ai-canvas-cloud/server/modules/auth";
+import type {
+  CommunityContentService,
+  CommunityProfileService,
+} from "@ai-canvas-cloud/server/modules/community";
 import type { GenerationTelemetryService } from "@ai-canvas-cloud/server/modules/generation-telemetry";
 import type {
   MigrationAssetUploadService,
@@ -24,6 +28,8 @@ export interface ServerOptions {
   config: ApiConfig;
   logger?: Logger;
   authService?: AuthService;
+  communityProfileService?: CommunityProfileService;
+  communityContentService?: CommunityContentService;
   generationTelemetryService?: GenerationTelemetryService;
   assetService?: AssetService;
   assetCleanupService?: AssetCleanupService;

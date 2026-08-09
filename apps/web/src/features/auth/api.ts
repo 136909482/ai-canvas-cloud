@@ -3,6 +3,7 @@ import {
   type AuthSessionsResponse,
   type AuthSessionResponse,
   type AuthSuccessResponse,
+  type CommunityProfileResponse,
   type LoginRequest,
   type LogoutResponse,
   type PasswordChangeRequest,
@@ -15,6 +16,7 @@ import {
   type RegistrationEmailCodeResponse,
   type RemoveDeviceResponse,
   type RevokeSessionResponse,
+  type UpdateCommunityProfileRequest,
 } from "@ai-canvas-cloud/contracts";
 import { requestCloudJson } from "@/api/cloudApiClient";
 import { getOrCreateDeviceId } from "./deviceIdentity";
@@ -105,6 +107,19 @@ export function resetAuthPassword(input: PasswordResetRequest) {
 export function changeAuthPassword(input: PasswordChangeRequest) {
   return requestCloudJson<PasswordChangeResponse>("/auth/password/change", {
     method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function fetchCommunityProfile() {
+  return requestCloudJson<CommunityProfileResponse>("/community/profile", {
+    method: "GET",
+  });
+}
+
+export function updateCommunityProfile(input: UpdateCommunityProfileRequest) {
+  return requestCloudJson<CommunityProfileResponse>("/community/profile", {
+    method: "PATCH",
     body: JSON.stringify(input),
   });
 }

@@ -9,6 +9,7 @@ import {
   Loader2,
   Maximize,
   Sparkles,
+  Send,
 } from "lucide-react";
 import { CanvasImagePreview } from "@/components/CanvasImagePreview";
 import { StableNodeToolbar } from "@/components/StableNodeToolbar";
@@ -31,6 +32,7 @@ import {
 import { getNodeShellClassName } from "../nodeShellClassName";
 import { areNodeContentPropsEqual } from "../nodePropComparators";
 import { downloadPreviewImage } from "./downloadImage";
+import { CommunitySubmissionDialog } from "@/features/community/CommunitySubmissionDialog";
 
 type GeneratedPreviewNodeProps = AppNodeProps<"generatedPreviewNode">;
 
@@ -245,6 +247,7 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [showPreview, setShowPreview] = useState(false);
+  const [showCommunitySubmission, setShowCommunitySubmission] = useState(false);
   const previewTimestamp = getPreviewTimestamp(data);
   const previewDate = formatPreviewDate(previewTimestamp);
   const actualResolution = formatResolution(data.imageWidth, data.imageHeight);
@@ -425,6 +428,17 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
                 <Download className="h-3.5 w-3.5" />
               )}
             </button>
+            {data.imageAsset?.assetId ? (
+              <button
+                type="button"
+                onClick={() => setShowCommunitySubmission(true)}
+                className={NODE_TOOLBAR_BUTTON_CLASS_NAME}
+                aria-label="投稿社区"
+                title="投稿社区"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setShowPreview(true)}
@@ -611,6 +625,14 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
             </>
           ) : null}
         </ZoomableImagePreview>
+      ) : null}
+      {showCommunitySubmission && data.imageAsset?.assetId && data.imageUrl ? (
+        <CommunitySubmissionDialog
+          assetId={data.imageAsset.assetId}
+          imageUrl={data.imageUrl}
+          defaultTitle={nodeTitle}
+          onClose={() => setShowCommunitySubmission(false)}
+        />
       ) : null}
     </>
   );

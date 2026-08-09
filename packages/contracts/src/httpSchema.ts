@@ -15,6 +15,14 @@ import type {
   CurrentWorkspaceResponse,
   CanvasPreferencesResponse,
   UpdateCanvasPreferencesRequest,
+  CommunityProfileResponse,
+  UpdateCommunityProfileRequest,
+  CommunityPostResponse,
+  CreateCommunityPostRequest,
+  MyCommunityPostsResponse,
+  WithdrawCommunityPostResponse,
+  CreateCommunityReportRequest,
+  CommunityReportResponse,
   CompleteAssetUploadResponse,
   CommitMigrationImportRequest,
   CompleteMigrationImportAssetPartRequest,
@@ -319,6 +327,162 @@ export const AuthSuccessResponseSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
+export const CommunityProfileResponseSchema = Type.Object(
+  {
+    profile: Type.Object(
+      {
+        publicNickname: NullableStringSchema,
+        profileStatus: Type.Union([
+          Type.Literal("active"),
+          Type.Literal("hidden"),
+        ]),
+        communityConsentVersion: Type.Union([Type.Literal(1), Type.Null()]),
+        communityConsentAt: NullableStringSchema,
+        canPost: Type.Boolean(),
+        updatedAt: NullableStringSchema,
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+export const UpdateCommunityProfileRequestSchema = Type.Object(
+  {
+    publicNickname: Type.Optional(
+      Type.Union([Type.String({ minLength: 1, maxLength: 32 }), Type.Null()]),
+    ),
+    communityConsent: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false, minProperties: 1 },
+);
+
+export type CommunityProfileResponseBody = Static<
+  typeof CommunityProfileResponseSchema
+> &
+  CommunityProfileResponse;
+export type UpdateCommunityProfileRequestBody = Static<
+  typeof UpdateCommunityProfileRequestSchema
+> &
+  UpdateCommunityProfileRequest;
+
+const CommunityPostStatusSchema = Type.Union([
+  Type.Literal("pending_review"),
+  Type.Literal("published"),
+  Type.Literal("rejected"),
+  Type.Literal("withdrawn"),
+  Type.Literal("removed"),
+]);
+
+export const CommunityPostSummarySchema = Type.Object(
+  {
+    id: Type.String({ format: "uuid" }),
+    assetId: Type.String({ format: "uuid" }),
+    title: Type.String(),
+    tags: Type.Array(Type.String()),
+    status: CommunityPostStatusSchema,
+    moderationReason: NullableStringSchema,
+    publishedAt: NullableStringSchema,
+    withdrawnAt: NullableStringSchema,
+    createdAt: Type.String(),
+    updatedAt: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+export const CreateCommunityPostRequestSchema = Type.Object(
+  {
+    assetId: Type.String({ format: "uuid" }),
+    title: Type.String({ minLength: 1, maxLength: 120 }),
+    tags: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 24 }), {
+        maxItems: 8,
+      }),
+    ),
+    idempotencyKey: Type.String({ minLength: 1, maxLength: 128 }),
+  },
+  { additionalProperties: false },
+);
+
+export const CommunityPostResponseSchema = Type.Object(
+  { post: CommunityPostSummarySchema },
+  { additionalProperties: false },
+);
+
+export const MyCommunityPostsResponseSchema = Type.Object(
+  {
+    items: Type.Array(CommunityPostSummarySchema),
+    nextCursor: NullableStringSchema,
+  },
+  { additionalProperties: false },
+);
+
+export const WithdrawCommunityPostResponseSchema = CommunityPostResponseSchema;
+
+const CommunityReportReasonSchema = Type.Union([
+  Type.Literal("inappropriate"),
+  Type.Literal("copyright"),
+  Type.Literal("privacy"),
+  Type.Literal("spam"),
+  Type.Literal("other"),
+]);
+
+export const CreateCommunityReportRequestSchema = Type.Object(
+  {
+    reason: CommunityReportReasonSchema,
+    detail: Type.Optional(
+      Type.Union([Type.String({ minLength: 1, maxLength: 500 }), Type.Null()]),
+    ),
+  },
+  { additionalProperties: false },
+);
+
+export const CommunityReportResponseSchema = Type.Object(
+  {
+    report: Type.Object(
+      {
+        id: Type.String({ format: "uuid" }),
+        postId: Type.String({ format: "uuid" }),
+        reason: CommunityReportReasonSchema,
+        status: Type.Union([
+          Type.Literal("pending"),
+          Type.Literal("resolved"),
+          Type.Literal("dismissed"),
+        ]),
+        createdAt: Type.String(),
+        resolvedAt: NullableStringSchema,
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+export type CommunityPostResponseBody = Static<
+  typeof CommunityPostResponseSchema
+> &
+  CommunityPostResponse;
+export type CreateCommunityPostRequestBody = Static<
+  typeof CreateCommunityPostRequestSchema
+> &
+  CreateCommunityPostRequest;
+export type MyCommunityPostsResponseBody = Static<
+  typeof MyCommunityPostsResponseSchema
+> &
+  MyCommunityPostsResponse;
+export type WithdrawCommunityPostResponseBody = Static<
+  typeof WithdrawCommunityPostResponseSchema
+> &
+  WithdrawCommunityPostResponse;
+export type CreateCommunityReportRequestBody = Static<
+  typeof CreateCommunityReportRequestSchema
+> &
+  CreateCommunityReportRequest;
+export type CommunityReportResponseBody = Static<
+  typeof CommunityReportResponseSchema
+> &
+  CommunityReportResponse;
 
 export const RegisterRequestSchema = Type.Object(
   {

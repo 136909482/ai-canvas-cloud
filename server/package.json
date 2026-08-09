@@ -9,6 +9,7 @@
     "./modules/admin": "./dist/modules/admin/index.js",
     "./modules/announcements": "./dist/modules/announcements/index.js",
     "./modules/auth": "./dist/modules/auth/index.js",
+    "./modules/community": "./dist/modules/community/index.js",
     "./modules/generation-telemetry": "./dist/modules/generation-telemetry/index.js",
     "./modules/mail": "./dist/modules/mail/index.js",
     "./modules/migrations": "./dist/modules/migrations/index.js",

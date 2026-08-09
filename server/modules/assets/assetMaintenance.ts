@@ -16,7 +16,11 @@ const MANAGED_OBJECT_KEY_PATTERN = new RegExp(
 export type AssetGcStatus =
   "pending" | "completed" | "failed" | "quarantined" | "deleted";
 export type AssetGcRetentionReason =
-  "current_reference" | "checkpoint_reference" | "grace_period" | "eligible";
+  | "current_reference"
+  | "checkpoint_reference"
+  | "community_reference"
+  | "grace_period"
+  | "eligible";
 
 export interface AssetMaintenanceObject {
   objectKey: string;
@@ -80,6 +84,7 @@ export function parseManagedAssetObjectKey(objectKey: string) {
 export function classifyAssetGcRetention(input: {
   hasCurrentReference: boolean;
   hasCheckpointReference: boolean;
+  hasCommunityReference: boolean;
   gcEligibleAt: string;
   cutoff: Date;
 }): AssetGcRetentionReason {
@@ -88,6 +93,9 @@ export function classifyAssetGcRetention(input: {
   }
   if (input.hasCheckpointReference) {
     return "checkpoint_reference";
+  }
+  if (input.hasCommunityReference) {
+    return "community_reference";
   }
   if (new Date(input.gcEligibleAt).getTime() > input.cutoff.getTime()) {
     return "grace_period";

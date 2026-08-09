@@ -10,6 +10,10 @@ import { createStaticSite } from "@ai-canvas-cloud/server";
 import { createUnavailablePublicSiteConfigService } from "@ai-canvas-cloud/server/modules/admin";
 import { createUnavailableAnnouncementTimelineService } from "@ai-canvas-cloud/server/modules/announcements";
 import { createUnavailableAuthService } from "@ai-canvas-cloud/server/modules/auth";
+import {
+  createUnavailableCommunityContentService,
+  createUnavailableCommunityProfileService,
+} from "@ai-canvas-cloud/server/modules/community";
 import { createUnavailableWorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
 import { createUnavailableGenerationTelemetryService } from "@ai-canvas-cloud/server/modules/generation-telemetry";
 import { createUnavailableAssetService } from "@ai-canvas-cloud/server/modules/assets";
@@ -38,6 +42,7 @@ import { registerMigrationRoutes } from "./routes/migrations.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerAnnouncementRoutes } from "./routes/announcements.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
+import { registerCommunityRoutes } from "./routes/community.js";
 import { APPLICATION_VERSION } from "../applicationVersion.js";
 
 const PUBLIC_SITE_CONTENT_SECURITY_POLICY =
@@ -49,6 +54,12 @@ export async function createFastifyApiServer(options: ServerOptions) {
     createJsonLogger({ level: options.config.logLevel, service: "api" });
   const metrics = options.metrics ?? createMetricsRegistry();
   const authService = options.authService ?? createUnavailableAuthService();
+  const communityProfileService =
+    options.communityProfileService ??
+    createUnavailableCommunityProfileService();
+  const communityContentService =
+    options.communityContentService ??
+    createUnavailableCommunityContentService();
   const siteConfigService =
     options.siteConfigService ?? createUnavailablePublicSiteConfigService();
   const announcementService =
@@ -128,6 +139,11 @@ export async function createFastifyApiServer(options: ServerOptions) {
   });
   registerWorkspaceRoutes(app, { authContext, workspaceUsageService });
   registerSettingsRoutes(app, { authContext, settingsService });
+  registerCommunityRoutes(app, {
+    authContext,
+    communityProfileService,
+    communityContentService,
+  });
   registerAnnouncementRoutes(app, { authContext, announcementService });
   registerTelemetryRoutes(app, { authContext, generationTelemetryService });
   registerAuthRoutes(app, authContext);

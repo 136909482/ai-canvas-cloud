@@ -54,6 +54,7 @@ test("GC retention prioritizes live and checkpoint references before grace", () 
   const base = {
     hasCurrentReference: false,
     hasCheckpointReference: false,
+    hasCommunityReference: false,
     gcEligibleAt: "2026-07-01T00:00:00.000Z",
     cutoff,
   };
@@ -68,6 +69,10 @@ test("GC retention prioritizes live and checkpoint references before grace", () 
   assert.equal(
     classifyAssetGcRetention({ ...base, hasCheckpointReference: true }),
     "checkpoint_reference",
+  );
+  assert.equal(
+    classifyAssetGcRetention({ ...base, hasCommunityReference: true }),
+    "community_reference",
   );
   assert.equal(
     classifyAssetGcRetention({

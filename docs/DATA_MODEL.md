@@ -130,6 +130,37 @@ apply 逐资产加排他锁，并在持锁后的新语句快照中复查当前�
 
 对象存储与 PostgreSQL 不能形成一个事务，收敛顺序固定为“锁后复查 -> 幂等删除对象 -> 更新数据库状态”。提交失败由后续幂等运行收敛。
 
+## 社区公开资料与内容
+
+`0041_add_user_public_profiles.sql` 与 `0042_add_community_content.sql` 已落地用户公开资料、社区帖子、标签和举报表。P11-2 当前事实不包含公开列表、详情或搜索扩展。
+
+### `user_public_profiles`
+
+按 `user_id` 唯一保存 `public_nickname`、`profile_status=active|hidden`、`community_consent_version`、`community_consent_at` 和时间戳。公开昵称与认证用户名分离，允许用户修改，按小写值全局唯一；长度为 1–32 字符。授权版本与时间必须同时为空或同时存在，当前授权版本固定为 1。社区不展示邮箱、用户编号、设备或登录信息。
+
+资料更新锁定普通用户行并要求状态为 `active`；昵称冲突不改写旧资料，撤回授权原子清空版本和时间。删除普通用户行时资料通过外键级联删除；当前账号注销使用保留 tombstone 用户行的流程，因此注销事务会显式删除公开资料并立即释放昵称。社区帖子落地后须在同一注销领域流程中补充帖子撤回与清理。
+
+### 社区帖子、标签与举报
+
+### `community_posts`
+
+保存 `id`、`author_user_id`、`source_workspace_id`、`asset_id`、标题、状态、审核原因、幂等键、发布时间、撤回时间和时间戳。状态为 `pending_review|published|rejected|withdrawn|removed`；作者与幂等键唯一。投稿只能引用当前可信用户当前 workspace、由该用户创建且为 `completed` 的图片资产，不能携带 Prompt、Provider、模型、项目图或私有 URL。
+
+### `community_post_tags`
+
+保存帖子标签和创建时间。标签需规范化、限制长度和数量，并以 `(post_id, tag)` 唯一约束去重。
+
+### `community_reports`
+
+保存帖子、举报用户、受控原因、可选详情、`pending|resolved|dismissed` 状态和处理时间；同一用户对同一帖子只能有一个 pending 举报。举报不向普通用户暴露举报人身份，处理结果写入脱敏 Admin 审计。
+
+### 社区事务与资产生命周期
+
+- 投稿事务锁定并验证 workspace、成员关系和 completed 图片资产；同一资产可以被多个合法帖子引用。
+- `pending_review` 和 `published` 帖子都会保护社区资产；撤回、拒绝和下架不立即删除对象，只释放社区保护引用。只有没有当前项目引用、有效 checkpoint manifest 或 active 社区引用的资产才可进入 GC。
+- 用户注销时，个人 pending/published 帖子进入撤回流程并删除其举报；账号禁用后不得继续投稿。
+- 所有状态变化必须幂等，并保留不含正文、object key 或凭据的管理员脱敏审计。
+
 ## 目录包迁移
 
 ### `migration_imports`

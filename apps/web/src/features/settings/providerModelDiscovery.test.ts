@@ -166,6 +166,17 @@ test("caps discovered models and leaves unknown categories for confirmation", ()
     category: "image",
     requiresConfirmation: false,
   });
+  for (const modelId of [
+    "nano-banana-pro",
+    "nano_banana_pro",
+    "nano banana pro",
+    "models/nano-banana-pro-preview",
+  ]) {
+    assert.deepEqual(suggestModelCategory(modelId), {
+      category: "image",
+      requiresConfirmation: false,
+    });
+  }
   assert.deepEqual(suggestModelCategory("gpt-5.5"), {
     category: "chat",
     requiresConfirmation: false,

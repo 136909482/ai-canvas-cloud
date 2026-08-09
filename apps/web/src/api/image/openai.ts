@@ -151,11 +151,7 @@ export function isGptImageModel(model: string) {
 
 function isGeminiImageModel(model: string) {
   const normalized = model.trim().toLowerCase();
-  return (
-    normalized.includes("gemini") ||
-    normalized.includes("nano-banana") ||
-    normalized.includes("nanobanana")
-  );
+  return normalized.includes("gemini") || /nano[-_ ]?banana/.test(normalized);
 }
 
 function getOpenAiCompatibleImageRequestFamily(

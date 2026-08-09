@@ -31,6 +31,8 @@ function loadMigrations() {
     "0038_initialize_login_security_settings.sql",
     "0039_add_announcements.sql",
     "0040_add_asset_quota_release.sql",
+    "0041_add_user_public_profiles.sql",
+    "0042_add_community_content.sql",
   ]);
   return files.map((fileName) => {
     const match = migrationPattern.exec(fileName);
@@ -90,8 +92,14 @@ async function columnNames(client, schema, table) {
 }
 
 readDotEnv();
-const [baseline, loginSecurityRepair, announcementsMigration] =
-  loadMigrations();
+const [
+  baseline,
+  loginSecurityRepair,
+  announcementsMigration,
+  assetQuotaReleaseMigration,
+  communityProfileMigration,
+  communityContentMigration,
+] = loadMigrations();
 const databaseUrl =
   process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -241,6 +249,59 @@ try {
   const expandedTables = await tableNames(client, publicSchema);
   assert.ok(expandedTables.includes("announcements"));
   assert.ok(expandedTables.includes("announcement_receipts"));
+
+  const assetQuotaReleaseSql = isolatedBaselineSql(
+    assetQuotaReleaseMigration.sql,
+    publicSchema,
+    adminSchema,
+  );
+  await client.query(assetQuotaReleaseSql);
+
+  const communityProfileSql = isolatedBaselineSql(
+    communityProfileMigration.sql,
+    publicSchema,
+    adminSchema,
+  );
+  await client.query(communityProfileSql);
+  await client.query(communityProfileSql);
+  const communityTables = await tableNames(client, publicSchema);
+  assert.ok(communityTables.includes("user_public_profiles"));
+  const profileColumns = await columnNames(
+    client,
+    publicSchema,
+    "user_public_profiles",
+  );
+  for (const column of [
+    "user_id",
+    "public_nickname",
+    "profile_status",
+    "community_consent_version",
+    "community_consent_at",
+  ]) {
+    assert.ok(
+      profileColumns.has(column),
+      `Missing community profile ${column}`,
+    );
+  }
+
+  const communityContentSql = isolatedBaselineSql(
+    communityContentMigration.sql,
+    publicSchema,
+    adminSchema,
+  );
+  await client.query(communityContentSql);
+  await client.query(communityContentSql);
+  const contentTables = await tableNames(client, publicSchema);
+  for (const table of [
+    "community_posts",
+    "community_post_tags",
+    "community_reports",
+  ]) {
+    assert.ok(
+      contentTables.includes(table),
+      `Missing community table ${table}`,
+    );
+  }
 
   await client.query("SET CONSTRAINTS ALL IMMEDIATE");
   await client.query("ROLLBACK");

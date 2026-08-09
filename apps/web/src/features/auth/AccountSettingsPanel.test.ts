@@ -44,6 +44,8 @@ test("account settings renders verified identity and security actions", () => {
   assert.match(markup, /UID 10001/);
   assert.match(markup, /邮箱已验证/);
   assert.match(markup, /修改密码/);
+  assert.match(markup, /社区公开资料/);
+  assert.match(markup, /公开昵称/);
   assert.match(markup, /管理设备/);
   assert.doesNotMatch(markup, /发送验证邮件/);
   assert.doesNotMatch(markup, /验证码/);

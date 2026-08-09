@@ -57,6 +57,34 @@
       "rollback": "drop assets.quota_released_at only before deploying quota-release-aware application code",
       "forwardRepair": "rerun the idempotent ALTER TABLE and verify the column exists",
       "backupRequired": false
+    },
+    {
+      "version": "0041",
+      "name": "add_user_public_profiles",
+      "releaseTrain": "community-public-profile",
+      "phase": "expand",
+      "oldAppReadable": true,
+      "newAppReadable": true,
+      "oldAppWithNewSchema": true,
+      "lockRisk": "low",
+      "statementTimeoutMs": 30000,
+      "rollback": "drop user_public_profiles only before any public profile or consent is stored",
+      "forwardRepair": "rerun the idempotent profile table and index creation migration",
+      "backupRequired": false
+    },
+    {
+      "version": "0042",
+      "name": "add_community_content",
+      "releaseTrain": "community-submission-moderation",
+      "phase": "expand",
+      "oldAppReadable": true,
+      "newAppReadable": true,
+      "oldAppWithNewSchema": true,
+      "lockRisk": "low",
+      "statementTimeoutMs": 30000,
+      "rollback": "drop community_reports, community_post_tags and community_posts only before accepting the first submission",
+      "forwardRepair": "rerun the idempotent community content table and index creation migration, then reprovision database roles",
+      "backupRequired": false
     }
   ]
 }

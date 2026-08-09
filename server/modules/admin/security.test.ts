@@ -38,6 +38,10 @@ test("administrator access requires active status and matching role permission",
     false,
   );
   assert.equal(hasAdminPermission("operator", "security.write"), false);
+  assert.equal(hasAdminPermission("super_admin", "community.moderate"), true);
+  assert.equal(hasAdminPermission("operator", "community.moderate"), true);
+  assert.equal(hasAdminPermission("support", "community.moderate"), false);
+  assert.equal(hasAdminPermission("auditor", "community.moderate"), false);
   for (const role of [
     "super_admin",
     "operator",

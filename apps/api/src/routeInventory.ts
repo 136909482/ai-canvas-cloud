@@ -7,6 +7,7 @@ export type PublicRouteGroup =
   | "migrations"
   | "projects"
   | "settings"
+  | "community"
   | "announcements";
 
 export interface PublicRouteInventoryEntry {
@@ -150,6 +151,42 @@ export const PUBLIC_ROUTE_INVENTORY = [
     path: "/api/v1/settings",
     operationId: "updateCanvasPreferences",
     group: "settings",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/community/profile",
+    operationId: "getCommunityProfile",
+    group: "community",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/community/profile",
+    operationId: "updateCommunityProfile",
+    group: "community",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/community/me/posts",
+    operationId: "listMyCommunityPosts",
+    group: "community",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/community/posts",
+    operationId: "createCommunityPost",
+    group: "community",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/community/posts/:postId/withdraw",
+    operationId: "withdrawCommunityPost",
+    group: "community",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/community/posts/:postId/report",
+    operationId: "reportCommunityPost",
+    group: "community",
   },
   {
     method: "POST",

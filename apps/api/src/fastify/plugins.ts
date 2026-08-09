@@ -27,6 +27,7 @@ const API_ROUTE_GROUPS = new Set([
   "telemetry",
   "workspaces",
   "announcements",
+  "community",
 ]);
 
 const SESSION_PROTECTED_ROUTE_GROUPS = new Set([
@@ -37,6 +38,7 @@ const SESSION_PROTECTED_ROUTE_GROUPS = new Set([
   "telemetry",
   "workspaces",
   "announcements",
+  "community",
 ]);
 const SESSION_PROTECTED_PATHS = PUBLIC_ROUTE_INVENTORY.filter((route) =>
   SESSION_PROTECTED_ROUTE_GROUPS.has(route.group),

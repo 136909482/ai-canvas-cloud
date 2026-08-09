@@ -188,7 +188,7 @@ try {
     `GRANT SELECT, INSERT, UPDATE ON public.announcements TO ${admin}`,
   );
   await client.query(
-    `REVOKE ALL ON public."user", public."session", public."account", public."verification", public.auth_devices, public.workspaces, public.workspace_members, public.workspace_user_state, public.projects, public.project_nodes, public.project_edges, public.project_snapshots, public.assets, public.asset_uploads, public.asset_references, public.migration_imports, public.migration_exports, public.migration_import_asset_uploads, public.generation_telemetry, public.account_erasure_jobs, public.registration_email_challenges, public.password_reset_email_challenges FROM ${admin}`,
+    `REVOKE ALL ON public."user", public."session", public."account", public."verification", public.auth_devices, public.workspaces, public.workspace_members, public.workspace_user_state, public.projects, public.project_nodes, public.project_edges, public.project_snapshots, public.assets, public.asset_uploads, public.asset_references, public.migration_imports, public.migration_exports, public.migration_import_asset_uploads, public.generation_telemetry, public.account_erasure_jobs, public.registration_email_challenges, public.password_reset_email_challenges, public.user_public_profiles, public.community_posts, public.community_post_tags, public.community_reports FROM ${admin}`,
   );
   await client.query(
     `GRANT SELECT (id, user_no, username, display_username, email, email_verified, status, created_at, updated_at) ON public."user" TO ${admin}`,
@@ -309,6 +309,19 @@ try {
     `GRANT UPDATE (created_by_user_id, updated_at) ON public.migration_exports TO ${admin}`,
   );
   await client.query(`GRANT INSERT ON public.account_erasure_jobs TO ${admin}`);
+  await client.query(`GRANT DELETE ON public.user_public_profiles TO ${admin}`);
+  await client.query(
+    `GRANT SELECT (user_id, public_nickname) ON public.user_public_profiles TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT (id, author_user_id, source_workspace_id, asset_id, title, status, moderation_reason, published_at, withdrawn_at, created_at, updated_at),
+           UPDATE (status, moderation_reason, published_at, withdrawn_at, updated_at)
+     ON public.community_posts TO ${admin}`,
+  );
+  await client.query(`GRANT SELECT ON public.community_post_tags TO ${admin}`);
+  await client.query(
+    `GRANT SELECT, DELETE, UPDATE (status, resolved_at) ON public.community_reports TO ${admin}`,
+  );
   await client.query(
     `ALTER DEFAULT PRIVILEGES FOR ROLE ${owner} IN SCHEMA admin GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${admin}`,
   );

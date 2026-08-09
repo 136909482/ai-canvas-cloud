@@ -219,6 +219,50 @@ GET  /api/v1/assets/:assetId/url
 
 GET 只读取当前 workspace 的 completed 资产；`/url` 返回短期私有 URL。跨 workspace、已删除或不存在统一 404，非 completed 不签名。签名 URL 不能长期写入节点、检查点或本地持久化。
 
+## 社区公开资料
+
+```text
+GET   /api/v1/community/profile
+PATCH /api/v1/community/profile
+```
+
+两个接口都要求可信 active session，不接受 `userId` 或 `workspaceId`。GET 返回 `{ profile }`，字段为 `publicNickname`、`profileStatus`、`communityConsentVersion`、`communityConsentAt`、`canPost` 和 `updatedAt`；不返回邮箱、用户编号、设备或认证用户名。
+
+PATCH 至少接受 `publicNickname` 或 `communityConsent` 之一，拒绝未知字段。公开昵称可为 `null` 或规范化后 1–32 字符，只允许 Unicode 字母/数字、空格、下划线、点和连字符，按大小写不敏感全局唯一；冲突返回 `409 PUBLIC_NICKNAME_UNAVAILABLE`。`communityConsent=true` 记录当前版本 1 和接受时间，false 原子清空二者。只有资料状态为 active、账号 active 且授权版本为当前版本时 `canPost=true`。
+
+## 社区内容 API
+
+P11-2 已实现用户投稿、撤回、举报和 Admin 审核状态机。社区公开列表、详情和搜索留在 P11-3；完整 Admin 审核工作台留在 P11-4。
+
+普通用户接口：
+
+```text
+POST /api/v1/community/posts
+POST /api/v1/community/posts/:postId/withdraw
+POST /api/v1/community/posts/:postId/report
+GET  /api/v1/community/me/posts
+```
+
+Admin 接口：
+
+```text
+GET  /admin/v1/community/posts?status=pending_review
+POST /admin/v1/community/posts/:postId/approve
+POST /admin/v1/community/posts/:postId/reject
+POST /admin/v1/community/posts/:postId/remove
+GET  /admin/v1/community/reports
+POST /admin/v1/community/reports/:reportId/resolve
+```
+
+约束：
+
+- `/me/posts` 使用 cursor 分页，按 `created_at DESC, id DESC` 稳定排序，返回当前用户自己的所有状态。
+- 投稿必须携带幂等键；服务端从可信 session 推导 `userId` 和 `workspaceId`，拒绝客户端身份字段参与授权。
+- 投稿必须引用当前 workspace 中当前用户创建的 `completed` 图片资产；P11-2 Admin 响应只返回帖子元数据和 asset ID，不返回对象存储 key。
+- 图片访问使用短期受控地址，不返回 object key、Prompt、Provider、endpoint、真实模型 ID、API Key、项目节点或工作流结构；审核图片受控预览留在 P11-4。
+- 所有社区写操作需要 session、workspace 授权、CSRF/Origin 校验和限流；举报也需要限流。
+- 稳定错误码为 `COMMUNITY_POST_NOT_FOUND`、`COMMUNITY_ASSET_NOT_ALLOWED`、`COMMUNITY_POST_STATE_INVALID`、`COMMUNITY_POST_DUPLICATE` 和 `COMMUNITY_REPORT_RATE_LIMITED`。
+
 ## 导入与导出
 
 导入：

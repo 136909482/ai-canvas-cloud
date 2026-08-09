@@ -40,6 +40,7 @@ import {
   type AuthService,
   type IssuedAuthSession,
 } from "@ai-canvas-cloud/server/modules/auth";
+import type { CommunityProfileService } from "@ai-canvas-cloud/server/modules/community";
 import {
   validateGenerationTelemetryRequest,
   type GenerationTelemetryService,
@@ -965,6 +966,87 @@ function requestText(port: number, path: string) {
       .on("error", reject);
   });
 }
+
+test("community profile routes derive the active user and reject identity fields", async () => {
+  const calls: Array<{ userId: string; input?: unknown }> = [];
+  const communityProfileService: CommunityProfileService = {
+    async get(userId) {
+      calls.push({ userId });
+      return {
+        profile: {
+          publicNickname: null,
+          profileStatus: "active",
+          communityConsentVersion: null,
+          communityConsentAt: null,
+          canPost: false,
+          updatedAt: null,
+        },
+      };
+    },
+    async update(input, userId) {
+      calls.push({ userId, input });
+      return {
+        profile: {
+          publicNickname: input.publicNickname ?? null,
+          profileStatus: "active",
+          communityConsentVersion: input.communityConsent ? 1 : null,
+          communityConsentAt: input.communityConsent
+            ? "2026-08-09T12:00:00.000Z"
+            : null,
+          canPost: input.communityConsent === true,
+          updatedAt: "2026-08-09T12:00:00.000Z",
+        },
+      };
+    },
+  };
+  const server = await createFastifyApiServer({
+    config,
+    authService: createFakeAuthService(),
+    communityProfileService,
+  });
+  const port = await listen(server);
+  const cookie = `${BETTER_AUTH_SESSION_COOKIE_NAME}=signed_session`;
+  try {
+    const unauthorized = await requestJson(port, {
+      method: "GET",
+      path: "/api/v1/community/profile",
+    });
+    assert.equal(unauthorized.statusCode, 401);
+
+    const initial = await requestJson(port, {
+      method: "GET",
+      path: "/api/v1/community/profile",
+      cookie,
+    });
+    assert.equal(initial.statusCode, 200);
+
+    const updated = await requestJson(port, {
+      method: "PATCH",
+      path: "/api/v1/community/profile",
+      cookie,
+      body: { publicNickname: "Canvas User", communityConsent: true },
+    });
+    assert.equal(updated.statusCode, 200);
+    assert.deepEqual(calls, [
+      { userId: "user_1" },
+      {
+        userId: "user_1",
+        input: { publicNickname: "Canvas User", communityConsent: true },
+      },
+    ]);
+
+    const rejected = await requestJson(port, {
+      method: "PATCH",
+      path: "/api/v1/community/profile",
+      cookie,
+      body: { communityConsent: true, userId: "other-user" },
+    });
+    assert.equal(rejected.statusCode, 400);
+    assert.equal(calls.length, 2);
+  } finally {
+    await closeApiServer(server, config.shutdownTimeoutMs);
+  }
+});
 
 test("internal asset cleanup requires its bearer token and returns aggregates only", async () => {
   const calls: boolean[] = [];

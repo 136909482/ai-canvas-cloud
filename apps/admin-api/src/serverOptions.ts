@@ -8,6 +8,7 @@ import type {
   AdminUserOperationsService,
 } from "@ai-canvas-cloud/server/modules/admin";
 import type { AdminAnnouncementService } from "@ai-canvas-cloud/server/modules/announcements";
+import type { AdminCommunityModerationService } from "@ai-canvas-cloud/server/modules/community";
 import type {
   Logger,
   MeasuredDependencyStatus,
@@ -25,6 +26,7 @@ export interface AdminServerOptions {
   assetCleanupService?: AdminAssetCleanupService;
   userOperationsService?: AdminUserOperationsService;
   announcementService?: AdminAnnouncementService;
+  communityModerationService?: AdminCommunityModerationService;
   logger: Logger;
   metrics?: MetricsRegistry;
   readinessChecks?: {

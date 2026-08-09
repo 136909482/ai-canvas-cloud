@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { changeAuthPassword } from "./api";
+import { CommunityProfileSettings } from "./CommunityProfileSettings";
 import { useAuthStore } from "./useAuthStore";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { useSettingsDialogStore } from "@/store/useSettingsDialogStore";
@@ -651,6 +652,8 @@ export function AccountSettingsContent({
             </div>
           </div>
         </section>
+
+        <CommunityProfileSettings />
 
         <section aria-labelledby="account-security-heading">
           <h3

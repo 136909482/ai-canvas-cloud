@@ -22,6 +22,7 @@ interface AssetMaintenanceRow {
   status: AssetGcStatus;
   has_current_reference: boolean;
   has_checkpoint_reference: boolean;
+  has_community_reference: boolean;
   gc_eligible_at: string;
   created_at_cursor: string;
 }
@@ -130,6 +131,13 @@ function assetSelect(lockClause = "") {
           AND s.is_valid
           AND s.asset_manifest_json ? a.id::text
       ) AS has_checkpoint_reference,
+      EXISTS (
+        SELECT 1
+        FROM community_posts cp
+        WHERE cp.asset_id = a.id
+          AND cp.source_workspace_id = a.workspace_id
+          AND cp.status IN ('pending_review', 'published')
+      ) AS has_community_reference,
       to_char(
         CASE
           WHEN a.status = 'pending' THEN GREATEST(a.updated_at, COALESCE(au.expires_at, a.updated_at))
@@ -203,6 +211,13 @@ async function readCleanupAssetBatch(
             AND s.is_valid
             AND s.asset_manifest_json ? a.id::text
         )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM community_posts cp
+          WHERE cp.asset_id = a.id
+            AND cp.source_workspace_id = a.workspace_id
+            AND cp.status IN ('pending_review', 'published')
+        )
         AND (
           CASE
             WHEN a.status = 'pending'
@@ -268,6 +283,7 @@ async function preflightAsset(
   const reason = classifyAssetGcRetention({
     hasCurrentReference: row.has_current_reference,
     hasCheckpointReference: row.has_checkpoint_reference,
+    hasCommunityReference: row.has_community_reference,
     gcEligibleAt: row.gc_eligible_at,
     cutoff,
   });
@@ -318,6 +334,7 @@ async function applyAsset(
     const reason = classifyAssetGcRetention({
       hasCurrentReference: row.has_current_reference,
       hasCheckpointReference: row.has_checkpoint_reference,
+      hasCommunityReference: row.has_community_reference,
       gcEligibleAt: row.gc_eligible_at,
       cutoff,
     });
