@@ -7,10 +7,14 @@ import type {
   MeasuredDependencyStatus,
   MetricsRegistry,
 } from "@ai-canvas-cloud/shared";
-import { adminOperation } from "../helpers.js";
+import type { SystemUpdateService } from "@ai-canvas-cloud/server/modules/admin";
+import type { AdminApiConfig } from "../../config.js";
+import { adminOperation, adminRequestContext } from "../helpers.js";
 import type { AdminFastifyInstance } from "../types.js";
 
 interface SystemRouteOptions {
+  config: AdminApiConfig;
+  systemUpdateService: SystemUpdateService;
   metrics: MetricsRegistry;
   exposeMetrics?: boolean;
   readinessChecks?: {
@@ -32,6 +36,16 @@ export function registerAdminSystemRoutes(
   app: AdminFastifyInstance,
   options: SystemRouteOptions,
 ) {
+  const updateResponses = {
+    200: Type.Object({}, { additionalProperties: true }),
+    202: Type.Object({}, { additionalProperties: true }),
+    401: AdminErrorResponseSchema,
+    403: AdminErrorResponseSchema,
+    409: AdminErrorResponseSchema,
+    500: AdminErrorResponseSchema,
+    503: AdminErrorResponseSchema,
+  };
+
   if (options.exposeMetrics !== false) {
     app.get(
       "/metrics",
@@ -101,5 +115,39 @@ export function registerAdminSystemRoutes(
         checkedAt: new Date().toISOString(),
       });
     },
+  );
+
+  app.get(
+    "/admin/v1/system-update",
+    {
+      schema: {
+        operationId: adminOperation("getAdminSystemUpdate"),
+        tags: ["system"],
+        response: updateResponses,
+      },
+    },
+    async (request) =>
+      options.systemUpdateService.getStatus(
+        adminRequestContext(request, options.config),
+      ),
+  );
+
+  app.post(
+    "/admin/v1/system-update",
+    {
+      schema: {
+        operationId: adminOperation("requestAdminSystemUpdate"),
+        tags: ["system"],
+        response: updateResponses,
+      },
+    },
+    async (request, reply) =>
+      reply
+        .code(202)
+        .send(
+          await options.systemUpdateService.requestUpdate(
+            adminRequestContext(request, options.config),
+          ),
+        ),
   );
 }

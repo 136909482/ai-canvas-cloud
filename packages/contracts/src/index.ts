@@ -16,6 +16,7 @@ export {
   type UpdateCommunityProfileRequest,
 } from "./communityProfile.js";
 export * from "./communityContent.js";
+export * from "./systemUpdate.js";
 
 export const apiErrorCodes = [
   "AUTH_REQUIRED",

@@ -346,6 +346,8 @@ POST /admin/v1/site-config
 GET  /admin/v1/site-assets
 POST /admin/v1/site-assets
 POST /admin/v1/site-assets/:assetId/complete
+GET  /admin/v1/system-update
+POST /admin/v1/system-update
 ```
 
 `GET /auth/csrf` 返回 token 并设置签名 HttpOnly CSRF Cookie。所有 Admin POST 要求精确 Origin、非 cross-site Fetch Metadata 和匹配的 `X-CSRF-Token`。普通用户 Cookie 无效。
@@ -379,6 +381,10 @@ SMTP 上游错误只映射为 `SMTP_HOST_NOT_ALLOWED|SMTP_DNS_FAILED|SMTP_CONNEC
 测试连接和保存都执行候选 Bucket 的 `HeadBucket`、随机对象写入、读回比对和删除；测试不发布，保存验证成功后才原子切换。已有资产时改变存储身份返回 `409 OBJECT_STORAGE_IDENTITY_LOCKED`，revision 冲突返回 `409 OBJECT_STORAGE_CONFIG_CONFLICT`，读写删除失败为 `OBJECT_STORAGE_CONNECTION_FAILED`，限流为 `OBJECT_STORAGE_RATE_LIMITED`。恢复环境要求当前 revision 且 `environmentFallbackConfigured=true`，否则返回 `409 OBJECT_STORAGE_ENVIRONMENT_FALLBACK_UNAVAILABLE`；探针 key、AccessKey 和 SDK 原始错误不进入响应、日志或审计。
 
 资产清理只允许 `super_admin` 通过 `asset_maintenance.write` 使用。preview 和 apply 都是无请求体的 Admin POST，受 Admin session、Origin 与 CSRF 保护；preview 只扫描，apply 必须由界面在 preview 后二次确认。响应只包含 `mode/graceHours/cutoff/scannedAssetCount/reclaimableObjectCount/reclaimableBytes/deletedObjectCount/deletedBytes/missingObjectCount/finalizedMissingAssetCount/retainedAssetCount/truncated/completedAt`，不包含用户、workspace、项目、asset ID 或 object key。执行不可用统一返回 `503 ASSET_CLEANUP_FAILED`。
+
+系统更新只允许 `super_admin` 通过 `system_update.write` 使用，且只在使用 Docker Hub 仓库的单机 registry 部署中启用。`GET /admin/v1/system-update` 读取当前不可变镜像 digest、固定仓库 `stable` 标签的最新 digest 和宿主机任务状态，返回 `enabled/state/updateAvailable/currentDigest/latestDigest/requestId/startedAt/finishedAt/message/checkedAt`；不接受客户端仓库、标签、镜像或目标 URL。仓库查询失败返回 `503 SYSTEM_UPDATE_CHECK_FAILED`。
+
+`POST /admin/v1/system-update` 无请求体，受 Admin Origin、CSRF 和权限校验保护；仅在存在新 digest 且无任务运行时创建固定 UUID 请求并返回 `202 { accepted, requestId, state: "queued" }`。重复请求返回 `409 SYSTEM_UPDATE_IN_PROGRESS`，无可用更新或当前部署不支持在线更新返回 `409|503 SYSTEM_UPDATE_UNAVAILABLE`。成功请求写入脱敏审计；Admin API 不执行 Docker 命令，也不接收 Docker Socket。
 
 `POST /internal/v1/asset-cleanup` 是普通 API 的部署内部端点，不属于公网平台 API。它只接受 Bearer `ASSET_MAINTENANCE_TOKEN` 和严格 `{ "apply": boolean }` JSON，由 Admin API 在部署私网内调用；无密钥或错误密钥返回 `403 ACCESS_DENIED`。该端点执行引用保护、OSS 操作和数据库状态收敛，但仍只返回上述聚合结构。
 

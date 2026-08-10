@@ -43,6 +43,18 @@ export const ADMIN_ROUTE_INVENTORY = [
   },
   {
     method: "GET",
+    path: "/admin/v1/system-update",
+    operationId: "getAdminSystemUpdate",
+    group: "system",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/system-update",
+    operationId: "requestAdminSystemUpdate",
+    group: "system",
+  },
+  {
+    method: "GET",
     path: "/health/ready",
     operationId: "getAdminHealthReady",
     group: "system",

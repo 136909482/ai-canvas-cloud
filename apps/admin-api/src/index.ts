@@ -14,6 +14,7 @@ import {
   createPostgresAdminAnnouncementService,
   createPostgresAdminCommunityModerationService,
   createPostgresPool,
+  createSystemUpdateService,
   createManagedS3ObjectStorage,
   createObjectStorageCredentialKeyring,
   createSmtpCredentialKeyring,
@@ -105,6 +106,12 @@ const communityModerationService =
     adminService,
     auditSecret: config.betterAuthSecret,
   });
+const systemUpdateService = createSystemUpdateService({
+  adminService,
+  directory: config.systemUpdateDirectory,
+  repository: config.systemUpdateRepository,
+  currentImage: config.systemUpdateCurrentImage,
+});
 const readinessChecks = {
   postgres: () =>
     measureDependencyCheck(async () => {
@@ -133,6 +140,7 @@ const serverOptions = {
   userOperationsService,
   announcementService,
   communityModerationService,
+  systemUpdateService,
   logger,
   metrics,
   readinessChecks,

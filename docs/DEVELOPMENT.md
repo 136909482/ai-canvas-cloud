@@ -201,6 +201,8 @@ docker push "hao136909482/ai-canvas-cloud:stable"
 镜像推送完成后记录 Docker Hub 返回的 digest。部署脚本有变化时，用仓库当前版本覆盖服务器同目录的以下文件：
 
 - `deploy.sh`
+- `install-update-service.sh`
+- `update-worker.sh`
 - `reset-prelaunch.sh`
 - `docker-compose.yml`
 - `status.sh`
@@ -227,6 +229,8 @@ sudo bash status.sh
 ```
 
 `deploy.sh` 拉取 `stable` 并按仓库 digest 固定本次部署，等待 PostgreSQL 和 Redis healthcheck 通过后创建 PostgreSQL 自包含备份，再校验配置、运行迁移和数据库角色校验、刷新两个运行时环境文件、重建两个应用并等待存活检查。离线模式则加载归档并按实际 Image ID 固定本次部署。普通站点和 Admin 全部存活后，脚本通过 release 容器读取 `/app/apps/web/dist` 与 `/app/apps/admin-web/dist`，先真实 `GET` 两个正式域名的 HTML，再枚举两套 `/assets/*` 通过对应正式域名预热 EdgeOne，包括懒加载 Chunk。预热固定并发 4、单请求超时 15 秒、失败最多重试 2 次；日志只包含域名、无查询参数的资源路径、状态码和成功/失败汇总。个别资源失败只产生警告，不回滚健康版本；预热无需 Cookie、Token、腾讯云 SecretId/SecretKey 或 EdgeOne 管理 API。
+
+registry 模式下，`deploy.sh` 同时安装并启用 `ai-canvas-cloud-update.path`。Admin“系统更新”只比较固定 `APP_REPOSITORY:stable` 与当前不可变 digest，并把 UUID 请求写入 `secrets/update/`；Admin 容器只挂载该受限目录，不挂载 Docker Socket。宿主机 root `systemd.path` 触发固定 `update-worker.sh`，worker 校验请求后仅调用同目录 `deploy.sh`，继续执行同一套拉取、备份、迁移和健康检查。更新中 Admin 会短暂断开并在恢复后轮询结果。archive 模式不注入更新配置，界面只显示未启用在线更新。部署目录不得包含空白，服务器必须使用 systemd 并提供 `flock`；不得把 worker 改为接受客户端命令、镜像名或任意脚本路径。
 
 发布脚本不会在服务器构建源码，也不会自动回滚 SQL；迁移后的失败保留备份和失败状态，必须按 `DATA_MODEL.md` 的前向修复或隔离恢复流程处理。备份必须复制到另一台设备或独立 OSS Bucket，同机备份不能覆盖整机故障。`status.sh` 分别显示应用是否运行和 PostgreSQL、Redis、OSS 是否全部 ready。正式发布后还应连续请求同一 Hash 资源两次，确认一年 `immutable` 响应头且第二次由 EdgeOne 命中；该项必须在真实域名和真实 EdgeOne 响应头上验收，本地模拟不能代替。
 

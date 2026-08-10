@@ -69,6 +69,28 @@ test("Admin API config supports virtual-hosted object storage", () => {
   assert.equal(config.s3ForcePathStyle, false);
 });
 
+test("Admin API config validates the managed update control boundary", () => {
+  const digest = `sha256:${"a".repeat(64)}`;
+  const config = loadAdminApiConfig({
+    ...baseEnv,
+    SYSTEM_UPDATE_DIRECTORY: "/app/update-control",
+    SYSTEM_UPDATE_REPOSITORY: "hao136909482/ai-canvas-cloud",
+    SYSTEM_UPDATE_CURRENT_IMAGE: `hao136909482/ai-canvas-cloud@${digest}`,
+  });
+  assert.equal(config.systemUpdateDirectory, "/app/update-control");
+  assert.equal(config.systemUpdateRepository, "hao136909482/ai-canvas-cloud");
+  assert.throws(
+    () =>
+      loadAdminApiConfig({
+        ...baseEnv,
+        SYSTEM_UPDATE_DIRECTORY: "relative/update-control",
+        SYSTEM_UPDATE_REPOSITORY: "hao136909482/ai-canvas-cloud",
+        SYSTEM_UPDATE_CURRENT_IMAGE: `hao136909482/ai-canvas-cloud@${digest}`,
+      }),
+    /absolute path/,
+  );
+});
+
 test("Admin API config allows first-run setup without object storage", () => {
   const env = {
     ...baseEnv,

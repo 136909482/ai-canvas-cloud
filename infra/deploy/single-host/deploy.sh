@@ -79,6 +79,7 @@ fi
 
 mkdir -p "$RUNTIME_DIR" "$BACKUP_DIR"
 chmod 700 "$SECRETS_DIR" "$RUNTIME_DIR" "$BACKUP_DIR"
+bash "$SCRIPT_DIR/install-update-service.sh"
 
 ASSET_MAINTENANCE_TOKEN="$(read_env ASSET_MAINTENANCE_TOKEN)"
 if [[ -z "$ASSET_MAINTENANCE_TOKEN" ]]; then

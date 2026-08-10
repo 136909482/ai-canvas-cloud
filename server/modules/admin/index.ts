@@ -11,3 +11,4 @@ export * from "./accountDeletionService.js";
 export * from "./accountErasureMaintenance.js";
 export * from "./types.js";
 export * from "./userOperationsService.js";
+export * from "./systemUpdateService.js";

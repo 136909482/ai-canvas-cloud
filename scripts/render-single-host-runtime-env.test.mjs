@@ -115,6 +115,7 @@ function fixtureValue(key) {
     REDIS_CREDENTIAL_ID: "cloud-production-redis-credential",
     S3_CREDENTIAL_ID: "cloud-production-oss-credential",
     MAIL_CREDENTIAL_ID: "cloud-production-mail-credential",
+    APP_IMAGE_SOURCE: "registry",
     APP_DATABASE_ROLE: "public-role",
     ADMIN_DATABASE_URL:
       "postgresql://admin-role:admin-password@postgres:5432/cloud",
@@ -122,6 +123,8 @@ function fixtureValue(key) {
     ADMIN_BETTER_AUTH_SECRET: "admin-auth-secret-value",
     ADMIN_WEB_PUBLIC_URL: "https://admin.example.com",
     ADMIN_WEB_ALLOWED_ORIGINS: "https://admin.example.com",
+    APP_REPOSITORY: "hao136909482/ai-canvas-cloud",
+    APP_IMAGE: `hao136909482/ai-canvas-cloud@sha256:${"a".repeat(64)}`,
   };
   return values[key] ?? "";
 }
@@ -133,7 +136,15 @@ test("single-host runtime rendering isolates public and admin credentials", () =
   const publicDestination = join(runtimeDirectory, "public.env");
   const adminDestination = join(runtimeDirectory, "admin.env");
   mkdirSync(runtimeDirectory);
-  const keys = [...new Set([...publicKeys, ...adminKeys])];
+  const keys = [
+    ...new Set([
+      ...publicKeys,
+      ...adminKeys,
+      "APP_IMAGE_SOURCE",
+      "APP_REPOSITORY",
+      "APP_IMAGE",
+    ]),
+  ];
   writeFileSync(
     source,
     [
@@ -174,6 +185,19 @@ test("single-host runtime rendering isolates public and admin credentials", () =
       /^ASSET_MAINTENANCE_API_URL=http:\/\/public:8080$/m,
     );
     assert.match(
+      adminRuntime,
+      /^SYSTEM_UPDATE_DIRECTORY=\/app\/update-control$/m,
+    );
+    assert.match(
+      adminRuntime,
+      /^SYSTEM_UPDATE_REPOSITORY=hao136909482\/ai-canvas-cloud$/m,
+    );
+    assert.match(
+      adminRuntime,
+      /^SYSTEM_UPDATE_CURRENT_IMAGE=hao136909482\/ai-canvas-cloud@sha256:[a-f0-9]{64}$/m,
+    );
+    assert.doesNotMatch(publicRuntime, /^SYSTEM_UPDATE_/m);
+    assert.match(
       publicRuntime,
       /^ASSET_MAINTENANCE_TOKEN=asset-maintenance-token-for-tests-123456$/m,
     );
@@ -187,6 +211,49 @@ test("single-host runtime rendering isolates public and admin credentials", () =
     assert.match(
       adminRuntime,
       /^BETTER_AUTH_SECRET=public-auth-secret-value$/m,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("single-host runtime rendering leaves managed updates disabled for archives", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ai-canvas-runtime-archive-"));
+  const runtimeDirectory = join(directory, "runtime");
+  const source = join(directory, "release.env");
+  const publicDestination = join(runtimeDirectory, "public.env");
+  const adminDestination = join(runtimeDirectory, "admin.env");
+  mkdirSync(runtimeDirectory);
+  const keys = [...new Set([...publicKeys, ...adminKeys])];
+  writeFileSync(
+    source,
+    [
+      ...keys.map((key) => `${key}=${fixtureValue(key)}`),
+      "ADMIN_DATABASE_ROLE=admin-role",
+      "APP_IMAGE_SOURCE=archive",
+      `APP_IMAGE=ai-canvas-cloud-single-host:local-${"a".repeat(12)}`,
+      "",
+    ].join("\n"),
+  );
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "scripts/render-single-host-runtime-env.mjs",
+        "--source",
+        source,
+        "--public",
+        publicDestination,
+        "--admin",
+        adminDestination,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(
+      readFileSync(adminDestination, "utf8"),
+      /^SYSTEM_UPDATE_/m,
     );
   } finally {
     rmSync(directory, { recursive: true, force: true });

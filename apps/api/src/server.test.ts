@@ -928,23 +928,6 @@ function requestJson(
   });
 }
 
-async function requestJsonWithFetch(
-  port: number,
-  options: { method: string; path: string; rawBody: string },
-) {
-  const response = await fetch(`http://127.0.0.1:${port}${options.path}`, {
-    method: options.method,
-    headers: { "content-type": "application/json" },
-    body: options.rawBody,
-  });
-  const text = await response.text();
-
-  return {
-    statusCode: response.status,
-    body: text ? (JSON.parse(text) as unknown) : null,
-  };
-}
-
 function requestText(port: number, path: string) {
   return new Promise<{
     statusCode: number;
@@ -1272,17 +1255,22 @@ test("API rejects duplicate keys, invalid encoding, deep JSON and oversized bodi
       );
     }
 
-    const oversizedResponse = await requestJsonWithFetch(port, {
-      method: "POST",
-      path: `${API_V1_PREFIX}/auth/login`,
-      rawBody: `{"email":"${"x".repeat(70 * 1024)}"}`,
-    });
-    assert.equal(oversizedResponse.statusCode, 413, "oversized body");
-    assert.equal(
-      (oversizedResponse.body as { error: { code: string } }).error.code,
-      "VALIDATION_FAILED",
-      "oversized body",
-    );
+    try {
+      const oversizedResponse = await requestJson(port, {
+        method: "POST",
+        path: `${API_V1_PREFIX}/auth/login`,
+        rawBody: `{"email":"${"x".repeat(70 * 1024)}"}`,
+      });
+      assert.equal(oversizedResponse.statusCode, 413, "oversized body");
+      assert.equal(
+        (oversizedResponse.body as { error: { code: string } }).error.code,
+        "VALIDATION_FAILED",
+        "oversized body",
+      );
+    } catch (error) {
+      // Node may reset the socket after Fastify rejects a body over the limit.
+      assert.equal((error as NodeJS.ErrnoException).code, "ECONNRESET");
+    }
     assert.equal(loginCalls, 0);
   } finally {
     await closeApiServer(server, 1_000);

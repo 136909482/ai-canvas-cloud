@@ -9,7 +9,8 @@ export type AdminView =
   | "site"
   | "storage"
   | "smtp"
-  | "audit";
+  | "audit"
+  | "updates";
 
 export interface AdminNavigationItem {
   key: AdminView;
@@ -36,6 +37,7 @@ export const ADMIN_NAVIGATION: readonly AdminNavigationItem[] = [
   { key: "site", label: "网站设置", roles: ["super_admin", "operator"] },
   { key: "storage", label: "对象存储", roles: ["super_admin"] },
   { key: "smtp", label: "邮件服务", roles: ["super_admin"] },
+  { key: "updates", label: "系统更新", roles: ["super_admin"] },
   { key: "audit", label: "管理审计", roles: ALL_ROLES },
   { key: "security", label: "安全状态", roles: ALL_ROLES },
 ];

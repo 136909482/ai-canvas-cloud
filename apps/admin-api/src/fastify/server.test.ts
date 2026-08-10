@@ -9,6 +9,7 @@ import type {
   AdminSiteConfigService,
   AdminSmtpConfigService,
   AdminUserOperationsService,
+  SystemUpdateService,
 } from "@ai-canvas-cloud/server/modules/admin";
 import type { AdminAnnouncementService } from "@ai-canvas-cloud/server/modules/announcements";
 import type { AdminCommunityModerationService } from "@ai-canvas-cloud/server/modules/community";
@@ -66,6 +67,26 @@ const adminService = serviceProxy<AdminService>({
     setCookieHeaders: [],
   }),
   logout: async () => ({ response: { ok: true }, setCookieHeaders: [] }),
+});
+
+const systemUpdateService = serviceProxy<SystemUpdateService>({
+  getStatus: async () => ({
+    enabled: true,
+    state: "idle",
+    updateAvailable: true,
+    currentDigest: `sha256:${"1".repeat(64)}`,
+    latestDigest: `sha256:${"2".repeat(64)}`,
+    requestId: null,
+    startedAt: null,
+    finishedAt: null,
+    message: null,
+    checkedAt: new Date().toISOString(),
+  }),
+  requestUpdate: async () => ({
+    accepted: true,
+    requestId: "00000000-0000-4000-8000-000000000001",
+    state: "queued",
+  }),
 });
 
 function request(
@@ -152,6 +173,7 @@ async function listen(options: { env?: string } = {}) {
     userOperationsService: serviceProxy<AdminUserOperationsService>(),
     announcementService: serviceProxy<AdminAnnouncementService>(),
     communityModerationService: serviceProxy<AdminCommunityModerationService>(),
+    systemUpdateService,
     logger,
     readinessChecks: {
       postgres: async () => ({ ok: true, latencyMs: 1 }),
@@ -192,7 +214,9 @@ test("Admin Fastify registers and serves the complete route inventory", async ()
         route.operationId === "createAdminSiteAsset" ||
           route.operationId === "createAdminAnnouncementDraft"
           ? 201
-          : 200,
+          : route.operationId === "requestAdminSystemUpdate"
+            ? 202
+            : 200,
         `${route.method} ${route.path}: ${response.text}`,
       );
       assert.equal(typeof response.headers["x-request-id"], "string");

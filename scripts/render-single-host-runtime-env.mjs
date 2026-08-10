@@ -134,6 +134,14 @@ const source = argumentValue("--source", defaultSource);
 const publicDestination = argumentValue("--public", defaultPublicDestination);
 const adminDestination = argumentValue("--admin", defaultAdminDestination);
 const values = parseEnv(source);
+const systemUpdateEnvironment =
+  required(values, "APP_IMAGE_SOURCE") === "registry"
+    ? {
+        SYSTEM_UPDATE_DIRECTORY: "/app/update-control",
+        SYSTEM_UPDATE_REPOSITORY: required(values, "APP_REPOSITORY"),
+        SYSTEM_UPDATE_CURRENT_IMAGE: required(values, "APP_IMAGE"),
+      }
+    : {};
 
 if (
   required(values, "BETTER_AUTH_SECRET") ===
@@ -162,6 +170,7 @@ writeEnvironment(adminDestination, values, adminKeys, {
   ADMIN_API_TRUST_PROXY: "true",
   ADMIN_STATIC_SITE_ROOT: "/app/apps/admin-web/dist",
   ASSET_MAINTENANCE_API_URL: "http://public:8080",
+  ...systemUpdateEnvironment,
 });
 
 console.log(

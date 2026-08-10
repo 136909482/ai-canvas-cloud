@@ -55,6 +55,11 @@ const SecurityView = lazy(() =>
 const AuditView = lazy(() =>
   import("./AuditView").then((module) => ({ default: module.AuditView })),
 );
+const SystemUpdateView = lazy(() =>
+  import("./SystemUpdateView").then((module) => ({
+    default: module.SystemUpdateView,
+  })),
+);
 
 type Flow = "loading" | "login" | "app";
 
@@ -95,6 +100,7 @@ function Console({
   else if (view === "site") page = <SiteConfigView />;
   else if (view === "smtp") page = <SmtpSettingsView />;
   else if (view === "storage") page = <ObjectStorageSettingsView />;
+  else if (view === "updates") page = <SystemUpdateView />;
   else page = <AuditView />;
 
   return (

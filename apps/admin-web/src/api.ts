@@ -43,6 +43,8 @@ import type {
   AdminCommunityReportsResponse,
   AdminCommunityUserVisibilityResponse,
   CommunityPostResponse,
+  SystemUpdateRequestResponse,
+  SystemUpdateStatusResponse,
 } from "@ai-canvas-cloud/contracts";
 
 const configuredApiUrl = (
@@ -187,6 +189,12 @@ export const adminApi = {
   },
   dashboard() {
     return request<AdminDashboardResponse>("/admin/v1/dashboard");
+  },
+  systemUpdate() {
+    return request<SystemUpdateStatusResponse>("/admin/v1/system-update");
+  },
+  requestSystemUpdate() {
+    return post<SystemUpdateRequestResponse>("/admin/v1/system-update");
   },
   announcements() {
     return request<AdminAnnouncementsResponse>("/admin/v1/announcements");

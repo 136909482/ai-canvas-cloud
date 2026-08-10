@@ -7,6 +7,7 @@ import {
   isProtectedDeploymentEnvironment,
   type LogLevel,
 } from "@ai-canvas-cloud/shared";
+import { isAbsolute } from "node:path";
 
 export interface AdminApiConfig {
   env: string;
@@ -39,6 +40,9 @@ export interface AdminApiConfig {
   smtpCredentialKeys?: string;
   smtpCredentialActiveKeyVersion: number;
   smtpDevelopmentSecret?: string;
+  systemUpdateDirectory?: string;
+  systemUpdateRepository?: string;
+  systemUpdateCurrentImage?: string;
 }
 
 const LOG_LEVELS = new Set<LogLevel>(["debug", "info", "warn", "error"]);
@@ -124,6 +128,41 @@ export function loadAdminApiConfig(
     "http://127.0.0.1:8787",
   );
   const assetMaintenanceToken = env.ASSET_MAINTENANCE_TOKEN?.trim();
+  const systemUpdateDirectory = env.SYSTEM_UPDATE_DIRECTORY?.trim();
+  const systemUpdateRepository =
+    env.SYSTEM_UPDATE_REPOSITORY?.trim().toLowerCase();
+  const systemUpdateCurrentImage = env.SYSTEM_UPDATE_CURRENT_IMAGE?.trim();
+  const systemUpdateValues = [
+    systemUpdateDirectory,
+    systemUpdateRepository,
+    systemUpdateCurrentImage,
+  ];
+  if (systemUpdateValues.some(Boolean) && !systemUpdateValues.every(Boolean)) {
+    throw new Error(
+      "SYSTEM_UPDATE_DIRECTORY, SYSTEM_UPDATE_REPOSITORY, and SYSTEM_UPDATE_CURRENT_IMAGE must be configured together",
+    );
+  }
+  if (systemUpdateDirectory && !isAbsolute(systemUpdateDirectory)) {
+    throw new Error("SYSTEM_UPDATE_DIRECTORY must be an absolute path");
+  }
+  if (
+    systemUpdateRepository &&
+    !/^[a-z0-9](?:[a-z0-9._-]{0,126})\/[a-z0-9](?:[a-z0-9._-]{0,126})$/.test(
+      systemUpdateRepository,
+    )
+  ) {
+    throw new Error("SYSTEM_UPDATE_REPOSITORY must be a Docker Hub repository");
+  }
+  if (
+    systemUpdateCurrentImage &&
+    !new RegExp(
+      `^${systemUpdateRepository?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}@sha256:[a-f0-9]{64}$`,
+    ).test(systemUpdateCurrentImage)
+  ) {
+    throw new Error(
+      "SYSTEM_UPDATE_CURRENT_IMAGE must use the configured digest",
+    );
+  }
   let parsedMaintenanceUrl: URL;
   try {
     parsedMaintenanceUrl = new URL(assetMaintenanceApiUrl);
@@ -260,5 +299,8 @@ export function loadAdminApiConfig(
     smtpCredentialActiveKeyVersion,
     smtpDevelopmentSecret:
       appEnv === "development" ? ordinaryAuthSecret : undefined,
+    systemUpdateDirectory,
+    systemUpdateRepository,
+    systemUpdateCurrentImage,
   };
 }

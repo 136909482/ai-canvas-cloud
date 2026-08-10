@@ -117,6 +117,8 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:8081:8081"
+    volumes:
+      - ./secrets/update:/app/update-control
     healthcheck:
       test:
         [

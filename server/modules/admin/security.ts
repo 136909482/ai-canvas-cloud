@@ -18,6 +18,7 @@ const ROLE_PERMISSIONS: Readonly<
     "user.delete",
     "announcement.write",
     "community.moderate",
+    "system_update.write",
   ]),
   operator: new Set([
     "audit.read",
@@ -66,6 +67,9 @@ export class AdminAccessError extends Error {
     | "OBJECT_STORAGE_CONNECTION_FAILED"
     | "OBJECT_STORAGE_RATE_LIMITED"
     | "ASSET_CLEANUP_FAILED"
+    | "SYSTEM_UPDATE_CHECK_FAILED"
+    | "SYSTEM_UPDATE_IN_PROGRESS"
+    | "SYSTEM_UPDATE_UNAVAILABLE"
     | "COMMUNITY_POST_NOT_FOUND"
     | "COMMUNITY_POST_STATE_INVALID"
     | "COMMUNITY_REPORT_NOT_FOUND"

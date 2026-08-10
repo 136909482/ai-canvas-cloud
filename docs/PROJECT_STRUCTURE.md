@@ -92,7 +92,7 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 
 `apps/api` 和 `apps/admin-api` 保持薄入口：解析请求、校验会话/schema/安全策略、调用领域服务、映射稳定错误。`server/modules` 是事务和授权查询的唯一所有者。
 
-`apps/api/src/routeInventory.ts` 与 `apps/admin-api/src/routeInventory.ts` 分别是公共和 Admin HTTP 方法、路径、`operationId` 与路由组的事实清单；OpenAPI 构建必须与对应 Fastify 路由双向一致。`apps/api/src/fastify` 按 `system/auth/workspaces/settings/announcements/telemetry/assets/migrations/projects` 拆分公共路由，`apps/admin-api/src/fastify` 按 `system/auth-security/dashboard-audit/users/announcements/site/smtp/object-storage` 拆分后台路由；两个 Fastify server factory 都独立处理未匹配请求和静态站点。`serverOptions.ts` 只描述入口依赖，`serverLifecycle.ts` 只管理 Fastify 关闭钩子。`packages/contracts/src/httpSchema.ts` 与 `packages/contracts/src/adminHttpSchema.ts` 只通过服务端子路径导出 TypeBox Schema，不进入 Contracts 根导出或 Web bundle。
+`apps/api/src/routeInventory.ts` 与 `apps/admin-api/src/routeInventory.ts` 分别是公共和 Admin HTTP 方法、路径、`operationId` 与路由组的事实清单；OpenAPI 构建必须与对应 Fastify 路由双向一致。`apps/api/src/fastify` 按 `system/auth/workspaces/settings/announcements/telemetry/assets/migrations/projects` 拆分公共路由，`apps/admin-api/src/fastify` 按 `system/auth-security/dashboard-audit/users/announcements/site/smtp/object-storage/community` 拆分后台路由，其中 `system` 还承载受权限保护的单机更新状态与请求入口；两个 Fastify server factory 都独立处理未匹配请求和静态站点。`serverOptions.ts` 只描述入口依赖，`serverLifecycle.ts` 只管理 Fastify 关闭钩子。`packages/contracts/src/httpSchema.ts` 与 `packages/contracts/src/adminHttpSchema.ts` 只通过服务端子路径导出 TypeBox Schema，不进入 Contracts 根导出或 Web bundle。
 
 - `project-graph` 独占节点、连线、change、version/sequence 和当前节点资产引用写入。
 - `project-snapshots` 独占 checkpoint 与 restore。
@@ -107,11 +107,13 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 
 `server/modules/community/` 独占公开昵称、投稿授权、帖子状态机、撤回和举报；`apps/api/src/fastify/routes/community.ts` 提供资料、投稿、我的投稿、撤回和举报路由。`apps/admin-api/src/fastify/routes/community.ts` 提供审核和举报处理路由。Web 在个人资料设置中显示我的投稿，并在有稳定 Cloud asset ID 的图片节点工具栏提供投稿入口。社区复用 `auth`、`workspaces` 和 `assets` 的授权与资产能力，不直接修改项目图；Admin 只读审核所需的最小社区字段，不读取 Provider Vault、项目正文或对象 key，社区列表不依赖浏览器本地生成任务。
 
+`server/modules/admin/systemUpdateService.ts` 只负责 Admin 权限、固定 Docker Hub release 查询、受限请求文件和审计，不执行宿主机命令。`infra/deploy/single-host/install-update-service.sh` 安装 systemd path/service，`update-worker.sh` 是唯一 root 执行入口并只调用固定 `deploy.sh`。Admin 容器与宿主机只通过 `secrets/update/` 中的 UUID 请求和有限状态字段通信，Docker Socket 与任意命令参数都不进入应用容器。
+
 ### 数据库与部署
 
 `server/db/migrations` 当前保存单一 `0001_current_schema.sql` 基线和 `release-manifest.json`。应用启动不自动迁移，发布显式运行 migrate。数据库运行角色只有普通 API 和 Admin API；正式运营后的 schema 变更只追加新迁移。
 
-根 `Dockerfile` 构建 Web、API、Admin Web、Admin API、migrate、release、operations 和单机 `single-host-app`。后者把两个已构建前端与两个 API 放进同一镜像，运行时仍以普通应用和后台应用两个容器隔离。staging Compose 不包含 Worker、生成队列、Provider 密钥环或队列恢复。托管 production Compose 只常驻四个应用容器；`infra/deploy/single-host` 则常驻普通应用、后台应用、PostgreSQL 和 Redis。单机程序镜像默认在开发电脑的 Docker Desktop 构建并发布到 Docker Hub，也可导出后由服务器加载归档；GitHub Actions 只运行质量检查。
+根 `Dockerfile` 构建 Web、API、Admin Web、Admin API、migrate、release、operations 和单机 `single-host-app`。后者把两个已构建前端与两个 API 放进同一镜像，运行时仍以普通应用和后台应用两个容器隔离。staging Compose 不包含 Worker、生成队列、Provider 密钥环或队列恢复。托管 production Compose 只常驻四个应用容器；`infra/deploy/single-host` 则常驻普通应用、后台应用、PostgreSQL 和 Redis，并由宿主机 systemd 按受限请求执行更新，worker 不作为容器常驻服务。单机程序镜像默认在开发电脑的 Docker Desktop 构建并发布到 Docker Hub，也可导出后由服务器加载归档；GitHub Actions 只运行质量检查。
 
 ### 账户注销与维护
 

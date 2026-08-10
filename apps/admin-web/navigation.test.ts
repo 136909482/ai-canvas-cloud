@@ -20,6 +20,7 @@ test("admin navigation follows the existing RBAC projection", () => {
       "site",
       "storage",
       "smtp",
+      "updates",
       "audit",
       "security",
     ],

@@ -34,6 +34,14 @@ const singleHostDeploy = readFileSync(
   "infra/deploy/single-host/deploy.sh",
   "utf8",
 );
+const singleHostUpdateInstaller = readFileSync(
+  "infra/deploy/single-host/install-update-service.sh",
+  "utf8",
+);
+const singleHostUpdateWorker = readFileSync(
+  "infra/deploy/single-host/update-worker.sh",
+  "utf8",
+);
 const singleHostPrelaunchReset = readFileSync(
   "infra/deploy/single-host/reset-prelaunch.sh",
   "utf8",
@@ -224,6 +232,8 @@ test("single-host production uses one image, two application containers, and pri
     ["deploy.sh", singleHostDeploy],
     ["reset-prelaunch.sh", singleHostPrelaunchReset],
     ["status.sh", singleHostStatus],
+    ["install-update-service.sh", singleHostUpdateInstaller],
+    ["update-worker.sh", singleHostUpdateWorker],
   ]) {
     assert.doesNotMatch(script, /\r/, `${name} must use LF line endings`);
   }
@@ -293,6 +303,13 @@ test("single-host production uses one image, two application containers, and pri
   );
   assert.match(singleHostDeploy, /apply-migrations\.mjs/);
   assert.match(singleHostDeploy, /check-admin-role-isolation\.mjs/);
+  assert.match(singleHostDeploy, /install-update-service\.sh/);
+  assert.match(singleHostCompose, /\.\/secrets\/update:\/app\/update-control/);
+  assert.doesNotMatch(singleHostCompose, /docker\.sock/);
+  assert.match(singleHostUpdateInstaller, /ai-canvas-cloud-update\.path/);
+  assert.match(singleHostUpdateInstaller, /PathExists=.*\/request/);
+  assert.match(singleHostUpdateWorker, /bash "\$SCRIPT_DIR\/deploy\.sh"/);
+  assert.doesNotMatch(singleHostUpdateWorker, /eval|sh -c/);
   assert.match(singleHostDeploy, /wait_for_live public 8080/);
   assert.match(singleHostDeploy, /wait_for_live admin 8081/);
   assert.ok(

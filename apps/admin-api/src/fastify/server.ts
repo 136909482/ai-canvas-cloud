@@ -14,6 +14,7 @@ import {
   createUnavailableAdminSiteConfigService,
   createUnavailableAdminSmtpConfigService,
   createUnavailableAdminUserOperationsService,
+  createUnavailableSystemUpdateService,
 } from "@ai-canvas-cloud/server/modules/admin";
 import { createUnavailableAdminAnnouncementService } from "@ai-canvas-cloud/server/modules/announcements";
 import { createUnavailableAdminCommunityModerationService } from "@ai-canvas-cloud/server/modules/community";
@@ -75,6 +76,9 @@ export async function createFastifyAdminApiServer(options: AdminServerOptions) {
   const communityModerationService =
     options.communityModerationService ??
     createUnavailableAdminCommunityModerationService();
+  const systemUpdateService =
+    options.systemUpdateService ??
+    createUnavailableSystemUpdateService(options.adminService);
   const staticSite = options.config.staticSiteRoot
     ? createStaticSite({
         root: options.config.staticSiteRoot,
@@ -119,6 +123,8 @@ export async function createFastifyAdminApiServer(options: AdminServerOptions) {
     metrics,
   });
   registerAdminSystemRoutes(app, {
+    config: options.config,
+    systemUpdateService,
     metrics,
     exposeMetrics: !staticSite,
     readinessChecks: options.readinessChecks,

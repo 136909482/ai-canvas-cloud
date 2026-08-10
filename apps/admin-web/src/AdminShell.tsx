@@ -15,6 +15,7 @@ import {
   UserRound,
   UsersRound,
   ShieldAlert,
+  PackageCheck,
 } from "lucide-react";
 import { Brand } from "./components";
 import { navigationForRole, type AdminView } from "./navigation";
@@ -30,6 +31,7 @@ const ICONS: Record<AdminView, ReactNode> = {
   storage: <HardDrive size={18} />,
   audit: <ScrollText size={18} />,
   security: <ShieldCheck size={18} />,
+  updates: <PackageCheck size={18} />,
 };
 
 export function AdminShell({
