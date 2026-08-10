@@ -3,6 +3,8 @@ import type {
   CreateCommunityPostRequest,
   MyCommunityPostsResponse,
   WithdrawCommunityPostResponse,
+  CommunityPublicPostsResponse,
+  CommunityPublicPostResponse,
 } from "@ai-canvas-cloud/contracts";
 import { requestCloudJson } from "@/api/cloudApiClient";
 
@@ -25,5 +27,25 @@ export function withdrawCommunityPost(postId: string) {
   return requestCloudJson<WithdrawCommunityPostResponse>(
     `/community/posts/${encodeURIComponent(postId)}/withdraw`,
     { method: "POST" },
+  );
+}
+
+export function fetchCommunityPosts(
+  input: { q?: string; tag?: string; cursor?: string | null } = {},
+) {
+  const query = new URLSearchParams();
+  if (input.q?.trim()) query.set("q", input.q.trim());
+  if (input.tag?.trim()) query.set("tag", input.tag.trim());
+  if (input.cursor) query.set("cursor", input.cursor);
+  return requestCloudJson<CommunityPublicPostsResponse>(
+    `/community/posts${query.size ? `?${query}` : ""}`,
+    { method: "GET" },
+  );
+}
+
+export function fetchCommunityPost(postId: string) {
+  return requestCloudJson<CommunityPublicPostResponse>(
+    `/community/posts/${encodeURIComponent(postId)}`,
+    { method: "GET" },
   );
 }

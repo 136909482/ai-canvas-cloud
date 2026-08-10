@@ -21,6 +21,11 @@ const AnnouncementsView = lazy(() =>
     default: module.AnnouncementsView,
   })),
 );
+const CommunityModerationView = lazy(() =>
+  import("./CommunityModerationView").then((module) => ({
+    default: module.CommunityModerationView,
+  })),
+);
 const UsersView = lazy(() =>
   import("./UsersView").then((module) => ({ default: module.UsersView })),
 );
@@ -73,6 +78,7 @@ function Console({
   let page;
   if (view === "dashboard") page = <DashboardView />;
   else if (view === "announcements") page = <AnnouncementsView />;
+  else if (view === "community") page = <CommunityModerationView />;
   else if (view === "security")
     page = (
       <SecurityView session={session} onSessionUpdated={onSessionUpdated} />

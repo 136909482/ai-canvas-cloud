@@ -16,6 +16,7 @@ test("admin navigation follows the existing RBAC projection", () => {
       "dashboard",
       "users",
       "announcements",
+      "community",
       "site",
       "storage",
       "smtp",
@@ -25,7 +26,7 @@ test("admin navigation follows the existing RBAC projection", () => {
   );
   assert.deepEqual(
     navigationForRole("operator").map((item) => item.key),
-    ["dashboard", "announcements", "site", "audit", "security"],
+    ["dashboard", "announcements", "community", "site", "audit", "security"],
   );
   assert.deepEqual(
     navigationForRole("support").map((item) => item.key),

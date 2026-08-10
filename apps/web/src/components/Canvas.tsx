@@ -153,9 +153,6 @@ function getQuickCreateMenuPosition(clientX: number, clientY: number) {
 
 export function Canvas() {
   recordComponentRender("Canvas");
-  const isTopBarCollapsed = useSettingsStore(
-    (state) => state.config.storage.canvasTopBarCollapsed,
-  );
   const themeMode = useSettingsStore((state) => state.config.storage.themeMode);
   const alignmentGuidesEnabled = useSettingsStore(
     (state) => state.config.storage.alignmentGuidesEnabled,
@@ -174,9 +171,6 @@ export function Canvas() {
     (state) => state.runtime.workspaceConfigured,
   );
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
-  const updateStorageSettings = useSettingsStore(
-    (state) => state.updateStorageSettings,
-  );
   const notify = useFeedbackStore((state) => state.notify);
   const {
     nodes,
@@ -614,7 +608,7 @@ export function Canvas() {
     );
   }, [quickCreateMenu]);
 
-  const canvasContextMenuCategories = useMemo(
+  const canvasNodeCatalog = useMemo(
     () =>
       createCanvasNodeCatalog({
         addTextNode,
@@ -644,6 +638,11 @@ export function Canvas() {
       addVideoGenerateNode,
       addVideoNode,
     ],
+  );
+
+  const canvasContextMenuCategories = useMemo(
+    () => canvasNodeCatalog.filter((category) => category.id === "common"),
+    [canvasNodeCatalog],
   );
 
   const canvasContextMenuPosition = useMemo(() => {
@@ -755,7 +754,7 @@ export function Canvas() {
       const draggedNodeType = event.dataTransfer.getData(
         CANVAS_NODE_DRAG_MIME_TYPE,
       );
-      const draggedTool = canvasContextMenuCategories
+      const draggedTool = canvasNodeCatalog
         .flatMap((category) => category.tools)
         .find((tool) => tool.type === draggedNodeType);
       if (!draggedTool) {
@@ -772,12 +771,7 @@ export function Canvas() {
         addNodeByType(draggedTool.type, exactPosition, "exact");
       });
     },
-    [
-      addNodeByType,
-      canvasContextMenuCategories,
-      runTracked,
-      screenToFlowPosition,
-    ],
+    [addNodeByType, canvasNodeCatalog, runTracked, screenToFlowPosition],
   );
 
   const handleCanvasDragOver = useCallback(
@@ -989,20 +983,7 @@ export function Canvas() {
       useStepEdges,
     ],
   );
-  const topLeftPanel = useMemo(
-    () => (
-      <CanvasTopBar
-        compact={isTopBarCollapsed}
-        onToggleCollapse={() => {
-          const nextCollapsed = !isTopBarCollapsed;
-          void updateStorageSettings({
-            canvasTopBarCollapsed: nextCollapsed,
-          }).catch(() => undefined);
-        }}
-      />
-    ),
-    [isTopBarCollapsed, updateStorageSettings],
-  );
+  const topLeftPanel = useMemo(() => <CanvasTopBar />, []);
 
   return (
     <div

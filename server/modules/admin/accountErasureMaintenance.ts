@@ -143,6 +143,10 @@ async function completeJob(
     if (!locked.rows[0]) return;
     if (workspaceIds.length > 0) {
       await client.query(
+        `DELETE FROM public.community_posts WHERE source_workspace_id = ANY($1::uuid[])`,
+        [workspaceIds],
+      );
+      await client.query(
         `DELETE FROM public.migration_import_asset_uploads WHERE workspace_id = ANY($1::uuid[])`,
         [workspaceIds],
       );

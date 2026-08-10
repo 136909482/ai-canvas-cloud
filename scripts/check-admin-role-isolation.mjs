@@ -131,6 +131,8 @@ for (const [connection, connectionString] of Object.entries(connections)) {
     );
     const communityContentRead = await client.query(
       `SELECT has_column_privilege(current_user, 'public.community_posts', 'id', 'SELECT')
+           AND has_column_privilege(current_user, 'public.user_public_profiles', 'public_nickname', 'SELECT')
+           AND has_column_privilege(current_user, 'public.user_public_profiles', 'profile_status', 'SELECT')
            AND has_table_privilege(current_user, 'public.community_post_tags', 'SELECT')
            AND has_column_privilege(current_user, 'public.community_reports', 'id', 'SELECT') AS allowed`,
     );

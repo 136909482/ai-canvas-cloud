@@ -78,6 +78,7 @@ export interface AssetService {
     assetId: string,
     actor: ProjectActor,
   ) => Promise<AssetUrlResponse>;
+  getCommunityAssetUrl: (assetId: string) => Promise<AssetUrlResponse>;
 }
 
 export interface AssetObjectStorage {
@@ -1049,6 +1050,30 @@ export function createPostgresAssetService(
         ...signed,
       };
     },
+
+    async getCommunityAssetUrl(assetId) {
+      const result = await pool.query<{ asset_id: string; object_key: string }>(
+        `SELECT a.id AS asset_id, a.object_key
+         FROM assets a
+         JOIN community_posts p ON p.asset_id = a.id
+         JOIN user_public_profiles profile ON profile.user_id = p.author_user_id
+         WHERE a.id = $1 AND p.status = 'published' AND a.status = 'completed' AND profile.profile_status = 'active'
+         LIMIT 1`,
+        [assetId],
+      );
+      const row = result.rows[0];
+      if (!row)
+        throw new AuthServiceError({
+          statusCode: 404,
+          apiCode: "COMMUNITY_POST_NOT_FOUND",
+          message: "Asset was not found",
+        });
+      const signed = await options.objectStorage.createPresignedDownload({
+        objectKey: row.object_key,
+        expiresInSeconds: readUrlTtlSeconds,
+      });
+      return { assetId: row.asset_id, ...signed };
+    },
   };
 }
 
@@ -1079,6 +1104,14 @@ export function createUnavailableAssetService(): AssetService {
       });
     },
     async getAssetUrl() {
+      throw new AuthServiceError({
+        statusCode: 503,
+        apiCode: "SERVICE_UNAVAILABLE",
+        message: "Asset service is not configured",
+        retryable: true,
+      });
+    },
+    async getCommunityAssetUrl() {
       throw new AuthServiceError({
         statusCode: 503,
         apiCode: "SERVICE_UNAVAILABLE",

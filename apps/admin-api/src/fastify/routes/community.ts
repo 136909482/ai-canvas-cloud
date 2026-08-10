@@ -108,6 +108,42 @@ export function registerAdminCommunityRoutes(
   );
 
   app.post(
+    "/admin/v1/community/users/:userId/hide",
+    {
+      schema: {
+        operationId: "hideCommunityUser",
+        tags: ["community"],
+        body: AdminRequestBodySchema,
+        response: responses,
+      },
+    },
+    async (request) =>
+      options.communityModerationService.setUserVisibility(
+        (request.params as { userId: string }).userId,
+        true,
+        context(request),
+      ),
+  );
+
+  app.post(
+    "/admin/v1/community/users/:userId/unhide",
+    {
+      schema: {
+        operationId: "unhideCommunityUser",
+        tags: ["community"],
+        body: AdminRequestBodySchema,
+        response: responses,
+      },
+    },
+    async (request) =>
+      options.communityModerationService.setUserVisibility(
+        (request.params as { userId: string }).userId,
+        false,
+        context(request),
+      ),
+  );
+
+  app.post(
     "/admin/v1/community/reports/:reportId/resolve",
     {
       schema: {

@@ -242,6 +242,20 @@ test(
         `,
         [targetId, `Public_${suffix}`],
       );
+      const communityPostId = randomUUID();
+      await pool.query(
+        `INSERT INTO public.community_posts (
+           id, author_user_id, source_workspace_id, asset_id, title, status,
+           submission_idempotency_key, published_at
+         ) VALUES ($1, $2, $3, $4, 'Deletion community post', 'published', $5, now())`,
+        [
+          communityPostId,
+          targetId,
+          personalWorkspaceId,
+          assetId,
+          `delete-community-${suffix}`,
+        ],
+      );
       await pool.query(
         `
           INSERT INTO public.registration_email_challenges (email_hash, code_hash, expires_at)
@@ -323,6 +337,15 @@ test(
           )
         ).rows[0]?.count,
         0,
+      );
+      assert.deepEqual(
+        (
+          await pool.query(
+            `SELECT status, withdrawn_at IS NOT NULL AS withdrawn FROM public.community_posts WHERE id = $1`,
+            [communityPostId],
+          )
+        ).rows[0],
+        { status: "withdrawn", withdrawn: true },
       );
       assert.equal(
         (
@@ -454,9 +477,24 @@ test(
         "pending",
       );
       failDelete = false;
+      await pool.query(
+        `UPDATE public.account_erasure_jobs
+         SET purge_after = created_at
+         WHERE user_id = $1`,
+        [targetId],
+      );
       const completed = await maintenance.run({ apply: true, batchSize: 1 });
       assert.equal(completed.completedJobCount, 1);
       assert.equal(await objectStorage.objectExists(objectKey), false);
+      assert.equal(
+        (
+          await pool.query(
+            `SELECT count(*)::int AS count FROM public.community_posts WHERE id = $1`,
+            [communityPostId],
+          )
+        ).rows[0]?.count,
+        0,
+      );
       assert.equal(
         (
           await pool.query(

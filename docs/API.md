@@ -232,16 +232,20 @@ PATCH 至少接受 `publicNickname` 或 `communityConsent` 之一，拒绝未知
 
 ## 社区内容 API
 
-P11-2 已实现用户投稿、撤回、举报和 Admin 审核状态机。社区公开列表、详情和搜索留在 P11-3；完整 Admin 审核工作台留在 P11-4。
+P11-2 已实现用户投稿、撤回、举报和 Admin 审核状态机。P11-3 增加登录用户可见的已发布图片列表、详情、标签筛选和标题搜索。
 
 普通用户接口：
 
 ```text
+GET /api/v1/community/posts?q=&tag=&cursor=
+GET /api/v1/community/posts/:postId
 POST /api/v1/community/posts
 POST /api/v1/community/posts/:postId/withdraw
 POST /api/v1/community/posts/:postId/report
 GET  /api/v1/community/me/posts
 ```
+
+公开浏览接口只返回已发布帖子的图片短期受控地址、标题、标签、发布时间和公开昵称；`q` 为标题搜索，`tag` 为规范化标签精确筛选，列表使用稳定游标分页。接口要求登录，不返回 Prompt、Provider、endpoint、真实模型 ID、API Key、项目节点、工作流结构或 object key。
 
 Admin 接口：
 
@@ -259,7 +263,7 @@ POST /admin/v1/community/reports/:reportId/resolve
 - `/me/posts` 使用 cursor 分页，按 `created_at DESC, id DESC` 稳定排序，返回当前用户自己的所有状态。
 - 投稿必须携带幂等键；服务端从可信 session 推导 `userId` 和 `workspaceId`，拒绝客户端身份字段参与授权。
 - 投稿必须引用当前 workspace 中当前用户创建的 `completed` 图片资产；P11-2 Admin 响应只返回帖子元数据和 asset ID，不返回对象存储 key。
-- 图片访问使用短期受控地址，不返回 object key、Prompt、Provider、endpoint、真实模型 ID、API Key、项目节点或工作流结构；审核图片受控预览留在 P11-4。
+- 图片访问使用短期受控地址，不返回 object key、Prompt、Provider、endpoint、真实模型 ID、API Key、项目节点或工作流结构；Admin 审核工作台同样只读取受控图片地址。
 - 所有社区写操作需要 session、workspace 授权、CSRF/Origin 校验和限流；举报也需要限流。
 - 稳定错误码为 `COMMUNITY_POST_NOT_FOUND`、`COMMUNITY_ASSET_NOT_ALLOWED`、`COMMUNITY_POST_STATE_INVALID`、`COMMUNITY_POST_DUPLICATE` 和 `COMMUNITY_REPORT_RATE_LIMITED`。
 

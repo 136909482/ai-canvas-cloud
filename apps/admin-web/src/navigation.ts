@@ -3,6 +3,7 @@ import type { AdminRole } from "@ai-canvas-cloud/contracts";
 export type AdminView =
   | "dashboard"
   | "announcements"
+  | "community"
   | "security"
   | "users"
   | "site"
@@ -31,6 +32,7 @@ export const ADMIN_NAVIGATION: readonly AdminNavigationItem[] = [
     label: "站内通知",
     roles: ["super_admin", "operator"],
   },
+  { key: "community", label: "社区审核", roles: ["super_admin", "operator"] },
   { key: "site", label: "网站设置", roles: ["super_admin", "operator"] },
   { key: "storage", label: "对象存储", roles: ["super_admin"] },
   { key: "smtp", label: "邮件服务", roles: ["super_admin"] },

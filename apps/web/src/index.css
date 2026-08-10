@@ -307,6 +307,37 @@ html:has(.home-shell)::-webkit-scrollbar {
   gap: 8px;
 }
 
+.home-header__nav {
+  position: absolute;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  transform: translateX(-50%);
+}
+
+.home-nav-link {
+  display: inline-flex;
+  height: 40px;
+  align-items: center;
+  padding: 0 2px;
+  border-bottom: 1px solid transparent;
+  color: rgba(255, 255, 255, 0.62);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-decoration: none;
+  transition:
+    border-color 180ms ease,
+    color 180ms ease;
+}
+
+.home-nav-link:hover,
+.home-nav-link:focus-visible,
+.home-nav-link--active {
+  border-color: var(--accent-violet);
+  color: #ffffff;
+}
+
 .home-login-button,
 .home-register-button,
 .home-primary-action {
@@ -1620,6 +1651,13 @@ body:has(.auth-modal-backdrop) .home-scene-node {
 @media (max-width: 700px) {
   .home-header {
     padding: 14px 16px;
+  }
+
+  .home-header__nav {
+    position: static;
+    margin-left: auto;
+    margin-right: 6px;
+    transform: none;
   }
 
   .home-login-button svg {

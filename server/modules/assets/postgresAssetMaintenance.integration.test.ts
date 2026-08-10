@@ -26,6 +26,7 @@ const BUCKET_ORPHAN_ASSET = "88888888-8888-4888-8888-888888888888";
 const RECENT_BUCKET_ORPHAN_ASSET = "99999999-9999-4999-8999-999999999999";
 const COMPLETED_CLEANUP_ASSET = "aaaaaaaa-1111-4111-8111-111111111111";
 const RECENT_COMPLETED_ASSET = "aaaaaaaa-2222-4222-8222-222222222222";
+const COMMUNITY_ASSET = "aaaaaaaa-4444-4444-8444-444444444444";
 const DELETED_PROJECT_ASSET = "aaaaaaaa-3333-4333-8333-333333333333";
 
 function key(workspaceId: string, projectId: string, assetId: string) {
@@ -119,6 +120,7 @@ test(
         FAILURE_ASSET,
         COMPLETED_CLEANUP_ASSET,
         RECENT_COMPLETED_ASSET,
+        COMMUNITY_ASSET,
       ];
       for (const assetId of assetRows) {
         await pool.query(
@@ -136,6 +138,13 @@ test(
           ],
         );
       }
+      await pool.query(
+        `INSERT INTO community_posts (
+           author_user_id, source_workspace_id, asset_id, title,
+           submission_idempotency_key
+         ) VALUES ('maintenance-user-a', $1, $2, 'Protected community post', 'maintenance-community')`,
+        [WORKSPACE_A, COMMUNITY_ASSET],
+      );
       await pool.query(
         `
           INSERT INTO assets (
@@ -215,6 +224,7 @@ test(
         FAILURE_ASSET,
         COMPLETED_CLEANUP_ASSET,
         RECENT_COMPLETED_ASSET,
+        COMMUNITY_ASSET,
       ]) {
         objects.set(key(WORKSPACE_A, PROJECT_A, assetId), {
           lastModified: old,
@@ -318,6 +328,10 @@ test(
         false,
       );
       assert.equal(
+        cleanupPreview.items.some((item) => item.assetId === COMMUNITY_ASSET),
+        false,
+      );
+      assert.equal(
         cleanupPreview.items.some((item) => item.assetId === CHECKPOINT_ASSET),
         false,
       );
@@ -347,6 +361,10 @@ test(
         preflightItems.find((item) => item.assetId === CHECKPOINT_ASSET)
           ?.reason,
         "checkpoint_reference",
+      );
+      assert.equal(
+        preflightItems.find((item) => item.assetId === COMMUNITY_ASSET)?.reason,
+        "community_reference",
       );
       assert.equal(
         preflightItems.find((item) => item.assetId === ORPHAN_ASSET)?.action,

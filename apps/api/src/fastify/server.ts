@@ -143,6 +143,7 @@ export async function createFastifyApiServer(options: ServerOptions) {
     authContext,
     communityProfileService,
     communityContentService,
+    assetService,
   });
   registerAnnouncementRoutes(app, { authContext, announcementService });
   registerTelemetryRoutes(app, { authContext, generationTelemetryService });

@@ -287,7 +287,7 @@ Admin 认证和普通认证完全隔离。Admin 只读取普通用户的用户�
 
 投稿只能引用当前可信用户在当前 workspace 中拥有的 `completed` 图片资产。社区发布、撤回、审核、举报和下架必须由独立领域服务负责，HTTP 路由不得直接写社区、资产或项目表。已发布社区内容对资产形成保护引用，必须参与资产 GC 判断；撤回、拒绝或下架后才释放该保护。Admin 只读取审核所需的最小内容，不读取 Provider 配置或项目正文。
 
-P11-2 已通过 `community` 内容服务实现投稿、撤回、举报和人工审核状态机；普通 API 与 Admin API 路由不直接写表。待审核和已发布帖子对资产 GC 形成保护引用，拒绝、撤回和下架释放引用。后续社区投稿仍采用人工审核，不引入服务端生成任务、Provider 代理、点赞评论、推荐算法或实时协作；公开列表、详情、搜索属于 P11-3，完整 Admin 工作台属于 P11-4。
+P11-2 至 P11-4 已通过 `community` 内容服务实现投稿、撤回、举报、人工审核状态机、公开浏览和用户级隐藏；普通 API 与 Admin API 路由不直接写表。待审核和已发布帖子对资产 GC 形成保护引用，拒绝、撤回、下架或隐藏用户释放公开访问。后续社区投稿仍采用人工审核，不引入服务端生成任务、Provider 代理、点赞评论、推荐算法或实时协作。
 
 浏览器图片预览以 `cloud-assets/<asset-id>` 为稳定身份，不把 OSS 签名 URL 当作长期来源。高清原图和持久缩略图按稳定资产 ID 合并下载到有容量上限的会话内 Blob LRU；同一登录会话和项目往返优先复用 Blob，签名读取失败只失效并刷新当前资产后重试一次。退出、换账号或 workspace 变化清空私有 Blob，不写入未加密的浏览器持久缓存。
 
@@ -375,9 +375,12 @@ npm run deploy:staging:check
 npm run deploy:staging:gate
 npm run deploy:staging:backup
 npm run deploy:staging:restore:drill
+npm run deploy:local:restore:drill
 ```
 
-账户注销采用两阶段清理：管理员请求会立即撤销普通会话、清空身份数据并软删除个人空间；7 天后由应用数据库角色运行 `npm run db:maintain:accounts -- --apply` 删除个人项目历史、关系元数据和私有对象。命令默认仅预检，删除对象失败时任务保持可重试状态，且不会写入完成时间。Admin API 必须配置独立于 `ADMIN_BETTER_AUTH_SECRET` 的普通 `BETTER_AUTH_SECRET`，只用于删除按 HMAC 索引的注册和重置邮箱挑战，绝不写入日志、审计或浏览器。
+`npm run deploy:local:restore:drill` 会生成仅本次有效的随机凭据，以 `ai-canvas-cloud-local-recovery-drill-*` 为前缀创建独立 PostgreSQL、MinIO、备份和 restore-only 资源，写入两个工作区与一个已完成资产，执行加密备份、恢复审计及源端未变更校验，最后精确删除本次容器、网络、卷和临时 env。该命令不读取 `infra/deploy/staging/staging.env`，不得连接生产资源，也不能替代真实 staging 恢复演练。
+
+账户注销采用两阶段清理：管理员请求会立即撤销普通会话、清空身份数据、撤回社区投稿并软删除个人空间；7 天后由应用数据库角色运行 `npm run db:maintain:accounts -- --apply` 删除个人项目历史、个人空间关联的已撤回社区投稿、关系元数据和私有对象。命令默认仅预检，删除对象失败时任务保持可重试状态，且不会写入完成时间。Admin API 必须配置独立于 `ADMIN_BETTER_AUTH_SECRET` 的普通 `BETTER_AUTH_SECRET`，只用于删除按 HMAC 索引的注册和重置邮箱挑战，绝不写入日志、审计或浏览器。
 
 每增加或修改真实命令，必须同步更新 `README.md`、`AGENTS.md` 和本文。
 

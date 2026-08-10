@@ -154,6 +154,18 @@ export const PUBLIC_ROUTE_INVENTORY = [
   },
   {
     method: "GET",
+    path: "/api/v1/community/posts",
+    operationId: "listCommunityPosts",
+    group: "community",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/community/posts/:postId",
+    operationId: "getCommunityPost",
+    group: "community",
+  },
+  {
+    method: "GET",
     path: "/api/v1/community/profile",
     operationId: "getCommunityProfile",
     group: "community",

@@ -6,6 +6,7 @@ import type {
   CommunityPostResponse,
   ModerateCommunityPostRequest,
   ResolveCommunityReportRequest,
+  AdminCommunityUserVisibilityResponse,
 } from "@ai-canvas-cloud/contracts";
 import type { DbPool } from "../../db/postgres.js";
 import { withTransaction } from "../../db/postgres.js";
@@ -37,6 +38,7 @@ interface AdminPostRow {
   created_at: Date | string;
   updated_at: Date | string;
   public_nickname: string | null;
+  profile_status: "active" | "hidden";
   tags: string[] | null;
 }
 
@@ -78,6 +80,11 @@ export interface AdminCommunityModerationService {
     input: ResolveCommunityReportRequest,
     context: AdminRequestContext,
   ): Promise<{ report: AdminCommunityReportsResponse["items"][number] }>;
+  setUserVisibility(
+    userId: string,
+    hidden: boolean,
+    context: AdminRequestContext,
+  ): Promise<AdminCommunityUserVisibilityResponse>;
 }
 
 function iso(value: Date | string | null) {
@@ -97,6 +104,8 @@ function toPost(row: AdminPostRow): AdminCommunityPostSummary {
     createdAt: iso(row.created_at)!,
     updatedAt: iso(row.updated_at)!,
     authorPublicNickname: row.public_nickname,
+    authorUserId: row.author_user_id,
+    authorProfileStatus: row.profile_status,
     sourceWorkspaceId: row.source_workspace_id,
   };
 }
@@ -117,7 +126,7 @@ function toReport(row: AdminReportRow) {
 const ADMIN_POST_SELECT = `
   SELECT p.id, p.source_workspace_id, p.asset_id, p.title, p.status,
          p.moderation_reason, p.published_at, p.withdrawn_at,
-         p.created_at, p.updated_at, profile.public_nickname,
+         p.created_at, p.updated_at, profile.public_nickname, profile.profile_status,
          COALESCE(array_agg(t.tag ORDER BY t.tag)
            FILTER (WHERE t.tag IS NOT NULL), '{}') AS tags
   FROM public.community_posts p
@@ -220,7 +229,7 @@ export function createPostgresAdminCommunityModerationService(
         options.auditSecret,
       );
       const result = await client.query<AdminPostRow>(
-        `${ADMIN_POST_SELECT} WHERE p.id = $1 GROUP BY p.id, profile.public_nickname`,
+        `${ADMIN_POST_SELECT} WHERE p.id = $1 GROUP BY p.id, profile.public_nickname, profile.profile_status`,
         [postId],
       );
       return { post: toPost(result.rows[0]!) };
@@ -242,7 +251,7 @@ export function createPostgresAdminCommunityModerationService(
         );
       const result = await pool.query<AdminPostRow>(
         `${ADMIN_POST_SELECT} WHERE p.status = $1
-         GROUP BY p.id, profile.public_nickname
+         GROUP BY p.id, profile.public_nickname, profile.profile_status
          ORDER BY p.created_at ASC, p.id ASC LIMIT 200`,
         [status],
       );
@@ -310,6 +319,44 @@ export function createPostgresAdminCommunityModerationService(
         return { report: toReport(row) };
       });
     },
+    async setUserVisibility(userId, hidden, context) {
+      const session = await options.adminService.requirePermission(
+        context,
+        "community.moderate",
+      );
+      const result = await withTransaction(pool, async (client) => {
+        const updated = await client.query<{
+          profile_status: "active" | "hidden";
+        }>(
+          `UPDATE public.user_public_profiles SET profile_status = $2, updated_at = now()
+           WHERE user_id = $1 RETURNING profile_status`,
+          [userId, hidden ? "hidden" : "active"],
+        );
+        if (!updated.rows[0])
+          throw new AdminAccessError(
+            404,
+            "RESOURCE_NOT_FOUND",
+            "Community user profile was not found",
+          );
+        await insertAdminAuditEvent(
+          client,
+          {
+            actor: session.admin,
+            action: hidden ? "community.user.hide" : "community.user.unhide",
+            targetType: "user",
+            targetId: userId,
+            result: "success",
+            requestId: context.requestId,
+            ipAddress: context.ipAddress,
+            userAgent: context.userAgent,
+            after: { profileStatus: updated.rows[0].profile_status },
+          },
+          options.auditSecret,
+        );
+        return updated.rows[0].profile_status;
+      });
+      return { userId, profileStatus: result };
+    },
   };
 }
 
@@ -324,5 +371,6 @@ export function createUnavailableAdminCommunityModerationService(): AdminCommuni
     remove: unavailable,
     listReports: unavailable,
     resolveReport: unavailable,
+    setUserVisibility: unavailable,
   };
 }

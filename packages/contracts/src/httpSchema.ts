@@ -418,6 +418,32 @@ export const MyCommunityPostsResponseSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const CommunityPublicPostSummarySchema = Type.Object(
+  {
+    id: Type.String({ format: "uuid" }),
+    imageUrl: Type.String({ format: "uri" }),
+    imageExpiresAt: Type.String(),
+    title: Type.String(),
+    tags: Type.Array(Type.String()),
+    publishedAt: Type.String(),
+    publicNickname: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+export const CommunityPublicPostsResponseSchema = Type.Object(
+  {
+    items: Type.Array(CommunityPublicPostSummarySchema),
+    nextCursor: NullableStringSchema,
+  },
+  { additionalProperties: false },
+);
+
+export const CommunityPublicPostResponseSchema = Type.Object(
+  { post: CommunityPublicPostSummarySchema },
+  { additionalProperties: false },
+);
+
 export const WithdrawCommunityPostResponseSchema = CommunityPostResponseSchema;
 
 const CommunityReportReasonSchema = Type.Union([

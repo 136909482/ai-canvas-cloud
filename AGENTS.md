@@ -87,6 +87,7 @@
 - `npm run deploy:staging:gate`
 - `npm run deploy:staging:backup`
 - `npm run deploy:staging:restore:drill`
+- `npm run deploy:local:restore:drill`
 - `npm run format:check`
 
 验证按改动风险逐级增加，不要求每次局部编辑都运行发布级门禁：

@@ -9,6 +9,8 @@ import {
   CommunityPostResponseSchema,
   CommunityProfileResponseSchema,
   CommunityReportResponseSchema,
+  CommunityPublicPostsResponseSchema,
+  CommunityPublicPostResponseSchema,
   CreateCommunityPostRequestSchema,
   CreateCommunityReportRequestSchema,
   MyCommunityPostsResponseSchema,
@@ -16,6 +18,7 @@ import {
   WithdrawCommunityPostResponseSchema,
 } from "@ai-canvas-cloud/contracts/http-schema";
 import { AuthServiceError } from "@ai-canvas-cloud/server/modules/auth";
+import type { AssetService } from "@ai-canvas-cloud/server/modules/assets";
 import type {
   CommunityContentService,
   CommunityProfileService,
@@ -49,8 +52,93 @@ export function registerCommunityRoutes(
     authContext: FastifyAuthContextAdapter;
     communityProfileService: CommunityProfileService;
     communityContentService: CommunityContentService;
+    assetService: AssetService;
   },
 ) {
+  app.get(
+    "/api/v1/community/posts",
+    {
+      schema: {
+        operationId: "listCommunityPosts",
+        tags: ["community"],
+        response: {
+          200: CommunityPublicPostsResponseSchema,
+          ...errorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        await options.authContext.requireSession(request);
+        const query = new URL(request.raw.url ?? "/", "http://localhost")
+          .searchParams;
+        const page = await options.communityContentService.listPublic({
+          query: query.get("q"),
+          tag: query.get("tag"),
+          cursor: query.get("cursor"),
+        });
+        const items = await Promise.all(
+          page.items.map(async (post) => {
+            const image = await options.assetService.getCommunityAssetUrl(
+              post.assetId,
+            );
+            return {
+              id: post.id,
+              imageUrl: image.url,
+              imageExpiresAt: image.expiresAt,
+              title: post.title,
+              tags: post.tags,
+              publishedAt: post.publishedAt,
+              publicNickname: post.publicNickname,
+            };
+          }),
+        );
+        return reply.send({ items, nextCursor: page.nextCursor });
+      } catch (error) {
+        if (error instanceof AuthServiceError)
+          return sendAuthError(reply, request.id, error);
+        throw error;
+      }
+    },
+  );
+
+  app.get(
+    "/api/v1/community/posts/:postId",
+    {
+      schema: {
+        operationId: "getCommunityPost",
+        tags: ["community"],
+        response: { 200: CommunityPublicPostResponseSchema, ...errorResponses },
+      },
+    },
+    async (request, reply) => {
+      try {
+        await options.authContext.requireSession(request);
+        const result = await options.communityContentService.getPublic(
+          (request.params as { postId: string }).postId,
+        );
+        const image = await options.assetService.getCommunityAssetUrl(
+          result.post.assetId,
+        );
+        return reply.send({
+          post: {
+            id: result.post.id,
+            imageUrl: image.url,
+            imageExpiresAt: image.expiresAt,
+            title: result.post.title,
+            tags: result.post.tags,
+            publishedAt: result.post.publishedAt,
+            publicNickname: result.post.publicNickname,
+          },
+        });
+      } catch (error) {
+        if (error instanceof AuthServiceError)
+          return sendAuthError(reply, request.id, error);
+        throw error;
+      }
+    },
+  );
+
   app.get(
     "/api/v1/community/profile",
     {

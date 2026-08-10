@@ -45,6 +45,7 @@
     "deploy:staging:gate": "npm run test && npm run db:migrate:test && npm run db:migrate:compat && npm run build && node scripts/staging-release-gate.mjs --env-file infra/deploy/staging/staging.env",
     "deploy:staging:backup": "docker compose --env-file infra/deploy/staging/staging.env -f infra/deploy/staging/docker-compose.yml run --rm backup-scheduler node scripts/create-staging-backup.mjs",
     "deploy:staging:restore:drill": "node scripts/run-staging-restore-drill.mjs",
+    "deploy:local:restore:drill": "node scripts/run-local-recovery-drill.mjs",
     "format:check": "prettier --check --end-of-line auto ."
   },
   "devDependencies": {

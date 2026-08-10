@@ -142,6 +142,9 @@ npm run deploy:staging:check
 npm run deploy:staging:gate
 npm run deploy:staging:backup
 npm run deploy:staging:restore:drill
+npm run deploy:local:restore:drill
 ```
+
+`deploy:local:restore:drill` 使用随机凭据、独立 Compose 项目和独立卷，在本机完成 PostgreSQL 与对象存储的备份、隔离恢复、数据审计和源端未变更校验，并在结束后自动清理。它用于提前发现恢复链路问题，不能替代真实 staging 环境验收。
 
 生产应用启动不自动迁移。当前数据库从 `0001_current_schema.sql` 创建；首次正式运营前必须重建空库并完成角色配置，不支持从已删除的开发期迁移链原地升级。正式运营后只允许追加新的显式迁移，不再压缩基线。执行、回滚和前向修复要求见 [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md)。

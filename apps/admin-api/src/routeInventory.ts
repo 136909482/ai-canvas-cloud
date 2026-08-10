@@ -18,6 +18,18 @@ export interface AdminRouteInventoryEntry {
 
 export const ADMIN_ROUTE_INVENTORY = [
   {
+    method: "POST",
+    path: "/admin/v1/community/users/:userId/hide",
+    operationId: "hideCommunityUser",
+    group: "community",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/community/users/:userId/unhide",
+    operationId: "unhideCommunityUser",
+    group: "community",
+  },
+  {
     method: "GET",
     path: "/metrics",
     operationId: "getAdminPrometheusMetrics",

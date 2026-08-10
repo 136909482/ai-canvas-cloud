@@ -39,6 +39,10 @@ import type {
   AdminAnnouncementsResponse,
   AnnouncementActionResponse,
   SaveAnnouncementDraftRequest,
+  AdminCommunityPostsResponse,
+  AdminCommunityReportsResponse,
+  AdminCommunityUserVisibilityResponse,
+  CommunityPostResponse,
 } from "@ai-canvas-cloud/contracts";
 
 const configuredApiUrl = (
@@ -207,6 +211,50 @@ export const adminApi = {
   archiveAnnouncement(id: string) {
     return post<AnnouncementActionResponse>(
       `/admin/v1/announcements/${encodeURIComponent(id)}/archive`,
+    );
+  },
+  communityPosts(status?: string) {
+    const query = status ? `?status=${encodeURIComponent(status)}` : "";
+    return request<AdminCommunityPostsResponse>(
+      `/admin/v1/community/posts${query}`,
+    );
+  },
+  approveCommunityPost(id: string) {
+    return post<CommunityPostResponse>(
+      `/admin/v1/community/posts/${encodeURIComponent(id)}/approve`,
+    );
+  },
+  rejectCommunityPost(id: string, reason: string) {
+    return post<CommunityPostResponse>(
+      `/admin/v1/community/posts/${encodeURIComponent(id)}/reject`,
+      { reason },
+    );
+  },
+  removeCommunityPost(id: string, reason: string) {
+    return post<CommunityPostResponse>(
+      `/admin/v1/community/posts/${encodeURIComponent(id)}/remove`,
+      { reason },
+    );
+  },
+  communityReports() {
+    return request<AdminCommunityReportsResponse>(
+      "/admin/v1/community/reports",
+    );
+  },
+  resolveCommunityReport(id: string, resolution: "resolved" | "dismissed") {
+    return post<{ report: AdminCommunityReportsResponse["items"][number] }>(
+      `/admin/v1/community/reports/${encodeURIComponent(id)}/resolve`,
+      { resolution },
+    );
+  },
+  hideCommunityUser(id: string) {
+    return post<AdminCommunityUserVisibilityResponse>(
+      `/admin/v1/community/users/${encodeURIComponent(id)}/hide`,
+    );
+  },
+  unhideCommunityUser(id: string) {
+    return post<AdminCommunityUserVisibilityResponse>(
+      `/admin/v1/community/users/${encodeURIComponent(id)}/unhide`,
     );
   },
   users(

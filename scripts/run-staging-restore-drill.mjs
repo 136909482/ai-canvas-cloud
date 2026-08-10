@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
 
+const recoveryEnvFile =
+  process.env.RECOVERY_ENV_FILE ?? "infra/deploy/staging/staging.env";
 const compose = [
   "compose",
   "--env-file",
-  "infra/deploy/staging/staging.env",
+  recoveryEnvFile,
   "-f",
   "infra/deploy/staging/docker-compose.yml",
   "--profile",

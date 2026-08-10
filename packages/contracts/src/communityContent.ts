@@ -35,6 +35,26 @@ export interface MyCommunityPostsResponse {
   nextCursor: string | null;
 }
 
+export interface CommunityPublicPostSummary {
+  id: string;
+  assetId: string;
+  imageUrl?: string;
+  imageExpiresAt?: string;
+  title: string;
+  tags: string[];
+  publishedAt: string;
+  publicNickname: string;
+}
+
+export interface CommunityPublicPostsResponse {
+  items: CommunityPublicPostSummary[];
+  nextCursor: string | null;
+}
+
+export interface CommunityPublicPostResponse {
+  post: CommunityPublicPostSummary;
+}
+
 export interface WithdrawCommunityPostResponse {
   post: CommunityPostSummary;
 }
@@ -58,7 +78,9 @@ export interface CommunityReportResponse {
 }
 
 export interface AdminCommunityPostSummary extends CommunityPostSummary {
+  authorUserId: string;
   authorPublicNickname: string | null;
+  authorProfileStatus: "active" | "hidden";
   sourceWorkspaceId: string;
 }
 
@@ -83,4 +105,9 @@ export interface ModerateCommunityPostRequest {
 
 export interface ResolveCommunityReportRequest {
   resolution: Extract<CommunityReportStatus, "resolved" | "dismissed">;
+}
+
+export interface AdminCommunityUserVisibilityResponse {
+  userId: string;
+  profileStatus: "active" | "hidden";
 }

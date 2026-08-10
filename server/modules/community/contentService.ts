@@ -3,6 +3,8 @@ import {
   type CommunityPostResponse,
   type CommunityPostStatus,
   type CommunityPostSummary,
+  type CommunityPublicPostsResponse,
+  type CommunityPublicPostResponse,
   type CommunityReportReason,
   type CommunityReportResponse,
   type CreateCommunityPostRequest,
@@ -54,6 +56,12 @@ interface CommunityReportRow {
 }
 
 export interface CommunityContentService {
+  listPublic(input: {
+    query?: string | null;
+    tag?: string | null;
+    cursor?: string | null;
+  }): Promise<CommunityPublicPostsResponse>;
+  getPublic(postId: string): Promise<CommunityPublicPostResponse>;
   create(
     input: CreateCommunityPostRequest,
     actor: CommunityActor,
@@ -183,10 +191,94 @@ function encodeCursor(row: CommunityPostRow) {
   ).toString("base64url");
 }
 
+interface PublicPostRow extends CommunityPostRow {
+  public_nickname: string | null;
+}
+
+function publicSummary(row: PublicPostRow) {
+  if (!row.public_nickname || !row.published_at) return null;
+  return {
+    id: row.id,
+    assetId: row.asset_id,
+    title: row.title,
+    tags: row.tags ?? [],
+    publishedAt: new Date(row.published_at).toISOString(),
+    publicNickname: row.public_nickname,
+  };
+}
+
 export function createPostgresCommunityContentService(
   pool: DbPool,
 ): CommunityContentService {
   return {
+    async listPublic(input) {
+      const cursor = decodeCursor(input.cursor);
+      const values: unknown[] = [];
+      const clauses = [
+        "p.status = 'published'",
+        "p.published_at IS NOT NULL",
+        "profile.profile_status = 'active'",
+      ];
+      if (input.query?.trim()) {
+        values.push(
+          `%${input.query.trim().replaceAll("%", "\\%").replaceAll("_", "\\_")}%`,
+        );
+        clauses.push(`p.title ILIKE $${values.length} ESCAPE '\\'`);
+      }
+      if (input.tag?.trim()) {
+        values.push(input.tag.trim().toLowerCase());
+        clauses.push(
+          `EXISTS (SELECT 1 FROM community_post_tags filter_tag WHERE filter_tag.post_id = p.id AND filter_tag.tag = $${values.length})`,
+        );
+      }
+      if (cursor) {
+        values.push(cursor.createdAt, cursor.id);
+        clauses.push(
+          `(p.created_at, p.id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`,
+        );
+      }
+      values.push(51);
+      const result = await pool.query<PublicPostRow>(
+        `SELECT p.*, profile.public_nickname,
+           COALESCE(array_agg(t.tag ORDER BY t.tag) FILTER (WHERE t.tag IS NOT NULL), '{}') AS tags
+         FROM community_posts p
+         JOIN user_public_profiles profile ON profile.user_id = p.author_user_id
+         LEFT JOIN community_post_tags t ON t.post_id = p.id
+         WHERE ${clauses.join(" AND ")}
+         GROUP BY p.id, profile.public_nickname
+         ORDER BY p.created_at DESC, p.id DESC LIMIT $${values.length}`,
+        values,
+      );
+      const page = result.rows.slice(0, 50).flatMap((row) => {
+        const post = publicSummary(row);
+        return post ? [post] : [];
+      });
+      return {
+        items: page,
+        nextCursor:
+          result.rows.length > 50 && page.at(-1)
+            ? encodeCursor(result.rows[page.length - 1]!)
+            : null,
+      };
+    },
+    async getPublic(postId) {
+      if (!UUID_PATTERN.test(postId))
+        error(404, "COMMUNITY_POST_NOT_FOUND", "Community post was not found");
+      const result = await pool.query<PublicPostRow>(
+        `SELECT p.*, profile.public_nickname,
+           COALESCE(array_agg(t.tag ORDER BY t.tag) FILTER (WHERE t.tag IS NOT NULL), '{}') AS tags
+         FROM community_posts p
+         JOIN user_public_profiles profile ON profile.user_id = p.author_user_id
+         LEFT JOIN community_post_tags t ON t.post_id = p.id
+         WHERE p.id = $1 AND p.status = 'published' AND p.published_at IS NOT NULL AND profile.profile_status = 'active'
+         GROUP BY p.id, profile.public_nickname`,
+        [postId],
+      );
+      const post = result.rows[0] ? publicSummary(result.rows[0]) : null;
+      if (!post)
+        error(404, "COMMUNITY_POST_NOT_FOUND", "Community post was not found");
+      return { post };
+    },
     async create(input, actor) {
       const submitted = validateCreate(input);
       return withTransaction(pool, async (client) => {
@@ -449,6 +541,8 @@ export function createUnavailableCommunityContentService(): CommunityContentServ
     });
   };
   return {
+    listPublic: unavailable,
+    getPublic: unavailable,
     create: unavailable,
     listMine: unavailable,
     withdraw: unavailable,

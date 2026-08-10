@@ -153,6 +153,18 @@ export function PublicHome({
       <header className="home-header">
         <div className="home-header__inner">
           <Brand config={config} logoUrl={logoUrl} href={homeHref} />
+          <nav className="home-header__nav" aria-label="主要导航">
+            <a
+              className="home-nav-link home-nav-link--active"
+              href={homeHref}
+              aria-current="page"
+            >
+              首页
+            </a>
+            <a className="home-nav-link" href="/community">
+              社区中心
+            </a>
+          </nav>
           <div className="home-header__actions">
             {authenticated ? (
               <button

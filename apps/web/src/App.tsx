@@ -13,6 +13,11 @@ const PublicContentPage = lazy(() =>
     default: module.PublicContentPage,
   })),
 );
+const CommunityBrowsePage = lazy(() =>
+  import("@/features/community/CommunityBrowsePage").then((module) => ({
+    default: module.CommunityBrowsePage,
+  })),
+);
 
 function AuthenticatedAppHost() {
   return (
@@ -26,6 +31,18 @@ function AuthenticatedAppHost() {
 
 export default function App() {
   const publicPageKind = getPublicPageKind(window.location.pathname);
+
+  if (window.location.pathname === "/community") {
+    return (
+      <AuthGate>
+        <Suspense
+          fallback={<main className="public-page">正在加载社区...</main>}
+        >
+          <CommunityBrowsePage />
+        </Suspense>
+      </AuthGate>
+    );
+  }
 
   if (publicPageKind) {
     return (

@@ -311,7 +311,7 @@ try {
   await client.query(`GRANT INSERT ON public.account_erasure_jobs TO ${admin}`);
   await client.query(`GRANT DELETE ON public.user_public_profiles TO ${admin}`);
   await client.query(
-    `GRANT SELECT (user_id, public_nickname) ON public.user_public_profiles TO ${admin}`,
+    `GRANT SELECT (user_id, public_nickname, profile_status) ON public.user_public_profiles TO ${admin}`,
   );
   await client.query(
     `GRANT SELECT (id, author_user_id, source_workspace_id, asset_id, title, status, moderation_reason, published_at, withdrawn_at, created_at, updated_at),

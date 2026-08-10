@@ -1,4 +1,4 @@
-name: ai-canvas-cloud-staging
+name: ${STAGING_COMPOSE_PROJECT:-ai-canvas-cloud-staging}
 
 services:
   postgres:
@@ -62,25 +62,35 @@ services:
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - >-
+        if [ "$${SKIP_OBJECT_CORS:-false}" = "true" ]; then mc alias set staging http://object-storage:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"; mc mb --ignore-existing "staging/$${S3_BUCKET}"; mc anonymous set none "staging/$${S3_BUCKET}"; exit 0; fi;
         mc alias set staging http://object-storage:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}";
         mc mb --ignore-existing "staging/$${S3_BUCKET}";
         mc anonymous set none "staging/$${S3_BUCKET}";
-        origins_json=$$(printf '%s' "$${WEB_ALLOWED_ORIGINS}" | tr -d '[:space:]' | sed 's/,/","/g');
-        printf '{"CORSRules":[{"AllowedOrigins":["%s"],"AllowedMethods":["GET","PUT","HEAD"],"AllowedHeaders":["Content-Type","x-amz-*","x-amz-content-sha256","x-amz-date"],"ExposeHeaders":["ETag"],"MaxAgeSeconds":600}]}' "$$origins_json" >/tmp/staging-cors.json;
-        mc cors set "staging/$${S3_BUCKET}" /tmp/staging-cors.json;
+        origins=$$(printf '%s' "$${WEB_ALLOWED_ORIGINS}" | tr -d '[:space:]');
+        origins_xml='';
+        while [ -n "$$origins" ]; do
+          origin=$${origins%%,*};
+          if [ "$$origin" = "$$origins" ]; then origins=''; else origins=$${origins#*,}; fi;
+          origins_xml=$${origins_xml}\<AllowedOrigin\>$$origin\</AllowedOrigin\>;
+        done;
+        printf '<CORSConfiguration><CORSRule>%s<AllowedMethod>GET</AllowedMethod><AllowedMethod>PUT</AllowedMethod><AllowedMethod>HEAD</AllowedMethod><AllowedHeader>*</AllowedHeader><ExposeHeader>ETag</ExposeHeader><MaxAgeSeconds>600</MaxAgeSeconds></CORSRule></CORSConfiguration>' "$$origins_xml" >/tmp/staging-cors.xml;
+        mc cors set "staging/$${S3_BUCKET}" /tmp/staging-cors.xml;
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in staging.env}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in staging.env}
       S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in staging.env}
       WEB_ALLOWED_ORIGINS: ${WEB_ALLOWED_ORIGINS:?set WEB_ALLOWED_ORIGINS in staging.env}
+      SKIP_OBJECT_CORS: ${SKIP_OBJECT_CORS:-false}
     restart: "no"
 
   api:
     build:
-      context: ../..
+      context: ../../..
       dockerfile: Dockerfile
       target: api
-    env_file: ./staging.env
+      args:
+        CONTAINER_REGISTRY: ${CONTAINER_REGISTRY:-docker.io}
+    env_file: ${STAGING_RUNTIME_ENV_FILE:-./staging.env}
     environment:
       API_HOST: 0.0.0.0
       API_PORT: 8787
@@ -105,9 +115,11 @@ services:
 
   web:
     build:
-      context: ../..
+      context: ../../..
       dockerfile: Dockerfile
       target: web
+      args:
+        CONTAINER_REGISTRY: ${CONTAINER_REGISTRY:-docker.io}
     environment:
       S3_PUBLIC_ORIGIN: ${S3_PUBLIC_ORIGIN:?set S3_PUBLIC_ORIGIN in staging.env}
     depends_on:
@@ -124,10 +136,12 @@ services:
   migrate:
     profiles: ["release"]
     build:
-      context: ../..
+      context: ../../..
       dockerfile: Dockerfile
       target: migrate
-    env_file: ./staging.env
+      args:
+        CONTAINER_REGISTRY: ${CONTAINER_REGISTRY:-docker.io}
+    env_file: ${STAGING_RUNTIME_ENV_FILE:-./staging.env}
     depends_on:
       postgres:
         condition: service_healthy
@@ -194,9 +208,11 @@ services:
 
   configure-object-lifecycle:
     build:
-      context: ../..
+      context: ../../..
       dockerfile: Dockerfile
       target: operations
+      args:
+        CONTAINER_REGISTRY: ${CONTAINER_REGISTRY:-docker.io}
     command: ["node", "scripts/configure-object-lifecycle.mjs"]
     environment:
       S3_ENDPOINT: ${S3_ENDPOINT:?set S3_ENDPOINT in staging.env}
@@ -219,13 +235,16 @@ services:
 
   backup-scheduler:
     build:
-      context: ../..
+      context: ../../..
       dockerfile: Dockerfile
       target: operations
+      args:
+        CONTAINER_REGISTRY: ${CONTAINER_REGISTRY:-docker.io}
     command: ["node", "scripts/run-staging-backup-scheduler.mjs"]
     environment:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in staging.env}
       S3_ENDPOINT: ${S3_ENDPOINT:?set S3_ENDPOINT in staging.env}
+      S3_REGION: ${S3_REGION:?set S3_REGION in staging.env}
       S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in staging.env}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in staging.env}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in staging.env}
@@ -324,9 +343,11 @@ services:
   restore-drill:
     profiles: ["restore"]
     build:
-      context: ../..
+      context: ../../..
       dockerfile: Dockerfile
       target: operations
+      args:
+        CONTAINER_REGISTRY: ${CONTAINER_REGISTRY:-docker.io}
     command: ["node", "scripts/restore-staging-backup.mjs"]
     environment:
       BACKUP_DIRECTORY: /backups
@@ -368,9 +389,11 @@ services:
   source-guard:
     profiles: ["restore"]
     build:
-      context: ../..
+      context: ../../..
       dockerfile: Dockerfile
       target: operations
+      args:
+        CONTAINER_REGISTRY: ${CONTAINER_REGISTRY:-docker.io}
     command: ["node", "scripts/verify-staging-source-unchanged.mjs"]
     environment:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in staging.env}
@@ -386,20 +409,20 @@ services:
 
 volumes:
   staging-postgres-data:
-    name: ai-canvas-cloud-staging-postgres-data
+    name: ${STAGING_RESOURCE_PREFIX:-ai-canvas-cloud-staging}-postgres-data
   staging-redis-data:
-    name: ai-canvas-cloud-staging-redis-data
+    name: ${STAGING_RESOURCE_PREFIX:-ai-canvas-cloud-staging}-redis-data
   staging-object-storage-data:
-    name: ai-canvas-cloud-staging-object-storage-data
+    name: ${STAGING_RESOURCE_PREFIX:-ai-canvas-cloud-staging}-object-storage-data
   staging-prometheus-data:
-    name: ai-canvas-cloud-staging-prometheus-data
+    name: ${STAGING_RESOURCE_PREFIX:-ai-canvas-cloud-staging}-prometheus-data
   staging-backup-object-data:
-    name: ai-canvas-cloud-staging-backup-object-data
+    name: ${STAGING_RESOURCE_PREFIX:-ai-canvas-cloud-staging}-backup-object-data
   staging-database-backups:
-    name: ai-canvas-cloud-staging-database-backups
+    name: ${STAGING_RESOURCE_PREFIX:-ai-canvas-cloud-staging}-database-backups
   staging-restore-postgres-data:
-    name: ai-canvas-cloud-staging-restore-postgres-data
+    name: ${STAGING_RESOURCE_PREFIX:-ai-canvas-cloud-staging}-restore-postgres-data
   staging-restore-redis-data:
-    name: ai-canvas-cloud-staging-restore-redis-data
+    name: ${STAGING_RESOURCE_PREFIX:-ai-canvas-cloud-staging}-restore-redis-data
   staging-restore-object-data:
-    name: ai-canvas-cloud-staging-restore-object-data
+    name: ${STAGING_RESOURCE_PREFIX:-ai-canvas-cloud-staging}-restore-object-data

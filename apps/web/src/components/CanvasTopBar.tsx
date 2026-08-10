@@ -1,16 +1,19 @@
+import { useEffect, useRef, useState } from "react";
 import {
-  ChevronLeft,
-  ChevronRight,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  CloudOff,
   Download,
-  FolderDown,
   Grid3X3,
-  Home,
   Loader2,
   Moon,
   Save,
+  Timer,
   Sun,
   Upload,
 } from "lucide-react";
+import { hasInterruptibleSynchronousImageTask } from "@/features/generateQueue/taskQueueView";
 import { TooltipIconButton } from "@/components/TooltipIconButton";
 import { confirmReturnHome } from "@/components/canvas/canvasHomeNavigation";
 import { platformBridge } from "@/platform";
@@ -19,17 +22,69 @@ import { useHistoryStore } from "@/store/useHistoryStore";
 import { useFeedbackStore } from "@/store/useFeedbackStore";
 import { useProjectStore } from "@/store/useProjectStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
+import { useTaskQueueStore } from "@/store/useTaskQueueStore";
 import { useSettingsDialogStore } from "@/store/useSettingsDialogStore";
 import { themeClasses } from "@/styles/themeClasses";
 import type { ProjectPersistenceStatus } from "@/features/projectManager/persistenceStatus";
 
-function formatStatusTime(value: number) {
-  return new Date(value).toLocaleTimeString("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
+function getPersistenceIconView(status: ProjectPersistenceStatus) {
+  switch (status.kind) {
+    case "saving":
+      return {
+        label: "正在自动保存",
+        Icon: Loader2,
+        className: "animate-spin text-[var(--accent-violet-strong)]",
+      };
+    case "restoring":
+      return {
+        label: "正在恢复项目",
+        Icon: Loader2,
+        className: "animate-spin text-[var(--accent-violet-strong)]",
+      };
+    case "auto-saved":
+      return {
+        label: `已自动保存，${new Date(status.at).toLocaleTimeString("zh-CN")}`,
+        Icon: CheckCircle2,
+        className: "text-emerald-500 dark:text-emerald-300",
+      };
+    case "manual-saved":
+      return {
+        label: `已保存，${new Date(status.at).toLocaleTimeString("zh-CN")}`,
+        Icon: CheckCircle2,
+        className: "text-emerald-500 dark:text-emerald-300",
+      };
+    case "pending-autosave":
+    case "auto-saved-manual-dirty":
+      return {
+        label: "等待自动保存",
+        Icon: Timer,
+        className: "text-amber-500 dark:text-amber-300",
+      };
+    case "error":
+      return {
+        label: `自动保存失败：${status.message}`,
+        Icon: CloudOff,
+        className: "text-red-500 dark:text-red-300",
+      };
+    case "storage-required":
+      return {
+        label: "云端存储暂未就绪",
+        Icon: CloudOff,
+        className: "text-amber-500 dark:text-amber-300",
+      };
+    case "no-project":
+      return {
+        label: "当前没有项目",
+        Icon: CloudOff,
+        className: themeClasses.textMuted,
+      };
+    default:
+      return {
+        label: "尚未自动保存",
+        Icon: Timer,
+        className: themeClasses.textMuted,
+      };
+  }
 }
 
 function getNextThemeMode(themeMode: "dark" | "light" | "system") {
@@ -39,76 +94,6 @@ function getNextThemeMode(themeMode: "dark" | "light" | "system") {
 function getThemeLabel(themeMode: "dark" | "light" | "system") {
   return themeMode === "light" ? "切换到暗色主题" : "切换到浅色主题";
 }
-
-function getPersistenceStatusView(status: ProjectPersistenceStatus) {
-  switch (status.kind) {
-    case "no-project":
-      return {
-        text: "没有项目",
-        tone: themeClasses.textMuted,
-        title: "当前还没有打开项目。",
-      };
-    case "restoring":
-      return {
-        text: "恢复中...",
-        tone: "text-[var(--accent-violet-strong)]",
-        title: "正在恢复当前项目画布和任务队列。",
-      };
-    case "storage-required":
-      return {
-        text: "未配置缓存目录",
-        tone: "text-amber-500 dark:text-amber-200",
-        title: "云端存储暂未就绪，项目当前无法保存。",
-      };
-    case "saving":
-      return {
-        text: "保存中...",
-        tone: "text-[var(--accent-violet-strong)]",
-        title: "正在写入当前项目文件。",
-      };
-    case "error":
-      return {
-        text: "上次保存失败",
-        tone: "text-red-500 dark:text-red-200",
-        title: status.message,
-      };
-    case "pending-autosave":
-      return {
-        text: "待自动保存",
-        tone: "text-amber-500 dark:text-amber-200",
-        title: "当前更改尚未同步到云端，稍后会自动保存。",
-      };
-    case "auto-saved-manual-dirty":
-      return {
-        text: `自动保存 ${formatStatusTime(status.at)} · 未手动保存`,
-        tone: "text-amber-500 dark:text-amber-200",
-        title: `更改已在 ${new Date(status.at).toLocaleString("zh-CN")} 自动同步到云端，但尚未手动保存为项目保存点。`,
-      };
-    case "auto-saved":
-      return {
-        text: `自动保存 ${formatStatusTime(status.at)}`,
-        tone: themeClasses.textMuted,
-        title: `上次自动保存：${new Date(status.at).toLocaleString("zh-CN")}`,
-      };
-    case "manual-saved":
-      return {
-        text: `已保存 ${formatStatusTime(status.at)}`,
-        tone: themeClasses.textMuted,
-        title: `上次手动保存：${new Date(status.at).toLocaleString("zh-CN")}`,
-      };
-    default:
-      return {
-        text: "尚未保存",
-        tone: themeClasses.textMuted,
-        title: "当前项目还没有写入记录。",
-      };
-  }
-}
-
-type CanvasTopBarProps = {
-  compact?: boolean;
-  onToggleCollapse?: () => void;
-};
 
 type CanvasQuickActionsProps = {
   includeWorkflowActions?: boolean;
@@ -287,22 +272,44 @@ export function CanvasQuickActions({
   );
 }
 
-export function CanvasTopBar({
-  compact = false,
-  onToggleCollapse,
-}: CanvasTopBarProps) {
+export function CanvasTopBar() {
   const activeProject = useProjectStore((state) => state.getActiveProject());
+  const projects = useProjectStore((state) => state.projects);
+  const activeProjectId = useProjectStore((state) => state.activeProjectId);
+  const loadProject = useProjectStore((state) => state.loadProject);
+  const saveActiveProject = useProjectStore((state) => state.saveActiveProject);
   const getActivePersistenceStatus = useProjectStore(
     (state) => state.getActivePersistenceStatus,
   );
   const hasUnsavedChanges = useProjectStore((state) =>
     state.hasUnsavedChanges(),
   );
-  const hasPersistedChanges = useProjectStore((state) =>
-    state.hasPersistedChanges(),
-  );
   const confirm = useFeedbackStore((state) => state.confirm);
+  const notify = useFeedbackStore((state) => state.notify);
+  const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
+  const [isSwitchingProject, setIsSwitchingProject] = useState(false);
+  const projectMenuRef = useRef<HTMLDivElement>(null);
+  const projectName = activeProject?.name || "未命名项目";
   const persistenceStatus = getActivePersistenceStatus();
+  const status = getPersistenceIconView(persistenceStatus);
+
+  useEffect(() => {
+    if (!isProjectMenuOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!projectMenuRef.current?.contains(event.target as Node)) {
+        setIsProjectMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsProjectMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isProjectMenuOpen]);
 
   const handleReturnHome = async () => {
     if (!(await confirmReturnHome(hasUnsavedChanges, confirm))) {
@@ -312,16 +319,104 @@ export function CanvasTopBar({
     window.location.assign("/home");
   };
 
-  const toggleLabel = compact ? "展开工具栏" : "折叠工具栏";
-  const projectName = activeProject?.name || "未命名";
+  const handleSwitchProject = async (projectId: string) => {
+    if (projectId === activeProjectId || isSwitchingProject) {
+      setIsProjectMenuOpen(false);
+      return;
+    }
 
-  const status = getPersistenceStatusView(persistenceStatus);
+    if (
+      hasInterruptibleSynchronousImageTask(useTaskQueueStore.getState().tasks)
+    ) {
+      const confirmed = await confirm({
+        title: "同步生成仍在运行",
+        message:
+          "切换项目会中断当前同步请求，但服务商仍可能完成生成并计费。确定继续吗？",
+        confirmLabel: "继续切换",
+      });
+      if (!confirmed) return;
+    }
 
-  const iconButtonClass = `${themeClasses.iconButton} h-6 w-6 rounded-md disabled:cursor-not-allowed disabled:border-transparent disabled:bg-transparent disabled:text-[color-mix(in_srgb,var(--text-muted)_55%,transparent)]`;
+    if (activeProjectId) {
+      try {
+        await useSettingsStore
+          .getState()
+          .persistLocalTaskQueue(
+            activeProjectId,
+            useTaskQueueStore.getState().getSnapshot(),
+          );
+      } catch (error) {
+        notify({
+          tone: "error",
+          title: "任务队列保存失败",
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+    }
+
+    if (hasUnsavedChanges) {
+      const shouldSave = await confirm({
+        title: "保存当前改动",
+        message: "当前项目有未保存的改动，是否先保存？",
+        confirmLabel: "先保存",
+        cancelLabel: "不保存",
+      });
+      if (shouldSave) {
+        try {
+          const result = await saveActiveProject();
+          if (result !== "saved") {
+            notify({
+              tone: "warning",
+              title: "无法保存当前项目",
+              message: "请完成存储设置后再切换项目。",
+            });
+            return;
+          }
+        } catch {
+          return;
+        }
+      } else if (
+        !(await confirm({
+          title: "放弃未保存改动",
+          message: "不保存当前改动，继续切换吗？",
+          confirmLabel: "继续切换",
+          tone: "danger",
+        }))
+      ) {
+        return;
+      }
+    }
+
+    setIsSwitchingProject(true);
+    try {
+      const success = await loadProject(projectId);
+      if (!success) {
+        notify({
+          tone: "error",
+          title: "项目切换失败",
+          message: "项目不可用或已被归档。",
+        });
+        return;
+      }
+      setIsProjectMenuOpen(false);
+    } catch (error) {
+      notify({
+        tone: "error",
+        title: "项目切换失败",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsSwitchingProject(false);
+    }
+  };
+
+  const availableProjects = projects.filter((project) => !project.archivedAt);
 
   return (
     <div
-      className={`flex max-w-[calc(100vw-1rem)] items-center gap-0.5 p-1 ${themeClasses.compactFloatingPanel}`}
+      ref={projectMenuRef}
+      className={`relative flex max-w-[min(28rem,calc(100vw-1rem))] items-center gap-0.5 p-1 ${themeClasses.compactFloatingPanel}`}
     >
       <TooltipIconButton
         label="返回首页"
@@ -330,60 +425,86 @@ export function CanvasTopBar({
         }}
         testId="return-home-button"
         tooltipAlign="start"
-        className={`${iconButtonClass} shrink-0`}
-        icon={<Home className="h-3 w-3" />}
+        className={`${themeClasses.iconButton} h-6 w-6 shrink-0 rounded-md`}
+        icon={
+          <img
+            src="/brand/ai-canvas-mark.png"
+            alt=""
+            className="h-3.5 w-3.5 object-contain"
+          />
+        }
       />
-
-      {!compact ? (
-        <span
+      <span
+        aria-hidden="true"
+        className={`mx-0.5 h-4 w-px shrink-0 ${themeClasses.divider}`}
+      />
+      <button
+        type="button"
+        className={`flex h-6 min-w-36 max-w-60 flex-1 items-center gap-2 rounded-md border border-transparent bg-transparent px-2 text-left text-xs font-semibold ${themeClasses.textPrimary} transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-violet-soft)] disabled:cursor-not-allowed`}
+        title="切换项目画布"
+        aria-label={`当前项目：${projectName}，切换项目画布`}
+        aria-haspopup="menu"
+        aria-expanded={isProjectMenuOpen}
+        onClick={() => setIsProjectMenuOpen((open) => !open)}
+        disabled={isSwitchingProject}
+      >
+        <span className="min-w-0 truncate">{projectName}</span>
+        <ChevronDown
           aria-hidden="true"
-          className={`mx-0.5 h-4 w-px shrink-0 ${themeClasses.divider}`}
+          className={`ml-auto mr-0.5 h-3.5 w-3.5 shrink-0 transition-transform ${isProjectMenuOpen ? "rotate-180" : ""}`}
         />
+      </button>
+      {isProjectMenuOpen ? (
+        <div
+          role="menu"
+          aria-label="项目画布"
+          className={`absolute left-9 top-[calc(100%+6px)] z-50 max-h-64 min-w-56 max-w-[calc(100vw-1rem)] overflow-y-auto p-1 ${themeClasses.compactFloatingPanel}`}
+        >
+          {availableProjects.length ? (
+            availableProjects.map((project) => (
+              <button
+                key={project.id}
+                type="button"
+                role="menuitem"
+                className={`flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs transition hover:bg-[var(--control-bg-hover)] ${project.id === activeProjectId ? "bg-[var(--accent-violet-soft)] font-semibold" : themeClasses.textPrimary}`}
+                onClick={() => void handleSwitchProject(project.id)}
+                disabled={isSwitchingProject}
+              >
+                <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                {project.id === activeProjectId ? (
+                  <Check
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5 shrink-0 text-[var(--accent-violet-strong)]"
+                  />
+                ) : null}
+              </button>
+            ))
+          ) : (
+            <span
+              className={`block px-2 py-1.5 text-xs ${themeClasses.textMuted}`}
+            >
+              暂无可用项目
+            </span>
+          )}
+        </div>
       ) : null}
-
-      <div
-        className={`h-6 min-w-0 items-center gap-1.5 overflow-hidden px-1.5 ${themeClasses.textSecondary} ${compact ? "hidden" : "hidden max-w-[min(20rem,calc(100vw-6.5rem))] md:flex"}`}
-        title={status.title}
+      <span
+        aria-hidden="true"
+        className={`mx-0.5 h-4 w-px shrink-0 ${themeClasses.divider}`}
+      />
+      <span
+        role="status"
+        aria-label={status.label}
+        title={status.label}
         data-testid="project-persistence-status"
         data-status-kind={persistenceStatus.kind}
-        data-has-unsaved-changes={hasUnsavedChanges ? "true" : "false"}
-        data-has-persisted-changes={hasPersistedChanges ? "true" : "false"}
+        className="flex h-6 w-6 shrink-0 items-center justify-center"
       >
-        <FolderDown className="h-3 w-3 shrink-0 text-[var(--accent-violet-strong)]" />
-        <span
-          className={`max-w-32 min-w-0 truncate whitespace-nowrap text-[10px] font-semibold ${themeClasses.textPrimary}`}
-          title={projectName}
-        >
-          {projectName}
-        </span>
-        <span className={`h-3 w-px shrink-0 ${themeClasses.divider}`} />
-        <span
-          className={`inline-flex min-w-0 max-w-36 items-center gap-1 text-[9px] ${status.tone}`}
-        >
-          {persistenceStatus.kind === "saving" ||
-          persistenceStatus.kind === "restoring" ? (
-            <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" />
-          ) : null}
-          <span className="truncate">{status.text}</span>
-        </span>
-      </div>
-
-      {onToggleCollapse ? (
-        <TooltipIconButton
-          label={toggleLabel}
-          onClick={onToggleCollapse}
-          showTooltip={false}
-          tooltipAlign="start"
-          className={`${iconButtonClass} ml-0.5 shrink-0`}
-          icon={
-            compact ? (
-              <ChevronRight className="h-3 w-3" />
-            ) : (
-              <ChevronLeft className="h-3 w-3" />
-            )
-          }
+        <status.Icon
+          aria-hidden="true"
+          className={`h-3.5 w-3.5 ${status.className}`}
         />
-      ) : null}
+      </span>
     </div>
   );
 }

@@ -14,6 +14,7 @@ import {
   SlidersHorizontal,
   UserRound,
   UsersRound,
+  ShieldAlert,
 } from "lucide-react";
 import { Brand } from "./components";
 import { navigationForRole, type AdminView } from "./navigation";
@@ -22,6 +23,7 @@ import { ROLE_LABELS } from "./uiModel";
 const ICONS: Record<AdminView, ReactNode> = {
   dashboard: <Activity size={18} />,
   announcements: <BellRing size={18} />,
+  community: <ShieldAlert size={18} />,
   users: <UsersRound size={18} />,
   site: <SlidersHorizontal size={18} />,
   smtp: <Mail size={18} />,

@@ -156,7 +156,7 @@ test("staging web and object storage boundaries allow controlled HTTPS providers
   assert.match(nginx, /client_max_body_size 8m/);
   assert.match(nginx, /expires 1y/);
   assert.match(compose, /mc cors set/);
-  assert.match(compose, /ExposeHeaders.*ETag/);
+  assert.match(compose, /ExposeHeader.*ETag/);
   assert.match(compose, /mc anonymous set none/);
   assert.match(
     template,
@@ -380,6 +380,13 @@ test("staging recovery keeps encrypted backups and restore resources isolated", 
   assert.match(template, /BACKUP_ENCRYPTION_KEY=replace-with-/);
   assert.match(template, /RESTORE_RESET_CONFIRMED=true/);
   assert.doesNotMatch(template, /BACKUP_ENCRYPTION_KEY=[A-Za-z0-9+/]{43}=/);
+  assert.match(compose, /STAGING_COMPOSE_PROJECT:-ai-canvas-cloud-staging/);
+  assert.match(compose, /STAGING_RESOURCE_PREFIX:-ai-canvas-cloud-staging/);
+  assert.match(compose, /STAGING_RUNTIME_ENV_FILE:-\.\/staging\.env/);
+  assert.equal(
+    packageJson.scripts["deploy:local:restore:drill"],
+    "node scripts/run-local-recovery-drill.mjs",
+  );
 });
 
 test("migration release metadata is enforced by the one-shot migration command", () => {
