@@ -134,12 +134,22 @@ const source = argumentValue("--source", defaultSource);
 const publicDestination = argumentValue("--public", defaultPublicDestination);
 const adminDestination = argumentValue("--admin", defaultAdminDestination);
 const values = parseEnv(source);
+const systemUpdateRepository =
+  required(values, "APP_IMAGE_SOURCE") === "registry"
+    ? values.get("SYSTEM_UPDATE_REPOSITORY")?.trim() ||
+      required(values, "APP_REPOSITORY")
+    : undefined;
+const currentImageDigest = values
+  .get("APP_IMAGE")
+  ?.match(/@(?<digest>sha256:[a-f0-9]{64})$/)?.groups?.digest;
 const systemUpdateEnvironment =
   required(values, "APP_IMAGE_SOURCE") === "registry"
     ? {
         SYSTEM_UPDATE_DIRECTORY: "/app/update-control",
-        SYSTEM_UPDATE_REPOSITORY: required(values, "APP_REPOSITORY"),
-        SYSTEM_UPDATE_CURRENT_IMAGE: required(values, "APP_IMAGE"),
+        SYSTEM_UPDATE_REPOSITORY: systemUpdateRepository,
+        SYSTEM_UPDATE_CURRENT_IMAGE: currentImageDigest
+          ? `${systemUpdateRepository}@${currentImageDigest}`
+          : required(values, "APP_IMAGE"),
       }
     : {};
 

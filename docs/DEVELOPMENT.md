@@ -150,7 +150,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build-single-host-offline-image
 
 PostgreSQL 与 Redis 继续使用 Compose 中固定版本的 Docker 官方镜像。服务器已经存在 `postgres:17.6-alpine3.22` 和 `redis:8.2.1-alpine3.22` 时不需要本地重复导出；缺少时首次启动会从 Docker Hub 拉取，因此国内服务器需要可用的 Docker 镜像加速。
 
-单机新安装默认使用 `APP_IMAGE_SOURCE=registry` 和 `APP_REPOSITORY=hao136909482/ai-canvas-cloud`，公共 Docker Hub 仓库不要求服务器登录。国内服务器可通过 Docker daemon 的 registry mirror 使用 `https://docker.1ms.run` 拉取加速。离线安装时把 `release.env.example` 改为 `APP_IMAGE_SOURCE=archive`，并把镜像 tar 上传到部署目录。GitHub Actions 只运行质量检查，不发布镜像。
+单机新安装默认使用 `APP_IMAGE_SOURCE=registry`、`APP_REPOSITORY=hao136909482/ai-canvas-cloud` 和 `SYSTEM_UPDATE_REPOSITORY=hao136909482/ai-canvas-cloud`，公共 Docker Hub 仓库不要求服务器登录。`APP_REPOSITORY` 是实际拉取地址，国内服务器可使用 Docker daemon registry mirror，也可将它改为 `docker.1ms.run/hao136909482/ai-canvas-cloud`；`SYSTEM_UPDATE_REPOSITORY` 必须保留不带 registry 主机名的 Docker Hub 仓库，用于后台比较 `stable` digest。离线安装时把 `release.env.example` 改为 `APP_IMAGE_SOURCE=archive`，并把镜像 tar 上传到部署目录。GitHub Actions 只运行质量检查，不发布镜像。
 
 ### 单机首次发布
 
@@ -230,7 +230,7 @@ sudo bash status.sh
 
 `deploy.sh` 拉取 `stable` 并按仓库 digest 固定本次部署，等待 PostgreSQL 和 Redis healthcheck 通过后创建 PostgreSQL 自包含备份，再校验配置、运行迁移和数据库角色校验、刷新两个运行时环境文件、重建两个应用并等待存活检查。离线模式则加载归档并按实际 Image ID 固定本次部署。普通站点和 Admin 全部存活后，脚本通过 release 容器读取 `/app/apps/web/dist` 与 `/app/apps/admin-web/dist`，先真实 `GET` 两个正式域名的 HTML，再枚举两套 `/assets/*` 通过对应正式域名预热 EdgeOne，包括懒加载 Chunk。预热固定并发 4、单请求超时 15 秒、失败最多重试 2 次；日志只包含域名、无查询参数的资源路径、状态码和成功/失败汇总。个别资源失败只产生警告，不回滚健康版本；预热无需 Cookie、Token、腾讯云 SecretId/SecretKey 或 EdgeOne 管理 API。
 
-registry 模式下，`deploy.sh` 同时安装并启用 `ai-canvas-cloud-update.path`。Admin“系统更新”只比较固定 `APP_REPOSITORY:stable` 与当前不可变 digest，并把 UUID 请求写入 `secrets/update/`；Admin 容器只挂载该受限目录，不挂载 Docker Socket。宿主机 root `systemd.path` 触发固定 `update-worker.sh`，worker 校验请求后仅调用同目录 `deploy.sh`，继续执行同一套拉取、备份、迁移和健康检查。更新中 Admin 会短暂断开并在恢复后轮询结果。archive 模式不注入更新配置，界面只显示未启用在线更新。部署目录不得包含空白，服务器必须使用 systemd 并提供 `flock`；不得把 worker 改为接受客户端命令、镜像名或任意脚本路径。
+registry 模式下，`deploy.sh` 同时安装并启用 `ai-canvas-cloud-update.path`。Admin“系统更新”只比较固定 `SYSTEM_UPDATE_REPOSITORY:stable` 与当前不可变 digest；该检查仓库与实际拉取使用的 `APP_REPOSITORY` 分离，以支持 registry mirror。更新请求写入 `secrets/update/`；Admin 容器只挂载该受限目录，不挂载 Docker Socket。宿主机 root `systemd.path` 触发固定 `update-worker.sh`，worker 校验请求后仅调用同目录 `deploy.sh`，继续执行同一套拉取、备份、迁移和健康检查。更新中 Admin 会短暂断开并在恢复后轮询结果。archive 模式不注入更新配置，界面只显示未启用在线更新。部署目录不得包含空白，服务器必须使用 systemd 并提供 `flock`；不得把 worker 改为接受客户端命令、镜像名或任意脚本路径。
 
 发布脚本不会在服务器构建源码，也不会自动回滚 SQL；迁移后的失败保留备份和失败状态，必须按 `DATA_MODEL.md` 的前向修复或隔离恢复流程处理。备份必须复制到另一台设备或独立 OSS Bucket，同机备份不能覆盖整机故障。`status.sh` 分别显示应用是否运行和 PostgreSQL、Redis、OSS 是否全部 ready。正式发布后还应连续请求同一 Hash 资源两次，确认一年 `immutable` 响应头且第二次由 EdgeOne 命中；该项必须在真实域名和真实 EdgeOne 响应头上验收，本地模拟不能代替。
 

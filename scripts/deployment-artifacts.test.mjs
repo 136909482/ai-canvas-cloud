@@ -264,6 +264,10 @@ test("single-host production uses one image, two application containers, and pri
   );
   assert.match(
     singleHostTemplate,
+    /SYSTEM_UPDATE_REPOSITORY=hao136909482\/ai-canvas-cloud/,
+  );
+  assert.match(
+    singleHostTemplate,
     /APP_IMAGE_ARCHIVE=ai-canvas-cloud-single-host-image\.tar/,
   );
   assert.match(
@@ -286,6 +290,10 @@ test("single-host production uses one image, two application containers, and pri
   assert.match(singleHostSetup, /Missing local image archive/);
   assert.match(singleHostSetup, /APP_IMAGE_SOURCE.*registry/);
   assert.match(singleHostSetup, /APP_REPOSITORY=\$\{APP_REPOSITORY\}/);
+  assert.match(
+    singleHostSetup,
+    /SYSTEM_UPDATE_REPOSITORY=\$\{SYSTEM_UPDATE_REPOSITORY\}/,
+  );
   assert.match(singleHostDeploy, /docker load --input/);
   assert.match(singleHostDeploy, /linux\/amd64/);
   assert.match(

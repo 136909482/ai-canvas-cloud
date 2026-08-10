@@ -124,6 +124,7 @@ function fixtureValue(key) {
     ADMIN_WEB_PUBLIC_URL: "https://admin.example.com",
     ADMIN_WEB_ALLOWED_ORIGINS: "https://admin.example.com",
     APP_REPOSITORY: "hao136909482/ai-canvas-cloud",
+    SYSTEM_UPDATE_REPOSITORY: "hao136909482/ai-canvas-cloud",
     APP_IMAGE: `hao136909482/ai-canvas-cloud@sha256:${"a".repeat(64)}`,
   };
   return values[key] ?? "";
@@ -142,6 +143,7 @@ test("single-host runtime rendering isolates public and admin credentials", () =
       ...adminKeys,
       "APP_IMAGE_SOURCE",
       "APP_REPOSITORY",
+      "SYSTEM_UPDATE_REPOSITORY",
       "APP_IMAGE",
     ]),
   ];
@@ -212,6 +214,61 @@ test("single-host runtime rendering isolates public and admin credentials", () =
       adminRuntime,
       /^BETTER_AUTH_SECRET=public-auth-secret-value$/m,
     );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("single-host runtime rendering separates a pull mirror from Docker Hub updates", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ai-canvas-runtime-mirror-"));
+  const runtimeDirectory = join(directory, "runtime");
+  const source = join(directory, "release.env");
+  const publicDestination = join(runtimeDirectory, "public.env");
+  const adminDestination = join(runtimeDirectory, "admin.env");
+  mkdirSync(runtimeDirectory);
+  const keys = [...new Set([...publicKeys, ...adminKeys])];
+  const digest = "b".repeat(64);
+  writeFileSync(
+    source,
+    [
+      ...keys.map((key) => `${key}=${fixtureValue(key)}`),
+      "ADMIN_DATABASE_ROLE=admin-role",
+      "APP_IMAGE_SOURCE=registry",
+      "APP_REPOSITORY=docker.1ms.run/hao136909482/ai-canvas-cloud",
+      "SYSTEM_UPDATE_REPOSITORY=hao136909482/ai-canvas-cloud",
+      `APP_IMAGE=docker.1ms.run/hao136909482/ai-canvas-cloud@sha256:${digest}`,
+      "",
+    ].join("\n"),
+  );
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "scripts/render-single-host-runtime-env.mjs",
+        "--source",
+        source,
+        "--public",
+        publicDestination,
+        "--admin",
+        adminDestination,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const adminRuntime = readFileSync(adminDestination, "utf8");
+    assert.match(
+      adminRuntime,
+      /^SYSTEM_UPDATE_REPOSITORY=hao136909482\/ai-canvas-cloud$/m,
+    );
+    assert.match(
+      adminRuntime,
+      new RegExp(
+        `^SYSTEM_UPDATE_CURRENT_IMAGE=hao136909482/ai-canvas-cloud@sha256:${digest}$`,
+        "m",
+      ),
+    );
+    assert.doesNotMatch(adminRuntime, /docker\.1ms\.run/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

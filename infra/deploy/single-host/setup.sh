@@ -53,6 +53,7 @@ PUBLIC_DOMAIN="$(read_required 'Public domain: ')"
 ADMIN_DOMAIN="$(read_required 'Admin domain: ')"
 APP_IMAGE_SOURCE="$(read_default APP_IMAGE_SOURCE)"
 APP_REPOSITORY="$(read_default APP_REPOSITORY)"
+SYSTEM_UPDATE_REPOSITORY="$(read_default SYSTEM_UPDATE_REPOSITORY)"
 APP_IMAGE_ARCHIVE="$(read_default APP_IMAGE_ARCHIVE)"
 APP_LOCAL_IMAGE="$(read_default APP_LOCAL_IMAGE)"
 
@@ -65,6 +66,10 @@ done
 if [[ "$APP_IMAGE_SOURCE" == "registry" ]]; then
   if [[ -z "$APP_REPOSITORY" || ! "$APP_REPOSITORY" =~ ^[A-Za-z0-9./_-]+$ ]]; then
     printf '%s\n' 'The public image repository is invalid.' >&2
+    exit 1
+  fi
+  if [[ -z "$SYSTEM_UPDATE_REPOSITORY" || ! "$SYSTEM_UPDATE_REPOSITORY" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+    printf '%s\n' 'The Docker Hub update repository is invalid.' >&2
     exit 1
   fi
 elif [[ "$APP_IMAGE_SOURCE" == "archive" ]]; then
@@ -119,6 +124,7 @@ DEPLOYMENT_ENV=production
 LOG_LEVEL=info
 APP_IMAGE_SOURCE=${APP_IMAGE_SOURCE}
 APP_REPOSITORY=${APP_REPOSITORY}
+SYSTEM_UPDATE_REPOSITORY=${SYSTEM_UPDATE_REPOSITORY}
 APP_IMAGE_ARCHIVE=${APP_IMAGE_ARCHIVE}
 APP_LOCAL_IMAGE=${APP_LOCAL_IMAGE}
 APP_IMAGE=
