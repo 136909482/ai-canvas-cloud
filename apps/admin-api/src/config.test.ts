@@ -76,9 +76,11 @@ test("Admin API config validates the managed update control boundary", () => {
     SYSTEM_UPDATE_DIRECTORY: "/app/update-control",
     SYSTEM_UPDATE_REPOSITORY: "hao136909482/ai-canvas-cloud",
     SYSTEM_UPDATE_CURRENT_IMAGE: `hao136909482/ai-canvas-cloud@${digest}`,
+    SYSTEM_UPDATE_REGISTRY_ORIGIN: "https://docker.1ms.run",
   });
   assert.equal(config.systemUpdateDirectory, "/app/update-control");
   assert.equal(config.systemUpdateRepository, "hao136909482/ai-canvas-cloud");
+  assert.equal(config.systemUpdateRegistryOrigin, "https://docker.1ms.run");
   assert.throws(
     () =>
       loadAdminApiConfig({
@@ -88,6 +90,17 @@ test("Admin API config validates the managed update control boundary", () => {
         SYSTEM_UPDATE_CURRENT_IMAGE: `hao136909482/ai-canvas-cloud@${digest}`,
       }),
     /absolute path/,
+  );
+  assert.throws(
+    () =>
+      loadAdminApiConfig({
+        ...baseEnv,
+        SYSTEM_UPDATE_DIRECTORY: "/app/update-control",
+        SYSTEM_UPDATE_REPOSITORY: "hao136909482/ai-canvas-cloud",
+        SYSTEM_UPDATE_CURRENT_IMAGE: `hao136909482/ai-canvas-cloud@${digest}`,
+        SYSTEM_UPDATE_REGISTRY_ORIGIN: "http://127.0.0.1:5000/path",
+      }),
+    /credential-free HTTPS origin/,
   );
 });
 

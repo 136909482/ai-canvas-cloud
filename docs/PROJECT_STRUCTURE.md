@@ -107,7 +107,7 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 
 `server/modules/community/` 独占公开昵称、投稿授权、帖子状态机、撤回和举报；`apps/api/src/fastify/routes/community.ts` 提供资料、投稿、我的投稿、撤回和举报路由。`apps/admin-api/src/fastify/routes/community.ts` 提供审核和举报处理路由。Web 在个人资料设置中显示我的投稿，并在有稳定 Cloud asset ID 的图片节点工具栏提供投稿入口。社区复用 `auth`、`workspaces` 和 `assets` 的授权与资产能力，不直接修改项目图；Admin 只读审核所需的最小社区字段，不读取 Provider Vault、项目正文或对象 key，社区列表不依赖浏览器本地生成任务。
 
-`server/modules/admin/systemUpdateService.ts` 只负责 Admin 权限、固定 Docker Hub release 查询、受限请求文件和审计，不执行宿主机命令。`infra/deploy/single-host/install-update-service.sh` 安装 systemd path/service，`update-worker.sh` 是唯一 root 执行入口并只调用固定 `deploy.sh`。Admin 容器与宿主机只通过 `secrets/update/` 中的 UUID 请求和有限状态字段通信，Docker Socket 与任意命令参数都不进入应用容器。
+`server/modules/admin/systemUpdateService.ts` 只负责 Admin 权限、固定 Docker Hub release 查询（或部署时固定的同源 Registry V2 查询）、受限请求文件和审计，不执行宿主机命令。`infra/deploy/single-host/install-update-service.sh` 安装 systemd path/service，`update-worker.sh` 是唯一 root 执行入口并只调用固定 `deploy.sh`。Admin 容器与宿主机只通过 `secrets/update/` 中的 UUID 请求和有限状态字段通信，Docker Socket 与任意命令参数都不进入应用容器。
 
 ### 数据库与部署
 

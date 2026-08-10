@@ -268,7 +268,10 @@ test("single-host runtime rendering separates a pull mirror from Docker Hub upda
         "m",
       ),
     );
-    assert.doesNotMatch(adminRuntime, /docker\.1ms\.run/);
+    assert.match(
+      adminRuntime,
+      /^SYSTEM_UPDATE_REGISTRY_ORIGIN=https:\/\/docker\.1ms\.run$/m,
+    );
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

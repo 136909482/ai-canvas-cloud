@@ -28,6 +28,7 @@ interface SystemUpdateServiceOptions {
   directory?: string;
   repository?: string;
   currentImage?: string;
+  registryOrigin?: string;
   fetch?: typeof globalThis.fetch;
   now?: () => Date;
 }
@@ -42,6 +43,18 @@ export interface SystemUpdateService {
 function digestFromImage(image: string | undefined) {
   const digest = image?.split("@").at(-1)?.trim() ?? "";
   return DIGEST_PATTERN.test(digest) ? digest : null;
+}
+
+function bearerChallenge(header: string | null) {
+  if (!header?.match(/^Bearer\s/i)) return null;
+  const values = new Map<string, string>();
+  for (const match of header.matchAll(/([a-z]+)="([^"]*)"/gi)) {
+    values.set(match[1].toLowerCase(), match[2]);
+  }
+  const realm = values.get("realm");
+  const service = values.get("service");
+  const scope = values.get("scope");
+  return realm && service && scope ? { realm, service, scope } : null;
 }
 
 function parseStatusFile(text: string): {
@@ -93,6 +106,7 @@ export function createSystemUpdateService(
   const now = options.now ?? (() => new Date());
   const directory = options.directory?.trim();
   const repository = options.repository?.trim().toLowerCase();
+  const registryOrigin = options.registryOrigin?.trim();
   const currentDigest = digestFromImage(options.currentImage);
   const enabled = Boolean(
     directory &&
@@ -110,6 +124,62 @@ export function createSystemUpdateService(
 
   async function latestDigest() {
     if (!repository) return null;
+    if (registryOrigin) {
+      const manifestUrl = `${registryOrigin}/v2/${repository}/manifests/stable`;
+      const manifestHeaders = {
+        accept: [
+          "application/vnd.oci.image.index.v1+json",
+          "application/vnd.oci.image.manifest.v1+json",
+          "application/vnd.docker.distribution.manifest.list.v2+json",
+          "application/vnd.docker.distribution.manifest.v2+json",
+        ].join(", "),
+      };
+      let response = await fetchImpl(manifestUrl, {
+        headers: manifestHeaders,
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (response.status === 401) {
+        const challenge = bearerChallenge(
+          response.headers.get("www-authenticate"),
+        );
+        if (!challenge)
+          throw new Error("Registry returned an invalid challenge");
+        const tokenUrl = new URL(challenge.realm);
+        if (
+          tokenUrl.origin !== registryOrigin ||
+          tokenUrl.protocol !== "https:" ||
+          tokenUrl.username ||
+          tokenUrl.password
+        ) {
+          throw new Error("Registry authentication must remain same-origin");
+        }
+        tokenUrl.searchParams.set("service", challenge.service);
+        tokenUrl.searchParams.set("scope", challenge.scope);
+        const tokenResponse = await fetchImpl(tokenUrl, {
+          headers: { accept: "application/json" },
+          signal: AbortSignal.timeout(8_000),
+        });
+        if (!tokenResponse.ok)
+          throw new Error("Registry token service returned an error");
+        const tokenBody = (await tokenResponse.json()) as {
+          token?: unknown;
+          access_token?: unknown;
+        };
+        const token = tokenBody.token ?? tokenBody.access_token;
+        if (typeof token !== "string" || token.length === 0)
+          throw new Error("Registry token service returned an invalid token");
+        response = await fetchImpl(manifestUrl, {
+          headers: { ...manifestHeaders, authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(8_000),
+        });
+      }
+      if (!response.ok)
+        throw new Error("Registry returned a non-success response");
+      const digest = response.headers.get("docker-content-digest") ?? "";
+      if (!DIGEST_PATTERN.test(digest))
+        throw new Error("Registry returned an invalid image digest");
+      return digest;
+    }
     const [namespace, name] = repository.split("/");
     const response = await fetchImpl(
       `https://hub.docker.com/v2/repositories/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/tags/stable`,

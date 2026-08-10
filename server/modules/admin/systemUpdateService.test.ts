@@ -88,3 +88,75 @@ test("system update remains disabled without the host control directory", async 
     (error: { code?: string }) => error.code === "SYSTEM_UPDATE_UNAVAILABLE",
   );
 });
+
+test("system update authenticates against a same-origin registry mirror", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ai-canvas-update-mirror-"));
+  const requests: Array<{ url: string; authorization: string | null }> = [];
+  const manifestUrl =
+    "https://docker.1ms.run/v2/hao136909482/ai-canvas-cloud/manifests/stable";
+  const service = createSystemUpdateService({
+    adminService: adminService([]),
+    directory,
+    repository: "hao136909482/ai-canvas-cloud",
+    currentImage: `hao136909482/ai-canvas-cloud@${currentDigest}`,
+    registryOrigin: "https://docker.1ms.run",
+    fetch: async (input, init) => {
+      const url = String(input);
+      const authorization = new Headers(init?.headers).get("authorization");
+      requests.push({ url, authorization });
+      if (url === manifestUrl && !authorization) {
+        return new Response(null, {
+          status: 401,
+          headers: {
+            "www-authenticate":
+              'Bearer realm="https://docker.1ms.run/openapi/v1/auth/token", service="docker.1ms.run", scope="repository:hao136909482/ai-canvas-cloud:pull"',
+          },
+        });
+      }
+      if (url.startsWith("https://docker.1ms.run/openapi/v1/auth/token?")) {
+        return Response.json({ token: "mirror-token" });
+      }
+      assert.equal(url, manifestUrl);
+      assert.equal(authorization, "Bearer mirror-token");
+      return new Response("{}", {
+        headers: { "docker-content-digest": latestDigest },
+      });
+    },
+  });
+
+  try {
+    const status = await service.getStatus(context);
+    assert.equal(status.latestDigest, latestDigest);
+    assert.equal(status.updateAvailable, true);
+    assert.equal(requests.length, 3);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("system update rejects a registry authentication redirect", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ai-canvas-update-redirect-"));
+  const service = createSystemUpdateService({
+    adminService: adminService([]),
+    directory,
+    repository: "hao136909482/ai-canvas-cloud",
+    currentImage: `hao136909482/ai-canvas-cloud@${currentDigest}`,
+    registryOrigin: "https://docker.1ms.run",
+    fetch: async () =>
+      new Response(null, {
+        status: 401,
+        headers: {
+          "www-authenticate":
+            'Bearer realm="https://example.com/token", service="registry", scope="repository:hao136909482/ai-canvas-cloud:pull"',
+        },
+      }),
+  });
+  try {
+    await assert.rejects(
+      () => service.getStatus(context),
+      (error: { code?: string }) => error.code === "SYSTEM_UPDATE_CHECK_FAILED",
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

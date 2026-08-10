@@ -111,6 +111,7 @@ const systemUpdateService = createSystemUpdateService({
   directory: config.systemUpdateDirectory,
   repository: config.systemUpdateRepository,
   currentImage: config.systemUpdateCurrentImage,
+  registryOrigin: config.systemUpdateRegistryOrigin,
 });
 const readinessChecks = {
   postgres: () =>

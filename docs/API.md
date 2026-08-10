@@ -382,7 +382,7 @@ SMTP 上游错误只映射为 `SMTP_HOST_NOT_ALLOWED|SMTP_DNS_FAILED|SMTP_CONNEC
 
 资产清理只允许 `super_admin` 通过 `asset_maintenance.write` 使用。preview 和 apply 都是无请求体的 Admin POST，受 Admin session、Origin 与 CSRF 保护；preview 只扫描，apply 必须由界面在 preview 后二次确认。响应只包含 `mode/graceHours/cutoff/scannedAssetCount/reclaimableObjectCount/reclaimableBytes/deletedObjectCount/deletedBytes/missingObjectCount/finalizedMissingAssetCount/retainedAssetCount/truncated/completedAt`，不包含用户、workspace、项目、asset ID 或 object key。执行不可用统一返回 `503 ASSET_CLEANUP_FAILED`。
 
-系统更新只允许 `super_admin` 通过 `system_update.write` 使用，且只在使用 Docker Hub 仓库的单机 registry 部署中启用。`GET /admin/v1/system-update` 读取当前不可变镜像 digest、固定仓库 `stable` 标签的最新 digest 和宿主机任务状态，返回 `enabled/state/updateAvailable/currentDigest/latestDigest/requestId/startedAt/finishedAt/message/checkedAt`；不接受客户端仓库、标签、镜像或目标 URL。仓库查询失败返回 `503 SYSTEM_UPDATE_CHECK_FAILED`。
+系统更新只允许 `super_admin` 通过 `system_update.write` 使用，且只在使用 Docker Hub 仓库的单机 registry 部署中启用。`GET /admin/v1/system-update` 读取当前不可变镜像 digest、固定仓库 `stable` 标签的最新 digest 和宿主机任务状态，返回 `enabled/state/updateAvailable/currentDigest/latestDigest/requestId/startedAt/finishedAt/message/checkedAt`；不接受客户端仓库、标签、镜像或目标 URL。标准拉取地址使用 Docker Hub Tags API；带 registry 主机的受控拉取地址使用同源 Registry V2 Bearer 认证和 manifest digest，认证 `realm` 不得跳转到其他 Origin。仓库查询失败返回 `503 SYSTEM_UPDATE_CHECK_FAILED`。
 
 `POST /admin/v1/system-update` 无请求体，受 Admin Origin、CSRF 和权限校验保护；仅在存在新 digest 且无任务运行时创建固定 UUID 请求并返回 `202 { accepted, requestId, state: "queued" }`。重复请求返回 `409 SYSTEM_UPDATE_IN_PROGRESS`，无可用更新或当前部署不支持在线更新返回 `409|503 SYSTEM_UPDATE_UNAVAILABLE`。成功请求写入脱敏审计；Admin API 不执行 Docker 命令，也不接收 Docker Socket。
 

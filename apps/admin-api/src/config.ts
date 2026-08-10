@@ -43,6 +43,7 @@ export interface AdminApiConfig {
   systemUpdateDirectory?: string;
   systemUpdateRepository?: string;
   systemUpdateCurrentImage?: string;
+  systemUpdateRegistryOrigin?: string;
 }
 
 const LOG_LEVELS = new Set<LogLevel>(["debug", "info", "warn", "error"]);
@@ -132,6 +133,8 @@ export function loadAdminApiConfig(
   const systemUpdateRepository =
     env.SYSTEM_UPDATE_REPOSITORY?.trim().toLowerCase();
   const systemUpdateCurrentImage = env.SYSTEM_UPDATE_CURRENT_IMAGE?.trim();
+  const rawSystemUpdateRegistryOrigin =
+    env.SYSTEM_UPDATE_REGISTRY_ORIGIN?.trim();
   const systemUpdateValues = [
     systemUpdateDirectory,
     systemUpdateRepository,
@@ -162,6 +165,28 @@ export function loadAdminApiConfig(
     throw new Error(
       "SYSTEM_UPDATE_CURRENT_IMAGE must use the configured digest",
     );
+  }
+  let systemUpdateRegistryOrigin: string | undefined;
+  if (rawSystemUpdateRegistryOrigin) {
+    let registryUrl: URL;
+    try {
+      registryUrl = new URL(rawSystemUpdateRegistryOrigin);
+    } catch {
+      throw new Error("SYSTEM_UPDATE_REGISTRY_ORIGIN must be a valid URL");
+    }
+    if (
+      registryUrl.protocol !== "https:" ||
+      registryUrl.username ||
+      registryUrl.password ||
+      registryUrl.pathname !== "/" ||
+      registryUrl.search ||
+      registryUrl.hash
+    ) {
+      throw new Error(
+        "SYSTEM_UPDATE_REGISTRY_ORIGIN must be a credential-free HTTPS origin",
+      );
+    }
+    systemUpdateRegistryOrigin = registryUrl.origin;
   }
   let parsedMaintenanceUrl: URL;
   try {
@@ -302,5 +327,6 @@ export function loadAdminApiConfig(
     systemUpdateDirectory,
     systemUpdateRepository,
     systemUpdateCurrentImage,
+    systemUpdateRegistryOrigin,
   };
 }

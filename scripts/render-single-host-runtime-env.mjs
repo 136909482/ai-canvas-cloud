@@ -142,6 +142,13 @@ const systemUpdateRepository =
 const currentImageDigest = values
   .get("APP_IMAGE")
   ?.match(/@(?<digest>sha256:[a-f0-9]{64})$/)?.groups?.digest;
+const pullRepository = values.get("APP_REPOSITORY")?.trim() ?? "";
+const pullRepositoryParts = pullRepository.split("/");
+const systemUpdateRegistryOrigin =
+  values.get("SYSTEM_UPDATE_REGISTRY_ORIGIN")?.trim() ||
+  (pullRepositoryParts.length > 2
+    ? `https://${pullRepositoryParts[0]}`
+    : undefined);
 const systemUpdateEnvironment =
   required(values, "APP_IMAGE_SOURCE") === "registry"
     ? {
@@ -150,6 +157,9 @@ const systemUpdateEnvironment =
         SYSTEM_UPDATE_CURRENT_IMAGE: currentImageDigest
           ? `${systemUpdateRepository}@${currentImageDigest}`
           : required(values, "APP_IMAGE"),
+        ...(systemUpdateRegistryOrigin
+          ? { SYSTEM_UPDATE_REGISTRY_ORIGIN: systemUpdateRegistryOrigin }
+          : {}),
       }
     : {};
 
