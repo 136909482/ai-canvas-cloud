@@ -228,21 +228,22 @@ PATCH /api/v1/community/profile
 
 两个接口都要求可信 active session，不接受 `userId` 或 `workspaceId`。GET 返回 `{ profile }`，字段为 `publicNickname`、`profileStatus`、`communityConsentVersion`、`communityConsentAt`、`canPost` 和 `updatedAt`；不返回邮箱、用户编号、设备或认证用户名。
 
-PATCH 至少接受 `publicNickname` 或 `communityConsent` 之一，拒绝未知字段。公开昵称可为 `null` 或规范化后 1–32 字符，只允许 Unicode 字母/数字、空格、下划线、点和连字符，按大小写不敏感全局唯一；冲突返回 `409 PUBLIC_NICKNAME_UNAVAILABLE`。`communityConsent=true` 记录当前版本 1 和接受时间，false 原子清空二者。只有资料状态为 active、账号 active 且授权版本为当前版本时 `canPost=true`。
+PATCH 至少接受 `publicNickname` 或 `communityConsent` 之一，拒绝未知字段。公开昵称可为 `null` 或规范化后 1–32 字符，只允许 Unicode 字母/数字、空格、下划线、点和连字符，按大小写不敏感全局唯一；冲突返回 `409 PUBLIC_NICKNAME_UNAVAILABLE`。`communityConsent` 仅用于兼容旧客户端与历史记录：`true` 记录当前版本 1 和接受时间，`false` 原子清空二者，不参与 `canPost` 判定。账号 active、资料状态为 active 且已设置公开昵称时 `canPost=true`（主动投稿动作本身即展示授权）。
 
 ## 社区内容 API
 
-P11-2 已实现用户投稿、撤回、举报和 Admin 审核状态机。P11-3 增加登录用户可见的已发布图片列表、详情、标签筛选和标题搜索。
+P11-2 已实现用户投稿、撤回、编辑、举报和 Admin 审核状态机。P11-3 增加登录用户可见的已发布图片列表、详情、标签筛选和标题搜索。
 
 普通用户接口：
 
 ```text
-GET /api/v1/community/posts?q=&tag=&cursor=
-GET /api/v1/community/posts/:postId
-POST /api/v1/community/posts
-POST /api/v1/community/posts/:postId/withdraw
-POST /api/v1/community/posts/:postId/report
-GET  /api/v1/community/me/posts
+GET   /api/v1/community/posts?q=&tag=&cursor=
+GET   /api/v1/community/posts/:postId
+POST  /api/v1/community/posts
+PATCH /api/v1/community/posts/:postId
+POST  /api/v1/community/posts/:postId/withdraw
+POST  /api/v1/community/posts/:postId/report
+GET   /api/v1/community/me/posts
 ```
 
 公开浏览接口只返回已发布帖子的图片短期受控地址、标题、标签、发布时间和公开昵称；`q` 为标题搜索，`tag` 为规范化标签精确筛选，列表使用稳定游标分页。接口要求登录，不返回 Prompt、Provider、endpoint、真实模型 ID、API Key、项目节点、工作流结构或 object key。
@@ -262,6 +263,7 @@ POST /admin/v1/community/reports/:reportId/resolve
 
 - `/me/posts` 使用 cursor 分页，按 `created_at DESC, id DESC` 稳定排序，返回当前用户自己的所有状态。
 - 投稿必须携带幂等键；服务端从可信 session 推导 `userId` 和 `workspaceId`，拒绝客户端身份字段参与授权。
+- `PATCH /posts/:postId` 只允许作者编辑标题和标签：待审核编辑后保持待审核；已拒绝编辑后清空拒绝原因并重新进入待审核；已发布编辑后置空发布时间并重新进入待审核（重新审核期间不公开）；已撤回/已下架不可编辑。
 - 投稿必须引用当前 workspace 中当前用户创建的 `completed` 图片资产；P11-2 Admin 响应只返回帖子元数据和 asset ID，不返回对象存储 key。
 - 图片访问使用短期受控地址，不返回 object key、Prompt、Provider、endpoint、真实模型 ID、API Key、项目节点或工作流结构；Admin 审核工作台同样只读取受控图片地址。
 - 所有社区写操作需要 session、workspace 授权、CSRF/Origin 校验和限流；举报也需要限流。

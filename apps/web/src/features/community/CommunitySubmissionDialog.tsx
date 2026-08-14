@@ -15,8 +15,7 @@ function message(error: unknown) {
   if (error instanceof CloudApiError) {
     if (error.code === "COMMUNITY_ASSET_NOT_ALLOWED")
       return "这张图片还不能投稿，请确认它是当前工作区中已完成的图片资产。";
-    if (error.code === "ACCESS_DENIED")
-      return "请先在账户设置中设置公开昵称并开启社区投稿授权。";
+    if (error.code === "ACCESS_DENIED") return "请先在账户设置中设置用户昵称。";
     if (error.code === "COMMUNITY_POST_DUPLICATE")
       return "这次投稿已经提交过了。";
   }
@@ -114,7 +113,7 @@ export function CommunitySubmissionDialog({
               />
             </label>
             <p className="text-[11px] leading-5 text-[var(--text-muted)]">
-              投稿后会进入人工审核。社区只展示图片、标题、标签、发布时间和公开昵称，不会公开
+              投稿后会进入人工审核。社区只展示图片、标题、标签、发布时间和用户昵称，不会公开
               Prompt、项目结构或服务商信息。
             </p>
           </div>

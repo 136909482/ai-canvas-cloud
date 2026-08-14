@@ -189,6 +189,12 @@ export const PUBLIC_ROUTE_INVENTORY = [
     group: "community",
   },
   {
+    method: "PATCH",
+    path: "/api/v1/community/posts/:postId",
+    operationId: "updateCommunityPost",
+    group: "community",
+  },
+  {
     method: "POST",
     path: "/api/v1/community/posts/:postId/withdraw",
     operationId: "withdrawCommunityPost",

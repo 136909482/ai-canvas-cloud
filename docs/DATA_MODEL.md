@@ -136,9 +136,9 @@ apply 逐资产加排他锁，并在持锁后的新语句快照中复查当前�
 
 ### `user_public_profiles`
 
-按 `user_id` 唯一保存 `public_nickname`、`profile_status=active|hidden`、`community_consent_version`、`community_consent_at` 和时间戳。公开昵称与认证用户名分离，允许用户修改，按小写值全局唯一；长度为 1–32 字符。授权版本与时间必须同时为空或同时存在，当前授权版本固定为 1。社区不展示邮箱、用户编号、设备或登录信息。
+按 `user_id` 唯一保存 `public_nickname`、`profile_status=active|hidden`、`community_consent_version`、`community_consent_at` 和时间戳。公开昵称与认证用户名分离，允许用户修改，按小写值全局唯一；长度为 1–32 字符。授权版本与时间必须同时为空或同时存在，当前授权版本固定为 1；该字段仅保留用于兼容与记录，不再参与投稿资格判定。社区不展示邮箱、用户编号、设备或登录信息。
 
-资料更新锁定普通用户行并要求状态为 `active`；昵称冲突不改写旧资料，撤回授权原子清空版本和时间。删除普通用户行时资料通过外键级联删除；当前账号注销使用保留 tombstone 用户行的流程，因此注销事务会显式删除公开资料并立即释放昵称。社区帖子落地后须在同一注销领域流程中补充帖子撤回与清理。
+资料更新锁定普通用户行并要求状态为 `active`；昵称冲突不改写旧资料，撤回授权原子清空版本和时间。投稿资格只要求账号 active、资料 active 且存在公开昵称；清除昵称后失去投稿资格。删除普通用户行时资料通过外键级联删除；当前账号注销使用保留 tombstone 用户行的流程，因此注销事务会显式删除公开资料并立即释放昵称。社区帖子落地后须在同一注销领域流程中补充帖子撤回与清理。
 
 ### 社区帖子、标签与举报
 
@@ -157,6 +157,7 @@ apply 逐资产加排他锁，并在持锁后的新语句快照中复查当前�
 ### 社区事务与资产生命周期
 
 - 投稿事务锁定并验证 workspace、成员关系和 completed 图片资产；同一资产可以被多个合法帖子引用。
+- 状态转换：作者编辑让 `rejected` 回到 `pending_review`（清空审核原因）；编辑 `published` 会置空 `published_at` 并回到 `pending_review`，重新审核通过后重新公开，编辑期间不公开；`withdrawn|removed` 是终态，不可编辑。审核通过只从 `pending_review` 发生。
 - `pending_review` 和 `published` 帖子都会保护社区资产；撤回、拒绝和下架不立即删除对象，只释放社区保护引用。只有没有当前项目引用、有效 checkpoint manifest 或 active 社区引用的资产才可进入 GC。
 - 用户注销时，个人 pending/published 帖子进入撤回流程并删除其举报；账号禁用后不得继续投稿。
 - 所有状态变化必须幂等，并保留不含正文、object key 或凭据的管理员脱敏审计。

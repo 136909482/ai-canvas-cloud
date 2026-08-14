@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { CircleAlert, Loader2, RotateCcw, Undo2 } from "lucide-react";
+import { CircleAlert, Loader2, Pencil, RotateCcw, Undo2 } from "lucide-react";
 import type { CommunityPostSummary } from "@ai-canvas-cloud/contracts";
 import { CloudApiError } from "@/api/cloudApiClient";
 import { fetchMyCommunityPosts, withdrawCommunityPost } from "./api";
+import { EditCommunityPostDialog } from "./EditCommunityPostDialog";
 
 const STATUS_LABEL: Record<CommunityPostSummary["status"], string> = {
   pending_review: "待审核",
@@ -17,6 +18,9 @@ export function MyCommunityPosts() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [workingId, setWorkingId] = useState<string | null>(null);
+  const [editingPost, setEditingPost] = useState<CommunityPostSummary | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,23 +107,48 @@ export function MyCommunityPosts() {
                     {new Date(item.createdAt).toLocaleString()}
                   </p>
                 </div>
-                {item.status === "pending_review" ||
-                item.status === "published" ? (
-                  <button
-                    type="button"
-                    onClick={() => void withdraw(item.id)}
-                    disabled={workingId === item.id}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-[7px] border border-[var(--border-subtle)] px-2.5 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--control-bg-hover)] disabled:opacity-50"
-                  >
-                    <Undo2 className="h-3.5 w-3.5" />
-                    撤回
-                  </button>
-                ) : null}
+                <div className="flex shrink-0 items-center gap-2">
+                  {item.status === "pending_review" ||
+                  item.status === "published" ||
+                  item.status === "rejected" ? (
+                    <button
+                      type="button"
+                      onClick={() => setEditingPost(item)}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-[7px] border border-[var(--border-subtle)] px-2.5 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--control-bg-hover)] disabled:opacity-50"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      编辑
+                    </button>
+                  ) : null}
+                  {item.status === "pending_review" ||
+                  item.status === "published" ? (
+                    <button
+                      type="button"
+                      onClick={() => void withdraw(item.id)}
+                      disabled={workingId === item.id}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-[7px] border border-[var(--border-subtle)] px-2.5 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--control-bg-hover)] disabled:opacity-50"
+                    >
+                      <Undo2 className="h-3.5 w-3.5" />
+                      撤回
+                    </button>
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
+      {editingPost ? (
+        <EditCommunityPostDialog
+          post={editingPost}
+          onClose={() => setEditingPost(null)}
+          onUpdated={(updated) =>
+            setItems((current) =>
+              current.map((item) => (item.id === updated.id ? updated : item)),
+            )
+          }
+        />
+      ) : null}
     </section>
   );
 }

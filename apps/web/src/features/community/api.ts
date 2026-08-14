@@ -2,6 +2,7 @@ import type {
   CommunityPostResponse,
   CreateCommunityPostRequest,
   MyCommunityPostsResponse,
+  UpdateCommunityPostRequest,
   WithdrawCommunityPostResponse,
   CommunityPublicPostsResponse,
   CommunityPublicPostResponse,
@@ -13,6 +14,16 @@ export function createCommunityPost(input: CreateCommunityPostRequest) {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export function updateCommunityPost(
+  postId: string,
+  input: UpdateCommunityPostRequest,
+) {
+  return requestCloudJson<CommunityPostResponse>(
+    `/community/posts/${encodeURIComponent(postId)}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
 }
 
 export function fetchMyCommunityPosts(cursor?: string | null) {

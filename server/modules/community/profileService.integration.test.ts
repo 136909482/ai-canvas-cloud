@@ -14,7 +14,7 @@ loadDotEnv();
 const databaseUrl = process.env.DATABASE_URL;
 
 test(
-  "PostgreSQL community profiles isolate accounts, version consent, and enforce active status",
+  "PostgreSQL community profiles isolate accounts, gate posting on nickname, and enforce active status",
   { skip: databaseUrl ? false : "DATABASE_URL is not configured" },
   async () => {
     const schemaName = `community_profile_test_${randomUUID().replaceAll("-", "")}`;
@@ -65,12 +65,13 @@ test(
         },
       });
 
+      // 只设置昵称即可获得投稿资格：投稿动作本身即展示授权，consent 不再是门槛。
       const updated = await service.update(
-        { publicNickname: "Canvas Artist", communityConsent: true },
+        { publicNickname: "Canvas Artist" },
         "community-user-a",
       );
       assert.equal(updated.profile.publicNickname, "Canvas Artist");
-      assert.equal(updated.profile.communityConsentVersion, 1);
+      assert.equal(updated.profile.communityConsentVersion, null);
       assert.equal(updated.profile.canPost, true);
       assert.equal(
         (await service.get("community-user-b")).profile.canPost,
@@ -88,13 +89,22 @@ test(
           error.apiCode === "PUBLIC_NICKNAME_UNAVAILABLE",
       );
 
+      // consent 字段保留用于兼容与记录：清空后不回收投稿资格。
       const revoked = await service.update(
         { communityConsent: false },
         "community-user-a",
       );
       assert.equal(revoked.profile.communityConsentVersion, null);
       assert.equal(revoked.profile.communityConsentAt, null);
-      assert.equal(revoked.profile.canPost, false);
+      assert.equal(revoked.profile.canPost, true);
+
+      // 清除昵称后失去投稿资格。
+      const cleared = await service.update(
+        { publicNickname: null },
+        "community-user-a",
+      );
+      assert.equal(cleared.profile.publicNickname, null);
+      assert.equal(cleared.profile.canPost, false);
 
       await pool.query(
         `UPDATE "user" SET status = 'disabled' WHERE id = 'community-user-a'`,

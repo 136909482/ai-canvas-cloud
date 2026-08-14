@@ -99,15 +99,16 @@ function profileResponse(
     ? new Date(row.community_consent_at).toISOString()
     : null;
   const profileStatus = row?.profile_status ?? "active";
+  const publicNickname = row?.public_nickname ?? null;
   return {
     profile: {
-      publicNickname: row?.public_nickname ?? null,
+      publicNickname,
       profileStatus,
       communityConsentVersion,
       communityConsentAt,
-      canPost:
-        profileStatus === "active" &&
-        communityConsentVersion === COMMUNITY_CONSENT_VERSION,
+      // 投稿资格只要求账号 active 且已设置昵称：主动投稿动作本身就是展示授权，
+      // 不再把版本化同意作为前置门槛（consent 字段保留用于兼容与记录）。
+      canPost: profileStatus === "active" && publicNickname !== null,
       updatedAt: row?.updated_at
         ? new Date(row.updated_at).toISOString()
         : null,
@@ -190,6 +191,7 @@ export function createPostgresCommunityProfileService(
           const publicNickname = patch.hasPublicNickname
             ? patch.publicNickname
             : (row?.public_nickname ?? null);
+          // consent 字段保留写入以兼容旧客户端与历史记录，但不再参与 canPost 判定。
           const communityConsentVersion = patch.hasCommunityConsent
             ? patch.communityConsent
               ? COMMUNITY_CONSENT_VERSION

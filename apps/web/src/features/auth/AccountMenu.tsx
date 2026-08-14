@@ -16,13 +16,11 @@ import {
   Mail,
   MonitorCheck,
   Settings,
-  ShieldAlert,
-  ShieldCheck,
   UserRound,
   X,
 } from "lucide-react";
 import { changeAuthPassword } from "./api";
-import { CommunityProfileSettings } from "./CommunityProfileSettings";
+import { ProfileHeader } from "./ProfileHeader";
 import { useAuthStore } from "./useAuthStore";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { useSettingsDialogStore } from "@/store/useSettingsDialogStore";
@@ -483,8 +481,6 @@ export function AccountSettingsContent({
     [],
   );
 
-  const accountInitial =
-    session.user.username.trim().charAt(0).toLocaleUpperCase() || "U";
   const scheduleCopyStateReset = () => {
     if (copyResetTimerRef.current) {
       clearTimeout(copyResetTimerRef.current);
@@ -519,44 +515,7 @@ export function AccountSettingsContent({
   return (
     <>
       <section className="mx-auto w-full max-w-4xl space-y-5">
-        <header className="flex flex-col items-start gap-4 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--control-bg)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <span
-              aria-hidden="true"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-violet-400/25 bg-violet-400/10 text-base font-semibold text-violet-500 dark:text-violet-300"
-            >
-              {accountInitial}
-            </span>
-            <span className="min-w-0">
-              <span
-                className={`block break-all text-sm font-semibold sm:truncate ${themeClasses.textPrimary}`}
-                title={session.user.username}
-              >
-                {session.user.username}
-              </span>
-              <span
-                className={`mt-1 block truncate text-xs ${themeClasses.textMuted}`}
-              >
-                {session.user.email} · UID {session.user.userNumber}
-              </span>
-            </span>
-          </div>
-
-          <span
-            className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-medium ${
-              session.user.emailVerified
-                ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300"
-                : "border-amber-400/25 bg-amber-400/10 text-amber-600 dark:text-amber-300"
-            }`}
-          >
-            {session.user.emailVerified ? (
-              <ShieldCheck className="h-3 w-3" />
-            ) : (
-              <ShieldAlert className="h-3 w-3" />
-            )}
-            {session.user.emailVerified ? "邮箱已验证" : "邮箱待验证"}
-          </span>
-        </header>
+        <ProfileHeader session={session} />
 
         <section aria-labelledby="account-information-heading">
           <h3
@@ -568,26 +527,6 @@ export function AccountSettingsContent({
           <div
             className={`${ACCOUNT_GROUP_CLASS} divide-y divide-[var(--border-subtle)]`}
           >
-            <div className={ACCOUNT_ROW_CLASS}>
-              <span className={ACCOUNT_ICON_CLASS}>
-                <UserRound className="h-4 w-4" />
-              </span>
-              <span className="min-w-0">
-                <span className={`block text-xs ${themeClasses.textMuted}`}>
-                  用户名
-                </span>
-                <span
-                  className={`mt-1 block truncate text-sm font-medium ${themeClasses.textPrimary}`}
-                  title={session.user.username}
-                >
-                  {session.user.username}
-                </span>
-              </span>
-              <span className="col-start-2 justify-self-start text-[11px] text-[var(--text-muted)] sm:col-start-3 sm:row-start-1 sm:justify-self-end">
-                不可修改
-              </span>
-            </div>
-
             <div className={ACCOUNT_ROW_CLASS}>
               <span className={ACCOUNT_ICON_CLASS}>
                 <Mail className="h-4 w-4" />
@@ -652,8 +591,6 @@ export function AccountSettingsContent({
             </div>
           </div>
         </section>
-
-        <CommunityProfileSettings />
 
         <section aria-labelledby="account-security-heading">
           <h3

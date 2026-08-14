@@ -2,6 +2,7 @@ import type http from "node:http";
 import type {
   CreateCommunityPostRequest,
   CreateCommunityReportRequest,
+  UpdateCommunityPostRequest,
   UpdateCommunityProfileRequest,
 } from "@ai-canvas-cloud/contracts";
 import {
@@ -14,6 +15,7 @@ import {
   CreateCommunityPostRequestSchema,
   CreateCommunityReportRequestSchema,
   MyCommunityPostsResponseSchema,
+  UpdateCommunityPostRequestSchema,
   UpdateCommunityProfileRequestSchema,
   WithdrawCommunityPostResponseSchema,
 } from "@ai-canvas-cloud/contracts/http-schema";
@@ -248,6 +250,35 @@ export function registerCommunityRoutes(
               { userId: session.user.id, workspaceId: session.workspace.id },
             ),
           );
+      } catch (error) {
+        if (error instanceof AuthServiceError)
+          return sendAuthError(reply, request.id, error);
+        throw error;
+      }
+    },
+  );
+
+  app.patch(
+    "/api/v1/community/posts/:postId",
+    {
+      bodyLimit: 16 * 1024,
+      schema: {
+        operationId: "updateCommunityPost",
+        tags: ["community"],
+        body: UpdateCommunityPostRequestSchema,
+        response: { 200: CommunityPostResponseSchema, ...errorResponses },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const session = await options.authContext.requireSession(request);
+        return reply.send(
+          await options.communityContentService.update(
+            (request.params as { postId: string }).postId,
+            request.body as UpdateCommunityPostRequest,
+            { userId: session.user.id, workspaceId: session.workspace.id },
+          ),
+        );
       } catch (error) {
         if (error instanceof AuthServiceError)
           return sendAuthError(reply, request.id, error);

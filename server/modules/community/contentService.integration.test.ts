@@ -137,9 +137,63 @@ test(
         `UPDATE user_public_profiles SET profile_status = 'active' WHERE user_id = $1`,
         [userId],
       );
+      // 编辑：已发布 → 重新进入待审核，重新审核期间不公开
+      const edited = await service.update(
+        postId,
+        { title: "Edited title", tags: ["edited", "tag2"] },
+        { userId, workspaceId },
+      );
+      assert.equal(edited.post.title, "Edited title");
+      assert.equal(edited.post.tags.join(","), "edited,tag2");
+      assert.equal(edited.post.status, "pending_review");
+      assert.equal(edited.post.publishedAt, null);
+      assert.equal((await service.listPublic({})).items.length, 0);
+      // 待审核编辑：保持待审核
+      const editedAgain = await service.update(
+        postId,
+        { title: "Edited again" },
+        { userId, workspaceId },
+      );
+      assert.equal(editedAgain.post.status, "pending_review");
+      // 已拒绝编辑：重新排队并清空拒绝原因
+      await pool.query(
+        `UPDATE community_posts SET status = 'rejected', moderation_reason = 'off-topic' WHERE id = $1`,
+        [postId],
+      );
+      const editedRejected = await service.update(
+        postId,
+        { title: "After rejection" },
+        { userId, workspaceId },
+      );
+      assert.equal(editedRejected.post.status, "pending_review");
+      assert.equal(editedRejected.post.moderationReason, null);
+      // 非作者不能编辑
+      await assert.rejects(
+        () =>
+          service.update(
+            postId,
+            { title: "Hijack" },
+            { userId: reporterId, workspaceId: reporterWorkspaceId },
+          ),
+        (error: unknown) =>
+          error instanceof AuthServiceError &&
+          error.apiCode === "COMMUNITY_POST_NOT_FOUND",
+      );
       const withdrawn = await service.withdraw(postId, { userId, workspaceId });
       assert.equal(withdrawn.post.status, "withdrawn");
       assert.equal((await service.listPublic({})).items.length, 0);
+      // 已撤回不能编辑
+      await assert.rejects(
+        () =>
+          service.update(
+            postId,
+            { title: "Too late" },
+            { userId, workspaceId },
+          ),
+        (error: unknown) =>
+          error instanceof AuthServiceError &&
+          error.apiCode === "COMMUNITY_POST_STATE_INVALID",
+      );
     } finally {
       await pool?.end();
       await admin

@@ -1,5 +1,4 @@
 import {
-  COMMUNITY_CONSENT_VERSION,
   type CommunityPostResponse,
   type CommunityPostStatus,
   type CommunityPostSummary,
@@ -10,6 +9,7 @@ import {
   type CreateCommunityPostRequest,
   type CreateCommunityReportRequest,
   type MyCommunityPostsResponse,
+  type UpdateCommunityPostRequest,
 } from "@ai-canvas-cloud/contracts";
 import type { DbClient, DbPool } from "../../db/postgres.js";
 import { withTransaction } from "../../db/postgres.js";
@@ -70,6 +70,11 @@ export interface CommunityContentService {
     actor: CommunityActor,
     cursor?: string | null,
   ): Promise<MyCommunityPostsResponse>;
+  update(
+    postId: string,
+    input: UpdateCommunityPostRequest,
+    actor: CommunityActor,
+  ): Promise<CommunityPostResponse>;
   withdraw(
     postId: string,
     actor: CommunityActor,
@@ -128,6 +133,15 @@ function validateCreate(input: CreateCommunityPostRequest) {
     tags: normalizeTags(input.tags),
     idempotencyKey,
   };
+}
+
+function validateUpdate(input: UpdateCommunityPostRequest) {
+  if (!input || typeof input !== "object")
+    error(400, "VALIDATION_FAILED", "Update payload must be an object");
+  const title = input.title?.trim().replace(/\s+/gu, " ");
+  if (!title || title.length > 120)
+    error(400, "VALIDATION_FAILED", "Title must be 1 to 120 characters");
+  return { title, tags: normalizeTags(input.tags) };
 }
 
 function toIso(value: Date | string | null) {
@@ -285,10 +299,9 @@ export function createPostgresCommunityContentService(
         const profile = await client.query<{
           public_nickname: string | null;
           profile_status: string;
-          community_consent_version: number | null;
           user_status: string;
         }>(
-          `SELECT p.public_nickname, p.profile_status, p.community_consent_version,
+          `SELECT p.public_nickname, p.profile_status,
                   COALESCE(u.status, 'active') AS user_status
            FROM "user" u
            LEFT JOIN user_public_profiles p ON p.user_id = u.id
@@ -298,16 +311,8 @@ export function createPostgresCommunityContentService(
         const eligible = profile.rows[0];
         if (!eligible || eligible.user_status !== "active")
           error(403, "ACCESS_DENIED", "Active account required");
-        if (
-          eligible.profile_status !== "active" ||
-          eligible.community_consent_version !== COMMUNITY_CONSENT_VERSION ||
-          !eligible.public_nickname
-        ) {
-          error(
-            403,
-            "ACCESS_DENIED",
-            "Public nickname and current contribution consent are required",
-          );
+        if (eligible.profile_status !== "active" || !eligible.public_nickname) {
+          error(403, "ACCESS_DENIED", "Public nickname is required");
         }
 
         const asset = await client.query<{
@@ -416,6 +421,67 @@ export function createPostgresCommunityContentService(
             ? encodeCursor(page.at(-1)!)
             : null,
       };
+    },
+
+    async update(postIdValue, input, actor) {
+      if (!UUID_PATTERN.test(postIdValue))
+        error(404, "COMMUNITY_POST_NOT_FOUND", "Community post was not found");
+      const submitted = validateUpdate(input);
+      return withTransaction(pool, async (client) => {
+        const current = await client.query<{
+          id: string;
+          status: CommunityPostStatus;
+        }>(
+          `SELECT p.id, p.status FROM community_posts p
+           JOIN workspace_members wm ON wm.workspace_id = p.source_workspace_id AND wm.user_id = $3
+           WHERE p.id = $1 AND p.author_user_id = $2 AND p.source_workspace_id = $4
+           FOR UPDATE OF p`,
+          [postIdValue, actor.userId, actor.userId, actor.workspaceId],
+        );
+        if (!current.rows[0])
+          error(
+            404,
+            "COMMUNITY_POST_NOT_FOUND",
+            "Community post was not found",
+          );
+        const status = current.rows[0].status;
+        if (status === "withdrawn" || status === "removed")
+          error(
+            409,
+            "COMMUNITY_POST_STATE_INVALID",
+            "Community post cannot be edited in its current state",
+          );
+        // 待审核编辑保持待审核；已拒绝/已发布编辑后重新进入待审核：
+        // 清空拒绝原因，已发布内容在重新审核期间不公开（published_at 置空）。
+        const nextStatus =
+          status === "published" || status === "rejected"
+            ? "pending_review"
+            : status;
+        await client.query(
+          `UPDATE community_posts
+           SET title = $2, status = $3,
+               moderation_reason = CASE
+                 WHEN $3 = 'pending_review' THEN NULL ELSE moderation_reason END,
+               published_at = CASE
+                 WHEN $3 = 'pending_review' THEN NULL ELSE published_at END,
+               updated_at = now()
+           WHERE id = $1`,
+          [postIdValue, submitted.title, nextStatus],
+        );
+        await client.query(
+          `DELETE FROM community_post_tags WHERE post_id = $1`,
+          [postIdValue],
+        );
+        if (submitted.tags.length > 0) {
+          await client.query(
+            `INSERT INTO community_post_tags (post_id, tag)
+             SELECT $1, unnest($2::text[])`,
+            [postIdValue, submitted.tags],
+          );
+        }
+        const row = await readPost(client, postIdValue);
+        return { post: postSummary(row!) };
+      });
     },
 
     async withdraw(postIdValue, actor) {
@@ -545,6 +611,7 @@ export function createUnavailableCommunityContentService(): CommunityContentServ
     getPublic: unavailable,
     create: unavailable,
     listMine: unavailable,
+    update: unavailable,
     withdraw: unavailable,
     report: unavailable,
   };

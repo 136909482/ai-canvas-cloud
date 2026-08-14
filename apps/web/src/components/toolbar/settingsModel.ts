@@ -6,6 +6,7 @@ import {
   MessageSquare,
   MonitorCheck,
   Palette,
+  Send,
   SlidersHorizontal,
   UserRound,
   Video,
@@ -184,6 +185,12 @@ export const SETTINGS_CATEGORIES: Array<{
     label: "个人资料",
     description: "用户名、账号信息与安全设置",
     Icon: UserRound,
+  },
+  {
+    id: "community",
+    label: "社区投稿",
+    description: "投稿须知与我的投稿记录",
+    Icon: Send,
   },
   {
     id: "devices",

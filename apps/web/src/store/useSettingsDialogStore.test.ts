@@ -8,6 +8,7 @@ import {
 test("completed Vault settings are exposed while local task settings stay hidden", () => {
   assert.deepEqual(EXPOSED_SETTINGS_CATEGORY_IDS, [
     "account",
+    "community",
     "devices",
     "models",
     "storage",

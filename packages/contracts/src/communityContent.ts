@@ -26,6 +26,11 @@ export interface CreateCommunityPostRequest {
   idempotencyKey: string;
 }
 
+export interface UpdateCommunityPostRequest {
+  title: string;
+  tags?: string[];
+}
+
 export interface CommunityPostResponse {
   post: CommunityPostSummary;
 }

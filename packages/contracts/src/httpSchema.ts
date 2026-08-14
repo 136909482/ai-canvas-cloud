@@ -19,6 +19,7 @@ import type {
   UpdateCommunityProfileRequest,
   CommunityPostResponse,
   CreateCommunityPostRequest,
+  UpdateCommunityPostRequest,
   MyCommunityPostsResponse,
   WithdrawCommunityPostResponse,
   CreateCommunityReportRequest,
@@ -405,6 +406,18 @@ export const CreateCommunityPostRequestSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const UpdateCommunityPostRequestSchema = Type.Object(
+  {
+    title: Type.String({ minLength: 1, maxLength: 120 }),
+    tags: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 24 }), {
+        maxItems: 8,
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
+
 export const CommunityPostResponseSchema = Type.Object(
   { post: CommunityPostSummarySchema },
   { additionalProperties: false },
@@ -493,6 +506,10 @@ export type CreateCommunityPostRequestBody = Static<
   typeof CreateCommunityPostRequestSchema
 > &
   CreateCommunityPostRequest;
+export type UpdateCommunityPostRequestBody = Static<
+  typeof UpdateCommunityPostRequestSchema
+> &
+  UpdateCommunityPostRequest;
 export type MyCommunityPostsResponseBody = Static<
   typeof MyCommunityPostsResponseSchema
 > &

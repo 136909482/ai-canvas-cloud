@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 export type SettingsCategoryId =
   | "account"
+  | "community"
   | "devices"
   | "models"
   | "storage"
@@ -11,6 +12,7 @@ export type SettingsCategoryId =
 
 export const EXPOSED_SETTINGS_CATEGORY_IDS: SettingsCategoryId[] = [
   "account",
+  "community",
   "devices",
   "models",
   "storage",

@@ -7,6 +7,7 @@ import { useSettingsDialogStore } from "@/store/useSettingsDialogStore";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { StorageSettingsPanel } from "@/components/StorageSettingsDialog";
 import { AccountSettingsPanel } from "@/features/auth/AccountMenu";
+import { CommunityPostingSettings } from "@/features/auth/CommunityPostingSettings";
 import { DeviceSettingsPanel } from "@/features/auth/DeviceSettingsPanel";
 import { TaskQueueButton } from "@/components/TaskQueueButton";
 import { themeClasses } from "@/styles/themeClasses";
@@ -252,6 +253,9 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                   <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--border-subtle)] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5">
                     {activeCategory === "account" ? (
                       <AccountSettingsPanel />
+                    ) : null}
+                    {activeCategory === "community" ? (
+                      <CommunityPostingSettings />
                     ) : null}
                     {activeCategory === "devices" ? (
                       <DeviceSettingsPanel />
