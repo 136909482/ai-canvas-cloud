@@ -17,7 +17,6 @@ import {
   Home,
   Info,
   Search,
-  Settings2,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
@@ -463,16 +462,6 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                 ) : (
                   <Copy className="h-3.5 w-3.5" />
                 )}
-              </button>
-              <button
-                type="button"
-                className={`${themeClasses.iconButton} h-7 w-7`}
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={() => setEditorOpen(true)}
-                aria-label="编辑室内设计设置"
-                title="编辑室内设计设置"
-              >
-                <Settings2 className="h-3.5 w-3.5" />
               </button>
               <span
                 className={`${themeClasses.nodeBadge} ${themeClasses.nodeBadgeViolet}`}
@@ -1059,6 +1048,24 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                         })}
                       </div>
                     </div>
+                    <section className="col-span-2 border-t border-[var(--border-subtle)] pt-3">
+                      <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold text-[var(--text-secondary)]">
+                        <Info className="h-3.5 w-3.5" />
+                        专业相机说明
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                        {PROFESSIONAL_HELP.map(([title, content]) => (
+                          <div key={title} className="min-w-0">
+                            <strong className="text-[10px] text-[var(--text-primary)]">
+                              {title}
+                            </strong>
+                            <p className="mt-0.5 text-[9px] leading-4 text-[var(--text-muted)]">
+                              {content}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
                   </WizardStep>
                 ) : null}
 
