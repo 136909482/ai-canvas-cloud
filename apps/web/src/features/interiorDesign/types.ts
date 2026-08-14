@@ -9,11 +9,31 @@ export type InteriorConversionLogic =
 
 export type InteriorPresetId =
   | "diffuse-daylight"
+  | "diffuse-with-lights"
   | "natural-sunlight"
   | "mixed-lighting"
   | "tree-shadow"
-  | "curtain-shadow"
-  | "enclosed-artificial";
+  | "shangri-la-shadow"
+  | "dream-shadow"
+  | "double-curtain-shadow"
+  | "sheer-shadow"
+  | "forced-left"
+  | "forced-right"
+  | "forced-rear"
+  | "forced-left-lit"
+  | "forced-right-lit"
+  | "forced-rear-lit"
+  | "enclosed-artificial"
+  | "white-neutral"
+  | "cool-documentary";
+
+export type InteriorLightEntryMode =
+  | "detected-window"
+  | "forced-left"
+  | "forced-right"
+  | "forced-rear"
+  | "disabled"
+  | "custom";
 
 export type InteriorMaterialDefinition = string | Record<string, string>;
 
@@ -29,7 +49,7 @@ export interface InteriorLightingConfig {
   weather: string;
   timeOfDay: string;
   curtainType: string;
-  lightEntryEnabled: boolean;
+  lightEntryMode: InteriorLightEntryMode;
   sunlightEffect: string;
   interiorLight: string;
   colorTemperature: string;
@@ -59,8 +79,8 @@ export interface InteriorOutputConfig {
   promptResolution: "4K" | "8K" | "custom";
 }
 
-export interface InteriorDesignConfigV1 {
-  schemaVersion: 1;
+export interface InteriorDesignConfigV2 {
+  schemaVersion: 2;
   presetId: InteriorPresetId;
   sourceSoftware: InteriorSourceSoftware;
   customSourceSoftware: string;
@@ -86,10 +106,13 @@ export interface InteriorPreset {
   id: InteriorPresetId;
   label: string;
   description: string;
-  config: InteriorDesignConfigV1;
+  config: InteriorDesignConfigV2;
 }
 
 export interface InteriorConfigValidationResult {
-  config: InteriorDesignConfigV1;
+  config: InteriorDesignConfigV2;
   errors: string[];
+  warnings: string[];
 }
+
+export type InteriorDesignConfigV1 = InteriorDesignConfigV2;

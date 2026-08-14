@@ -32,7 +32,7 @@ import {
 } from "./catalog";
 import type {
   InteriorConfigValidationResult,
-  InteriorDesignConfigV1,
+  InteriorDesignConfigV2,
   InteriorMaterialDefinition,
   InteriorOption,
 } from "./types";
@@ -46,17 +46,64 @@ function value(options: InteriorOption[], id: string) {
   return findInteriorOption(options, id).prompt;
 }
 
-function cloneConfig(input: InteriorDesignConfigV1): InteriorDesignConfigV1 {
-  return structuredClone(input);
+function cloneConfig(input: unknown): InteriorDesignConfigV2 {
+  const candidate = structuredClone(
+    input ?? {},
+  ) as Partial<InteriorDesignConfigV2> & {
+    lighting?: Partial<InteriorDesignConfigV2["lighting"]> & {
+      lightEntryEnabled?: boolean;
+    };
+  };
+  const defaults = structuredClone(DEFAULT_INTERIOR_CONFIG);
+  const legacyLightEntry = candidate.lighting?.lightEntryEnabled;
+  return {
+    ...defaults,
+    ...candidate,
+    schemaVersion: 2,
+    scene: { ...defaults.scene, ...(candidate.scene ?? {}) },
+    lighting: {
+      ...defaults.lighting,
+      ...(candidate.lighting ?? {}),
+      lightEntryMode:
+        candidate.lighting?.lightEntryMode ??
+        (legacyLightEntry === false ? "disabled" : "detected-window"),
+    },
+    photography: { ...defaults.photography, ...(candidate.photography ?? {}) },
+    constraints: { ...defaults.constraints, ...(candidate.constraints ?? {}) },
+    output: { ...defaults.output, ...(candidate.output ?? {}) },
+    customSelections: { ...(candidate.customSelections ?? {}) },
+  };
+}
+
+function getLightEntryPrompt(config: InteriorDesignConfigV2) {
+  const prompts: Record<
+    InteriorDesignConfigV2["lighting"]["lightEntryMode"],
+    string
+  > = {
+    "detected-window":
+      "仅允许从模型中真实存在的门窗进光，光线方向必须与开口位置一致，禁止凭空补光",
+    "forced-left":
+      "画面左侧为唯一自然主光方向，形成从左向右的稳定环境光，禁止右侧、顶部和正面补光",
+    "forced-right":
+      "画面右侧为唯一自然主光方向，形成从右向左的稳定环境光，禁止左侧、顶部和正面补光",
+    "forced-rear":
+      "画面正后方为唯一自然主光方向，形成由后向前的稳定环境光，禁止两侧、顶部和正面补光",
+    disabled: "关闭自然进光，禁止添加不存在的窗户、天窗或室外光源",
+    custom:
+      config.customSelections["lighting.lightEntryMode"] ||
+      "按照用户指定的方向和范围控制自然进光",
+  };
+  return prompts[config.lighting.lightEntryMode];
 }
 
 export function normalizeInteriorDesignConfig(
-  input: InteriorDesignConfigV1,
+  input: unknown,
 ): InteriorConfigValidationResult {
   const config = cloneConfig(input);
   const errors: string[] = [];
+  const warnings: string[] = [];
 
-  config.schemaVersion = 1;
+  config.schemaVersion = 2;
   config.customSourceSoftware = config.customSourceSoftware.trim().slice(0, 80);
   config.customRequirement = config.customRequirement.trim().slice(0, 2000);
   config.conversionLogic ??=
@@ -83,15 +130,71 @@ export function normalizeInteriorDesignConfig(
     config.scene.exteriorView = "enclosed";
     config.scene.location = "enclosed";
     config.lighting.curtainType = "none";
-    config.lighting.lightEntryEnabled = false;
-    config.lighting.sunlightEffect = "none";
+    if (config.lighting.lightEntryMode === "detected-window") {
+      config.lighting.lightEntryMode = "disabled";
+      config.lighting.sunlightEffect = "none";
+    }
     if (config.lighting.interiorLight === "natural-only") {
       config.lighting.interiorLight = "enclosed";
     }
   }
 
-  if (!config.lighting.lightEntryEnabled) {
+  if (config.lighting.lightEntryMode === "disabled") {
     config.lighting.sunlightEffect = "none";
+  }
+
+  if (
+    ["tyndall", "tree", "clean", "top-spots"].includes(
+      config.lighting.sunlightEffect,
+    )
+  ) {
+    config.lighting.weather = "sunny";
+    if (config.lighting.lightEntryMode === "disabled") {
+      config.lighting.lightEntryMode = "detected-window";
+    }
+  }
+  if (["cloudy", "foggy", "rainy"].includes(config.lighting.weather)) {
+    if (
+      ["clean", "tree", "tyndall", "top-spots"].includes(
+        config.lighting.sunlightEffect,
+      )
+    ) {
+      config.lighting.sunlightEffect = "none";
+    }
+  }
+  const curtainByEffect: Record<string, string> = {
+    "shangri-la": "shangri-la",
+    dream: "dream",
+    sheer: "sheer-closed",
+  };
+  config.lighting.curtainType =
+    curtainByEffect[config.lighting.sunlightEffect] ??
+    config.lighting.curtainType;
+
+  if (["iphone", "iphone17"].includes(config.photography.camera)) {
+    config.photography.aperture = "phone-f1.6";
+    config.photography.shutterSpeed = "1/60s";
+    config.photography.iso = "50";
+  }
+  if (
+    ["city-night", "night-shopfront"].includes(config.scene.exteriorView) &&
+    !["night", "late-evening", "midnight", "late-night"].includes(
+      config.lighting.timeOfDay,
+    )
+  ) {
+    config.lighting.timeOfDay = "night";
+  }
+  const slowShutter = ["1s", "5s", "30s"].includes(
+    config.photography.shutterSpeed,
+  );
+  if (config.photography.techniques.includes("hdr") && slowShutter) {
+    warnings.push("HDR 包围曝光与慢快门同时使用，可能造成画面重影");
+  }
+  if (config.photography.techniques.includes("tripod") && !slowShutter) {
+    warnings.push("三脚架长曝光通常需要 1 秒或更慢的快门");
+  }
+  if (config.lighting.occupants.includes("motion-person") && !slowShutter) {
+    warnings.push("动态虚影人物需要慢快门才能形成自然拖影");
   }
 
   if (typeof config.constraints.materialDefinition === "string") {
@@ -115,31 +218,175 @@ export function normalizeInteriorDesignConfig(
     config.constraints.materialDefinition = normalized;
   }
 
-  return { config, errors };
+  return { config, errors, warnings };
+}
+
+export function applyInteriorLightingPatch(
+  input: InteriorDesignConfigV2,
+  patch: Partial<InteriorDesignConfigV2["lighting"]>,
+) {
+  const next = cloneConfig(input);
+  next.lighting = { ...next.lighting, ...patch };
+
+  if (
+    patch.sunlightEffect &&
+    patch.sunlightEffect !== "none" &&
+    next.lighting.lightEntryMode === "disabled"
+  ) {
+    next.lighting.lightEntryMode = "detected-window";
+  }
+
+  if (
+    patch.weather &&
+    ["cloudy", "foggy", "rainy"].includes(patch.weather) &&
+    ["clean", "tree", "tyndall", "top-spots"].includes(
+      next.lighting.sunlightEffect,
+    )
+  ) {
+    next.lighting.sunlightEffect = "none";
+  }
+  if (
+    patch.sunlightEffect &&
+    ["clean", "tree", "tyndall", "top-spots"].includes(patch.sunlightEffect)
+  ) {
+    next.lighting.weather = "sunny";
+    if (next.lighting.lightEntryMode === "disabled") {
+      next.lighting.lightEntryMode = "detected-window";
+    }
+  }
+  if (patch.lightEntryMode === "disabled") {
+    next.lighting.sunlightEffect = "none";
+  }
+  return normalizeInteriorDesignConfig(next).config;
+}
+
+export function applyInteriorScenePatch(
+  input: InteriorDesignConfigV2,
+  patch: Partial<InteriorDesignConfigV2["scene"]>,
+) {
+  const next = cloneConfig(input);
+  next.scene = { ...next.scene, ...patch };
+  if (
+    patch.exteriorView &&
+    ["city-night", "night-shopfront"].includes(patch.exteriorView)
+  ) {
+    next.lighting.timeOfDay = "night";
+  }
+  return normalizeInteriorDesignConfig(next).config;
+}
+
+export function applyInteriorPhotographyPatch(
+  input: InteriorDesignConfigV2,
+  patch: Partial<InteriorDesignConfigV2["photography"]>,
+) {
+  const next = cloneConfig(input);
+  next.photography = { ...next.photography, ...patch };
+  if (patch.camera && ["iphone", "iphone17"].includes(patch.camera)) {
+    next.photography.aperture = "phone-f1.6";
+    next.photography.shutterSpeed = "1/60s";
+    next.photography.iso = "50";
+  }
+  return normalizeInteriorDesignConfig(next).config;
 }
 
 export function parseInteriorMaterialDefinition(
   input: string,
 ): InteriorMaterialDefinition {
   const trimmed = input.trim();
-  if (!trimmed.startsWith("{")) return trimmed.slice(0, 4000);
+  const jsonText = extractMaterialJson(trimmed);
+  if (!jsonText) return trimmed.slice(0, 4000);
 
-  const parsed = JSON.parse(trimmed) as unknown;
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("材质精准定义必须是 JSON 对象");
-  }
-  const output: Record<string, string> = {};
-  for (const [key, itemValue] of Object.entries(parsed)) {
-    if (typeof itemValue !== "string") {
-      throw new Error("材质精准定义的每个值都必须是字符串");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    try {
+      parsed = JSON.parse(removeJsonTrailingCommas(jsonText));
+    } catch {
+      throw new Error(
+        "未能识别材质内容，请直接粘贴完整结果，系统会自动处理常见格式问题",
+      );
     }
-    output[key] = itemValue;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("材质内容需要是按区域分类的对象");
+  }
+
+  const output: Record<string, string> = {};
+  for (const [category, categoryValue] of Object.entries(parsed)) {
+    if (typeof categoryValue === "string") {
+      output[category] = categoryValue;
+      continue;
+    }
+    if (!Array.isArray(categoryValue)) {
+      throw new Error(`“${category}”中的材质内容格式不正确`);
+    }
+    for (const item of categoryValue) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        throw new Error(`“${category}”中存在无法识别的材质条目`);
+      }
+      const fields = item as Record<string, unknown>;
+      const name = fields["元素名称"];
+      if (typeof name !== "string" || !name.trim()) {
+        throw new Error(`“${category}”中有材质条目缺少元素名称`);
+      }
+      const description = ["材质类型", "质感描述", "表面特征", "反光特性"]
+        .map((field) => fields[field])
+        .filter((value): value is string =>
+          Boolean(typeof value === "string" && value.trim()),
+        )
+        .map((value) => value.trim())
+        .join("；");
+      if (!description) {
+        throw new Error(`“${name}”缺少材质描述`);
+      }
+      output[`${category} / ${name.trim()}`] = description;
+    }
+  }
+  return output;
+}
+
+function extractMaterialJson(input: string) {
+  const withoutFence = input
+    .replace(/^\s*```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/, "")
+    .trim();
+  const start = withoutFence.indexOf("{");
+  const end = withoutFence.lastIndexOf("}");
+  return start >= 0 && end > start ? withoutFence.slice(start, end + 1) : "";
+}
+
+function removeJsonTrailingCommas(input: string) {
+  let output = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < input.length; index += 1) {
+    const character = input[index];
+    if (inString) {
+      output += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      output += character;
+      continue;
+    }
+    if (character === ",") {
+      let next = index + 1;
+      while (next < input.length && /\s/.test(input[next])) next += 1;
+      if (input[next] === "}" || input[next] === "]") continue;
+    }
+    output += character;
   }
   return output;
 }
 
 export function getInteriorProviderRatio(
-  aspectRatio: InteriorDesignConfigV1["output"]["aspectRatio"],
+  aspectRatio: InteriorDesignConfigV2["output"]["aspectRatio"],
 ) {
   return aspectRatio === "original" || aspectRatio === "custom"
     ? "Auto"
@@ -147,7 +394,7 @@ export function getInteriorProviderRatio(
 }
 
 export function compileInteriorDesignPrompt(
-  input: InteriorDesignConfigV1,
+  input: InteriorDesignConfigV2,
 ): string {
   const { config } = normalizeInteriorDesignConfig(input);
   const source =
@@ -183,9 +430,7 @@ export function compileInteriorDesignPrompt(
       天气: value(WEATHER_OPTIONS, config.lighting.weather),
       时间段: value(TIME_OPTIONS, config.lighting.timeOfDay),
       窗帘类型: value(CURTAIN_OPTIONS, config.lighting.curtainType),
-      进光口控制: config.lighting.lightEntryEnabled
-        ? "仅允许从模型中真实存在的门窗进光，光线方向必须与开口位置一致，禁止凭空补光"
-        : "关闭自然进光，禁止添加不存在的窗户、天窗或室外光源",
+      进光口控制: getLightEntryPrompt(config),
       太阳光光影: value(SUNLIGHT_OPTIONS, config.lighting.sunlightEffect),
       室内光: value(INTERIOR_LIGHT_OPTIONS, config.lighting.interiorLight),
       室内灯光色温: value(

@@ -1,7 +1,7 @@
 import type {
   InteriorConversionGoal,
   InteriorConversionLogic,
-  InteriorDesignConfigV1,
+  InteriorDesignConfigV2,
   InteriorOption,
   InteriorPreset,
   InteriorPresetId,
@@ -425,8 +425,17 @@ export const PROMPT_RESOLUTION_OPTIONS = [
   option("custom", "➕ 自定义", "用户自定义分辨率"),
 ];
 
-export const DEFAULT_INTERIOR_CONFIG: InteriorDesignConfigV1 = {
-  schemaVersion: 1,
+export const LIGHT_ENTRY_MODE_OPTIONS = [
+  option("detected-window", "按原图门窗进光", "只从原图真实门窗方向自然进光"),
+  option("forced-left", "强制左侧进光", "左侧为唯一自然主光方向"),
+  option("forced-right", "强制右侧进光", "右侧为唯一自然主光方向"),
+  option("forced-rear", "强制后方进光", "正后方为唯一自然主光方向"),
+  option("disabled", "关闭自然进光", "不使用窗外或方向性自然光"),
+  option("custom", "➕ 自定义", "用户自定义进光方向和约束"),
+];
+
+export const DEFAULT_INTERIOR_CONFIG: InteriorDesignConfigV2 = {
+  schemaVersion: 2,
   presetId: "diffuse-daylight",
   sourceSoftware: "sketchup",
   customSourceSoftware: "",
@@ -443,7 +452,7 @@ export const DEFAULT_INTERIOR_CONFIG: InteriorDesignConfigV1 = {
     weather: "cloudy",
     timeOfDay: "morning",
     curtainType: "as-modeled",
-    lightEntryEnabled: true,
+    lightEntryMode: "detected-window",
     sunlightEffect: "none",
     interiorLight: "natural-only",
     colorTemperature: "4500k",
@@ -475,9 +484,9 @@ function preset(
   id: InteriorPresetId,
   label: string,
   description: string,
-  patch: Partial<Omit<InteriorDesignConfigV1, "scene" | "lighting">> & {
-    scene?: Partial<InteriorDesignConfigV1["scene"]>;
-    lighting?: Partial<InteriorDesignConfigV1["lighting"]>;
+  patch: Partial<Omit<InteriorDesignConfigV2, "scene" | "lighting">> & {
+    scene?: Partial<InteriorDesignConfigV2["scene"]>;
+    lighting?: Partial<InteriorDesignConfigV2["lighting"]>;
   },
 ): InteriorPreset {
   return {
@@ -498,48 +507,166 @@ function preset(
 }
 
 export const INTERIOR_PRESETS: InteriorPreset[] = [
-  preset("diffuse-daylight", "无直射自然光", "柔和漫射天光，室内人工光关闭。", {
-    lighting: {
-      weather: "cloudy",
-      sunlightEffect: "none",
-      interiorLight: "natural-only",
+  preset(
+    "diffuse-daylight",
+    "无太阳光 · 自然光",
+    "柔和漫射天光，关闭人工光。",
+    {
+      lighting: {
+        weather: "cloudy",
+        sunlightEffect: "none",
+        lightEntryMode: "detected-window",
+        interiorLight: "natural-only",
+      },
     },
-  }),
-  preset("natural-sunlight", "自然阳光", "真实阳光进入室内，保持克制光比。", {
+  ),
+  preset(
+    "diffuse-with-lights",
+    "无太阳光 · 开人工光",
+    "漫射天光配合完整室内照明。",
+    {
+      lighting: {
+        weather: "cloudy",
+        sunlightEffect: "none",
+        lightEntryMode: "detected-window",
+        interiorLight: "all",
+      },
+    },
+  ),
+  preset("natural-sunlight", "自然太阳光影", "真实克制的直射阳光。", {
     lighting: {
       weather: "sunny",
       sunlightEffect: "clean",
+      lightEntryMode: "detected-window",
       interiorLight: "natural-only",
     },
   }),
   preset(
     "mixed-lighting",
-    "自然光 + 人工光",
-    "自然采光与室内功能照明共同工作。",
+    "太阳光影 · 开人工光",
+    "自然光与室内照明共同工作。",
     {
       lighting: {
         weather: "sunny",
         sunlightEffect: "clean",
+        lightEntryMode: "detected-window",
         interiorLight: "all",
-        colorTemperature: "3500k",
       },
     },
   ),
-  preset("tree-shadow", "树影斑驳", "窗外树影投射到室内表面。", {
+  preset("tree-shadow", "树影斑驳", "窗外树影自然投射。", {
     lighting: {
       weather: "sunny",
       sunlightEffect: "tree",
+      lightEntryMode: "detected-window",
       interiorLight: "natural-only",
     },
   }),
-  preset("curtain-shadow", "帘影氛围", "通过帘片形成有方向的柔和光影。", {
+  preset("shangri-la-shadow", "香格里拉帘光影", "帘片形成有序条纹光影。", {
     lighting: {
       weather: "sunny",
       curtainType: "shangri-la",
       sunlightEffect: "shangri-la",
+      lightEntryMode: "detected-window",
       interiorLight: "natural-only",
     },
   }),
+  preset("dream-shadow", "梦幻帘光影", "柔和竖向渐变帘影。", {
+    lighting: {
+      weather: "sunny",
+      curtainType: "dream",
+      sunlightEffect: "dream",
+      lightEntryMode: "detected-window",
+      interiorLight: "natural-only",
+    },
+  }),
+  preset("double-curtain-shadow", "双层窗帘光影", "双层窗帘形成柔和层次。", {
+    lighting: {
+      weather: "sunny",
+      curtainType: "double-open",
+      sunlightEffect: "sheer",
+      lightEntryMode: "detected-window",
+      interiorLight: "natural-only",
+    },
+  }),
+  preset("sheer-shadow", "单层纱帘光影", "纱帘过滤直射光形成漫射层次。", {
+    lighting: {
+      weather: "sunny",
+      curtainType: "sheer-closed",
+      sunlightEffect: "sheer",
+      lightEntryMode: "detected-window",
+      interiorLight: "natural-only",
+    },
+  }),
+  preset("forced-left", "无窗 · 左侧进光", "左侧方向性环境光。", {
+    lighting: {
+      weather: "cloudy",
+      curtainType: "none",
+      sunlightEffect: "none",
+      lightEntryMode: "forced-left",
+      interiorLight: "natural-only",
+    },
+  }),
+  preset("forced-right", "无窗 · 右侧进光", "右侧方向性环境光。", {
+    lighting: {
+      weather: "cloudy",
+      curtainType: "none",
+      sunlightEffect: "none",
+      lightEntryMode: "forced-right",
+      interiorLight: "natural-only",
+    },
+  }),
+  preset("forced-rear", "无窗 · 后方进光", "后方方向性环境光。", {
+    lighting: {
+      weather: "cloudy",
+      curtainType: "none",
+      sunlightEffect: "none",
+      lightEntryMode: "forced-rear",
+      interiorLight: "natural-only",
+    },
+  }),
+  preset(
+    "forced-left-lit",
+    "无窗 · 左侧进光 + 灯光",
+    "左侧环境光配合人工光。",
+    {
+      lighting: {
+        weather: "cloudy",
+        curtainType: "none",
+        sunlightEffect: "none",
+        lightEntryMode: "forced-left",
+        interiorLight: "all",
+      },
+    },
+  ),
+  preset(
+    "forced-right-lit",
+    "无窗 · 右侧进光 + 灯光",
+    "右侧环境光配合人工光。",
+    {
+      lighting: {
+        weather: "cloudy",
+        curtainType: "none",
+        sunlightEffect: "none",
+        lightEntryMode: "forced-right",
+        interiorLight: "all",
+      },
+    },
+  ),
+  preset(
+    "forced-rear-lit",
+    "无窗 · 后方进光 + 灯光",
+    "后方环境光配合人工光。",
+    {
+      lighting: {
+        weather: "cloudy",
+        curtainType: "none",
+        sunlightEffect: "none",
+        lightEntryMode: "forced-rear",
+        interiorLight: "all",
+      },
+    },
+  ),
   preset(
     "enclosed-artificial",
     "封闭空间人工光",
@@ -553,13 +680,26 @@ export const INTERIOR_PRESETS: InteriorPreset[] = [
       lighting: {
         weather: "auto",
         curtainType: "none",
-        lightEntryEnabled: false,
+        lightEntryMode: "disabled",
         sunlightEffect: "none",
         interiorLight: "enclosed",
         colorTemperature: "3500k",
       },
     },
   ),
+  preset("white-neutral", "纯白中性色调", "干净准确的白中性色彩。", {
+    lighting: {
+      colorGrading: "white-neutral",
+      tonalQuality: "soft-documentary",
+    },
+  }),
+  preset("cool-documentary", "冷色纪实色调", "清透克制的冷色纪实表现。", {
+    lighting: {
+      colorGrading: "cool-documentary",
+      tonalQuality: "clear-crisp",
+      colorTemperature: "6000k",
+    },
+  }),
 ];
 
 export function getInteriorPreset(id: InteriorPresetId) {
@@ -569,16 +709,17 @@ export function getInteriorPreset(id: InteriorPresetId) {
 }
 
 export function applyInteriorPreset(
-  current: InteriorDesignConfigV1,
+  current: InteriorDesignConfigV2,
   id: InteriorPresetId,
-): InteriorDesignConfigV1 {
-  const next = structuredClone(getInteriorPreset(id).config);
-  next.sourceSoftware = current.sourceSoftware;
-  next.customSourceSoftware = current.customSourceSoftware;
-  next.conversionGoal = current.conversionGoal;
-  next.conversionLogic = current.conversionLogic;
-  next.customRequirement = current.customRequirement;
-  next.customSelections = { ...(current.customSelections ?? {}) };
+): InteriorDesignConfigV2 {
+  const selected = getInteriorPreset(id).config;
+  const next = structuredClone(current);
+  next.schemaVersion = 2;
+  next.presetId = id;
+  if (id === "enclosed-artificial") {
+    next.scene = { ...current.scene, ...selected.scene };
+  }
+  next.lighting = { ...current.lighting, ...selected.lighting };
   return next;
 }
 

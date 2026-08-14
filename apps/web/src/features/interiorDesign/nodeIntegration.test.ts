@@ -337,3 +337,28 @@ test("legacy interior snapshots shed image execution state without losing previe
   assert.ok(state.nodes.some((node) => node.id === preview.id));
   assert.equal(state.edges.length, 0);
 });
+
+test("legacy interior snapshots migrate light entry state to config version two", () => {
+  const interior = createInteriorNode();
+  const legacyConfig = structuredClone(interior.data.config) as Omit<
+    typeof interior.data.config,
+    "schemaVersion" | "lighting"
+  > & {
+    schemaVersion: number;
+    lighting: Omit<typeof interior.data.config.lighting, "lightEntryMode"> & {
+      lightEntryEnabled?: boolean;
+      lightEntryMode?: string;
+    };
+  };
+  legacyConfig.schemaVersion = 1;
+  delete legacyConfig.lighting.lightEntryMode;
+  legacyConfig.lighting.lightEntryEnabled = true;
+  interior.data.config = legacyConfig as unknown as typeof interior.data.config;
+
+  useCanvasStore.getState().replaceSnapshot({ nodes: [interior], edges: [] });
+
+  const restored = useCanvasStore.getState().nodes[0]?.data
+    .config as InteriorDesignNodeData["config"];
+  assert.equal(restored.schemaVersion, 2);
+  assert.equal(restored.lighting.lightEntryMode, "detected-window");
+});

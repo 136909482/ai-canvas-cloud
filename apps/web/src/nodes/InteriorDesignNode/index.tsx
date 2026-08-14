@@ -12,14 +12,19 @@ import {
   Braces,
   Check,
   ChevronDown,
-  ChevronRight,
   Copy,
   FileOutput,
   Home,
+  Info,
+  Search,
+  Settings2,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import {
+  applyInteriorLightingPatch,
+  applyInteriorPhotographyPatch,
+  applyInteriorScenePatch,
   normalizeInteriorDesignConfig,
   parseInteriorMaterialDefinition,
 } from "@/features/interiorDesign/compiler";
@@ -39,6 +44,7 @@ import {
   INTERIOR_LIGHT_OPTIONS,
   INTERIOR_PRESETS,
   ISO_OPTIONS,
+  LIGHT_ENTRY_MODE_OPTIONS,
   LOCATION_OPTIONS,
   MATERIAL_OPTIONS,
   OBJECT_OPTIONS,
@@ -86,7 +92,7 @@ const CUSTOM_LABEL_ALIASES: Record<string, string> = {
   ISO: "photography.iso",
 };
 const MATERIAL_IDENTIFICATION_GUIDANCE =
-  "请分析这张模型截图，识别图中所有独立的材质元素，并按“元素名称：材质类型、质感描述、表面特征、反光特性”的格式输出。要求：不要遗漏任何可见材质区域；元素名称必须对应图中物体；描述要具体、可执行，符合室内设计行业术语；严格按天花及顶面、墙面及立面、地面、固定硬装（柜体/门窗/楼梯等）、可移动软装（家具/灯具/摆件等）的顺序排列；只输出 JSON，不要添加额外内容。";
+  "请分析这张模型截图，识别图中所有独立的材质元素。严格按“天花及顶面、墙面及立面、地面、固定硬装（柜体/门窗/楼梯等）、可移动软装（家具/灯具/摆件等）”作为 JSON 顶层分类，每个分类的值必须是数组；数组中每项必须且只能包含“元素名称”“材质类型”“质感描述”“表面特征”“反光特性”五个字符串字段。元素名称必须对应图中物体，描述要具体、可执行并符合室内设计行业术语，不要遗漏任何可见材质区域。只输出一个严格合法的 JSON 对象：所有属性名和字符串必须使用英文双引号，最后一项后禁止添加逗号，禁止注释，禁止 Markdown 代码块，禁止输出解释或其他文字。输出前请自行检查 JSON 能否被 JSON.parse 直接解析。";
 const steps = [
   { id: "basics", label: "基础", hint: "先选来源和目标" },
   { id: "scene", label: "场景", hint: "描述空间和风格" },
@@ -94,6 +100,31 @@ const steps = [
   { id: "output", label: "输出", hint: "确认画面和细节" },
   { id: "photography", label: "摄影", hint: "控制相机语言" },
   { id: "constraints", label: "约束", hint: "保护原图结构" },
+] as const;
+
+const EDITOR_SEARCH_ITEMS = [
+  { section: "basics", label: "来源软件 转换目标 转换逻辑 PBR 写实" },
+  { section: "scene", label: "空间类型 设计风格 外景 地点 夜景" },
+  {
+    section: "lighting",
+    label:
+      "预设 季节 天气 时间 窗帘 进光方向 太阳光影 室内灯光 色温 色调 影调 人物 宠物",
+  },
+  { section: "output", label: "画面比例 分辨率 自定义需求 JSON" },
+  {
+    section: "photography",
+    label: "相机 焦距 光圈 快门 ISO HDR 曝光 移轴 三脚架",
+  },
+  { section: "constraints", label: "几何保真 物体一致 材质一致 材质精准定义" },
+] as const;
+
+const PROFESSIONAL_HELP = [
+  ["光圈", "数值越小进光越多、景深越浅；室内全景通常使用 f/5.6 至 f/11。"],
+  ["快门", "决定曝光时间和运动拖影；1 秒及更慢适合三脚架长曝光。"],
+  ["ISO", "数值越低画质越干净；光线不足时提高 ISO 会增加噪点。"],
+  ["焦距", "13-24mm 画面更宽，48mm 以上适合软装与材质细节。"],
+  ["曝光技法", "HDR 适合大光比，移轴用于保持竖线垂直，长曝需要慢快门。"],
+  ["色温与光影", "人工光关闭时无需调整色温；直射、树影和丁达尔通常需要晴天。"],
 ] as const;
 
 const CUSTOM_FIELD_DEFS = [
@@ -147,6 +178,7 @@ function OptionSelect({
   wrapperClassName?: string;
 }) {
   const custom = useContext(CustomSelectionContext);
+  const selectedOption = options.find((item) => item.id === value);
   return (
     <>
       <label className={`${labelClass} ${wrapperClassName}`}>
@@ -163,6 +195,9 @@ function OptionSelect({
           onChange={onChange}
           stopCanvasGesture={(event) => event.stopPropagation()}
         />
+        <span className="block min-h-4 text-[9px] leading-4 text-[var(--text-muted)]">
+          {disabled ? "当前设置下暂不可调整" : selectedOption?.prompt}
+        </span>
       </label>
       {value === "custom" && custom ? (
         <label className={`${labelClass} col-span-2`}>
@@ -184,15 +219,24 @@ function WizardStep({
   title,
   description,
   defaultOpen = false,
+  collapsible = true,
   orderClass = "order-none",
   children,
 }: {
   title: string;
   description: string;
   defaultOpen?: boolean;
+  collapsible?: boolean;
   orderClass?: string;
   children: React.ReactNode;
 }) {
+  if (!collapsible) {
+    return (
+      <div className={`grid grid-cols-2 gap-x-3 gap-y-2 ${orderClass}`}>
+        {children}
+      </div>
+    );
+  }
   return (
     <details
       className={`group/category ${orderClass} border-b border-[var(--border-subtle)] pb-2`}
@@ -240,11 +284,13 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
   );
   const runTracked = useHistoryStore((state) => state.runTracked);
   const config = data.config;
-  const showAllCategories = steps.length > 0;
   const [step, setStep] = useState(0);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorSection, setEditorSection] =
     useState<(typeof steps)[number]["id"]>("basics");
+  const [editorView, setEditorView] = useState<"section" | "all">("section");
+  const [editorSearch, setEditorSearch] = useState("");
+  const [jsonCopied, setJsonCopied] = useState(false);
   const [advancedTab, setAdvancedTab] = useState<"photography" | "constraints">(
     "photography",
   );
@@ -254,6 +300,15 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
   const materialDraftRef = useRef(materialDraft);
   const [materialError, setMaterialError] = useState("");
   const [materialGuidanceCopied, setMaterialGuidanceCopied] = useState(false);
+  const copyCompiledPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(data.compiledPrompt);
+      setJsonCopied(true);
+      window.setTimeout(() => setJsonCopied(false), 1800);
+    } catch {
+      setJsonCopied(false);
+    }
+  };
 
   useEffect(() => {
     try {
@@ -284,12 +339,12 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
   const patchConfig = (patch: Partial<InteriorDesignConfigV1>) =>
     persistConfig({ ...config, ...patch });
   const patchScene = (patch: Partial<InteriorDesignConfigV1["scene"]>) =>
-    patchConfig({ scene: { ...config.scene, ...patch } });
+    persistConfig(applyInteriorScenePatch(config, patch));
   const patchLighting = (patch: Partial<InteriorDesignConfigV1["lighting"]>) =>
-    patchConfig({ lighting: { ...config.lighting, ...patch } });
+    persistConfig(applyInteriorLightingPatch(config, patch));
   const patchPhotography = (
     patch: Partial<InteriorDesignConfigV1["photography"]>,
-  ) => patchConfig({ photography: { ...config.photography, ...patch } });
+  ) => persistConfig(applyInteriorPhotographyPatch(config, patch));
   const patchConstraints = (
     patch: Partial<InteriorDesignConfigV1["constraints"]>,
   ) => patchConfig({ constraints: { ...config.constraints, ...patch } });
@@ -348,7 +403,15 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
   };
 
   const validation = normalizeInteriorDesignConfig(config);
-  const outputIssues = [...validation.errors, materialError].filter(Boolean);
+  const blockingIssues = [...validation.errors, materialError].filter(Boolean);
+  const outputIssues = [...blockingIssues, ...validation.warnings];
+  const searchResults = editorSearch.trim()
+    ? EDITOR_SEARCH_ITEMS.filter((item) =>
+        item.label.toLowerCase().includes(editorSearch.trim().toLowerCase()),
+      )
+    : [];
+  const showEditorSection = (section: (typeof steps)[number]["id"]) =>
+    editorView === "all" || editorSection === section;
   const isEnclosed = config.scene.exteriorView === "enclosed";
   const sourceLabel =
     config.sourceSoftware === "custom"
@@ -386,12 +449,38 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
           icon={<Home className="h-3.5 w-3.5 text-[var(--text-muted)]" />}
           title="室内设计"
           right={
-            <span
-              className={`${themeClasses.nodeBadge} ${themeClasses.nodeBadgeViolet}`}
-            >
-              <Braces className="h-3 w-3" />
-              JSON
-            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className={`${themeClasses.iconButton} h-7 w-7`}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={copyCompiledPrompt}
+                aria-label={jsonCopied ? "JSON 已复制" : "复制室内设计 JSON"}
+                title={jsonCopied ? "JSON 已复制" : "复制室内设计 JSON"}
+              >
+                {jsonCopied ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+              </button>
+              <button
+                type="button"
+                className={`${themeClasses.iconButton} h-7 w-7`}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => setEditorOpen(true)}
+                aria-label="编辑室内设计设置"
+                title="编辑室内设计设置"
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+              </button>
+              <span
+                className={`${themeClasses.nodeBadge} ${themeClasses.nodeBadgeViolet}`}
+              >
+                <Braces className="h-3 w-3" />
+                JSON
+              </span>
+            </div>
           }
         />
         <Handle
@@ -409,659 +498,650 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
         </Handle>
 
         {!editorOpen ? (
-          <div className="nowheel min-h-0 flex flex-1 flex-col overflow-y-auto overscroll-contain p-4 scrollbar-hidden">
-            <nav className="hidden" aria-label="室内设计步骤">
-              {steps.map((item, index) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => index <= step && setStep(index)}
-                  aria-current={step === index ? "step" : undefined}
-                  className={`rounded-md px-1 py-1.5 text-[10px] transition ${step === index ? "bg-[var(--accent-violet-soft)] font-semibold text-[var(--accent-violet-strong)]" : index < step ? "text-[var(--text-secondary)] hover:bg-[var(--control-bg-hover)]" : "text-[var(--text-muted)]"}`}
-                >
-                  <span className="block">
-                    {index + 1}. {item.label}
-                  </span>
-                  <span className="mt-0.5 block truncate text-[9px] opacity-70">
-                    {item.hint}
-                  </span>
-                </button>
-              ))}
-            </nav>
-            <Summary>
-              <div className="flex items-center gap-1 overflow-x-auto whitespace-nowrap text-[10px]">
-                {steps.map((item, index) => (
-                  <span
+          <div className="nowheel flex min-h-0 flex-1 flex-col overflow-hidden overscroll-contain p-3 scrollbar-hidden">
+            <div className="flex min-h-0 flex-1 gap-3">
+              <nav
+                className="w-24 shrink-0 space-y-1 overflow-y-auto pr-1 scrollbar-hidden"
+                aria-label="室内设计类别"
+              >
+                {steps.map((item) => (
+                  <button
                     key={item.id}
-                    className="inline-flex items-center gap-1"
+                    type="button"
+                    onClick={() => setEditorSection(item.id)}
+                    aria-current={
+                      editorSection === item.id ? "page" : undefined
+                    }
+                    className={`w-full rounded-md px-2 py-2 text-left text-[10px] transition ${editorSection === item.id ? "bg-[var(--accent-violet-soft)] font-semibold text-[var(--accent-violet-strong)]" : "text-[var(--text-muted)] hover:bg-[var(--control-bg-hover)]"}`}
                   >
-                    <span
-                      className={
-                        index === step
-                          ? "font-semibold text-[var(--accent-violet-strong)]"
-                          : "text-[var(--text-secondary)]"
-                      }
-                    >
-                      {item.label}
+                    <span className="block truncate">{item.label}</span>
+                    <span className="mt-0.5 block truncate text-[9px] opacity-70">
+                      {item.hint}
                     </span>
-                    {index < steps.length - 1 ? (
-                      <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-muted)]" />
-                    ) : null}
-                  </span>
+                  </button>
                 ))}
-              </div>
-            </Summary>
+              </nav>
 
-            <div className="min-h-0 flex-1">
-              {showAllCategories ? (
-                <WizardStep
-                  title="任务指令"
-                  description="选择一个预设即可快速开始，之后仍可继续微调。"
-                  defaultOpen
-                  orderClass="order-1"
-                >
-                  <div className="col-span-2 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
-                    <OptionSelect
-                      label="来源类型"
-                      value={config.sourceSoftware}
-                      options={SOURCE_SOFTWARE_OPTIONS}
-                      wrapperClassName="col-span-1"
-                      onChange={(sourceSoftware) =>
-                        patchConfig({
-                          sourceSoftware:
-                            sourceSoftware as InteriorDesignConfigV1["sourceSoftware"],
-                        })
-                      }
-                    />
-                    <ArrowRight
-                      className="mb-2.5 h-4 w-4 text-[var(--accent-violet-strong)]"
-                      aria-hidden="true"
-                    />
-                    <OptionSelect
-                      label="转换目标"
-                      value={config.conversionGoal}
-                      options={CONVERSION_GOAL_OPTIONS}
-                      wrapperClassName="col-span-1"
-                      onChange={(conversionGoal) =>
-                        patchConfig({
-                          conversionGoal:
-                            conversionGoal as InteriorDesignConfigV1["conversionGoal"],
-                        })
-                      }
-                    />
-                  </div>
-                  {config.sourceSoftware === "custom" ? (
-                    <label className={`${labelClass} col-span-2`}>
-                      <span>来源名称</span>
-                      <input
-                        className={controlClass}
-                        value={config.customSourceSoftware}
-                        maxLength={80}
-                        onChange={(event) =>
+              <div className="nowheel min-w-0 flex-1 overflow-y-auto pr-1 scrollbar-hidden">
+                {showEditorSection("basics") ? (
+                  <WizardStep
+                    title="任务指令"
+                    description="选择一个预设即可快速开始，之后仍可继续微调。"
+                    collapsible={false}
+                    defaultOpen
+                    orderClass="order-1"
+                  >
+                    <div className="col-span-2 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2">
+                      <OptionSelect
+                        label="来源类型"
+                        value={config.sourceSoftware}
+                        options={SOURCE_SOFTWARE_OPTIONS}
+                        wrapperClassName="col-span-1"
+                        onChange={(sourceSoftware) =>
                           patchConfig({
-                            customSourceSoftware: event.target.value,
+                            sourceSoftware:
+                              sourceSoftware as InteriorDesignConfigV1["sourceSoftware"],
                           })
                         }
                       />
-                    </label>
-                  ) : null}
-                  <OptionSelect
-                    label="转换逻辑"
-                    value={config.conversionLogic ?? "pbr-photoreal"}
-                    options={CONVERSION_LOGIC_OPTIONS}
-                    onChange={(conversionLogic) =>
-                      patchConfig({
-                        conversionLogic:
-                          conversionLogic as InteriorDesignConfigV1["conversionLogic"],
-                      })
-                    }
-                  />
-                </WizardStep>
-              ) : null}
-
-              {showAllCategories ? (
-                <WizardStep
-                  title="场景类型"
-                  description="告诉 AI 这是怎样的房间，以及你想要的风格。"
-                  orderClass="order-2"
-                >
-                  <OptionSelect
-                    label="空间类型"
-                    value={config.scene.spaceType}
-                    options={SPACE_TYPE_OPTIONS}
-                    onChange={(spaceType) => patchScene({ spaceType })}
-                  />
-                  <OptionSelect
-                    label="设计风格"
-                    value={config.scene.designStyle}
-                    options={DESIGN_STYLE_OPTIONS}
-                    onChange={(designStyle) => patchScene({ designStyle })}
-                  />
-                  <OptionSelect
-                    label="外景类型"
-                    value={config.scene.exteriorView}
-                    options={EXTERIOR_VIEW_OPTIONS}
-                    onChange={(exteriorView) => patchScene({ exteriorView })}
-                  />
-                  <OptionSelect
-                    label="地点"
-                    value={config.scene.location}
-                    options={LOCATION_OPTIONS}
-                    disabled={isEnclosed}
-                    onChange={(location) => patchScene({ location })}
-                  />
-                  {isEnclosed ? (
-                    <p className="col-span-2 text-[10px] text-[var(--text-muted)]">
-                      封闭空间不需要设置窗外地点和自然光。
-                    </p>
-                  ) : null}
-                </WizardStep>
-              ) : null}
-
-              {showAllCategories ? (
-                <WizardStep
-                  title="光影氛围"
-                  description="用少量选择控制光线的时间、方向和室内感觉。"
-                  orderClass="order-3"
-                >
-                  <OptionSelect
-                    label="光照预设"
-                    value={config.presetId}
-                    options={INTERIOR_PRESETS.map((p) => ({
-                      id: p.id,
-                      label: p.label,
-                      prompt: p.description,
-                    }))}
-                    onChange={choosePreset}
-                  />
-                  <OptionSelect
-                    label="季节"
-                    value={config.lighting.season}
-                    options={SEASON_OPTIONS}
-                    onChange={(season) => patchLighting({ season })}
-                  />
-                  <OptionSelect
-                    label="天气"
-                    value={config.lighting.weather}
-                    options={WEATHER_OPTIONS}
-                    onChange={(weather) => patchLighting({ weather })}
-                  />
-                  <OptionSelect
-                    label="时间"
-                    value={config.lighting.timeOfDay}
-                    options={TIME_OPTIONS}
-                    onChange={(timeOfDay) => patchLighting({ timeOfDay })}
-                  />
-                  <OptionSelect
-                    label="窗帘"
-                    value={config.lighting.curtainType}
-                    options={CURTAIN_OPTIONS}
-                    disabled={isEnclosed}
-                    onChange={(curtainType) => patchLighting({ curtainType })}
-                  />
-                  <label
-                    className={`${labelClass} flex items-center gap-2 pt-4`}
-                  >
-                    <input
-                      className="nodrag"
-                      type="checkbox"
-                      checked={config.lighting.lightEntryEnabled}
-                      disabled={isEnclosed}
-                      onChange={(event) =>
-                        patchLighting({
-                          lightEntryEnabled: event.target.checked,
+                      <ArrowRight
+                        className="mt-8 h-4 w-4 text-[var(--accent-violet-strong)]"
+                        aria-hidden="true"
+                      />
+                      <OptionSelect
+                        label="转换目标"
+                        value={config.conversionGoal}
+                        options={CONVERSION_GOAL_OPTIONS}
+                        wrapperClassName="col-span-1"
+                        onChange={(conversionGoal) =>
+                          patchConfig({
+                            conversionGoal:
+                              conversionGoal as InteriorDesignConfigV1["conversionGoal"],
+                          })
+                        }
+                      />
+                    </div>
+                    {config.sourceSoftware === "custom" ? (
+                      <label className={`${labelClass} col-span-2`}>
+                        <span>来源名称</span>
+                        <input
+                          className={controlClass}
+                          value={config.customSourceSoftware}
+                          maxLength={80}
+                          onChange={(event) =>
+                            patchConfig({
+                              customSourceSoftware: event.target.value,
+                            })
+                          }
+                        />
+                      </label>
+                    ) : null}
+                    <OptionSelect
+                      label="转换逻辑"
+                      value={config.conversionLogic ?? "pbr-photoreal"}
+                      options={CONVERSION_LOGIC_OPTIONS}
+                      onChange={(conversionLogic) =>
+                        patchConfig({
+                          conversionLogic:
+                            conversionLogic as InteriorDesignConfigV1["conversionLogic"],
                         })
                       }
                     />
-                    <span>允许自然进光</span>
-                  </label>
-                  <OptionSelect
-                    label="阳光效果"
-                    value={config.lighting.sunlightEffect}
-                    options={SUNLIGHT_OPTIONS}
-                    disabled={!config.lighting.lightEntryEnabled}
-                    onChange={(sunlightEffect) =>
-                      patchLighting({ sunlightEffect })
-                    }
-                  />
-                  <OptionSelect
-                    label="室内灯光"
-                    value={config.lighting.interiorLight}
-                    options={INTERIOR_LIGHT_OPTIONS}
-                    onChange={(interiorLight) =>
-                      patchLighting({ interiorLight })
-                    }
-                  />
-                  <OptionSelect
-                    label="色温"
-                    value={config.lighting.colorTemperature}
-                    options={COLOR_TEMPERATURE_OPTIONS}
-                    onChange={(colorTemperature) =>
-                      patchLighting({ colorTemperature })
-                    }
-                  />
-                  <OptionSelect
-                    label="后期色调"
-                    value={config.lighting.colorGrading}
-                    options={COLOR_GRADING_OPTIONS}
-                    onChange={(colorGrading) => patchLighting({ colorGrading })}
-                  />
-                  <OptionSelect
-                    label="光影品质"
-                    value={config.lighting.tonalQuality}
-                    options={TONAL_QUALITY_OPTIONS}
-                    onChange={(tonalQuality) => patchLighting({ tonalQuality })}
-                  />
-                  <OptionSelect
-                    label="人物、宠物配置"
-                    value={config.lighting.occupants}
-                    options={OCCUPANT_OPTIONS}
-                    onChange={(occupants) => patchLighting({ occupants })}
-                  />
-                </WizardStep>
-              ) : null}
+                  </WizardStep>
+                ) : null}
 
-              {showAllCategories ? (
-                <WizardStep
-                  title="出图参数"
-                  description="先选画面比例；专业参数可以在高级设置中继续调整。"
-                  orderClass="order-6"
-                >
-                  <OptionSelect
-                    label="画面比例"
-                    value={config.output.aspectRatio}
-                    options={ASPECT_RATIO_OPTIONS}
-                    onChange={(aspectRatio) =>
-                      patchOutput({
-                        aspectRatio:
-                          aspectRatio as InteriorDesignConfigV1["output"]["aspectRatio"],
-                      })
-                    }
-                  />
-                  <OptionSelect
-                    label="提示词清晰度"
-                    value={config.output.promptResolution}
-                    options={PROMPT_RESOLUTION_OPTIONS}
-                    onChange={(promptResolution) =>
-                      patchOutput({
-                        promptResolution:
-                          promptResolution as InteriorDesignConfigV1["output"]["promptResolution"],
-                      })
-                    }
-                  />
-                  <label className={`${labelClass} col-span-2`}>
-                    <span>自定义需求（可选）</span>
-                    <textarea
-                      className={`${controlClass} min-h-16 resize-none py-2.5`}
-                      value={config.customRequirement}
-                      maxLength={2000}
-                      onChange={(event) =>
-                        patchConfig({ customRequirement: event.target.value })
+                {showEditorSection("scene") ? (
+                  <WizardStep
+                    title="场景类型"
+                    description="告诉 AI 这是怎样的房间，以及你想要的风格。"
+                    collapsible={false}
+                    orderClass="order-2"
+                  >
+                    <OptionSelect
+                      label="空间类型"
+                      value={config.scene.spaceType}
+                      options={SPACE_TYPE_OPTIONS}
+                      onChange={(spaceType) => patchScene({ spaceType })}
+                    />
+                    <OptionSelect
+                      label="设计风格"
+                      value={config.scene.designStyle}
+                      options={DESIGN_STYLE_OPTIONS}
+                      onChange={(designStyle) => patchScene({ designStyle })}
+                    />
+                    <OptionSelect
+                      label="外景类型"
+                      value={config.scene.exteriorView}
+                      options={EXTERIOR_VIEW_OPTIONS}
+                      onChange={(exteriorView) => patchScene({ exteriorView })}
+                    />
+                    <OptionSelect
+                      label="地点"
+                      value={config.scene.location}
+                      options={LOCATION_OPTIONS}
+                      disabled={isEnclosed}
+                      onChange={(location) => patchScene({ location })}
+                    />
+                    {isEnclosed ? (
+                      <p className="col-span-2 text-[10px] text-[var(--text-muted)]">
+                        封闭空间不需要设置窗外地点和自然光。
+                      </p>
+                    ) : null}
+                  </WizardStep>
+                ) : null}
+
+                {showEditorSection("lighting") ? (
+                  <WizardStep
+                    title="光影氛围"
+                    description="用少量选择控制光线的时间、方向和室内感觉。"
+                    collapsible={false}
+                    orderClass="order-3"
+                  >
+                    <OptionSelect
+                      label="光照预设"
+                      value={config.presetId}
+                      options={INTERIOR_PRESETS.map((p) => ({
+                        id: p.id,
+                        label: p.label,
+                        prompt: p.description,
+                      }))}
+                      onChange={choosePreset}
+                    />
+                    <OptionSelect
+                      label="季节"
+                      value={config.lighting.season}
+                      options={SEASON_OPTIONS}
+                      onChange={(season) => patchLighting({ season })}
+                    />
+                    <OptionSelect
+                      label="天气"
+                      value={config.lighting.weather}
+                      options={WEATHER_OPTIONS}
+                      onChange={(weather) => patchLighting({ weather })}
+                    />
+                    <OptionSelect
+                      label="时间"
+                      value={config.lighting.timeOfDay}
+                      options={TIME_OPTIONS}
+                      onChange={(timeOfDay) => patchLighting({ timeOfDay })}
+                    />
+                    <OptionSelect
+                      label="窗帘"
+                      value={config.lighting.curtainType}
+                      options={CURTAIN_OPTIONS}
+                      disabled={isEnclosed}
+                      onChange={(curtainType) => patchLighting({ curtainType })}
+                    />
+                    <OptionSelect
+                      label="进光方向"
+                      value={config.lighting.lightEntryMode}
+                      options={LIGHT_ENTRY_MODE_OPTIONS}
+                      onChange={(lightEntryMode) =>
+                        patchLighting({
+                          lightEntryMode:
+                            lightEntryMode as InteriorDesignConfigV1["lighting"]["lightEntryMode"],
+                        })
                       }
                     />
-                  </label>
-                  <div className="hidden">
-                    <div
-                      className="nodrag nopan grid grid-cols-2 gap-1 rounded-md bg-[var(--control-bg)] p-1"
-                      role="tablist"
-                      aria-label="高级设置分页"
-                    >
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={advancedTab === "photography"}
-                        onClick={() => setAdvancedTab("photography")}
-                        className={`rounded px-2 py-1.5 text-[10px] font-medium ${advancedTab === "photography" ? "bg-[var(--accent-violet-soft)] text-[var(--accent-violet-strong)]" : "text-[var(--text-muted)]"}`}
-                      >
-                        摄影参数
-                      </button>
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={advancedTab === "constraints"}
-                        onClick={() => setAdvancedTab("constraints")}
-                        className={`rounded px-2 py-1.5 text-[10px] font-medium ${advancedTab === "constraints" ? "bg-[var(--accent-violet-soft)] text-[var(--accent-violet-strong)]" : "text-[var(--text-muted)]"}`}
-                      >
-                        核心约束
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {advancedTab === "photography" ? (
-                        <>
-                          <OptionSelect
-                            label="相机"
-                            value={config.photography.camera}
-                            options={CAMERA_OPTIONS}
-                            onChange={(camera) => patchPhotography({ camera })}
-                          />
-                          <OptionSelect
-                            label="焦距"
-                            value={config.photography.focalLength}
-                            options={FOCAL_LENGTH_OPTIONS}
-                            onChange={(focalLength) =>
-                              patchPhotography({ focalLength })
-                            }
-                          />
-                          <OptionSelect
-                            label="光圈"
-                            value={config.photography.aperture}
-                            options={APERTURE_OPTIONS}
-                            onChange={(aperture) =>
-                              patchPhotography({ aperture })
-                            }
-                          />
-                          <OptionSelect
-                            label="快门"
-                            value={config.photography.shutterSpeed}
-                            options={SHUTTER_OPTIONS}
-                            onChange={(shutterSpeed) =>
-                              patchPhotography({ shutterSpeed })
-                            }
-                          />
-                          <OptionSelect
-                            label="ISO"
-                            value={config.photography.iso}
-                            options={ISO_OPTIONS}
-                            onChange={(iso) => patchPhotography({ iso })}
-                          />
-                          <OptionSelect
-                            label="后期色调"
-                            value={config.lighting.colorGrading}
-                            options={COLOR_GRADING_OPTIONS}
-                            onChange={(colorGrading) =>
-                              patchLighting({ colorGrading })
-                            }
-                          />
-                          <OptionSelect
-                            label="影调"
-                            value={config.lighting.tonalQuality}
-                            options={TONAL_QUALITY_OPTIONS}
-                            onChange={(tonalQuality) =>
-                              patchLighting({ tonalQuality })
-                            }
-                          />
-                          <OptionSelect
-                            label="人物与宠物"
-                            value={config.lighting.occupants}
-                            options={OCCUPANT_OPTIONS}
-                            onChange={(occupants) =>
-                              patchLighting({ occupants })
-                            }
-                          />
-                          <div className="col-span-2 space-y-1 text-[10px] text-[var(--text-muted)]">
-                            <span>摄影技法（可多选）</span>
-                            <div className="flex flex-wrap gap-1.5">
-                              {TECHNIQUE_OPTIONS.map((item) => {
-                                const checked =
-                                  config.photography.techniques.includes(
-                                    item.id,
-                                  );
-                                return (
-                                  <label
-                                    key={item.id}
-                                    className={`nodrag flex cursor-pointer items-center gap-1 rounded border px-2 py-1 ${checked ? "border-[var(--accent-violet-muted)] bg-[var(--accent-violet-soft)]" : "border-[var(--border-subtle)]"}`}
-                                  >
-                                    <input
-                                      className="sr-only"
-                                      type="checkbox"
-                                      checked={checked}
-                                      onChange={() =>
-                                        patchPhotography({
-                                          techniques: checked
-                                            ? config.photography.techniques.filter(
-                                                (id) => id !== item.id,
-                                              )
-                                            : [
-                                                ...config.photography
-                                                  .techniques,
-                                                item.id,
-                                              ],
-                                        })
-                                      }
-                                    />
-                                    {item.label}
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        </>
-                      ) : null}
-                      {advancedTab === "constraints" ? (
-                        <>
-                          <OptionSelect
-                            label="物体一致性"
-                            value={config.constraints.objectConsistency}
-                            options={OBJECT_OPTIONS}
-                            onChange={(objectConsistency) =>
-                              patchConstraints({ objectConsistency })
-                            }
-                          />
-                          <OptionSelect
-                            label="材质一致性"
-                            value={config.constraints.materialConsistency}
-                            options={MATERIAL_OPTIONS}
-                            onChange={(materialConsistency) =>
-                              patchConstraints({ materialConsistency })
-                            }
-                          />
-                          <OptionSelect
-                            label="几何保真"
-                            value={config.constraints.geometryFidelity}
-                            options={GEOMETRY_OPTIONS}
-                            onChange={(geometryFidelity) =>
-                              patchConstraints({ geometryFidelity })
-                            }
-                          />
-                          <label className={`${labelClass} col-span-2`}>
-                            <span>材质定义（文本或 JSON）</span>
-                            <button
-                              type="button"
-                              className="nodrag inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-subtle)] px-2 text-[10px] text-[var(--text-secondary)] hover:border-[var(--accent-violet-muted)] hover:text-[var(--text-primary)]"
-                              title={MATERIAL_IDENTIFICATION_GUIDANCE}
-                              onClick={copyMaterialGuidance}
-                            >
-                              {materialGuidanceCopied ? (
-                                <Check className="h-3 w-3" />
-                              ) : (
-                                <Copy className="h-3 w-3" />
-                              )}
-                              {materialGuidanceCopied
-                                ? "已复制材质识别提示词"
-                                : "复制材质识别提示词"}
-                            </button>
-                            <textarea
-                              className={`${controlClass} min-h-16 resize-none py-2.5 font-mono`}
-                              value={materialDraft}
-                              maxLength={12000}
-                              onChange={(event) => {
-                                const value = event.target.value;
-                                materialDraftRef.current = value;
-                                setMaterialDraft(value);
-                                try {
-                                  setMaterialError("");
-                                  patchConstraints({
-                                    materialDefinition:
-                                      parseInteriorMaterialDefinition(value),
-                                  });
-                                } catch (error) {
-                                  setMaterialError(
-                                    error instanceof Error
-                                      ? error.message
-                                      : "材质定义格式错误",
-                                  );
-                                }
-                              }}
-                            />
-                            {materialError ? (
-                              <span className="text-red-400">
-                                {materialError}
-                              </span>
-                            ) : null}
-                          </label>
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                </WizardStep>
-              ) : null}
+                    <OptionSelect
+                      label="阳光效果"
+                      value={config.lighting.sunlightEffect}
+                      options={SUNLIGHT_OPTIONS}
+                      disabled={config.lighting.lightEntryMode === "disabled"}
+                      onChange={(sunlightEffect) =>
+                        patchLighting({ sunlightEffect })
+                      }
+                    />
+                    <OptionSelect
+                      label="室内灯光"
+                      value={config.lighting.interiorLight}
+                      options={INTERIOR_LIGHT_OPTIONS}
+                      onChange={(interiorLight) =>
+                        patchLighting({ interiorLight })
+                      }
+                    />
+                    <OptionSelect
+                      label="色温"
+                      value={config.lighting.colorTemperature}
+                      options={COLOR_TEMPERATURE_OPTIONS}
+                      disabled={
+                        config.lighting.interiorLight === "natural-only"
+                      }
+                      onChange={(colorTemperature) =>
+                        patchLighting({ colorTemperature })
+                      }
+                    />
+                    <OptionSelect
+                      label="后期色调"
+                      value={config.lighting.colorGrading}
+                      options={COLOR_GRADING_OPTIONS}
+                      onChange={(colorGrading) =>
+                        patchLighting({ colorGrading })
+                      }
+                    />
+                    <OptionSelect
+                      label="光影品质"
+                      value={config.lighting.tonalQuality}
+                      options={TONAL_QUALITY_OPTIONS}
+                      onChange={(tonalQuality) =>
+                        patchLighting({ tonalQuality })
+                      }
+                    />
+                    <OptionSelect
+                      label="人物、宠物配置"
+                      value={config.lighting.occupants}
+                      options={OCCUPANT_OPTIONS}
+                      onChange={(occupants) => patchLighting({ occupants })}
+                    />
+                  </WizardStep>
+                ) : null}
 
-              {showAllCategories ? (
-                <WizardStep
-                  title="摄影参数"
-                  description="参考项目将相机、曝光、焦距和拍摄技法作为独立大类；普通用户保持默认即可。"
-                  orderClass="order-4"
-                >
-                  <OptionSelect
-                    label="相机型号"
-                    value={config.photography.camera}
-                    options={CAMERA_OPTIONS}
-                    onChange={(camera) => patchPhotography({ camera })}
-                  />
-                  <OptionSelect
-                    label="焦距"
-                    value={config.photography.focalLength}
-                    options={FOCAL_LENGTH_OPTIONS}
-                    onChange={(focalLength) =>
-                      patchPhotography({ focalLength })
-                    }
-                  />
-                  <OptionSelect
-                    label="光圈"
-                    value={config.photography.aperture}
-                    options={APERTURE_OPTIONS}
-                    onChange={(aperture) => patchPhotography({ aperture })}
-                  />
-                  <OptionSelect
-                    label="快门速度"
-                    value={config.photography.shutterSpeed}
-                    options={SHUTTER_OPTIONS}
-                    onChange={(shutterSpeed) =>
-                      patchPhotography({ shutterSpeed })
-                    }
-                  />
-                  <OptionSelect
-                    label="ISO 感光度"
-                    value={config.photography.iso}
-                    options={ISO_OPTIONS}
-                    onChange={(iso) => patchPhotography({ iso })}
-                  />
-                  <div className="col-span-2 space-y-1 text-[10px] text-[var(--text-muted)]">
-                    <span>拍摄技法（可多选）</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {TECHNIQUE_OPTIONS.map((item) => {
-                        const checked = config.photography.techniques.includes(
-                          item.id,
-                        );
-                        return (
-                          <label
-                            key={item.id}
-                            className={`nodrag flex cursor-pointer items-center gap-1 rounded border px-2 py-1 ${checked ? "border-[var(--accent-violet-muted)] bg-[var(--accent-violet-soft)]" : "border-[var(--border-subtle)]"}`}
-                          >
-                            <input
-                              className="sr-only"
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() =>
-                                patchPhotography({
-                                  techniques: checked
-                                    ? config.photography.techniques.filter(
-                                        (id) => id !== item.id,
-                                      )
-                                    : [
-                                        ...config.photography.techniques,
-                                        item.id,
-                                      ],
-                                })
+                {showEditorSection("output") ? (
+                  <WizardStep
+                    title="出图参数"
+                    description="先选画面比例；专业参数可以在高级设置中继续调整。"
+                    collapsible={false}
+                    orderClass="order-6"
+                  >
+                    <OptionSelect
+                      label="画面比例"
+                      value={config.output.aspectRatio}
+                      options={ASPECT_RATIO_OPTIONS}
+                      onChange={(aspectRatio) =>
+                        patchOutput({
+                          aspectRatio:
+                            aspectRatio as InteriorDesignConfigV1["output"]["aspectRatio"],
+                        })
+                      }
+                    />
+                    <OptionSelect
+                      label="提示词清晰度"
+                      value={config.output.promptResolution}
+                      options={PROMPT_RESOLUTION_OPTIONS}
+                      onChange={(promptResolution) =>
+                        patchOutput({
+                          promptResolution:
+                            promptResolution as InteriorDesignConfigV1["output"]["promptResolution"],
+                        })
+                      }
+                    />
+                    <label className={`${labelClass} col-span-2`}>
+                      <span>自定义需求（可选）</span>
+                      <textarea
+                        className={`${controlClass} min-h-16 resize-none py-2.5`}
+                        value={config.customRequirement}
+                        maxLength={2000}
+                        onChange={(event) =>
+                          patchConfig({ customRequirement: event.target.value })
+                        }
+                      />
+                    </label>
+                    <div className="hidden">
+                      <div
+                        className="nodrag nopan grid grid-cols-2 gap-1 rounded-md bg-[var(--control-bg)] p-1"
+                        role="tablist"
+                        aria-label="高级设置分页"
+                      >
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={advancedTab === "photography"}
+                          onClick={() => setAdvancedTab("photography")}
+                          className={`rounded px-2 py-1.5 text-[10px] font-medium ${advancedTab === "photography" ? "bg-[var(--accent-violet-soft)] text-[var(--accent-violet-strong)]" : "text-[var(--text-muted)]"}`}
+                        >
+                          摄影参数
+                        </button>
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={advancedTab === "constraints"}
+                          onClick={() => setAdvancedTab("constraints")}
+                          className={`rounded px-2 py-1.5 text-[10px] font-medium ${advancedTab === "constraints" ? "bg-[var(--accent-violet-soft)] text-[var(--accent-violet-strong)]" : "text-[var(--text-muted)]"}`}
+                        >
+                          核心约束
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {advancedTab === "photography" ? (
+                          <>
+                            <OptionSelect
+                              label="相机"
+                              value={config.photography.camera}
+                              options={CAMERA_OPTIONS}
+                              onChange={(camera) =>
+                                patchPhotography({ camera })
                               }
                             />
-                            {item.label}
-                          </label>
-                        );
-                      })}
+                            <OptionSelect
+                              label="焦距"
+                              value={config.photography.focalLength}
+                              options={FOCAL_LENGTH_OPTIONS}
+                              onChange={(focalLength) =>
+                                patchPhotography({ focalLength })
+                              }
+                            />
+                            <OptionSelect
+                              label="光圈"
+                              value={config.photography.aperture}
+                              options={APERTURE_OPTIONS}
+                              onChange={(aperture) =>
+                                patchPhotography({ aperture })
+                              }
+                            />
+                            <OptionSelect
+                              label="快门"
+                              value={config.photography.shutterSpeed}
+                              options={SHUTTER_OPTIONS}
+                              onChange={(shutterSpeed) =>
+                                patchPhotography({ shutterSpeed })
+                              }
+                            />
+                            <OptionSelect
+                              label="ISO"
+                              value={config.photography.iso}
+                              options={ISO_OPTIONS}
+                              onChange={(iso) => patchPhotography({ iso })}
+                            />
+                            <OptionSelect
+                              label="后期色调"
+                              value={config.lighting.colorGrading}
+                              options={COLOR_GRADING_OPTIONS}
+                              onChange={(colorGrading) =>
+                                patchLighting({ colorGrading })
+                              }
+                            />
+                            <OptionSelect
+                              label="影调"
+                              value={config.lighting.tonalQuality}
+                              options={TONAL_QUALITY_OPTIONS}
+                              onChange={(tonalQuality) =>
+                                patchLighting({ tonalQuality })
+                              }
+                            />
+                            <OptionSelect
+                              label="人物与宠物"
+                              value={config.lighting.occupants}
+                              options={OCCUPANT_OPTIONS}
+                              onChange={(occupants) =>
+                                patchLighting({ occupants })
+                              }
+                            />
+                            <div className="col-span-2 space-y-1 text-[10px] text-[var(--text-muted)]">
+                              <span>摄影技法（可多选）</span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {TECHNIQUE_OPTIONS.map((item) => {
+                                  const checked =
+                                    config.photography.techniques.includes(
+                                      item.id,
+                                    );
+                                  return (
+                                    <label
+                                      key={item.id}
+                                      className={`nodrag flex cursor-pointer items-center gap-1 rounded border px-2 py-1 ${checked ? "border-[var(--accent-violet-muted)] bg-[var(--accent-violet-soft)]" : "border-[var(--border-subtle)]"}`}
+                                    >
+                                      <input
+                                        className="sr-only"
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() =>
+                                          patchPhotography({
+                                            techniques: checked
+                                              ? config.photography.techniques.filter(
+                                                  (id) => id !== item.id,
+                                                )
+                                              : [
+                                                  ...config.photography
+                                                    .techniques,
+                                                  item.id,
+                                                ],
+                                          })
+                                        }
+                                      />
+                                      {item.label}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </>
+                        ) : null}
+                        {advancedTab === "constraints" ? (
+                          <>
+                            <OptionSelect
+                              label="物体一致性"
+                              value={config.constraints.objectConsistency}
+                              options={OBJECT_OPTIONS}
+                              onChange={(objectConsistency) =>
+                                patchConstraints({ objectConsistency })
+                              }
+                            />
+                            <OptionSelect
+                              label="材质一致性"
+                              value={config.constraints.materialConsistency}
+                              options={MATERIAL_OPTIONS}
+                              onChange={(materialConsistency) =>
+                                patchConstraints({ materialConsistency })
+                              }
+                            />
+                            <OptionSelect
+                              label="几何保真"
+                              value={config.constraints.geometryFidelity}
+                              options={GEOMETRY_OPTIONS}
+                              onChange={(geometryFidelity) =>
+                                patchConstraints({ geometryFidelity })
+                              }
+                            />
+                            <label className={`${labelClass} col-span-2`}>
+                              <span>材质定义（文本或 JSON）</span>
+                              <button
+                                type="button"
+                                className="nodrag inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-subtle)] px-2 text-[10px] text-[var(--text-secondary)] hover:border-[var(--accent-violet-muted)] hover:text-[var(--text-primary)]"
+                                title={MATERIAL_IDENTIFICATION_GUIDANCE}
+                                onClick={copyMaterialGuidance}
+                              >
+                                {materialGuidanceCopied ? (
+                                  <Check className="h-3 w-3" />
+                                ) : (
+                                  <Copy className="h-3 w-3" />
+                                )}
+                                {materialGuidanceCopied
+                                  ? "已复制材质识别提示词"
+                                  : "复制材质识别提示词"}
+                              </button>
+                              <textarea
+                                className={`${controlClass} min-h-16 resize-none py-2.5 font-mono`}
+                                value={materialDraft}
+                                maxLength={12000}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  materialDraftRef.current = value;
+                                  setMaterialDraft(value);
+                                  try {
+                                    setMaterialError("");
+                                    patchConstraints({
+                                      materialDefinition:
+                                        parseInteriorMaterialDefinition(value),
+                                    });
+                                  } catch (error) {
+                                    setMaterialError(
+                                      error instanceof Error
+                                        ? error.message
+                                        : "材质定义格式错误",
+                                    );
+                                  }
+                                }}
+                              />
+                              {materialError ? (
+                                <span className="text-red-400">
+                                  {materialError}
+                                </span>
+                              ) : null}
+                            </label>
+                          </>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                </WizardStep>
-              ) : null}
+                  </WizardStep>
+                ) : null}
 
-              {showAllCategories ? (
-                <WizardStep
-                  title="核心约束"
-                  description="参考项目把结构、物体和材质保护单独列出，确保改图时不乱改原设计。"
-                  orderClass="order-5"
-                >
-                  <OptionSelect
-                    label="几何保真度"
-                    value={config.constraints.geometryFidelity}
-                    options={GEOMETRY_OPTIONS}
-                    onChange={(geometryFidelity) =>
-                      patchConstraints({ geometryFidelity })
-                    }
-                  />
-                  <OptionSelect
-                    label="物体一致性"
-                    value={config.constraints.objectConsistency}
-                    options={OBJECT_OPTIONS}
-                    onChange={(objectConsistency) =>
-                      patchConstraints({ objectConsistency })
-                    }
-                  />
-                  <div className="col-span-2">
+                {showEditorSection("photography") ? (
+                  <WizardStep
+                    title="摄影参数"
+                    description="参考项目将相机、曝光、焦距和拍摄技法作为独立大类；普通用户保持默认即可。"
+                    collapsible={false}
+                    orderClass="order-4"
+                  >
                     <OptionSelect
-                      label="材质一致性"
-                      value={config.constraints.materialConsistency}
-                      options={MATERIAL_OPTIONS}
-                      onChange={(materialConsistency) =>
-                        patchConstraints({ materialConsistency })
+                      label="相机型号"
+                      value={config.photography.camera}
+                      options={CAMERA_OPTIONS}
+                      onChange={(camera) => patchPhotography({ camera })}
+                    />
+                    <OptionSelect
+                      label="焦距"
+                      value={config.photography.focalLength}
+                      options={FOCAL_LENGTH_OPTIONS}
+                      onChange={(focalLength) =>
+                        patchPhotography({ focalLength })
                       }
                     />
-                  </div>
-                  <label className={`${labelClass} col-span-2`}>
-                    <span>材质精准定义（文本或 JSON）</span>
-                    <button
-                      type="button"
-                      className="nodrag inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-subtle)] px-2 text-[10px] text-[var(--text-secondary)] hover:border-[var(--accent-violet-muted)] hover:text-[var(--text-primary)]"
-                      title={MATERIAL_IDENTIFICATION_GUIDANCE}
-                      onClick={copyMaterialGuidance}
-                    >
-                      {materialGuidanceCopied ? (
-                        <Check className="h-3 w-3" />
-                      ) : (
-                        <Copy className="h-3 w-3" />
-                      )}
-                      {materialGuidanceCopied
-                        ? "已复制材质识别提示词"
-                        : "复制材质识别提示词"}
-                    </button>
-                    <textarea
-                      className={`${controlClass} min-h-24 resize-none py-2.5 font-mono`}
-                      value={materialDraft}
-                      maxLength={12000}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        materialDraftRef.current = value;
-                        setMaterialDraft(value);
-                        try {
-                          setMaterialError("");
-                          patchConstraints({
-                            materialDefinition:
-                              parseInteriorMaterialDefinition(value),
-                          });
-                        } catch (error) {
-                          setMaterialError(
-                            error instanceof Error
-                              ? error.message
-                              : "材质定义格式错误",
-                          );
-                        }
-                      }}
+                    <OptionSelect
+                      label="光圈"
+                      value={config.photography.aperture}
+                      options={APERTURE_OPTIONS}
+                      onChange={(aperture) => patchPhotography({ aperture })}
                     />
-                    {materialError ? (
-                      <span className="text-red-400">{materialError}</span>
-                    ) : null}
-                  </label>
-                </WizardStep>
-              ) : null}
+                    <OptionSelect
+                      label="快门速度"
+                      value={config.photography.shutterSpeed}
+                      options={SHUTTER_OPTIONS}
+                      onChange={(shutterSpeed) =>
+                        patchPhotography({ shutterSpeed })
+                      }
+                    />
+                    <OptionSelect
+                      label="ISO 感光度"
+                      value={config.photography.iso}
+                      options={ISO_OPTIONS}
+                      onChange={(iso) => patchPhotography({ iso })}
+                    />
+                    <div className="col-span-2 space-y-1 text-[10px] text-[var(--text-muted)]">
+                      <span>拍摄技法（可多选）</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {TECHNIQUE_OPTIONS.map((item) => {
+                          const checked =
+                            config.photography.techniques.includes(item.id);
+                          return (
+                            <label
+                              key={item.id}
+                              className={`nodrag flex cursor-pointer items-center gap-1 rounded border px-2 py-1 ${checked ? "border-[var(--accent-violet-muted)] bg-[var(--accent-violet-soft)]" : "border-[var(--border-subtle)]"}`}
+                            >
+                              <input
+                                className="sr-only"
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() =>
+                                  patchPhotography({
+                                    techniques: checked
+                                      ? config.photography.techniques.filter(
+                                          (id) => id !== item.id,
+                                        )
+                                      : [
+                                          ...config.photography.techniques,
+                                          item.id,
+                                        ],
+                                  })
+                                }
+                              />
+                              {item.label}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </WizardStep>
+                ) : null}
+
+                {showEditorSection("constraints") ? (
+                  <WizardStep
+                    title="核心约束"
+                    description="参考项目把结构、物体和材质保护单独列出，确保改图时不乱改原设计。"
+                    collapsible={false}
+                    orderClass="order-5"
+                  >
+                    <OptionSelect
+                      label="几何保真度"
+                      value={config.constraints.geometryFidelity}
+                      options={GEOMETRY_OPTIONS}
+                      onChange={(geometryFidelity) =>
+                        patchConstraints({ geometryFidelity })
+                      }
+                    />
+                    <OptionSelect
+                      label="物体一致性"
+                      value={config.constraints.objectConsistency}
+                      options={OBJECT_OPTIONS}
+                      onChange={(objectConsistency) =>
+                        patchConstraints({ objectConsistency })
+                      }
+                    />
+                    <div className="col-span-2">
+                      <OptionSelect
+                        label="材质一致性"
+                        value={config.constraints.materialConsistency}
+                        options={MATERIAL_OPTIONS}
+                        onChange={(materialConsistency) =>
+                          patchConstraints({ materialConsistency })
+                        }
+                      />
+                    </div>
+                    <label className={`${labelClass} col-span-2`}>
+                      <span>材质精准定义（文本或 JSON）</span>
+                      <button
+                        type="button"
+                        className="nodrag inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-subtle)] px-2 text-[10px] text-[var(--text-secondary)] hover:border-[var(--accent-violet-muted)] hover:text-[var(--text-primary)]"
+                        title={MATERIAL_IDENTIFICATION_GUIDANCE}
+                        onClick={copyMaterialGuidance}
+                      >
+                        {materialGuidanceCopied ? (
+                          <Check className="h-3 w-3" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                        {materialGuidanceCopied
+                          ? "已复制材质识别提示词"
+                          : "复制材质识别提示词"}
+                      </button>
+                      <textarea
+                        className={`${controlClass} min-h-24 resize-none py-2.5 font-mono`}
+                        value={materialDraft}
+                        maxLength={12000}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          materialDraftRef.current = value;
+                          setMaterialDraft(value);
+                          try {
+                            setMaterialError("");
+                            patchConstraints({
+                              materialDefinition:
+                                parseInteriorMaterialDefinition(value),
+                            });
+                          } catch (error) {
+                            setMaterialError(
+                              error instanceof Error
+                                ? error.message
+                                : "材质定义格式错误",
+                            );
+                          }
+                        }}
+                      />
+                      {materialError ? (
+                        <span className="text-red-400">{materialError}</span>
+                      ) : null}
+                    </label>
+                  </WizardStep>
+                ) : null}
+              </div>
             </div>
 
             <div
@@ -1090,7 +1170,7 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                 <button
                   type="button"
                   className={`${themeClasses.nodePrimaryButton} h-9 flex-1 items-center gap-2 px-3 text-[11px] font-semibold`}
-                  disabled={outputIssues.length > 0}
+                  disabled={blockingIssues.length > 0}
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -1153,7 +1233,7 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
             <button
               type="button"
               className={`${themeClasses.nodePrimaryButton} h-9 w-full gap-2 text-[11px] font-semibold`}
-              disabled={outputIssues.length > 0}
+              disabled={blockingIssues.length > 0}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation();
@@ -1172,29 +1252,34 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
           <span className="min-h-4 truncate text-[10px] leading-4 text-[var(--text-muted)]">
             {data.outputTextNodeId ? "提示词已连接" : "准备好后输出提示词"}
           </span>
-          <button
-            type="button"
-            className={`${themeClasses.nodePrimaryButton} h-10 w-full gap-2 px-3 text-[11px] font-semibold shadow-[0_6px_16px_rgba(124,58,237,0.24)]`}
-            disabled={outputIssues.length > 0}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              runTracked(() => materializeInteriorDesignPrompt(id));
-            }}
-          >
-            <FileOutput className="h-3.5 w-3.5" />
-            输出提示词
-          </button>
+          <div>
+            <button
+              type="button"
+              className={`${themeClasses.nodePrimaryButton} h-10 w-full gap-2 px-3 text-[11px] font-semibold shadow-[0_6px_16px_rgba(124,58,237,0.24)]`}
+              disabled={validation.errors.length > 0 || Boolean(materialError)}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                runTracked(() => materializeInteriorDesignPrompt(id));
+              }}
+            >
+              <FileOutput className="h-3.5 w-3.5" />
+              输出提示词
+            </button>
+          </div>
         </div>
 
         {editorOpen && typeof document !== "undefined"
           ? createPortal(
               <div
-                className="fixed inset-0 z-[100] flex justify-end bg-black/20"
+                className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]"
                 onPointerDown={() => setEditorOpen(false)}
               >
                 <aside
-                  className="nodrag nopan flex h-full w-[min(440px,92vw)] flex-col border-l border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] p-5 text-[var(--text-primary)] shadow-2xl"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="室内设计设置"
+                  className="nodrag nopan flex h-[min(780px,calc(100vh-2rem))] max-h-full w-[min(860px,calc(100vw-2rem))] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] p-5 text-[var(--text-primary)] shadow-2xl"
                   onPointerDown={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-start justify-between border-b border-[var(--border-subtle)] pb-4">
@@ -1213,8 +1298,59 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                       ×
                     </button>
                   </div>
+                  <div className="space-y-2 border-b border-[var(--border-subtle)] py-3">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute top-2.5 left-2.5 h-3.5 w-3.5 text-[var(--text-muted)]" />
+                      <input
+                        className={`${controlClass} pl-8`}
+                        value={editorSearch}
+                        placeholder="搜索参数、光影或摄影设置"
+                        aria-label="搜索室内设计参数"
+                        onChange={(event) =>
+                          setEditorSearch(event.target.value)
+                        }
+                      />
+                    </div>
+                    {searchResults.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {searchResults.map((result) => {
+                          const stepItem = steps.find(
+                            (item) => item.id === result.section,
+                          );
+                          return (
+                            <button
+                              key={result.section}
+                              type="button"
+                              className="rounded border border-[var(--border-subtle)] px-2 py-1 text-[10px] text-[var(--text-secondary)] hover:border-[var(--accent-violet-muted)]"
+                              onClick={() => {
+                                setEditorView("section");
+                                setEditorSection(result.section);
+                                setEditorSearch("");
+                              }}
+                            >
+                              {stepItem?.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    <div className="grid grid-cols-2 gap-1 rounded-md bg-[var(--control-bg)] p-1">
+                      {(["section", "all"] as const).map((view) => (
+                        <button
+                          key={view}
+                          type="button"
+                          className={`rounded px-2 py-1.5 text-[10px] ${editorView === view ? "bg-[var(--panel-bg-strong)] font-semibold text-[var(--text-primary)] shadow-sm" : "text-[var(--text-muted)]"}`}
+                          onClick={() => setEditorView(view)}
+                        >
+                          {view === "section" ? "按分区编辑" : "全部参数"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div className="flex min-h-0 flex-1 gap-4 py-4">
-                    <nav className="w-24 shrink-0 space-y-1">
+                    <nav
+                      className={`w-24 shrink-0 space-y-1 ${editorView === "all" ? "hidden" : ""}`}
+                    >
                       {steps.map((item) => (
                         <button
                           key={item.id}
@@ -1231,9 +1367,9 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                     </nav>
                     <div className="min-w-0 flex-1 overflow-y-auto pr-1">
                       <div className="grid grid-cols-2 gap-3">
-                        {editorSection === "basics" ? (
+                        {showEditorSection("basics") ? (
                           <>
-                            <div className="col-span-2 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
+                            <div className="col-span-2 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2">
                               <OptionSelect
                                 label="来源类型"
                                 value={config.sourceSoftware}
@@ -1247,7 +1383,7 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                                 }
                               />
                               <ArrowRight
-                                className="mb-2.5 h-4 w-4 text-[var(--accent-violet-strong)]"
+                                className="mt-8 h-4 w-4 text-[var(--accent-violet-strong)]"
                                 aria-hidden="true"
                               />
                               <OptionSelect
@@ -1291,7 +1427,7 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                             />
                           </>
                         ) : null}
-                        {editorSection === "scene" ? (
+                        {showEditorSection("scene") ? (
                           <>
                             <OptionSelect
                               label="空间类型"
@@ -1328,7 +1464,7 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                             />
                           </>
                         ) : null}
-                        {editorSection === "lighting" ? (
+                        {showEditorSection("lighting") ? (
                           <>
                             <OptionSelect
                               label="光照预设"
@@ -1382,34 +1518,34 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                               }
                             />
                             <OptionSelect
+                              label="进光方向"
+                              value={config.lighting.lightEntryMode}
+                              options={LIGHT_ENTRY_MODE_OPTIONS}
+                              onChange={(value) =>
+                                patchLighting({
+                                  lightEntryMode:
+                                    value as InteriorDesignConfigV1["lighting"]["lightEntryMode"],
+                                })
+                              }
+                            />
+                            <OptionSelect
                               label="太阳光影"
                               value={config.lighting.sunlightEffect}
                               options={SUNLIGHT_OPTIONS}
-                              disabled={!config.lighting.lightEntryEnabled}
+                              disabled={
+                                config.lighting.lightEntryMode === "disabled"
+                              }
                               onChange={(value) =>
                                 patchLighting({ sunlightEffect: value })
                               }
                             />
-                            <label
-                              className={`${labelClass} col-span-2 flex items-center gap-2 py-2`}
-                            >
-                              <input
-                                className="nodrag"
-                                type="checkbox"
-                                checked={config.lighting.lightEntryEnabled}
-                                disabled={isEnclosed}
-                                onChange={(event) =>
-                                  patchLighting({
-                                    lightEntryEnabled: event.target.checked,
-                                  })
-                                }
-                              />
-                              <span>进光口控制</span>
-                            </label>
                             <OptionSelect
                               label="室内灯光色温"
                               value={config.lighting.colorTemperature}
                               options={COLOR_TEMPERATURE_OPTIONS}
+                              disabled={
+                                config.lighting.interiorLight === "natural-only"
+                              }
                               onChange={(value) =>
                                 patchLighting({ colorTemperature: value })
                               }
@@ -1440,7 +1576,7 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                             />
                           </>
                         ) : null}
-                        {editorSection === "output" ? (
+                        {showEditorSection("output") ? (
                           <>
                             <OptionSelect
                               label="画面比例"
@@ -1478,7 +1614,7 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                             </label>
                           </>
                         ) : null}
-                        {editorSection === "photography" ? (
+                        {showEditorSection("photography") ? (
                           <>
                             <OptionSelect
                               label="相机"
@@ -1520,9 +1656,47 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                                 patchPhotography({ iso: value })
                               }
                             />
+                            <div className="col-span-2 space-y-1 text-[10px] text-[var(--text-muted)]">
+                              <span>摄影技法（可多选）</span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {TECHNIQUE_OPTIONS.map((item) => {
+                                  const checked =
+                                    config.photography.techniques.includes(
+                                      item.id,
+                                    );
+                                  return (
+                                    <label
+                                      key={item.id}
+                                      title={item.prompt}
+                                      className={`nodrag flex cursor-pointer items-center gap-1 rounded border px-2 py-1 ${checked ? "border-[var(--accent-violet-muted)] bg-[var(--accent-violet-soft)]" : "border-[var(--border-subtle)]"}`}
+                                    >
+                                      <input
+                                        className="sr-only"
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() =>
+                                          patchPhotography({
+                                            techniques: checked
+                                              ? config.photography.techniques.filter(
+                                                  (id) => id !== item.id,
+                                                )
+                                              : [
+                                                  ...config.photography
+                                                    .techniques,
+                                                  item.id,
+                                                ],
+                                          })
+                                        }
+                                      />
+                                      {item.label}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           </>
                         ) : null}
-                        {editorSection === "constraints" ? (
+                        {showEditorSection("constraints") ? (
                           <>
                             <OptionSelect
                               label="几何保真"
@@ -1554,6 +1728,17 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                             </div>
                             <label className={`${labelClass} col-span-2`}>
                               <span>材质精准定义</span>
+                              <ol className="grid grid-cols-3 gap-1.5 text-[9px] leading-4 text-[var(--text-muted)]">
+                                <li className="rounded border border-[var(--border-subtle)] p-1.5">
+                                  1. 复制识别提示词
+                                </li>
+                                <li className="rounded border border-[var(--border-subtle)] p-1.5">
+                                  2. 用任意视觉模型分析
+                                </li>
+                                <li className="rounded border border-[var(--border-subtle)] p-1.5">
+                                  3. 粘贴完整结果
+                                </li>
+                              </ol>
                               <button
                                 type="button"
                                 className="nodrag inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-subtle)] px-2 text-[10px] text-[var(--text-secondary)] hover:border-[var(--accent-violet-muted)] hover:text-[var(--text-primary)]"
@@ -1602,6 +1787,48 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                       </div>
                     </div>
                   </div>
+                  <details className="group nodrag border-t border-[var(--border-subtle)] pt-3">
+                    <summary className="flex cursor-pointer list-none items-center justify-between text-[10px] font-semibold text-[var(--text-secondary)]">
+                      <span>专业参数说明</span>
+                      <Info className="h-3.5 w-3.5" />
+                    </summary>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {PROFESSIONAL_HELP.map(([title, content]) => (
+                        <div
+                          key={title}
+                          className="rounded border border-[var(--border-subtle)] bg-[var(--control-bg)] p-2"
+                        >
+                          <strong className="text-[10px] text-[var(--text-primary)]">
+                            {title}
+                          </strong>
+                          <p className="mt-1 text-[9px] leading-4 text-[var(--text-muted)]">
+                            {content}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                  <details className="group nodrag border-t border-[var(--border-subtle)] pt-3">
+                    <summary className="flex cursor-pointer list-none items-center justify-between text-[10px] font-semibold text-[var(--text-secondary)]">
+                      <span>实时 JSON 预览</span>
+                      <Braces className="h-3.5 w-3.5" />
+                    </summary>
+                    <pre className="nowheel mt-2 max-h-48 overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--control-bg)] p-3 text-[9px] leading-4 whitespace-pre-wrap text-[var(--text-secondary)]">
+                      {data.compiledPrompt}
+                    </pre>
+                    <button
+                      type="button"
+                      className={`${themeClasses.nodeActionButton} mt-2 h-8 w-full text-[10px]`}
+                      onClick={copyCompiledPrompt}
+                    >
+                      {jsonCopied ? (
+                        <Check className="h-3 w-3" />
+                      ) : (
+                        <Copy className="h-3 w-3" />
+                      )}
+                      {jsonCopied ? "已复制 JSON" : "复制 JSON"}
+                    </button>
+                  </details>
                   <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] pt-4">
                     <button
                       type="button"
@@ -1613,7 +1840,7 @@ export const InteriorDesignNode = memo(function InteriorDesignNode({
                     <button
                       type="button"
                       className={`${themeClasses.nodePrimaryButton} h-9 flex-1 gap-2 text-[11px]`}
-                      disabled={outputIssues.length > 0}
+                      disabled={blockingIssues.length > 0}
                       onClick={() => {
                         setEditorOpen(false);
                         runTracked(() => materializeInteriorDesignPrompt(id));

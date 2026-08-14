@@ -299,7 +299,7 @@ P11-2 至 P11-4 已通过 `community` 内容服务实现投稿、撤回、举报
 
 ## 浏览器 Vault 与本地生成
 
-- `interiorDesignNode` 是独立于通用 `generateNode` 的确定性 JSON 提示词编译器。它不接受图片输入，不保存模型或任务运行态，只保存版本化 `InteriorDesignConfigV1`、编译结果和可选关联文本节点 ID；提示词中的画幅与 4K/8K 只描述期望画面，不代表 Provider 接口参数。
+- `interiorDesignNode` 是独立于通用 `generateNode` 的确定性 JSON 提示词编译器。它不接受图片输入，不保存模型或任务运行态，只保存版本化 `InteriorDesignConfigV2`、编译结果和可选关联文本节点 ID；V2 使用 `lightEntryMode` 表达原图门窗、左侧、右侧、后方、关闭和自定义进光，兼容把 V1 的 `lightEntryEnabled` 迁移到 V2。18 套原创光影预设、参数联动、冲突提示、搜索和实时 JSON 预览均只在浏览器内工作；提示词中的画幅与 4K/8K 只描述期望画面，不代表 Provider 接口参数。
 - 首次输出室内提示词时创建普通可编辑 `textNode` 和可见文本边；关联存在期间，任意有效参数变化在同一次画布状态更新中重编译并覆盖文本内容。删除边即停止联动，删除任一节点不得级联删除另一侧内容。图片、模型、真实画幅/分辨率、Provider 调用、任务恢复和结果入云均由用户连接的通用 `generateNode` 负责。
 - Provider、endpoint、真实模型 ID、API Key、自定义图片 Provider Manifest、匿名引用绑定和可恢复本地任务只进入按 Origin、可信用户和项目隔离的加密 IndexedDB。任务缓存当前为 v4，兼容读取并迁移 v3；Provider 已返回但尚未入云的图片 Blob 也按用户、项目和任务加密暂存，保存成功后立即删除。
 - Vault 当前使用 `schemaVersion=3`、`cipherVersion=1`、不可导出的 AES-256-GCM `CryptoKey`，兼容按密文记录自身版本读取 v2 并重新加密迁移；Key 凭据与 Provider 配置分槽保存，版本化自定义图片 Manifest 只保存于 Vault 且不包含 Key。
