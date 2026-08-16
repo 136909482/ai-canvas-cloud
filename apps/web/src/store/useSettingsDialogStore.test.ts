@@ -5,7 +5,7 @@ import {
   useSettingsDialogStore,
 } from "./useSettingsDialogStore.ts";
 
-test("completed Vault settings are exposed while local task settings stay hidden", () => {
+test("Vault and cloud task-record settings are exposed", () => {
   assert.deepEqual(EXPOSED_SETTINGS_CATEGORY_IDS, [
     "account",
     "community",
@@ -14,6 +14,7 @@ test("completed Vault settings are exposed while local task settings stay hidden
     "storage",
     "canvas",
     "appearance",
+    "tasks",
   ]);
 
   const store = useSettingsDialogStore.getState();
@@ -21,6 +22,6 @@ test("completed Vault settings are exposed while local task settings stay hidden
   store.open("models");
   assert.equal(useSettingsDialogStore.getState().activeCategory, "models");
   store.setActiveCategory("tasks");
-  assert.equal(useSettingsDialogStore.getState().activeCategory, "account");
+  assert.equal(useSettingsDialogStore.getState().activeCategory, "tasks");
   useSettingsDialogStore.getState().close();
 });

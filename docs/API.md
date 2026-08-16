@@ -46,6 +46,17 @@ POST /api/v1/telemetry/generations
 
 正文绝不接受 Prompt、输出、Provider、模型 ID、endpoint、API Key、上游响应正文或 remote task ID。遥测发送失败不能阻断浏览器生成；服务端写接口仍执行普通 Cookie Origin/CSRF 边界和 Redis `write` 限流。
 
+### 生成任务记录（脱敏摘要）
+
+跨设备任务历史是遥测之上的用户可见摘要，同样不可执行、不可恢复任务：它只保存标题、状态、耗时、结果数、失败分类、`modelEntryId`（Vault 条目引用，与项目图 `local:<uuid>` 边界一致）和已入云结果资产 ID，正文绝不接受 Prompt、endpoint、真实模型 ID、API Key、remote task ID 或上游错误正文。
+
+```text
+POST /api/v1/task-records
+GET  /api/v1/task-records?cursor=
+```
+
+`POST` 由可信 session 推导用户和 workspace，正文拒绝未知字段；`clientTaskId` 必须是浏览器任务 UUID，`category=text|image|video`，`status=succeeded|failed|canceled`。成功要求 `resultCount=1..32`，失败要求 `failureCategory`；`durationMs` 为 0–86400000 整数，`startedAt`/`completedAt` 为 ISO 时间且完成不早于开始。同一用户 + `clientTaskId` 幂等更新（后报覆盖），返回 `202 { accepted: true }`。`GET` 按 `completed_at DESC, id DESC` 游标分页返回自己的记录，不暴露其他用户数据；上报失败不阻断浏览器生成。
+
 普通 API 使用 Redis 原子窗口限制认证、密码/邮件、资产/迁移 prepare、普通读和普通写。超限返回 `429 RATE_LIMITED` 与整数秒 `Retry-After`。Redis 不可用时普通读 fail-open，高风险认证和写请求 fail-closed，返回可重试 `503 SERVICE_UNAVAILABLE`，且不得进入领域副作用。已经删除的 Provider 测试和服务器任务创建没有限流分类或路由。
 
 错误响应固定为：

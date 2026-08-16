@@ -224,8 +224,8 @@ export const SETTINGS_CATEGORIES: Array<{
   },
   {
     id: "tasks",
-    label: "任务队列",
-    description: "生成任务和恢复策略",
+    label: "任务记录",
+    description: "云端保存的脱敏生成任务历史",
     Icon: Brush,
   },
 ];

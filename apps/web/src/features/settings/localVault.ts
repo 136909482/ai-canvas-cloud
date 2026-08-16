@@ -16,13 +16,15 @@ const LEGACY_LOCAL_TASK_CACHE_SCHEMA_VERSION = 3;
 const PENDING_TASK_RESULT_SCHEMA_VERSION = 1;
 
 const DATABASE_NAME = "ai-canvas-cloud-local-vault";
-const DATABASE_VERSION = 4;
+const DATABASE_VERSION = 5;
 const VAULT_STORE = "vaults";
 const KEY_STORE = "keys";
 const TASK_STORE = "taskQueues";
 const TASK_RESULT_STORE = "taskResults";
+const TASK_DETAIL_STORE = "taskDetails";
 const TASK_OWNER_INDEX = "ownerId";
 const TASK_QUEUE_INDEX = "taskQueueId";
+const TASK_DETAIL_OWNER_INDEX = "ownerId";
 const AAD_NAMESPACE = "ai-canvas-cloud:local-vault";
 const TASK_AAD_NAMESPACE = "ai-canvas-cloud:local-task-cache";
 const TASK_RESULT_AAD_NAMESPACE = "ai-canvas-cloud:pending-task-result";
@@ -547,6 +549,14 @@ function openLocalVaultDatabase() {
           unique: false,
         });
       }
+      if (!database.objectStoreNames.contains(TASK_DETAIL_STORE)) {
+        const taskDetailStore = database.createObjectStore(TASK_DETAIL_STORE, {
+          keyPath: "id",
+        });
+        taskDetailStore.createIndex(TASK_DETAIL_OWNER_INDEX, "ownerId", {
+          unique: false,
+        });
+      }
     });
     request.addEventListener("success", () => resolve(request.result), {
       once: true,
@@ -566,6 +576,23 @@ function openLocalVaultDatabase() {
 
 export function isLocalVaultSupported() {
   return typeof indexedDB !== "undefined" && Boolean(globalThis.crypto?.subtle);
+}
+
+export async function loadRememberedLocalVaultKey(
+  userId: string,
+): Promise<CryptoKey | null> {
+  const id = getRecordId(userId);
+  const database = await openLocalVaultDatabase();
+  try {
+    const transaction = database.transaction(KEY_STORE, "readonly");
+    const key = (await requestToPromise(
+      transaction.objectStore(KEY_STORE).get(id),
+    )) as CryptoKey | undefined;
+    await transactionToPromise(transaction);
+    return key ?? null;
+  } finally {
+    database.close();
+  }
 }
 
 export async function loadRememberedLocalVault(userId: string) {

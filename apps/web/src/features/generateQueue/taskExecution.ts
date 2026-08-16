@@ -11,6 +11,7 @@ import {
   restoreGenerationTelemetryAttempt,
   type GenerationTelemetryAttempt,
 } from "@/features/generationTelemetry";
+import { reportTaskRecordForTask } from "@/features/taskRecords";
 import { resolveRuntimeModelConfig } from "@/features/settings/providerConfig";
 import { platformBridge } from "@/platform";
 import { useCanvasStore } from "@/store/useCanvasStore";
@@ -524,6 +525,10 @@ async function resumeRemoteGenerateTask(taskId: string) {
         status: "succeeded",
         resultCount: 1,
       });
+      reportTaskRecordForTask(runningTask, {
+        status: "succeeded",
+        resultCount: 1,
+      });
       return;
     }
 
@@ -553,6 +558,10 @@ async function resumeRemoteGenerateTask(taskId: string) {
       status: "succeeded",
       resultCount: 1,
     });
+    reportTaskRecordForTask(runningTask, {
+      status: "succeeded",
+      resultCount: 1,
+    });
   } catch (error) {
     if (!isTaskQueueRuntimeCurrent(runtimeVersion)) {
       return;
@@ -563,6 +572,15 @@ async function resumeRemoteGenerateTask(taskId: string) {
       status: "failed",
       failureCategory: generationFailureCategory(error),
     });
+    const latestTask = useTaskQueueStore
+      .getState()
+      .tasks.find((item) => item.id === taskId);
+    if (latestTask) {
+      reportTaskRecordForTask(latestTask, {
+        status: "failed",
+        failureCategory: generationFailureCategory(error),
+      });
+    }
     reportDiagnostic({
       area: "resource",
       title: "远程任务恢复失败",
@@ -571,9 +589,6 @@ async function resumeRemoteGenerateTask(taskId: string) {
       privateProviderError: true,
       context: { taskId },
     });
-    const latestTask = useTaskQueueStore
-      .getState()
-      .tasks.find((item) => item.id === taskId);
 
     if (latestTask?.previewNodeId) {
       const resultNode = useCanvasStore
@@ -744,6 +759,10 @@ export async function runGenerateTask(taskId: string) {
         status: "succeeded",
         resultCount: 1,
       });
+      reportTaskRecordForTask(runningTask, {
+        status: "succeeded",
+        resultCount: 1,
+      });
       return;
     }
 
@@ -791,6 +810,10 @@ export async function runGenerateTask(taskId: string) {
 
       await finalizeSuccessfulVideoTask(runningTask, videoUrl, runtimeVersion);
       completeGenerationTelemetry(telemetryAttempt, {
+        status: "succeeded",
+        resultCount: 1,
+      });
+      reportTaskRecordForTask(runningTask, {
         status: "succeeded",
         resultCount: 1,
       });
@@ -873,6 +896,10 @@ export async function runGenerateTask(taskId: string) {
       status: "succeeded",
       resultCount: 1,
     });
+    reportTaskRecordForTask(runningTask, {
+      status: "succeeded",
+      resultCount: 1,
+    });
   } catch (error) {
     if (!isTaskQueueRuntimeCurrent(runtimeVersion)) {
       return;
@@ -886,6 +913,12 @@ export async function runGenerateTask(taskId: string) {
     const latestTask = useTaskQueueStore
       .getState()
       .tasks.find((item) => item.id === taskId);
+    if (latestTask) {
+      reportTaskRecordForTask(latestTask, {
+        status: "failed",
+        failureCategory: generationFailureCategory(error),
+      });
+    }
     reportDiagnostic({
       area: "model",
       title: latestTask?.kind === "video" ? "视频生成失败" : "图片生成失败",

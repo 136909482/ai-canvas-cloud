@@ -16,6 +16,7 @@ import {
 } from "@ai-canvas-cloud/server/modules/community";
 import { createUnavailableWorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
 import { createUnavailableGenerationTelemetryService } from "@ai-canvas-cloud/server/modules/generation-telemetry";
+import { createUnavailableGenerationTaskRecordService } from "@ai-canvas-cloud/server/modules/generation-task-records";
 import { createUnavailableAssetService } from "@ai-canvas-cloud/server/modules/assets";
 import {
   createUnavailableMigrationAssetUploadService,
@@ -36,6 +37,7 @@ import { createFastifyAuthContextAdapter } from "./authContext.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerTelemetryRoutes } from "./routes/telemetry.js";
+import { registerTaskRecordRoutes } from "./routes/taskRecords.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerAssetRoutes } from "./routes/assets.js";
 import { registerMigrationRoutes } from "./routes/migrations.js";
@@ -72,6 +74,9 @@ export async function createFastifyApiServer(options: ServerOptions) {
   const generationTelemetryService =
     options.generationTelemetryService ??
     createUnavailableGenerationTelemetryService();
+  const generationTaskRecordService =
+    options.generationTaskRecordService ??
+    createUnavailableGenerationTaskRecordService();
   const assetService = options.assetService ?? createUnavailableAssetService();
   const migrationImportService =
     options.migrationImportService ?? createUnavailableMigrationImportService();
@@ -147,6 +152,10 @@ export async function createFastifyApiServer(options: ServerOptions) {
   });
   registerAnnouncementRoutes(app, { authContext, announcementService });
   registerTelemetryRoutes(app, { authContext, generationTelemetryService });
+  registerTaskRecordRoutes(app, {
+    authContext,
+    generationTaskRecordService,
+  });
   registerAuthRoutes(app, authContext);
   registerAssetRoutes(app, {
     assetCleanupService: options.assetCleanupService,

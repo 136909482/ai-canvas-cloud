@@ -316,7 +316,7 @@ P11-2 至 P11-4 已通过 `community` 内容服务实现投稿、撤回、举报
 - 新任务冻结生成参数、`modelEntryId`、受控 adapter、执行模式、Manifest 身份/版本和 Provider 绑定指纹，但不复制 Manifest 正文、真实模型 ID、endpoint 或 Key 到任务。绑定指纹覆盖协议、Manifest 规范化内容、Base URL、凭据槽和模型；任一配置变化后，旧远程任务不得使用新配置继续轮询。
 - Provider 请求真正开始时发送随机 attempt 的脱敏遥测，终态只回传类别、耗时、结果数或受限失败分类。遥测失败不得阻断生成，也不得携带 Prompt、输出、Provider、模型、endpoint、Key、上游正文或 remote task ID。
 
-平台 API 不新增 Provider 测试、发现、代理或生成任务路由，也不接收 Key、endpoint、真实模型 ID、Manifest、remote task ID 或任意 target URL。`/telemetry/generations` 是不可执行的有限运营入口，不改变浏览器生成和本地任务的事实边界。
+平台 API 不新增 Provider 测试、发现、代理或生成任务路由，也不接收 Key、endpoint、真实模型 ID、Manifest、remote task ID 或任意 target URL。`/telemetry/generations` 是不可执行的有限运营入口，不改变浏览器生成和本地任务的事实边界。`/task-records` 是遥测之上的用户可见脱敏历史：POST 由浏览器任务终态幂等上报摘要（标题、状态、耗时、结果数、失败分类、`modelEntryId`、已入云结果资产），GET 按游标分页返回自己的记录。敏感详情（Prompt、负向 Prompt、模型名、服务商、比例/分辨率、操作类型、参考图数、错误正文）由任务终态同时写入本地加密 IndexedDB（复用本地 Vault 用户密钥、AES-GCM + Origin/用户/任务 AAD，未启用本地 Vault 时静默跳过），设置页「任务记录」分页只能在本机查看这些详情，其他设备只显示云端脱敏摘要。
 
 ## 安全与运行
 

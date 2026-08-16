@@ -35,6 +35,8 @@ import type {
   CreateAssetUploadRequest,
   GenerationTelemetryRequest,
   GenerationTelemetryResponse,
+  CreateGenerationTaskRecordRequest,
+  GenerationTaskRecordsResponse,
   HealthResponse,
   LoginRequest,
   LogoutResponse,
@@ -770,6 +772,68 @@ export const GenerationTelemetryResponseSchema = Type.Object(
       Type.Literal("failed"),
       Type.Literal("canceled"),
     ]),
+  },
+  { additionalProperties: false },
+);
+
+const GenerationTaskRecordStatusSchema = Type.Union([
+  Type.Literal("succeeded"),
+  Type.Literal("failed"),
+  Type.Literal("canceled"),
+]);
+
+export const CreateGenerationTaskRecordRequestSchema = Type.Object(
+  {
+    clientTaskId: Type.String({ format: "uuid" }),
+    title: Type.String({ minLength: 1, maxLength: 120 }),
+    category: GenerationCategorySchema,
+    status: GenerationTaskRecordStatusSchema,
+    failureCategory: Type.Optional(
+      Type.Union([GenerationFailureCategorySchema, Type.Null()]),
+    ),
+    resultCount: Type.Optional(Type.Integer({ minimum: 0, maximum: 32 })),
+    durationMs: Type.Integer({ minimum: 0, maximum: 86400000 }),
+    modelEntryId: Type.Optional(
+      Type.Union([Type.String({ format: "uuid" }), Type.Null()]),
+    ),
+    assetIds: Type.Optional(
+      Type.Array(Type.String({ format: "uuid" }), { maxItems: 32 }),
+    ),
+    startedAt: Type.String(),
+    completedAt: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+export const GenerationTaskRecordSummarySchema = Type.Object(
+  {
+    id: Type.String({ format: "uuid" }),
+    clientTaskId: Type.String({ format: "uuid" }),
+    title: Type.String(),
+    category: GenerationCategorySchema,
+    status: GenerationTaskRecordStatusSchema,
+    failureCategory: Type.Union([GenerationFailureCategorySchema, Type.Null()]),
+    resultCount: Type.Integer(),
+    durationMs: Type.Integer(),
+    modelEntryId: Type.Union([Type.String({ format: "uuid" }), Type.Null()]),
+    assetIds: Type.Array(Type.String({ format: "uuid" })),
+    startedAt: Type.String(),
+    completedAt: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+export const GenerationTaskRecordsResponseSchema = Type.Object(
+  {
+    items: Type.Array(GenerationTaskRecordSummarySchema),
+    nextCursor: NullableStringSchema,
+  },
+  { additionalProperties: false },
+);
+
+export const GenerationTaskRecordAcceptedResponseSchema = Type.Object(
+  {
+    accepted: Type.Literal(true),
   },
   { additionalProperties: false },
 );
@@ -1563,6 +1627,18 @@ type GenerationTelemetryResponseSchemaCompatibility = Assert<
     GenerationTelemetryResponse
   >
 >;
+type CreateGenerationTaskRecordRequestSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof CreateGenerationTaskRecordRequestSchema>,
+    CreateGenerationTaskRecordRequest
+  >
+>;
+type GenerationTaskRecordsResponseSchemaCompatibility = Assert<
+  IsMutuallyAssignable<
+    Static<typeof GenerationTaskRecordsResponseSchema>,
+    GenerationTaskRecordsResponse
+  >
+>;
 type CreateAssetUploadRequestSchemaCompatibility = Assert<
   IsMutuallyAssignable<
     Static<typeof CreateAssetUploadRequestSchema>,
@@ -1848,11 +1924,13 @@ export type {
   CompleteMigrationImportAssetPartRequestSchemaCompatibility,
   CompleteMigrationImportAssetUploadRequestSchemaCompatibility,
   CreateAssetUploadRequestSchemaCompatibility,
+  CreateGenerationTaskRecordRequestSchemaCompatibility,
   CreateProjectCheckpointRequestSchemaCompatibility,
   CreateProjectRequestSchemaCompatibility,
   DeleteProjectResponseSchemaCompatibility,
   GenerationTelemetryRequestSchemaCompatibility,
   GenerationTelemetryResponseSchemaCompatibility,
+  GenerationTaskRecordsResponseSchemaCompatibility,
   HealthSchemaCompatibility,
   LoginSchemaCompatibility,
   LogoutSchemaCompatibility,

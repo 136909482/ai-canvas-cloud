@@ -3,6 +3,7 @@ export type PublicRouteGroup =
   | "auth"
   | "workspaces"
   | "telemetry"
+  | "task-records"
   | "assets"
   | "migrations"
   | "projects"
@@ -211,6 +212,18 @@ export const PUBLIC_ROUTE_INVENTORY = [
     path: "/api/v1/telemetry/generations",
     operationId: "createGenerationTelemetry",
     group: "telemetry",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/task-records",
+    operationId: "createGenerationTaskRecord",
+    group: "task-records",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/task-records",
+    operationId: "listGenerationTaskRecords",
+    group: "task-records",
   },
   {
     method: "GET",

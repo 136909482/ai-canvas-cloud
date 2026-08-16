@@ -85,6 +85,20 @@
       "rollback": "drop community_reports, community_post_tags and community_posts only before accepting the first submission",
       "forwardRepair": "rerun the idempotent community content table and index creation migration, then reprovision database roles",
       "backupRequired": false
+    },
+    {
+      "version": "0043",
+      "name": "add_generation_task_records",
+      "releaseTrain": "generation-task-record-history",
+      "phase": "expand",
+      "oldAppReadable": true,
+      "newAppReadable": true,
+      "oldAppWithNewSchema": true,
+      "lockRisk": "low",
+      "statementTimeoutMs": 30000,
+      "rollback": "drop generation_task_records only before any task record is stored",
+      "forwardRepair": "rerun the idempotent task record table and index creation migration, then reprovision database roles",
+      "backupRequired": false
     }
   ]
 }

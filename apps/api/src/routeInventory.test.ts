@@ -7,7 +7,7 @@ import {
 } from "./routeInventory.ts";
 
 test("public route inventory is complete, unique, and grouped", () => {
-  assert.equal(PUBLIC_ROUTE_INVENTORY.length, 67);
+  assert.equal(PUBLIC_ROUTE_INVENTORY.length, 69);
   assert.equal(
     new Set(PUBLIC_ROUTE_INVENTORY.map(publicRouteKey)).size,
     PUBLIC_ROUTE_INVENTORY.length,
@@ -23,6 +23,7 @@ test("public route inventory is complete, unique, and grouped", () => {
         "auth",
         "workspaces",
         "telemetry",
+        "task-records",
         "announcements",
         "assets",
         "migrations",
@@ -39,6 +40,7 @@ test("public route inventory is complete, unique, and grouped", () => {
       auth: 12,
       workspaces: 2,
       telemetry: 1,
+      "task-records": 2,
       announcements: 2,
       assets: 5,
       migrations: 14,

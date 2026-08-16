@@ -7,6 +7,7 @@ import {
   createAssetCleanupService,
   createPostgresAuthService,
   createPostgresGenerationTelemetryService,
+  createPostgresGenerationTaskRecordService,
   createPostgresPool,
   createPostgresProjectGraphService,
   createPostgresProjectSnapshotService,
@@ -65,6 +66,12 @@ const workspaceAuthorizationService =
 const generationTelemetryService = createPostgresGenerationTelemetryService(
   dbPool,
   { authorizationService: workspaceAuthorizationService },
+);
+const generationTaskRecordService = createPostgresGenerationTaskRecordService(
+  dbPool,
+  {
+    authorizationService: workspaceAuthorizationService,
+  },
 );
 const objectStorage = createManagedS3ObjectStorage(dbPool, {
   keyring: createObjectStorageCredentialKeyring({
@@ -147,6 +154,7 @@ const serverOptions = {
   logger,
   authService,
   generationTelemetryService,
+  generationTaskRecordService,
   assetService,
   assetCleanupService,
   projectGraphService,

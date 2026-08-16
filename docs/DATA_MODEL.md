@@ -122,6 +122,12 @@
 
 Admin dashboard 按 `Asia/Shanghai` 自然日聚合请求、结果、成功/失败/取消、去重创作者、P95 耗时和近 7 日类别趋势。成功率为 `succeeded/(succeeded+failed)`；取消不进入分母。Admin 数据库角色只读取聚合所需列，不读取 `client_attempt_id`；普通 API 角色无删除权限。
 
+### `generation_task_records`
+
+跨设备任务历史摘要（`0043` 迁移）：每条任务终态保存可信 `workspace_id/user_id`、浏览器 `client_task_id`、脱敏 `title`、`category=text|image|video`、`status=succeeded|failed|canceled`、受限 `failure_category`、`result_count`、`duration_ms`、`model_entry_id`（Vault 条目引用，可为空）、已入云结果 `asset_ids` 和起止时间。`(user_id, client_task_id)` 唯一，同一客户端任务重复上报幂等覆盖。`succeeded` 要求 1–32 个结果，`failed` 必须有受限失败分类，非成功状态 `result_count=0`。
+
+与遥测相同的边界：表内禁止 Prompt、输出正文或媒体、Provider、endpoint、真实模型 ID、API Key、remote task ID 和上游错误正文。它是用户可见的只读历史摘要，不驱动执行、重试或轮询；敏感任务详情只保留在浏览器加密存储。按 `(user_id, completed_at DESC, id DESC)` 索引分页。
+
 ## 资产对象诊断与 GC
 
 通用维护命令默认只读。后台无引用资产清理固定使用 7 天宽限期，并拆分为只读 preview 与显式 apply。`pending` 已过期、`failed`、`quarantined`、软删除资产，以及已完成但不再被引用的 `completed` 资产，在宽限期后都可成为候选；只有未删除项目的当前 `asset_references` 或未删除项目的有效 `project_snapshots.asset_manifest_json` 引用才能保护资产，已删除项目遗留的引用和检查点不阻止回收。宽限期优先使用 `quota_released_at`，再回退到 pending 上传到期时间或资产最近的 `deleted_at/updated_at/created_at`；`quota_released_at` 清空后资产恢复正常计费和生命周期。

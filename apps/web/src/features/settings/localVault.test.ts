@@ -325,7 +325,8 @@ test("v4 database upgrade repairs a v3 Vault missing the task results store", as
   const upgradedDatabase = await requestResult(
     databaseFactory.open("ai-canvas-cloud-local-vault"),
   );
-  assert.equal(upgradedDatabase.version, 4);
+  assert.equal(upgradedDatabase.version, 5);
   assert.equal(upgradedDatabase.objectStoreNames.contains("taskResults"), true);
+  assert.equal(upgradedDatabase.objectStoreNames.contains("taskDetails"), true);
   upgradedDatabase.close();
 });

@@ -16,8 +16,9 @@ test("schema release manifest describes the current baseline and repair", () => 
     "0040_add_asset_quota_release.sql",
     "0041_add_user_public_profiles.sql",
     "0042_add_community_content.sql",
+    "0043_add_generation_task_records.sql",
   ]);
-  assert.equal(result.manifest.migrations.length, 6);
+  assert.equal(result.manifest.migrations.length, 7);
   assert.deepEqual(result.manifest.migrations[0], {
     version: "0001",
     name: "current_schema",
@@ -110,6 +111,22 @@ test("schema release manifest describes the current baseline and repair", () => 
       "drop community_reports, community_post_tags and community_posts only before accepting the first submission",
     forwardRepair:
       "rerun the idempotent community content table and index creation migration, then reprovision database roles",
+    backupRequired: false,
+  });
+  assert.deepEqual(result.manifest.migrations[6], {
+    version: "0043",
+    name: "add_generation_task_records",
+    releaseTrain: "generation-task-record-history",
+    phase: "expand",
+    oldAppReadable: true,
+    newAppReadable: true,
+    oldAppWithNewSchema: true,
+    lockRisk: "low",
+    statementTimeoutMs: 30000,
+    rollback:
+      "drop generation_task_records only before any task record is stored",
+    forwardRepair:
+      "rerun the idempotent task record table and index creation migration, then reprovision database roles",
     backupRequired: false,
   });
 });

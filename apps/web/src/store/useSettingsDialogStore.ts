@@ -18,6 +18,7 @@ export const EXPOSED_SETTINGS_CATEGORY_IDS: SettingsCategoryId[] = [
   "storage",
   "canvas",
   "appearance",
+  "tasks",
 ];
 
 const EXPOSED_SETTINGS_CATEGORIES = new Set(EXPOSED_SETTINGS_CATEGORY_IDS);

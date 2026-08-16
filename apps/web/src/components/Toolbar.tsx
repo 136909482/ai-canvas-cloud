@@ -10,6 +10,7 @@ import { AccountSettingsPanel } from "@/features/auth/AccountMenu";
 import { CommunityPostingSettings } from "@/features/auth/CommunityPostingSettings";
 import { DeviceSettingsPanel } from "@/features/auth/DeviceSettingsPanel";
 import { TaskQueueButton } from "@/components/TaskQueueButton";
+import { TaskRecordsPanel } from "@/features/taskRecords/TaskRecordsPanel";
 import { themeClasses } from "@/styles/themeClasses";
 import type { CanvasPerformanceMode, EdgeStyle, ThemeMode } from "@/types";
 import {
@@ -257,6 +258,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                     {activeCategory === "community" ? (
                       <CommunityPostingSettings />
                     ) : null}
+                    {activeCategory === "tasks" ? <TaskRecordsPanel /> : null}
                     {activeCategory === "devices" ? (
                       <DeviceSettingsPanel />
                     ) : null}

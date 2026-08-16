@@ -29,6 +29,7 @@ server/
     project-snapshots/ checkpoint、历史、restore 和 manifest 修复
     assets/            上传、读取、动态加密 S3 配置、配额、诊断和 GC
     generation-telemetry/ 脱敏生成 attempt 校验、幂等收口与授权
+    generation-task-records/ 用户可见的脱敏任务历史摘要、幂等上报与分页
     announcements/      站内通知发布生命周期、用户时间线和已读回执
     community/           公开资料、投稿、审核状态机、撤回和举报
     migrations/        目录包预检、暂存、commit 和导出

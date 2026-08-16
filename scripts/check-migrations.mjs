@@ -33,6 +33,7 @@ function loadMigrations() {
     "0040_add_asset_quota_release.sql",
     "0041_add_user_public_profiles.sql",
     "0042_add_community_content.sql",
+    "0043_add_generation_task_records.sql",
   ]);
   return files.map((fileName) => {
     const match = migrationPattern.exec(fileName);
