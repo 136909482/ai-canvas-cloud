@@ -33,8 +33,8 @@ function getProgressTone(percentage: number) {
 function StorageOverviewSkeleton() {
   return (
     <div className="space-y-4" aria-label="正在加载存储用量">
-      <div className="h-32 animate-pulse rounded-lg border border-[var(--border-subtle)] bg-[var(--control-bg)]" />
-      <div className="h-64 animate-pulse rounded-lg border border-[var(--border-subtle)] bg-[var(--control-bg)]" />
+      <div className="h-32 animate-pulse rounded-[14px] border border-[var(--border-subtle)] bg-[var(--control-bg)]" />
+      <div className="h-64 animate-pulse rounded-[14px] border border-[var(--border-subtle)] bg-[var(--control-bg)]" />
     </div>
   );
 }
@@ -99,7 +99,7 @@ export function StorageSettingsPanel({ active = true }: { active?: boolean }) {
 
   if (error && !usage) {
     return (
-      <section className="flex min-h-52 flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--control-bg)] px-6 text-center">
+      <section className="flex min-h-52 flex-col items-center justify-center rounded-[14px] border border-dashed border-[var(--border-subtle)] bg-[var(--control-bg)] px-6 text-center">
         <Cloud className="h-6 w-6 text-[var(--text-muted)]" />
         <h3 className={`mt-3 text-sm font-medium ${themeClasses.textPrimary}`}>
           暂时无法读取存储用量
@@ -133,16 +133,23 @@ export function StorageSettingsPanel({ active = true }: { active?: boolean }) {
 
   return (
     <div className="flex flex-col gap-4" aria-busy={isLoading}>
-      <section className="overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--control-bg)]">
+      <section className="overflow-hidden rounded-[14px] border border-[var(--border-subtle)] bg-[var(--control-bg)]">
         <div className="px-4 py-4 sm:px-5">
           <div className="flex items-center justify-between gap-4">
-            <div className="flex min-w-0 items-center gap-2">
-              <Cloud className="h-4 w-4 shrink-0 text-emerald-500 dark:text-emerald-300" />
-              <h3
-                className={`truncate text-sm font-medium ${themeClasses.textPrimary}`}
-              >
-                存储概况
-              </h3>
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-violet-400/10 text-violet-500 dark:text-violet-300">
+                <Cloud className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <h3
+                  className={`truncate text-sm font-medium ${themeClasses.textPrimary}`}
+                >
+                  存储概况
+                </h3>
+                <p className={`truncate text-[11px] ${themeClasses.textMuted}`}>
+                  账号内文件与项目的总占用
+                </p>
+              </span>
             </div>
             {isLoading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-muted)]" />
@@ -178,7 +185,13 @@ export function StorageSettingsPanel({ active = true }: { active?: boolean }) {
               </div>
             </div>
             <span
-              className={`shrink-0 text-sm font-medium ${isNearlyFull ? "text-amber-500 dark:text-amber-300" : themeClasses.textSecondary}`}
+              className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-xs font-medium tabular-nums ${
+                percentage >= 100
+                  ? "border-red-400/25 bg-red-400/10 text-red-500 dark:text-red-300"
+                  : isNearlyFull
+                    ? "border-amber-400/25 bg-amber-400/10 text-amber-600 dark:text-amber-300"
+                    : "border-emerald-400/25 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300"
+              }`}
             >
               {percentage}%
             </span>
@@ -205,15 +218,22 @@ export function StorageSettingsPanel({ active = true }: { active?: boolean }) {
         ) : null}
       </section>
 
-      <section className="overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--control-bg)]">
+      <section className="overflow-hidden rounded-[14px] border border-[var(--border-subtle)] bg-[var(--control-bg)]">
         <header className="flex items-center justify-between gap-4 border-b border-[var(--border-subtle)] px-4 py-3.5 sm:px-5">
-          <div className="flex min-w-0 items-center gap-2">
-            <FolderOpen className="h-4 w-4 shrink-0 text-sky-500 dark:text-sky-300" />
-            <h3
-              className={`truncate text-sm font-medium ${themeClasses.textPrimary}`}
-            >
-              项目存储明细
-            </h3>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-violet-400/10 text-violet-500 dark:text-violet-300">
+              <FolderOpen className="h-4 w-4" />
+            </span>
+            <span className="min-w-0">
+              <h3
+                className={`truncate text-sm font-medium ${themeClasses.textPrimary}`}
+              >
+                项目存储明细
+              </h3>
+              <p className={`truncate text-[11px] ${themeClasses.textMuted}`}>
+                各项目占用的文件与节点空间
+              </p>
+            </span>
           </div>
           <span className={`shrink-0 text-xs ${themeClasses.textMuted}`}>
             {usage.projects.length} 个项目
@@ -224,9 +244,9 @@ export function StorageSettingsPanel({ active = true }: { active?: boolean }) {
           <div>
             {usage.projects.map((project) => {
               const projectShare =
-                usage.storage.totalBytes > 0
+                usage.storage.quotaBytes > 0
                   ? Math.round(
-                      (project.storageBytes / usage.storage.totalBytes) * 100,
+                      (project.storageBytes / usage.storage.quotaBytes) * 100,
                     )
                   : 0;
 
@@ -270,7 +290,16 @@ export function StorageSettingsPanel({ active = true }: { active?: boolean }) {
                     <div
                       className={`mt-1 text-[11px] tabular-nums ${themeClasses.textMuted}`}
                     >
-                      {projectShare}%
+                      占配额 {projectShare}%
+                    </div>
+                    <div
+                      className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-[var(--control-bg-hover)]"
+                      aria-hidden="true"
+                    >
+                      <div
+                        className="h-full rounded-full bg-violet-400/70"
+                        style={{ width: `${Math.max(projectShare, 2)}%` }}
+                      />
                     </div>
                   </div>
                 </div>

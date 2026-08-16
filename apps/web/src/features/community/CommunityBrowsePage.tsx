@@ -50,7 +50,7 @@ export function CommunityBrowsePage() {
     setSubmittedTag(tag);
   }
 
-  async function openDetail(id: string) {
+  const openDetail = useCallback(async (id: string) => {
     try {
       setDetail((await fetchCommunityPost(id)).post);
     } catch (caught) {
@@ -58,7 +58,19 @@ export function CommunityBrowsePage() {
         caught instanceof CloudApiError ? caught.message : "作品详情加载失败",
       );
     }
-  }
+  }, []);
+
+  // 支持从设置页"前往查看"带 ?postId= 进入并直接打开作品详情。
+  useEffect(() => {
+    const postId = new URLSearchParams(window.location.search).get("postId");
+    if (!postId) {
+      return;
+    }
+    void openDetail(postId);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("postId");
+    window.history.replaceState(null, "", url);
+  }, [openDetail]);
 
   return (
     <main className="min-h-screen bg-[var(--canvas-bg)] px-4 py-5 text-[var(--text-primary)] sm:px-8">

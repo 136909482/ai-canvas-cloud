@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type {
   AnnouncementCategory,
@@ -22,7 +22,6 @@ import {
 } from "@/store/useNotificationStore";
 import { themeClasses } from "@/styles/themeClasses";
 
-type NotificationFilter = "all" | "unread";
 type CenterView = "notifications" | "timeline";
 
 const kindLabel: Record<NotificationKind, string> = {
@@ -31,10 +30,26 @@ const kindLabel: Record<NotificationKind, string> = {
   system: "系统",
 };
 
+const kindBadgeClass: Record<NotificationKind, string> = {
+  broadcast: "border-sky-400/25 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  error: "border-red-400/25 bg-red-400/10 text-red-500 dark:text-red-300",
+  system:
+    "border-amber-400/25 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+};
+
 const categoryLabel: Record<AnnouncementCategory, string> = {
   notice: "平台通知",
   product_update: "产品更新",
   maintenance: "维护提醒",
+};
+
+const categoryBadgeClass: Record<AnnouncementCategory, string> = {
+  notice:
+    "border-emerald-400/25 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  product_update:
+    "border-blue-400/25 bg-blue-400/10 text-blue-600 dark:text-blue-300",
+  maintenance:
+    "border-amber-400/25 bg-amber-400/10 text-amber-600 dark:text-amber-300",
 };
 
 function formatRelativeTime(createdAt: string) {
@@ -74,26 +89,34 @@ function LocalNotificationRow({
   const unread = notification.readAt === null;
   return (
     <div
-      className={`group relative border-b border-[var(--border-subtle)] last:border-b-0 transition hover:bg-[var(--control-bg-hover)] ${unread ? "bg-[color-mix(in_srgb,var(--control-bg-hover)_58%,transparent)]" : ""}`}
+      className={`group relative border-b border-[var(--border-subtle)] last:border-b-0 transition hover:bg-[var(--control-bg-hover)] ${unread ? "bg-[color-mix(in_srgb,var(--control-bg-hover)_62%,transparent)]" : ""}`}
     >
       <button
         type="button"
         onClick={() => onOpen(notification)}
-        className="grid w-full grid-cols-[8px_1fr] gap-2.5 py-3 pl-3.5 pr-11 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400/60"
+        className="grid w-full grid-cols-[8px_1fr] gap-2.5 py-3 pl-3.5 pr-12 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400/60"
       >
         <span
-          className={`mt-1.5 h-2 w-2 rounded-full ${notification.kind === "error" ? "bg-red-500" : notification.kind === "broadcast" ? "bg-sky-500" : "bg-amber-400"}`}
+          className={`mt-1.5 h-2 w-2 rounded-full ${notification.kind === "error" ? "bg-red-500" : notification.kind === "broadcast" ? "bg-sky-500" : "bg-amber-400"} ${unread ? "" : "opacity-40"}`}
           aria-hidden="true"
         />
         <span className="min-w-0">
           <span className="flex min-w-0 items-start justify-between gap-3">
             <span
-              className={`truncate text-xs font-semibold ${themeClasses.textPrimary}`}
+              className={`truncate text-xs ${unread ? "font-semibold" : "font-medium"} ${unread ? themeClasses.textPrimary : themeClasses.textSecondary}`}
             >
               {notification.title}
             </span>
-            <span className={`shrink-0 text-[9px] ${themeClasses.textMuted}`}>
-              {formatRelativeTime(notification.createdAt)}
+            <span className="flex shrink-0 items-center gap-1.5">
+              {unread ? (
+                <span
+                  className="h-1.5 w-1.5 rounded-full bg-red-500"
+                  aria-label="未读"
+                />
+              ) : null}
+              <span className={`text-[9px] ${themeClasses.textMuted}`}>
+                {formatRelativeTime(notification.createdAt)}
+              </span>
             </span>
           </span>
           {notification.message ? (
@@ -103,18 +126,16 @@ function LocalNotificationRow({
               {notification.message}
             </span>
           ) : null}
-          <span
-            className={`mt-2 flex items-center gap-2 text-[9px] ${themeClasses.textMuted}`}
-          >
-            <span>{kindLabel[notification.kind]}</span>
+          <span className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[9px]">
+            <span
+              className={`inline-flex items-center rounded-full border px-1.5 py-0.5 font-medium ${kindBadgeClass[notification.kind]}`}
+            >
+              {kindLabel[notification.kind]}
+            </span>
             {notification.occurrences > 1 ? (
-              <span>重复 {notification.occurrences} 次</span>
-            ) : null}
-            {unread ? (
-              <span
-                className="ml-auto h-1.5 w-1.5 rounded-full bg-red-500"
-                aria-label="未读"
-              />
+              <span className={themeClasses.textMuted}>
+                重复 {notification.occurrences} 次
+              </span>
             ) : null}
           </span>
         </span>
@@ -124,7 +145,7 @@ function LocalNotificationRow({
         title="删除通知"
         aria-label={`删除通知：${notification.title}`}
         onClick={() => onDelete(notification.id)}
-        className={`${themeClasses.iconButton} absolute right-2.5 top-2.5 h-7 w-7 text-[var(--text-muted)] opacity-70 hover:text-red-500`}
+        className={`${themeClasses.iconButton} absolute right-2.5 top-2.5 h-7 w-7 text-[var(--text-muted)] transition-opacity hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100`}
       >
         <Trash2 className="h-3.5 w-3.5" />
       </button>
@@ -141,30 +162,24 @@ function Timeline({
 }) {
   if (!items.length) return <EmptyState view="timeline" />;
   return (
-    <ol className="relative px-4 py-1">
-      {items.map((item, index) => (
+    <ol className="relative space-y-3 px-3.5 py-3">
+      {items.map((item) => (
         <li
           key={item.id}
-          className="relative grid grid-cols-[14px_1fr] gap-2.5 py-4"
+          className="relative grid grid-cols-[12px_1fr] gap-2.5"
         >
-          {index < items.length - 1 ? (
-            <span
-              className="absolute bottom-0 left-[6px] top-6 w-px bg-[var(--border-subtle)]"
-              aria-hidden="true"
-            />
-          ) : null}
           <span
-            className={`relative z-10 mt-1 h-3 w-3 rounded-full border-[3px] border-[var(--panel-bg-strong)] ${item.category === "maintenance" ? "bg-amber-400" : item.category === "product_update" ? "bg-blue-500" : "bg-emerald-500"}`}
+            className={`relative z-10 mt-4 h-3 w-3 rounded-full border-[3px] border-[var(--panel-bg-strong)] ${item.category === "maintenance" ? "bg-amber-400" : item.category === "product_update" ? "bg-blue-500" : "bg-emerald-500"}`}
             aria-hidden="true"
           />
           <button
             type="button"
             onClick={() => onRead(item.id)}
-            className="min-w-0 border-b border-[var(--border-subtle)] pb-4 text-left last:border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+            className={`min-w-0 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] px-3 py-2.5 text-left transition hover:border-violet-400/40 hover:bg-[var(--control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 ${item.readAt === null ? "border-l-2 border-l-violet-400" : ""}`}
           >
             <span className="flex items-start justify-between gap-3">
               <strong
-                className={`min-w-0 break-words text-xs leading-5 ${themeClasses.textPrimary}`}
+                className={`min-w-0 break-words text-xs leading-5 ${item.readAt === null ? themeClasses.textPrimary : themeClasses.textSecondary}`}
               >
                 {item.title}
               </strong>
@@ -176,16 +191,25 @@ function Timeline({
               ) : null}
             </span>
             <span
-              className={`mt-1.5 block whitespace-pre-wrap break-words text-[11px] leading-[1.15rem] ${themeClasses.textMuted}`}
+              className={`mt-1 block whitespace-pre-wrap break-words text-[11px] leading-[1.15rem] ${themeClasses.textMuted}`}
             >
               {item.content}
             </span>
             <span
               className={`mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[9px] ${themeClasses.textMuted}`}
             >
-              <span>{categoryLabel[item.category]}</span>
+              <span
+                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 font-medium ${categoryBadgeClass[item.category]}`}
+              >
+                {categoryLabel[item.category]}
+              </span>
               <span>{formatRelativeTime(item.publishedAt)}</span>
-              <span>{formatExactTime(item.publishedAt)}</span>
+              <span
+                className="ml-auto text-[9px]"
+                title={formatExactTime(item.publishedAt)}
+              >
+                {formatExactTime(item.publishedAt)}
+              </span>
             </span>
           </button>
         </li>
@@ -194,16 +218,10 @@ function Timeline({
   );
 }
 
-function EmptyState({
-  view,
-  unread = false,
-}: {
-  view: CenterView;
-  unread?: boolean;
-}) {
+function EmptyState({ view }: { view: CenterView }) {
   return (
     <div className="flex min-h-48 flex-col items-center justify-center px-6 text-center">
-      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--control-bg-hover)] text-[var(--text-muted)]">
+      <span className="flex h-10 w-10 items-center justify-center rounded-[12px] bg-[var(--control-bg-hover)] text-[var(--text-muted)]">
         {view === "timeline" ? (
           <Clock3 className="h-4 w-4" />
         ) : (
@@ -211,11 +229,7 @@ function EmptyState({
         )}
       </span>
       <span className={`mt-3 text-xs font-medium ${themeClasses.textPrimary}`}>
-        {view === "timeline"
-          ? "暂无平台动态"
-          : unread
-            ? "没有未读消息"
-            : "暂无通知"}
+        {view === "timeline" ? "暂无平台动态" : "暂无通知"}
       </span>
       <span className={`mt-1 text-[10px] leading-4 ${themeClasses.textMuted}`}>
         {view === "timeline"
@@ -237,7 +251,6 @@ export function NotificationCenterButton() {
   const [cloudItems, setCloudItems] = useState<AnnouncementTimelineItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [view, setView] = useState<CenterView>("notifications");
-  const [filter, setFilter] = useState<NotificationFilter>("all");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -246,13 +259,6 @@ export function NotificationCenterButton() {
   const localUnread = localItems.filter((item) => item.readAt === null).length;
   const cloudUnread = cloudItems.filter((item) => item.readAt === null).length;
   const unreadCount = localUnread + cloudUnread;
-  const visibleLocal = useMemo(
-    () =>
-      filter === "unread"
-        ? localItems.filter((item) => item.readAt === null)
-        : localItems,
-    [filter, localItems],
-  );
   async function refresh() {
     setLoading(true);
     setLoadError(false);
@@ -345,13 +351,21 @@ export function NotificationCenterButton() {
               ref={panelRef}
               role="dialog"
               aria-label="通知中心"
-              className={`fixed right-4 z-[70] flex w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg ${emailVerified ? "top-14 max-h-[min(36rem,calc(100vh-5rem))]" : "top-[13.5rem] max-h-[calc(100vh-15rem)] sm:top-[10.5rem] sm:max-h-[calc(100vh-12rem)]"} ${themeClasses.strongPanel}`}
+              className={`fixed right-4 z-[70] flex w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-[14px] ${emailVerified ? "top-14 max-h-[min(36rem,calc(100vh-5rem))]" : "top-[13.5rem] max-h-[calc(100vh-15rem)] sm:top-[10.5rem] sm:max-h-[calc(100vh-12rem)]"} ${themeClasses.strongPanel}`}
             >
-              <header className="flex items-center justify-between gap-3 px-3.5 pb-2 pt-3">
-                <span
-                  className={`min-w-0 text-sm font-semibold ${themeClasses.textPrimary}`}
-                >
-                  通知中心
+              <header className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-4 py-3">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Bell className="h-4 w-4 shrink-0 text-[var(--accent-violet-strong)]" />
+                  <span
+                    className={`truncate text-sm font-semibold ${themeClasses.textPrimary}`}
+                  >
+                    通知中心
+                  </span>
+                  {unreadCount > 0 ? (
+                    <span className="inline-flex shrink-0 items-center rounded-full border border-red-400/25 bg-red-400/10 px-1.5 py-0.5 text-[9px] font-medium text-red-500 dark:text-red-300">
+                      {unreadCount} 条未读
+                    </span>
+                  ) : null}
                 </span>
                 <span className="flex items-center gap-1">
                   <button
@@ -377,7 +391,7 @@ export function NotificationCenterButton() {
                   </button>
                 </span>
               </header>
-              <div className="border-b border-[var(--border-subtle)] px-3.5 pb-2">
+              <div className="border-b border-[var(--border-subtle)] px-3.5 py-2">
                 <div
                   className="grid h-8 grid-cols-2 gap-1 rounded-md bg-[var(--control-bg)] p-0.5"
                   role="tablist"
@@ -388,7 +402,7 @@ export function NotificationCenterButton() {
                     role="tab"
                     aria-selected={view === "notifications"}
                     onClick={() => setView("notifications")}
-                    className={`inline-flex items-center justify-center gap-1.5 rounded-[5px] text-[10px] font-medium transition ${view === "notifications" ? "bg-[var(--control-bg-hover)] text-[var(--text-primary)]" : "text-[var(--text-muted)]"}`}
+                    className={`inline-flex items-center justify-center gap-1.5 rounded-[5px] text-[11px] font-medium transition ${view === "notifications" ? "bg-[var(--control-bg-hover)] text-[var(--text-primary)]" : "text-[var(--text-muted)]"}`}
                   >
                     <BellRing className="h-3.5 w-3.5" />
                     通知{localUnread ? ` ${localUnread}` : ""}
@@ -398,37 +412,13 @@ export function NotificationCenterButton() {
                     role="tab"
                     aria-selected={view === "timeline"}
                     onClick={() => setView("timeline")}
-                    className={`inline-flex items-center justify-center gap-1.5 rounded-[5px] text-[10px] font-medium transition ${view === "timeline" ? "bg-[var(--control-bg-hover)] text-[var(--text-primary)]" : "text-[var(--text-muted)]"}`}
+                    className={`inline-flex items-center justify-center gap-1.5 rounded-[5px] text-[11px] font-medium transition ${view === "timeline" ? "bg-[var(--control-bg-hover)] text-[var(--text-primary)]" : "text-[var(--text-muted)]"}`}
                   >
                     <Clock3 className="h-3.5 w-3.5" />
                     时间线{cloudUnread ? ` ${cloudUnread}` : ""}
                   </button>
                 </div>
               </div>
-              {view === "notifications" ? (
-                <div className="border-b border-[var(--border-subtle)] px-3.5 py-2">
-                  <div
-                    className="grid h-7 grid-cols-2 gap-1 rounded-md bg-[var(--control-bg)] p-0.5"
-                    role="tablist"
-                    aria-label="通知筛选"
-                  >
-                    {(["all", "unread"] as const).map((value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        role="tab"
-                        aria-selected={filter === value}
-                        onClick={() => setFilter(value)}
-                        className={`rounded-[5px] text-[10px] font-medium transition ${filter === value ? "bg-[var(--control-bg-hover)] text-[var(--text-primary)]" : "text-[var(--text-muted)]"}`}
-                      >
-                        {value === "all"
-                          ? `全部 ${localItems.length}`
-                          : `未读 ${localUnread}`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
               <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
                 {loadError && view === "timeline" ? (
                   <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-3.5 py-2 text-[10px] text-amber-600 dark:text-amber-300">
@@ -441,8 +431,8 @@ export function NotificationCenterButton() {
                     items={cloudItems}
                     onRead={(id) => void readCloud(id)}
                   />
-                ) : visibleLocal.length > 0 ? (
-                  visibleLocal.map((notification) => (
+                ) : localItems.length > 0 ? (
+                  localItems.map((notification) => (
                     <LocalNotificationRow
                       key={notification.id}
                       notification={notification}
@@ -451,10 +441,7 @@ export function NotificationCenterButton() {
                     />
                   ))
                 ) : (
-                  <EmptyState
-                    view="notifications"
-                    unread={filter === "unread"}
-                  />
+                  <EmptyState view="notifications" />
                 )}
               </div>
             </div>,

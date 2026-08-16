@@ -237,6 +237,16 @@ export function ProjectManagerDialog() {
     "[data-dialog-initial-focus]",
   );
 
+  // 从画布项目菜单"新建项目"进入时，直接打开创建表单。
+  const pendingAction = useProjectDialogStore((state) => state.pendingAction);
+  useEffect(() => {
+    if (pendingAction !== "create") {
+      return;
+    }
+    setDialogState({ mode: "create", project: null });
+    useProjectDialogStore.setState({ pendingAction: null });
+  }, [pendingAction]);
+
   useEffect(() => {
     if (isOpen) {
       syncActiveWorkingSnapshot();

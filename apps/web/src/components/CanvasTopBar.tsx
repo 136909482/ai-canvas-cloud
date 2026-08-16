@@ -8,6 +8,7 @@ import {
   Grid3X3,
   Loader2,
   Moon,
+  Plus,
   Save,
   Timer,
   Sun,
@@ -20,6 +21,7 @@ import { platformBridge } from "@/platform";
 import { selectHasCanvasContent, useCanvasStore } from "@/store/useCanvasStore";
 import { useHistoryStore } from "@/store/useHistoryStore";
 import { useFeedbackStore } from "@/store/useFeedbackStore";
+import { useProjectDialogStore } from "@/store/useProjectDialogStore";
 import { useProjectStore } from "@/store/useProjectStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { useTaskQueueStore } from "@/store/useTaskQueueStore";
@@ -411,7 +413,27 @@ export function CanvasTopBar() {
     }
   };
 
+  // 菜单只展示最近编辑的 5 个项目；当前项目不在其中时置顶补位。
+  const RECENT_PROJECT_COUNT = 5;
   const availableProjects = projects.filter((project) => !project.archivedAt);
+  const recentProjects = [...availableProjects]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, RECENT_PROJECT_COUNT);
+  const activeInRecent = recentProjects.some(
+    (project) => project.id === activeProjectId,
+  );
+  const visibleProjects =
+    activeInRecent || !activeProject || activeProject.archivedAt
+      ? recentProjects
+      : [
+          activeProject,
+          ...recentProjects.filter((project) => project.id !== activeProjectId),
+        ].slice(0, RECENT_PROJECT_COUNT);
+
+  const openProjectCreate = () => {
+    setIsProjectMenuOpen(false);
+    useProjectDialogStore.getState().openCreate();
+  };
 
   return (
     <div
@@ -458,10 +480,10 @@ export function CanvasTopBar() {
         <div
           role="menu"
           aria-label="项目画布"
-          className={`absolute left-9 top-[calc(100%+6px)] z-50 max-h-64 min-w-56 max-w-[calc(100vw-1rem)] overflow-y-auto p-1 ${themeClasses.compactFloatingPanel}`}
+          className={`absolute left-9 top-[calc(100%+6px)] z-50 max-h-[min(16rem,calc(100vh-8rem))] min-w-56 max-w-[calc(100vw-1rem)] overflow-y-auto p-1 ${themeClasses.compactFloatingPanel}`}
         >
-          {availableProjects.length ? (
-            availableProjects.map((project) => (
+          {visibleProjects.length ? (
+            visibleProjects.map((project) => (
               <button
                 key={project.id}
                 type="button"
@@ -486,6 +508,19 @@ export function CanvasTopBar() {
               暂无可用项目
             </span>
           )}
+          <div
+            aria-hidden="true"
+            className="my-1 h-px bg-[var(--border-subtle)]"
+          />
+          <button
+            type="button"
+            role="menuitem"
+            onClick={openProjectCreate}
+            className="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-[var(--accent-violet-strong)] transition hover:bg-[var(--control-bg-hover)]"
+          >
+            <Plus className="h-3.5 w-3.5 shrink-0" />
+            新建项目
+          </button>
         </div>
       ) : null}
       <span
