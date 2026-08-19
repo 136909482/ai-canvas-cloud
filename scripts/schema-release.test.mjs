@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  buildSupportedMigrationHistories,
   loadSchemaReleaseManifest,
   validateSchemaReleaseManifest,
 } from "./check-schema-release.mjs";
@@ -129,6 +130,25 @@ test("schema release manifest describes the current baseline and repair", () => 
       "rerun the idempotent task record table and index creation migration, then reprovision database roles",
     backupRequired: false,
   });
+});
+
+test("role isolation accepts current and legacy migration histories", () => {
+  const histories = buildSupportedMigrationHistories();
+  assert.deepEqual(histories.currentBaseline, [
+    "0001",
+    "0038",
+    "0039",
+    "0040",
+    "0041",
+    "0042",
+    "0043",
+  ]);
+  assert.deepEqual(
+    histories.legacyUpgrade,
+    Array.from({ length: 43 }, (_, index) =>
+      String(index + 1).padStart(4, "0"),
+    ),
+  );
 });
 
 test("community content migration adds moderated posts, tags, reports and asset protection indexes", async () => {

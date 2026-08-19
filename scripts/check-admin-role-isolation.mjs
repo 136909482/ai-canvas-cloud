@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import pg from "pg";
 import { loadDotEnv } from "@ai-canvas-cloud/server";
+import { buildSupportedMigrationHistories } from "./check-schema-release.mjs";
 
 loadDotEnv();
 
@@ -8,17 +9,10 @@ const connections = {
   app: process.env.DATABASE_URL,
   admin: process.env.ADMIN_DATABASE_URL,
 };
-const currentBaselineMigrationVersions = [
-  "0001",
-  "0038",
-  "0039",
-  "0040",
-  "0041",
-  "0042",
-];
-const legacyMigrationVersions = Array.from({ length: 42 }, (_, index) =>
-  String(index + 1).padStart(4, "0"),
-);
+const {
+  currentBaseline: currentBaselineMigrationVersions,
+  legacyUpgrade: legacyMigrationVersions,
+} = buildSupportedMigrationHistories();
 
 if (!connections.app || !connections.admin)
   throw new Error("Missing DATABASE_URL or ADMIN_DATABASE_URL");

@@ -106,6 +106,23 @@ export function validateSchemaReleaseManifest(
   return { manifest, files };
 }
 
+export function buildSupportedMigrationHistories(
+  manifest = loadSchemaReleaseManifest(),
+) {
+  const validated = validateSchemaReleaseManifest(manifest).manifest;
+  const currentBaseline = validated.migrations.map(
+    (migration) => migration.version,
+  );
+  const legacyUpgrade = [
+    ...Array.from({ length: 37 }, (_, index) =>
+      String(index + 1).padStart(4, "0"),
+    ),
+    ...currentBaseline.filter((version) => Number(version) > 37),
+  ];
+
+  return { currentBaseline, legacyUpgrade };
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   try {
     const result = validateSchemaReleaseManifest();
