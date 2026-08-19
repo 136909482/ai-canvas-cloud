@@ -129,6 +129,12 @@ export function syncSourceNodeAfterTaskSettles(
     ...(sourceNode?.type === "generateNode" && latestImageAsset !== undefined
       ? { imageAsset: latestImageAsset }
       : {}),
+    ...(sourceNode?.type === "entourageNode" && latestImageUrl
+      ? { imageUrl: latestImageUrl, lastRunAt: Date.now() }
+      : {}),
+    ...(sourceNode?.type === "entourageNode" && latestImageAsset !== undefined
+      ? { imageAsset: latestImageAsset }
+      : {}),
   });
 }
 
@@ -146,6 +152,7 @@ export function syncSourceNodeWithTask(
     !sourceNode ||
     (sourceNode.type !== "generateNode" &&
       sourceNode.type !== "imageEditNode" &&
+      sourceNode.type !== "entourageNode" &&
       sourceNode.type !== "videoGenerateNode")
   ) {
     return;
@@ -162,11 +169,16 @@ export function syncSourceNodeWithTask(
 
   if (
     sourceNode.type === "generateNode" ||
-    sourceNode.type === "imageEditNode"
+    sourceNode.type === "imageEditNode" ||
+    sourceNode.type === "entourageNode"
   ) {
     patch.negativePrompt = task.negativePrompt;
     patch.activeTaskId =
       status === "queued" || status === "generating" ? task.id : null;
+  }
+
+  if (sourceNode.type === "entourageNode") {
+    patch.sourceImageNodeId = task.sourceImageNodeId;
   }
 
   if (sourceNode.type === "videoGenerateNode") {

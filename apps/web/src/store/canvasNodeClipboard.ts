@@ -3,6 +3,7 @@ import { DEFAULT_IMAGE_MODEL_ID } from "@/config/modelCatalog";
 import { normalizeGenerateRatio } from "@/constants/generateNode";
 import type {
   CompareNodeData,
+  EntourageNodeData,
   GenerateNodeData,
   ImageCropNodeData,
   ImageEditNodeData,
@@ -42,6 +43,7 @@ export function canDuplicateNode(node: Node) {
     "generateNode",
     "interiorDesignNode",
     "imageEditNode",
+    "entourageNode",
     "llmNode",
     "llmFileNode",
     "compareNode",
@@ -292,6 +294,46 @@ export function cloneNodeForDuplicate(
             : true,
       } satisfies ImageEditNodeData,
     } satisfies Node<ImageEditNodeData>;
+  }
+
+  if (node.type === "entourageNode") {
+    return {
+      ...node,
+      id: nextId,
+      position: duplicatedPosition,
+      parentId: undefined,
+      extent: undefined,
+      selected: true,
+      data: {
+        sourceImageNodeId: null,
+        feature:
+          node.data?.feature === "rich" || node.data?.feature === "people"
+            ? node.data.feature
+            : "plants",
+        placements: [],
+        imageUrl: null,
+        imageAsset: null,
+        status: "idle",
+        errorMsg: "",
+        model:
+          typeof node.data?.model === "string"
+            ? node.data.model
+            : DEFAULT_IMAGE_MODEL_ID,
+        ratio: normalizeGenerateRatio(node.data?.ratio),
+        resolution:
+          typeof node.data?.resolution === "string" &&
+          ["1K", "2K", "4K"].includes(node.data.resolution)
+            ? node.data.resolution
+            : "1K",
+        plannerModel:
+          typeof node.data?.plannerModel === "string"
+            ? node.data.plannerModel
+            : "",
+        activeTaskId: null,
+        lastRunAt: null,
+        prompt: "",
+      } satisfies EntourageNodeData,
+    } satisfies Node<EntourageNodeData>;
   }
 
   if (node.type === "llmNode") {

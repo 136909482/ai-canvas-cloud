@@ -308,6 +308,7 @@ export const TextNode = memo(function TextNode({
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [fullscreenText, setFullscreenText] = useState(text);
   const [titleEditing, setTitleEditing] = useState(false);
+  const [bodyEditing, setBodyEditing] = useState(false);
   const [clearNoticeId, setClearNoticeId] = useState<number | null>(null);
   const showClearNotice = clearNoticeId !== null && !text;
 
@@ -447,7 +448,7 @@ export const TextNode = memo(function TextNode({
     <>
       {selected ? (
         <StableNodeToolbar
-          isVisible={!dragging ? undefined : false}
+          isVisible={!dragging && !bodyEditing ? undefined : false}
           position={Position.Top}
           offset={10}
         >
@@ -543,6 +544,7 @@ export const TextNode = memo(function TextNode({
         </Handle>
 
         <NodeHeader
+          variant="floating"
           icon={<Type className="h-3.5 w-3.5 text-[var(--text-muted)]" />}
           title={
             <span className="flex h-5 min-w-0 items-center">
@@ -579,7 +581,7 @@ export const TextNode = memo(function TextNode({
           }
         />
 
-        <div className="flex min-h-0 flex-1 flex-col p-3">
+        <div className="node-drag-handle flex min-h-0 flex-1 cursor-grab flex-col p-3 active:cursor-grabbing">
           <RichPromptEditor
             value={richPromptValue}
             fallbackText={text}
@@ -595,8 +597,14 @@ export const TextNode = memo(function TextNode({
                 });
               }
             }}
-            onFocus={beginTransaction}
-            onBlur={commitTransaction}
+            onFocus={() => {
+              setBodyEditing(true);
+              beginTransaction();
+            }}
+            onBlur={() => {
+              setBodyEditing(false);
+              commitTransaction();
+            }}
           />
           <div className="mt-2 flex h-4 shrink-0 items-center justify-between gap-2 px-0.5 text-[10px] font-medium text-[var(--text-muted)]">
             <span className="truncate">{stats.characters} 字符</span>

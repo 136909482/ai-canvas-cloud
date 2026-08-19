@@ -1,4 +1,4 @@
-﻿import {
+import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -1182,7 +1182,7 @@ export function ImageFullscreenEditor() {
     try {
       const persistedImage = await persistEditorOutputImage(
         imageUrl,
-        getDownloadFileName(session.title),
+        getDownloadFileName(),
       );
       runTracked(() => {
         updateNodeData(session.nodeId, {
@@ -1222,17 +1222,12 @@ export function ImageFullscreenEditor() {
     setSavingOutput({ action: "save-as", mode: saveMode });
 
     try {
-      const fileName = getDownloadFileName(
-        session.title,
-        isMaskOutput ? "-mask" : "-edit",
-      );
+      const fileName = getDownloadFileName(isMaskOutput ? "-mask" : "-edit");
       const persistedImage = await persistEditorOutputImage(imageUrl, fileName);
 
       const createdNodeId = runTracked(() =>
         createImageEditorOutputNode(session.nodeId, {
-          label: isMaskOutput
-            ? getDownloadFileName(session.title, "-mask")
-            : `${session.title} 编辑`,
+          label: isMaskOutput ? "蒙版图" : "编辑图",
           imageUrl: persistedImage.imageUrl,
           imageAsset: persistedImage.imageAsset,
           prompt: isMaskOutput ? "蒙版图" : "",
@@ -1273,10 +1268,7 @@ export function ImageFullscreenEditor() {
     if (imageUrl) {
       downloadDataUrl(
         imageUrl,
-        getDownloadFileName(
-          session.title,
-          downloadMode === "mask" ? "-mask" : "",
-        ),
+        getDownloadFileName(downloadMode === "mask" ? "-mask" : ""),
       );
     }
   };

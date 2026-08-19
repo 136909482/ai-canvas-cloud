@@ -2,6 +2,7 @@ import type { Node } from "@xyflow/react";
 import type { AppNodeType } from "@/types";
 import {
   buildManualCompareNode,
+  buildManualEntourageNode,
   buildManualGenerateNode,
   buildManualInteriorDesignNode,
   buildManualGeneratedPreviewNode,
@@ -19,6 +20,8 @@ import {
 import {
   DEFAULT_COMPARE_NODE_HEIGHT,
   DEFAULT_COMPARE_NODE_WIDTH,
+  DEFAULT_ENTOURAGE_NODE_HEIGHT,
+  DEFAULT_ENTOURAGE_NODE_WIDTH,
   DEFAULT_GENERATE_NODE_HEIGHT,
   DEFAULT_GENERATE_NODE_WIDTH,
   DEFAULT_INTERIOR_DESIGN_NODE_HEIGHT,
@@ -64,7 +67,8 @@ export type NodeLibraryIcon =
   | "compare"
   | "panorama"
   | "preview"
-  | "house";
+  | "house"
+  | "trees";
 export type NodeLibraryCategoryId =
   "common" | "text-tools" | "image-tools" | "ai-tools";
 
@@ -304,6 +308,29 @@ const registrations = {
     },
     outputLayout: "generated-preview",
   },
+  entourageNode: {
+    type: "entourageNode",
+    idPrefix: "entourage",
+    manual: {
+      size: size(DEFAULT_ENTOURAGE_NODE_WIDTH, DEFAULT_ENTOURAGE_NODE_HEIGHT),
+      build: buildManualEntourageNode,
+    },
+    connection: {
+      inputs: { base: ["image"] },
+      output: "image",
+      quickCreateTargetHandle: "base",
+    },
+    outputLayout: "generated-preview",
+    library: {
+      id: "entourage",
+      category: "ai-tools",
+      order: 6,
+      icon: "trees",
+      label: "AI 配景",
+      description: "为室外效果图自动添加植物、人物等配景。",
+      keywords: ["entourage", "配景", "植物", "人物", "室外", "效果图"],
+    },
+  },
   experimentalGenerateNode: {
     type: "experimentalGenerateNode",
     idPrefix: "experimental",
@@ -448,6 +475,7 @@ export type ManualCanvasNodeType =
   | "generateNode"
   | "interiorDesignNode"
   | "imageEditNode"
+  | "entourageNode"
   | "llmFileNode"
   | "generatedPreviewNode"
   | "compareNode"

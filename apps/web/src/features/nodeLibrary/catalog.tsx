@@ -9,6 +9,7 @@ import {
   MonitorPlay,
   ScissorsLineDashed,
   Sparkles,
+  Trees,
   Type,
   Video,
 } from "lucide-react";
@@ -27,6 +28,7 @@ export interface CanvasNodeCatalogActions {
   addImageNode: CreateCanvasNode;
   addGenerateNode: CreateCanvasNode;
   addInteriorDesignNode: CreateCanvasNode;
+  addEntourageNode: CreateCanvasNode;
   addLLMNode: CreateCanvasNode;
   addVideoGenerateNode: CreateCanvasNode;
   addTextSplitterNode: CreateCanvasNode;
@@ -81,6 +83,7 @@ function createIcon(icon: NodeLibraryIcon) {
     panorama: <Globe className={className} />,
     preview: <MonitorPlay className={className} />,
     house: <Home className={className} />,
+    trees: <Trees className={className} />,
   };
   return icons[icon];
 }
@@ -94,6 +97,7 @@ export function createCanvasNodeCatalog(
       imageNode: actions.addImageNode,
       generateNode: actions.addGenerateNode,
       interiorDesignNode: actions.addInteriorDesignNode,
+      entourageNode: actions.addEntourageNode,
       llmFileNode: actions.addLLMNode,
       videoGenerateNode: actions.addVideoGenerateNode,
       inlineTextSplitterNode: actions.addTextSplitterNode,

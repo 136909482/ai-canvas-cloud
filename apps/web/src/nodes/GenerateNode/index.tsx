@@ -495,44 +495,43 @@ export const GenerateNode = memo(function GenerateNode({
       </Handle>
 
       <NodeHeader
+        variant="floating"
         icon={<Sparkles className="h-3.5 w-3.5 text-[var(--text-muted)]" />}
         title={UI_TEXT.title}
-        right={
-          <div className="ml-auto flex items-center gap-1">
-            <button
-              type="button"
-              onClick={toggleMaskInput}
-              onPointerDown={stopCanvasGesture}
-              onMouseDown={stopCanvasGesture}
-              className={`nodrag nopan ${themeClasses.nodeBadge} transition ${
-                maskInputEnabled
-                  ? `${themeClasses.nodeBadgeAmber} hover:border-amber-400/40 hover:bg-amber-400/14`
-                  : "border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-muted)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-secondary)]"
-              }`}
-              aria-label={
-                maskInputEnabled
-                  ? UI_TEXT.disableMaskInput
-                  : UI_TEXT.enableMaskInput
-              }
-              title={
-                maskInputEnabled
-                  ? UI_TEXT.disableMaskInput
-                  : UI_TEXT.enableMaskInput
-              }
-            >
-              {UI_TEXT.maskToggle}
-            </button>
-            <span
-              className={`${themeClasses.nodeBadge} ${themeClasses.nodeBadgeViolet}`}
-            >
-              <Link2 className="h-3 w-3" />
-              {generationModeLabel}
-            </span>
-          </div>
-        }
       />
 
-      <div className="flex min-h-0 flex-1 flex-col gap-1.5 p-2.5">
+      <div className="node-drag-handle flex min-h-0 flex-1 cursor-grab flex-col gap-1.5 p-2.5 active:cursor-grabbing">
+        <div className="flex h-6 shrink-0 items-center justify-end gap-1">
+          <button
+            type="button"
+            onClick={toggleMaskInput}
+            onPointerDown={stopCanvasGesture}
+            onMouseDown={stopCanvasGesture}
+            className={`nodrag nopan ${themeClasses.nodeBadge} transition ${
+              maskInputEnabled
+                ? `${themeClasses.nodeBadgeAmber} hover:border-amber-400/40 hover:bg-amber-400/14`
+                : "border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-muted)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-secondary)]"
+            }`}
+            aria-label={
+              maskInputEnabled
+                ? UI_TEXT.disableMaskInput
+                : UI_TEXT.enableMaskInput
+            }
+            title={
+              maskInputEnabled
+                ? UI_TEXT.disableMaskInput
+                : UI_TEXT.enableMaskInput
+            }
+          >
+            {UI_TEXT.maskToggle}
+          </button>
+          <span
+            className={`${themeClasses.nodeBadge} ${themeClasses.nodeBadgeViolet}`}
+          >
+            <Link2 className="h-3 w-3" />
+            {generationModeLabel}
+          </span>
+        </div>
         {(referenceImageCount > 0 || hasMaskImage || isConnected) && (
           <div className="flex flex-wrap items-center gap-1.5">
             {referenceImageCount > 0 && (

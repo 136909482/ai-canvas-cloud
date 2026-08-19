@@ -41,6 +41,7 @@ import {
 } from "../nodeShell";
 import { getNodeShellClassName } from "../nodeShellClassName";
 import { areNodeContentPropsEqual } from "../nodePropComparators";
+import { buildDownloadFileName } from "@/utils/downloadFileName";
 
 type VideoNodeProps = AppNodeProps<"videoNode">;
 
@@ -70,26 +71,6 @@ const VIDEO_MIME_EXTENSIONS: Record<string, string> = {
   "video/webm": "webm",
   "video/quicktime": "mov",
 };
-
-function padTimePart(value: number) {
-  return String(value).padStart(2, "0");
-}
-
-function sanitizeFileName(value: string) {
-  return value.replace(/[\\/:*?"<>|]/g, "-").trim();
-}
-
-function buildDownloadFileName(timestamp: number, extension: string) {
-  const date = new Date(timestamp);
-  const year = date.getFullYear();
-  const month = date.getMonth() + 1;
-  const day = date.getDate();
-  const hours = padTimePart(date.getHours());
-  const minutes = padTimePart(date.getMinutes());
-  const seconds = padTimePart(date.getSeconds());
-
-  return `AIPure Video ${year}-${month}-${day} ${hours}_${minutes}_${seconds}.${extension}`;
-}
 
 function inferVideoMimeType(url: string) {
   if (url.startsWith("data:")) {
@@ -427,9 +408,7 @@ export const VideoNode = memo(function VideoNode({
         data.videoAsset?.mimeType ||
         inferVideoMimeType(data.videoUrl);
       const extension = VIDEO_MIME_EXTENSIONS[mimeType] || "mp4";
-      const fileName = sanitizeFileName(
-        buildDownloadFileName(Date.now(), extension),
-      );
+      const fileName = buildDownloadFileName({ extension });
       fallbackDownload(blob, fileName);
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : UI_TEXT.retryLater);

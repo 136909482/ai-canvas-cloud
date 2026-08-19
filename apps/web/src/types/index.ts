@@ -279,6 +279,45 @@ export interface ImageEditNodeData extends Record<string, unknown> {
   maskVisible: boolean;
 }
 
+export type EntourageFeature = "rich" | "plants" | "people";
+
+export interface EntouragePlacement {
+  id: string;
+  /** 配景类型标识，如 tree / shrub / flower / person */
+  kind: string;
+  /** 中文标签，如 乔木 / 人物 */
+  label: string;
+  /** 归一化边界框 [x1, y1, x2, y2]，0~1，相对原图 */
+  box: [number, number, number, number];
+  /** 该配景的局部重绘提示词 */
+  prompt: string;
+}
+
+export interface EntourageNodeData extends Record<string, unknown> {
+  /** 输入图片源节点 id */
+  sourceImageNodeId: string | null;
+  /** 当前选择的功能入口 */
+  feature: EntourageFeature;
+  /** 最近一次 AI 规划出的放置计划（供展示/复用） */
+  placements: EntouragePlacement[];
+  /** 添加配景后的结果图 */
+  imageUrl: string | null;
+  imageAsset?: WorkspaceImageAsset | null;
+  status: GenerateStatus;
+  errorMsg: string;
+  /** 局部重绘使用的图片模型 */
+  model: string;
+  /** 重绘输出画幅；Auto 表示跟随输入图 */
+  ratio: string;
+  /** 重绘输出分辨率 */
+  resolution: string;
+  /** AI 规划使用的 Chat（视觉语言）模型 */
+  plannerModel: string;
+  activeTaskId: string | null;
+  lastRunAt: number | null;
+  prompt: string;
+}
+
 export interface GeneratedPreviewNodeData extends Record<string, unknown> {
   label: string;
   imageUrl: string;
@@ -534,6 +573,7 @@ export type AppNodeType =
   | "generateNode"
   | "interiorDesignNode"
   | "imageEditNode"
+  | "entourageNode"
   | "experimentalGenerateNode"
   | "generatedPreviewNode"
   | "compareNode"
@@ -591,6 +631,7 @@ export interface AppNodeDataMap {
   generateNode: GenerateNodeData;
   interiorDesignNode: InteriorDesignNodeData;
   imageEditNode: ImageEditNodeData;
+  entourageNode: EntourageNodeData;
   experimentalGenerateNode: GenerateNodeData;
   generatedPreviewNode: GeneratedPreviewNodeData;
   compareNode: CompareNodeData;

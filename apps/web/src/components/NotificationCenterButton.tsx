@@ -166,7 +166,7 @@ function Timeline({
       {items.map((item) => (
         <li
           key={item.id}
-          className="relative grid grid-cols-[12px_1fr] gap-2.5"
+          className="relative grid grid-cols-[12px_1fr] gap-2.5 before:absolute before:left-[19.5px] before:top-0 before:-bottom-3 before:w-px before:bg-[var(--border-subtle)] before:content-[''] last:before:hidden"
         >
           <span
             className={`relative z-10 mt-4 h-3 w-3 rounded-full border-[3px] border-[var(--panel-bg-strong)] ${item.category === "maintenance" ? "bg-amber-400" : item.category === "product_update" ? "bg-blue-500" : "bg-emerald-500"}`}
@@ -175,7 +175,7 @@ function Timeline({
           <button
             type="button"
             onClick={() => onRead(item.id)}
-            className={`min-w-0 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] px-3 py-2.5 text-left transition hover:border-violet-400/40 hover:bg-[var(--control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 ${item.readAt === null ? "border-l-2 border-l-violet-400" : ""}`}
+            className="min-w-0 -mr-3.5 rounded-[8px] px-2.5 py-2 text-left transition hover:bg-[var(--control-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
           >
             <span className="flex items-start justify-between gap-3">
               <strong

@@ -202,6 +202,14 @@ function serviceCommand(service, token) {
     executable: process.execPath,
     args: [`--title=${title}`, "--import", "tsx", SERVICE_CHILD_PATH, service],
     ipc: true,
+    env: {
+      ...process.env,
+      // tsx resolves tsconfig.json from the child process cwd (the repo
+      // root), which lacks the workspace path mappings. Point it at the
+      // service tsconfig so @ai-canvas-cloud/server/modules/* resolve to
+      // source instead of a possibly-stale server/dist build.
+      TSX_TSCONFIG_PATH: join(REPO_ROOT, "apps", service, "tsconfig.json"),
+    },
   };
 }
 
@@ -220,7 +228,7 @@ async function runService(service, token) {
   const command = serviceCommand(service, token);
   const child = spawn(command.executable, command.args, {
     cwd: REPO_ROOT,
-    env: process.env,
+    env: command.env ?? process.env,
     stdio: command.ipc ? ["ignore", "inherit", "inherit", "ipc"] : "inherit",
     windowsHide: true,
   });

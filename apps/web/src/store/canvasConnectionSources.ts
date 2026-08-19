@@ -2,6 +2,7 @@ import type { Edge, Node } from "@xyflow/react";
 import { collectMentionedSourceIds } from "@/features/richPrompt/promptCompiler";
 import type { RichPromptDocument } from "@/features/richPrompt/types";
 import type {
+  EntourageNodeData,
   GeneratedPreviewNodeData,
   ImageNodeData,
   InteriorDesignNodeData,
@@ -32,12 +33,18 @@ export function getCanvasNodeById(
 
 export function isConnectedImageSourceNode(
   node: Node | undefined,
-): node is Node<ImageNodeData | GeneratedPreviewNodeData | TestImageNodeData> {
+): node is Node<
+  | ImageNodeData
+  | GeneratedPreviewNodeData
+  | TestImageNodeData
+  | EntourageNodeData
+> {
   return Boolean(
     node &&
     (node.type === "imageNode" ||
       node.type === "generatedPreviewNode" ||
-      node.type === "testImageNode") &&
+      node.type === "testImageNode" ||
+      node.type === "entourageNode") &&
     typeof node.data?.imageUrl === "string" &&
     node.data.imageUrl,
   );

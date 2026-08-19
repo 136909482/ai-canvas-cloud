@@ -151,6 +151,7 @@ interface CanvasStore {
     y: number;
   }) => string;
   addImageEditNode: (preferredPosition?: { x: number; y: number }) => string;
+  addEntourageNode: (preferredPosition?: { x: number; y: number }) => string;
   addLLMNode: (preferredPosition?: { x: number; y: number }) => string;
   addLLMFileNode: (preferredPosition?: { x: number; y: number }) => string;
   addGeneratedPreviewNode: (preferredPosition?: {
@@ -470,7 +471,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       );
       const newNode = registration.build(id, position, registration.size);
       const defaultModelCategory =
-        type === "generateNode"
+        type === "generateNode" || type === "entourageNode"
           ? "image"
           : type === "videoGenerateNode"
             ? "video"
@@ -486,6 +487,14 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
                 useSettingsStore.getState().config,
                 defaultModelCategory,
               ),
+              ...(type === "entourageNode"
+                ? {
+                    plannerModel: getPreferredSelectableModelEntryId(
+                      useSettingsStore.getState().config,
+                      "chat",
+                    ),
+                  }
+                : {}),
             },
           }
         : newNode;
@@ -520,6 +529,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     get().addNodeByType("interiorDesignNode", preferredPosition),
   addImageEditNode: (preferredPosition) =>
     get().addNodeByType("imageEditNode", preferredPosition),
+  addEntourageNode: (preferredPosition) =>
+    get().addNodeByType("entourageNode", preferredPosition),
   addLLMNode: (preferredPosition) =>
     get().addNodeByType("llmFileNode", preferredPosition),
   addLLMFileNode: (preferredPosition) =>

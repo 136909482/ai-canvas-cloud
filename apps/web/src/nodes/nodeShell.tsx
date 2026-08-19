@@ -1,7 +1,13 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { NodeResizer } from "@xyflow/react";
 import type { OnResizeEnd, ResizeDragEvent } from "@xyflow/react";
+import { useStore } from "@xyflow/react";
 import { X } from "lucide-react";
+import {
+  getNodeHeaderClassName,
+  getNodeHeaderScale,
+  type NodeHeaderVariant,
+} from "./nodeHeaderStyles";
 
 const NODE_RESIZER_LINE_CLASS = "!border-[var(--accent-violet-strong)]";
 const NODE_RESIZER_HANDLE_CLASS =
@@ -36,6 +42,7 @@ type NodeHeaderProps = {
   icon: ReactNode;
   title: ReactNode;
   right?: ReactNode;
+  variant?: NodeHeaderVariant;
 };
 
 type NodeStateTone = "neutral" | "violet" | "sky" | "amber" | "red";
@@ -87,6 +94,9 @@ const NODE_STATE_TONE_CLASS: Record<
     title: "text-red-100",
   },
 };
+
+const selectCanvasZoom = (state: { transform: [number, number, number] }) =>
+  state.transform[2];
 
 export function NodeDeleteButton({
   id,
@@ -145,9 +155,41 @@ export function NodeResizerPreset({
   );
 }
 
-export function NodeHeader({ icon, title, right }: NodeHeaderProps) {
+export function NodeHeader({
+  icon,
+  title,
+  right,
+  variant = "embedded",
+}: NodeHeaderProps) {
+  const zoom = useStore(selectCanvasZoom);
+
+  if (variant === "floating") {
+    const scale = getNodeHeaderScale(zoom);
+    const headerContentStyle = {
+      transform: `scale(${scale})`,
+      transformOrigin: "left bottom",
+    } satisfies CSSProperties;
+
+    return (
+      <div className={getNodeHeaderClassName(variant)}>
+        <div
+          className="flex min-w-0 max-w-[220px] items-center gap-1.5"
+          style={headerContentStyle}
+        >
+          <span className="flex-none text-[var(--accent-violet-strong)] [&_svg]:h-3 [&_svg]:w-3">
+            {icon}
+          </span>
+          <span className="min-w-0 truncate text-[11px] font-medium leading-5 text-[var(--text-secondary)]">
+            {title}
+          </span>
+          {right}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="node-drag-handle flex cursor-grab items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2 select-none active:cursor-grabbing">
+    <div className={getNodeHeaderClassName(variant)}>
       <span className="flex-none text-[var(--text-secondary)]">{icon}</span>
       <span className="min-w-0 flex-1 truncate text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">
         {title}

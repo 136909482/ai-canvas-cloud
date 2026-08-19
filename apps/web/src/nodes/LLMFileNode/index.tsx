@@ -563,19 +563,20 @@ export const LLMFileNode = memo(function LLMFileNode({
       </Handle>
 
       <NodeHeader
+        variant="floating"
         icon={<Paperclip className="h-3.5 w-3.5 text-[var(--text-muted)]" />}
         title={UI_TEXT.title}
-        right={
+      />
+
+      <div className="node-drag-handle flex min-h-0 flex-1 cursor-grab flex-col gap-2 p-2.5 active:cursor-grabbing">
+        <div className="flex h-6 shrink-0 items-center justify-end">
           <span
-            className={`ml-auto ${themeClasses.nodeBadge} ${statusMeta.toneClassName}`}
+            className={`${themeClasses.nodeBadge} ${statusMeta.toneClassName}`}
           >
             {statusMeta.icon}
             {statusMeta.label}
           </span>
-        }
-      />
-
-      <div className="flex min-h-0 flex-1 flex-col gap-2 p-2.5">
+        </div>
         <input
           ref={fileInputRef}
           type="file"

@@ -332,6 +332,156 @@ test("OpenAI compatible image-to-image uses the documented edits multipart contr
   assert.equal(body.has("resolution"), false);
 });
 
+test("Gemini 2.5 image-to-image uses multimodal chat with automatic output sizing", async () => {
+  const sourceImage = "data:image/png;base64,aW1hZ2U=";
+  const { result, requests } = await withMockFetch(
+    () =>
+      Response.json({
+        choices: [
+          {
+            message: {
+              images: [
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: "https://cdn.example/gemini-edited.png",
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    () =>
+      generateWithOpenAI({
+        prompt: "add a complete landscape",
+        ratio: "Auto",
+        resolution: "1K",
+        referenceImageUrl: sourceImage,
+        referenceImageUrls: [sourceImage],
+        apiKey: "gemini-key",
+        apiUrl: "https://images.example/v1",
+        model: "gemini-2.5-flash-image",
+        provider: "openai",
+        requestMode: "sync",
+        operationType: "image-to-image",
+      }),
+  );
+
+  assert.equal(result, "https://cdn.example/gemini-edited.png");
+  assert.equal(requests.length, 1);
+  assert.equal(
+    String(requests[0]?.input),
+    "https://images.example/v1/chat/completions",
+  );
+  assert.equal(
+    getHeader(requests[0]?.init, "content-type"),
+    "application/json",
+  );
+  const body = JSON.parse(String(requests[0]?.init?.body)) as {
+    messages: Array<{
+      content: Array<{
+        type: string;
+        text?: string;
+        image_url?: { url: string };
+      }>;
+    }>;
+    modalities: string[];
+    image_config?: unknown;
+    image_size?: unknown;
+    resolution?: unknown;
+    aspect_ratio?: unknown;
+  };
+  assert.deepEqual(body.modalities, ["text", "image"]);
+  assert.equal(body.messages[0]?.content[0]?.text, "add a complete landscape");
+  assert.equal(body.messages[0]?.content[1]?.image_url?.url, sourceImage);
+  assert.equal(body.image_config, undefined);
+  assert.equal(body.image_size, undefined);
+  assert.equal(body.resolution, undefined);
+  assert.equal(body.aspect_ratio, undefined);
+});
+
+test("Gemini 2.5 accepts an explicit supported ratio but ignores resolution tiers", async () => {
+  const sourceImage = "data:image/png;base64,aW1hZ2U=";
+  const { requests } = await withMockFetch(
+    () =>
+      Response.json({
+        choices: [
+          {
+            message: {
+              images: [
+                {
+                  image_url: { url: "https://cdn.example/gemini-wide.png" },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    () =>
+      generateWithOpenAI({
+        prompt: "add a complete landscape",
+        ratio: "16:9",
+        resolution: "4K",
+        referenceImageUrl: sourceImage,
+        apiKey: "gemini-key",
+        apiUrl: "https://images.example/v1",
+        model: "gemini-2.5-flash-image",
+        provider: "openai",
+        requestMode: "sync",
+        operationType: "image-to-image",
+      }),
+  );
+
+  const body = JSON.parse(String(requests[0]?.init?.body)) as {
+    image_config?: Record<string, unknown>;
+  };
+  assert.deepEqual(body.image_config, { aspect_ratio: "16:9" });
+});
+
+test("OpenAI compatible masked edits preserve the source with high input fidelity", async () => {
+  const originalCreateImageBitmap = globalThis.createImageBitmap;
+  Object.defineProperty(globalThis, "createImageBitmap", {
+    configurable: true,
+    writable: true,
+    value: async () => ({ width: 1024, height: 1024, close: () => {} }),
+  });
+
+  try {
+    const { requests } = await withMockFetch(
+      () =>
+        Response.json({ data: [{ url: "https://cdn.example/edited.png" }] }),
+      () =>
+        generateWithOpenAI({
+          prompt: "add one tree only inside the mask",
+          ratio: "1:1",
+          resolution: "1K",
+          editImageUrl: "data:image/png;base64,aW1hZ2U=",
+          maskImageUrl: "data:image/png;base64,bWFzaw==",
+          inputFidelity: "high",
+          apiKey: "openai-key",
+          apiUrl: "https://images.example/v1",
+          model: "gpt-image-2",
+          provider: "openai",
+          requestMode: "sync",
+          operationType: "image-edit",
+        }),
+    );
+
+    const body = requests[0]?.init?.body;
+    assert.ok(body instanceof FormData);
+    assert.equal(body.getAll("image[]").length, 1);
+    assert.ok(body.get("mask") instanceof File);
+    assert.equal(body.get("input_fidelity"), "high");
+  } finally {
+    Object.defineProperty(globalThis, "createImageBitmap", {
+      configurable: true,
+      writable: true,
+      value: originalCreateImageBitmap,
+    });
+  }
+});
+
 test("GPT Image follows a reference ratio while preserving the selected K tier", async () => {
   const sourceImageUrl = "https://assets.example/896x1200.png";
   const originalImage = globalThis.Image;

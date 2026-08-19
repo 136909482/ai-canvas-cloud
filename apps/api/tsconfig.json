@@ -11,8 +11,29 @@
         "../../packages/contracts/src/httpSchema.ts"
       ],
       "@ai-canvas-cloud/server": ["../../server/index.ts"],
+      "@ai-canvas-cloud/server/modules/admin": [
+        "../../server/modules/admin/index.ts"
+      ],
+      "@ai-canvas-cloud/server/modules/announcements": [
+        "../../server/modules/announcements/index.ts"
+      ],
+      "@ai-canvas-cloud/server/modules/assets": [
+        "../../server/modules/assets/index.ts"
+      ],
       "@ai-canvas-cloud/server/modules/auth": [
         "../../server/modules/auth/index.ts"
+      ],
+      "@ai-canvas-cloud/server/modules/community": [
+        "../../server/modules/community/index.ts"
+      ],
+      "@ai-canvas-cloud/server/modules/generation-telemetry": [
+        "../../server/modules/generation-telemetry/index.ts"
+      ],
+      "@ai-canvas-cloud/server/modules/generation-task-records": [
+        "../../server/modules/generation-task-records/index.ts"
+      ],
+      "@ai-canvas-cloud/server/modules/mail": [
+        "../../server/modules/mail/index.ts"
       ],
       "@ai-canvas-cloud/server/modules/migrations": [
         "../../server/modules/migrations/index.ts"
@@ -25,6 +46,12 @@
       ],
       "@ai-canvas-cloud/server/modules/projects": [
         "../../server/modules/projects/index.ts"
+      ],
+      "@ai-canvas-cloud/server/modules/settings": [
+        "../../server/modules/settings/index.ts"
+      ],
+      "@ai-canvas-cloud/server/modules/workspaces": [
+        "../../server/modules/workspaces/index.ts"
       ],
       "@ai-canvas-cloud/shared": ["../../packages/shared/src/index.ts"]
     }

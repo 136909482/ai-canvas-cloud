@@ -1,11 +1,14 @@
 import type { ImageOperationType } from "@/types";
+import { buildChatCompletionsUrl } from "../chatAdapter.ts";
 import {
   SUPPORTED_GENERATE_RATIOS,
   type SupportedGenerateRatio,
 } from "@/constants/generateNode";
 import { fetchPollingRequestWithRetry } from "../pollingRetry.ts";
+import { normalizeEditImageFiles } from "./editMask.ts";
 import {
   buildApiError,
+  blobToDataUrl,
   convertReferenceImageToFile,
   getFirstStringValue,
   getImageResultFromResponsePayload,
@@ -90,6 +93,19 @@ const GPT_IMAGE_2_INITIAL_POLL_DELAY_MS = 10 * 1000;
 
 type OpenAiCompatibleImageRequestFamily = "openai" | "gemini" | "generic";
 
+const GEMINI_25_IMAGE_RATIOS = new Set([
+  "1:1",
+  "2:3",
+  "3:2",
+  "3:4",
+  "4:3",
+  "4:5",
+  "5:4",
+  "9:16",
+  "16:9",
+  "21:9",
+]);
+
 function getOrdinalLabel(order: number) {
   switch (order) {
     case 1:
@@ -152,6 +168,10 @@ export function isGptImageModel(model: string) {
 function isGeminiImageModel(model: string) {
   const normalized = model.trim().toLowerCase();
   return normalized.includes("gemini") || /nano[-_ ]?banana/.test(normalized);
+}
+
+function isGemini25FlashImageModel(model: string) {
+  return model.trim().toLowerCase().includes("gemini-2.5-flash-image");
 }
 
 function getOpenAiCompatibleImageRequestFamily(
@@ -394,6 +414,17 @@ function shouldUseOpenAiImageEditRequest(params: GenerateImageParams) {
   return getOpenAiImageEditInputImages(params).length > 0;
 }
 
+function shouldUseGeminiChatImageRequest(params: GenerateImageParams) {
+  return (
+    getOpenAiCompatibleImageRequestFamily(params.model) === "gemini" &&
+    resolveImageOperationType(params) === "image-to-image" &&
+    normalizeReferenceImages(
+      params.referenceImageUrl,
+      params.referenceImageUrls,
+    ).length > 0
+  );
+}
+
 function appendStringFormField(
   formData: FormData,
   key: string,
@@ -406,11 +437,17 @@ function appendStringFormField(
   formData.append(key, String(value));
 }
 
-function buildGeminiImageConfig(imageSize: string, size: string) {
+function buildGeminiImageConfig(params: GenerateImageParams, size: string) {
+  if (isGemini25FlashImageModel(params.model)) {
+    const requestedRatio = params.ratio?.trim();
+    return requestedRatio && GEMINI_25_IMAGE_RATIOS.has(requestedRatio)
+      ? { aspect_ratio: requestedRatio }
+      : null;
+  }
+
   return {
-    image_size: imageSize,
-    resolution: imageSize,
-    aspect_ratio: size,
+    image_size: normalizeGeminiImageResolution(params.resolution),
+    ...(size === "auto" ? {} : { aspect_ratio: size }),
   };
 }
 
@@ -419,13 +456,8 @@ function addGeminiImagePayloadFields(
   params: GenerateImageParams,
   size: string,
 ) {
-  const imageSize = normalizeGeminiImageResolution(params.resolution);
-  const imageConfig = buildGeminiImageConfig(imageSize, size);
-
-  payload.resolution = imageSize;
-  payload.image_size = imageSize;
-  payload.image_config = imageConfig;
-  payload.aspect_ratio = size;
+  const imageConfig = buildGeminiImageConfig(params, size);
+  if (imageConfig) payload.image_config = imageConfig;
 }
 
 function addGeminiImageFormFields(
@@ -433,13 +465,14 @@ function addGeminiImageFormFields(
   params: GenerateImageParams,
   size: string,
 ) {
-  const imageSize = normalizeGeminiImageResolution(params.resolution);
-  const imageConfig = buildGeminiImageConfig(imageSize, size);
-
-  appendStringFormField(formData, "resolution", imageSize);
-  appendStringFormField(formData, "image_size", imageSize);
-  appendStringFormField(formData, "image_config", JSON.stringify(imageConfig));
-  appendStringFormField(formData, "aspect_ratio", size);
+  const imageConfig = buildGeminiImageConfig(params, size);
+  if (imageConfig) {
+    appendStringFormField(
+      formData,
+      "image_config",
+      JSON.stringify(imageConfig),
+    );
+  }
 }
 
 async function buildGptImageGenerationPayload(
@@ -515,24 +548,102 @@ async function buildGptImageEditFormData(
     );
     appendStringFormField(formData, "moderation", "auto");
     appendStringFormField(formData, "output_format", "png");
+    if (params.inputFidelity) {
+      appendStringFormField(formData, "input_fidelity", params.inputFidelity);
+    }
   }
 
   if (requestFamily === "gemini") {
     addGeminiImageFormFields(formData, params, size);
   }
 
+  let maskFile: File | null = null;
+  if (operationType === "image-edit" && params.maskImageUrl) {
+    maskFile = await convertReferenceImageToFile(
+      params.maskImageUrl,
+      imageFiles.length,
+    );
+    if (imageFiles[0]) {
+      const normalized = await normalizeEditImageFiles(
+        imageFiles[0],
+        maskFile,
+        size,
+      );
+      imageFiles[0] = normalized.sourceFile;
+      maskFile = normalized.maskFile;
+    }
+  }
+
   for (const imageFile of imageFiles) {
     formData.append(imageFieldName, imageFile);
   }
 
-  if (operationType === "image-edit" && params.maskImageUrl) {
-    formData.append(
-      "mask",
-      await convertReferenceImageToFile(params.maskImageUrl, imageFiles.length),
-    );
+  if (maskFile) {
+    formData.append("mask", maskFile);
   }
 
   return formData;
+}
+
+async function generateGeminiImageToImageWithChat(
+  params: GenerateImageParams,
+  size: string,
+) {
+  const referenceImages = normalizeReferenceImages(
+    params.referenceImageUrl,
+    params.referenceImageUrls,
+  );
+  const inlineImages = await Promise.all(
+    referenceImages.map(async (imageUrl, index) => {
+      if (imageUrl.startsWith("data:image/")) return imageUrl;
+      const imageFile = await convertReferenceImageToFile(imageUrl, index);
+      return blobToDataUrl(imageFile);
+    }),
+  );
+  const imageConfig = buildGeminiImageConfig(params, size);
+  const response = await fetch(buildChatCompletionsUrl(params.apiUrl), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${params.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: params.model,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: params.prompt },
+            ...inlineImages.map((imageUrl) => ({
+              type: "image_url",
+              image_url: { url: imageUrl },
+            })),
+          ],
+        },
+      ],
+      stream: false,
+      modalities: ["text", "image"],
+      ...(imageConfig ? { image_config: imageConfig } : {}),
+    }),
+    signal: params.signal,
+  }).catch((error: unknown) => {
+    throw new Error(
+      getNetworkErrorMessage(
+        error,
+        "OpenAI compatible Gemini image generation",
+      ),
+    );
+  });
+
+  if (!response.ok) {
+    throw await buildApiError(
+      response,
+      "OpenAI compatible Gemini image generation",
+    );
+  }
+
+  const { payload, rawText } = await parseJsonLikeResponse(response);
+  return getImageResultFromResponsePayload(payload, rawText);
 }
 
 async function buildGptImageRequestBody(
@@ -649,6 +760,10 @@ export async function generateWithOpenAI(
   const endpointPath = resolveOpenAiImageEndpointPath(params, operationType);
   const generationsEndpoint = getOpenAiRequestUrl(params.apiUrl, endpointPath);
   const size = await resolveOpenAiRequestSize(params);
+
+  if (shouldUseGeminiChatImageRequest(params)) {
+    return generateGeminiImageToImageWithChat(params, size);
+  }
 
   if (params.requestMode === "async") {
     const submission = await submitOpenAiAsyncImageGeneration(params, size);

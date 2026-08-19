@@ -9,6 +9,8 @@ import {
 } from "@/features/imageCrop/runtime";
 import type { RichPromptDocument } from "@/features/richPrompt/types";
 import type {
+  EntourageNodeData,
+  EntouragePlacement,
   GptImageQuality,
   ImageCropNodeData,
   ImageEditNodeData,
@@ -225,6 +227,61 @@ export function createImageEditNodeData(
     brushMode: data?.brushMode === "erase" ? "erase" : "paint",
     maskVisible:
       typeof data?.maskVisible === "boolean" ? data.maskVisible : true,
+  };
+}
+
+export function createEntourageNodeData(
+  data?: Node["data"],
+): EntourageNodeData {
+  const rawPlacements = Array.isArray(data?.placements) ? data.placements : [];
+  const placements = rawPlacements.filter(
+    (item): item is EntouragePlacement =>
+      Boolean(item) &&
+      typeof item === "object" &&
+      typeof item.kind === "string" &&
+      typeof item.label === "string" &&
+      typeof item.prompt === "string" &&
+      Array.isArray(item.box) &&
+      item.box.length === 4 &&
+      item.box.every((value: unknown) => typeof value === "number"),
+  );
+
+  return {
+    sourceImageNodeId:
+      typeof data?.sourceImageNodeId === "string"
+        ? data.sourceImageNodeId
+        : null,
+    feature:
+      data?.feature === "rich" || data?.feature === "people"
+        ? data.feature
+        : "plants",
+    placements,
+    imageUrl: typeof data?.imageUrl === "string" ? data.imageUrl : null,
+    imageAsset: cloneWorkspaceImageAsset(
+      data?.imageAsset,
+    ) as EntourageNodeData["imageAsset"],
+    status:
+      data?.status === "queued" ||
+      data?.status === "generating" ||
+      data?.status === "done" ||
+      data?.status === "error"
+        ? data.status
+        : "idle",
+    errorMsg: typeof data?.errorMsg === "string" ? data.errorMsg : "",
+    model:
+      typeof data?.model === "string" ? data.model : DEFAULT_IMAGE_MODEL_ID,
+    ratio: normalizeGenerateRatio(data?.ratio),
+    resolution:
+      typeof data?.resolution === "string" &&
+      ["1K", "2K", "4K"].includes(data.resolution)
+        ? data.resolution
+        : "1K",
+    plannerModel:
+      typeof data?.plannerModel === "string" ? data.plannerModel : "",
+    activeTaskId:
+      typeof data?.activeTaskId === "string" ? data.activeTaskId : null,
+    lastRunAt: typeof data?.lastRunAt === "number" ? data.lastRunAt : null,
+    prompt: typeof data?.prompt === "string" ? data.prompt : "",
   };
 }
 

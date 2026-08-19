@@ -1871,9 +1871,12 @@ body:has(.auth-modal-backdrop) .home-scene-node {
   pointer-events: none !important;
 }
 
-.canvas-image-heavy-stable .react-flow__edge.animated path,
-.canvas-image-heavy-stable .handle-orb__glow,
-.canvas-image-heavy-stable .handle-orb__ring {
+.canvas-performance-rendering
+  .canvas-image-heavy-stable
+  .react-flow__edge.animated
+  path,
+.canvas-performance-rendering .canvas-image-heavy-stable .handle-orb__glow,
+.canvas-performance-rendering .canvas-image-heavy-stable .handle-orb__ring {
   animation-play-state: paused !important;
 }
 

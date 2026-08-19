@@ -436,6 +436,96 @@ export function enqueueGenerateTask(input: EnqueueGenerateTaskInput) {
   return taskId;
 }
 
+export function enqueueEntourageEditTask(input: {
+  projectId?: string | null;
+  nodeId: string;
+  prompt: string;
+  model: string;
+  sourceImageNodeId: string | null;
+  maskImageUrl?: string | null;
+  referenceImages?: GenerateTaskImageSource[];
+  editImageSource?: GenerateTaskImageSource | null;
+  maskImageSource?: GenerateTaskImageSource | null;
+  ratio?: string;
+  resolution?: string;
+}) {
+  const canvasStore = useCanvasStore.getState();
+  const sourceNode = canvasStore.nodes.find(
+    (node) => node.id === input.nodeId && node.type === "entourageNode",
+  );
+
+  if (!sourceNode) {
+    return null;
+  }
+
+  const prompt = input.prompt.trim();
+  const model = input.model?.trim() ?? "";
+  if (!prompt || !model) {
+    return null;
+  }
+
+  const ratio = input.ratio || "1:1";
+  const sourceImageNodeId = input.sourceImageNodeId ?? null;
+  const maskImageUrl = input.maskImageUrl ?? null;
+  const referenceImages = input.referenceImages ?? [];
+  const operationType =
+    sourceImageNodeId && maskImageUrl
+      ? "image-edit"
+      : referenceImages.length > 0
+        ? "image-to-image"
+        : null;
+  if (!sourceImageNodeId || !operationType) {
+    return null;
+  }
+
+  const providerSnapshot = getTaskProviderSnapshot(model, "image");
+  const previewNodeId = createQueuedPreview(
+    input.nodeId,
+    prompt,
+    model,
+    ratio,
+    {
+      originOperation:
+        operationType === "image-edit" ? "image-edit" : "generate",
+      sourceImageNodeId,
+      apiProfileName: providerSnapshot.apiProfileName,
+    },
+  );
+  const taskId = useTaskQueueStore.getState().createTask({
+    projectId: input.projectId ?? null,
+    sourceNodeId: input.nodeId,
+    previewNodeId,
+    model,
+    prompt,
+    negativePrompt: "",
+    ratio,
+    resolution: input.resolution ?? "1K",
+    operationType,
+    sourceImageNodeId,
+    maskImageUrl: operationType === "image-edit" ? maskImageUrl : null,
+    editImageSource:
+      operationType === "image-edit" ? (input.editImageSource ?? null) : null,
+    maskImageSource:
+      operationType === "image-edit" ? (input.maskImageSource ?? null) : null,
+    ...providerSnapshot,
+    referenceImages: operationType === "image-to-image" ? referenceImages : [],
+    inputFidelity: "high",
+    quality: null,
+    googleSearch: false,
+    googleImageSearch: false,
+  });
+
+  const sourceTaskState = getActiveSourceTaskState(input.nodeId);
+  canvasStore.updateNodeData(input.nodeId, {
+    status: sourceTaskState?.status ?? "queued",
+    errorMsg: sourceTaskState?.errorMsg ?? "",
+    activeTaskId: sourceTaskState?.activeTaskId ?? taskId,
+  });
+  canvasStore.updateNodeData(previewNodeId, { taskId });
+
+  return taskId;
+}
+
 export function enqueueVideoGenerateTask(input: EnqueueVideoGenerateTaskInput) {
   const canvasStore = useCanvasStore.getState();
   const sourceNode = canvasStore.nodes.find(

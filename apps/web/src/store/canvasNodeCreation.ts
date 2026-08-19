@@ -3,6 +3,7 @@ import { DEFAULT_IMAGE_MODEL_ID } from "@/config/modelCatalog";
 import { DEFAULT_GENERATE_RATIO } from "@/constants/generateNode";
 import type {
   CompareNodeData,
+  EntourageNodeData,
   GenerateStatus,
   GenerateNodeData,
   InteriorDesignNodeData,
@@ -25,6 +26,7 @@ import {
   createDefaultInteriorDesignConfig,
 } from "@/features/interiorDesign/compiler";
 import {
+  createEntourageNodeData,
   createImageCropNodeData,
   createImageEditNodeData,
   createImageNodeData,
@@ -274,6 +276,23 @@ export function buildManualImageEditNode(
     height: size.height,
     selected: true,
     data: createImageEditNodeData(),
+  };
+}
+
+export function buildManualEntourageNode(
+  id: string,
+  position: { x: number; y: number },
+  size: { width: number; height: number },
+): Node<EntourageNodeData> {
+  return {
+    id,
+    type: "entourageNode",
+    dragHandle: NODE_DRAG_HANDLE,
+    position,
+    width: size.width,
+    height: size.height,
+    selected: true,
+    data: createEntourageNodeData(),
   };
 }
 

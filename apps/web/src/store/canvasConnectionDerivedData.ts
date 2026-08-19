@@ -562,6 +562,44 @@ export function syncConnectionDerivedNodeData(nodes: Node[], edges: Edge[]) {
     );
   }
 
+  const entourageNodes = nextNodes.filter(
+    (node) => node.type === "entourageNode",
+  );
+
+  for (const node of entourageNodes) {
+    const incomingBaseEdge = edges.find(
+      (edge) =>
+        edge.target === node.id &&
+        edge.targetHandle === "base" &&
+        isConnectedImageSourceNode(getCanvasNodeById(nextNodes, edge.source)),
+    );
+    const nextSourceImageNodeId =
+      typeof incomingBaseEdge?.source === "string"
+        ? incomingBaseEdge.source
+        : null;
+    const currentSourceImageNodeId =
+      typeof node.data?.sourceImageNodeId === "string"
+        ? node.data.sourceImageNodeId
+        : null;
+
+    if (currentSourceImageNodeId === nextSourceImageNodeId) {
+      continue;
+    }
+
+    hasChanges = true;
+    nextNodes = nextNodes.map((candidate) =>
+      candidate.id === node.id
+        ? {
+            ...candidate,
+            data: {
+              ...candidate.data,
+              sourceImageNodeId: nextSourceImageNodeId,
+            },
+          }
+        : candidate,
+    );
+  }
+
   const panoramaNodes = nextNodes.filter(
     (node) => node.type === "panoramaNode",
   );

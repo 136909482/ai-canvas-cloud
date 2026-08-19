@@ -1,6 +1,7 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { CanvasSnapshot } from "@/types";
 import { createInteriorDesignNodeData } from "@/features/interiorDesign/nodeData";
+import { createEntourageNodeData } from "./canvasNodeData";
 
 type NormalizeNodes = (nodes: Node[]) => Node[];
 
@@ -59,6 +60,14 @@ export function sanitizeNodeForPersistence(node: Node): Node {
       ...node,
       selected: false,
       data: createInteriorDesignNodeData(node.data),
+    };
+  }
+
+  if (node.type === "entourageNode") {
+    return {
+      ...node,
+      selected: false,
+      data: createEntourageNodeData(node.data),
     };
   }
 

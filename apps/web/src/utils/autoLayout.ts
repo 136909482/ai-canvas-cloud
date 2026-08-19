@@ -21,33 +21,35 @@ function getSize(node: Node): { width: number; height: number } {
           ? 560
           : node.type === "imageEditNode"
             ? 520
-            : node.type === "imageCropNode"
-              ? 420
-              : node.type === "llmNode" || node.type === "llmFileNode"
-                ? 480
-                : node.type === "generatedPreviewNode"
-                  ? 300
-                  : node.type === "compareNode"
-                    ? 420
-                    : node.type === "llmOutputTextNode"
-                      ? 320
-                      : node.type === "textSplitterNode"
-                        ? 360
-                        : node.type === "inlineTextSplitterNode"
-                          ? 420
-                          : node.type === "groupNode"
-                            ? 520
-                            : node.type === "imageNode"
-                              ? IMAGE_NODE_WIDTH
-                              : node.type === "videoNode"
-                                ? VIDEO_NODE_WIDTH
-                                : node.type === "videoGenerateNode"
-                                  ? VIDEO_GENERATE_NODE_WIDTH
-                                  : node.type === "testImageNode"
-                                    ? IMAGE_NODE_WIDTH
-                                    : node.type === "textNode"
-                                      ? 280
-                                      : 240;
+            : node.type === "entourageNode"
+              ? 360
+              : node.type === "imageCropNode"
+                ? 420
+                : node.type === "llmNode" || node.type === "llmFileNode"
+                  ? 480
+                  : node.type === "generatedPreviewNode"
+                    ? 300
+                    : node.type === "compareNode"
+                      ? 420
+                      : node.type === "llmOutputTextNode"
+                        ? 320
+                        : node.type === "textSplitterNode"
+                          ? 360
+                          : node.type === "inlineTextSplitterNode"
+                            ? 420
+                            : node.type === "groupNode"
+                              ? 520
+                              : node.type === "imageNode"
+                                ? IMAGE_NODE_WIDTH
+                                : node.type === "videoNode"
+                                  ? VIDEO_NODE_WIDTH
+                                  : node.type === "videoGenerateNode"
+                                    ? VIDEO_GENERATE_NODE_WIDTH
+                                    : node.type === "testImageNode"
+                                      ? IMAGE_NODE_WIDTH
+                                      : node.type === "textNode"
+                                        ? 280
+                                        : 240;
 
   const h =
     typeof node.height === "number"
@@ -58,33 +60,35 @@ function getSize(node: Node): { width: number; height: number } {
           ? 620
           : node.type === "imageEditNode"
             ? 430
-            : node.type === "imageCropNode"
-              ? 420
-              : node.type === "llmNode" || node.type === "llmFileNode"
-                ? 340
-                : node.type === "generatedPreviewNode"
-                  ? 260
-                  : node.type === "compareNode"
-                    ? 320
-                    : node.type === "llmOutputTextNode"
-                      ? 240
-                      : node.type === "textSplitterNode"
+            : node.type === "entourageNode"
+              ? 300
+              : node.type === "imageCropNode"
+                ? 420
+                : node.type === "llmNode" || node.type === "llmFileNode"
+                  ? 340
+                  : node.type === "generatedPreviewNode"
+                    ? 260
+                    : node.type === "compareNode"
+                      ? 320
+                      : node.type === "llmOutputTextNode"
                         ? 240
-                        : node.type === "inlineTextSplitterNode"
-                          ? 420
-                          : node.type === "groupNode"
+                        : node.type === "textSplitterNode"
+                          ? 240
+                          : node.type === "inlineTextSplitterNode"
                             ? 420
-                            : node.type === "imageNode"
-                              ? IMAGE_NODE_HEIGHT
-                              : node.type === "videoNode"
-                                ? VIDEO_NODE_HEIGHT
-                                : node.type === "videoGenerateNode"
-                                  ? VIDEO_GENERATE_NODE_HEIGHT
-                                  : node.type === "testImageNode"
-                                    ? IMAGE_NODE_HEIGHT
-                                    : node.type === "textNode"
-                                      ? 220
-                                      : 180;
+                            : node.type === "groupNode"
+                              ? 420
+                              : node.type === "imageNode"
+                                ? IMAGE_NODE_HEIGHT
+                                : node.type === "videoNode"
+                                  ? VIDEO_NODE_HEIGHT
+                                  : node.type === "videoGenerateNode"
+                                    ? VIDEO_GENERATE_NODE_HEIGHT
+                                    : node.type === "testImageNode"
+                                      ? IMAGE_NODE_HEIGHT
+                                      : node.type === "textNode"
+                                        ? 220
+                                        : 180;
 
   return { width: w, height: h };
 }

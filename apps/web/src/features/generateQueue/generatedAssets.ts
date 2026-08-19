@@ -8,6 +8,7 @@ import {
   saveRememberedPendingTaskResult,
 } from "@/features/settings/localVault";
 import { platformBridge } from "@/platform";
+import { useProjectStore } from "@/store/useProjectStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import type { GenerateTask, WorkspaceImageAsset } from "@/types";
 
@@ -19,6 +20,13 @@ function buildAssetFolderDate(timestamp: number) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+export function resolveGeneratedAssetProjectId(
+  taskProjectId: string | null | undefined,
+  activeProjectId: string | null | undefined,
+) {
+  return taskProjectId?.trim() || activeProjectId?.trim() || null;
 }
 
 export function buildGeneratedImageFileName(
@@ -168,9 +176,13 @@ export async function persistGeneratedImageBlob(
     };
   }
 
+  const projectId = resolveGeneratedAssetProjectId(
+    task.projectId,
+    useProjectStore.getState().activeProjectId,
+  );
   const asset = await writeWorkspaceImageAsset({
     pathSegments: buildProjectAssetPath(
-      task.projectId,
+      projectId,
       "generated",
       buildAssetFolderDate(task.createdAt),
     ),
@@ -200,9 +212,13 @@ export async function persistGeneratedVideoAsset(
 
   const blob = await downloadGeneratedVideoAsBlob(videoUrl);
 
+  const projectId = resolveGeneratedAssetProjectId(
+    task.projectId,
+    useProjectStore.getState().activeProjectId,
+  );
   const asset = await platformBridge.writeWorkspaceAsset({
     pathSegments: buildProjectAssetPath(
-      task.projectId,
+      projectId,
       "generated",
       buildAssetFolderDate(task.createdAt),
     ),

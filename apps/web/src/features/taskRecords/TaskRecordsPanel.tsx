@@ -16,6 +16,8 @@ import type {
   GenerationTaskRecordsResponse,
 } from "@ai-canvas-cloud/contracts";
 import { CloudApiError } from "@/api/cloudApiClient";
+import { backfillTerminalTaskRecords } from "@/features/taskRecords";
+import { useTaskQueueStore } from "@/store/useTaskQueueStore";
 import { fetchTaskRecords } from "./api";
 import { TaskRecordDetailDialog } from "./TaskRecordDetailDialog";
 
@@ -94,7 +96,15 @@ export function TaskRecordsPanel() {
   }, []);
 
   useEffect(() => {
-    void load();
+    let cancelled = false;
+    void backfillTerminalTaskRecords(useTaskQueueStore.getState().tasks).then(
+      () => {
+        if (!cancelled) void load();
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [load]);
 
   return (

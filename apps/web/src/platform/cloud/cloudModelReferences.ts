@@ -7,6 +7,7 @@ const MODEL_NODE_TYPES = new Set([
   "videoNode",
   "generateNode",
   "imageEditNode",
+  "entourageNode",
   "generatedPreviewNode",
   "videoGenerateNode",
   "llmNode",
@@ -78,6 +79,12 @@ export function prepareCanvasForCloud(
         data.model = isLocalModelReference(modelId)
           ? modelId
           : ensureReference(modelId);
+      const plannerModelId =
+        typeof data.plannerModel === "string" ? data.plannerModel.trim() : "";
+      if (plannerModelId)
+        data.plannerModel = isLocalModelReference(plannerModelId)
+          ? plannerModelId
+          : ensureReference(plannerModelId);
 
       return cloneNodeWithData(node, data);
     }),
@@ -98,6 +105,12 @@ export function hydrateCanvasLocalModelReferences(
       if (!isLocalModelReference(reference)) return node;
 
       data.model = resolveReference(reference) ?? reference;
+      const plannerReference =
+        typeof data.plannerModel === "string" ? data.plannerModel.trim() : "";
+      if (isLocalModelReference(plannerReference)) {
+        data.plannerModel =
+          resolveReference(plannerReference) ?? plannerReference;
+      }
       return cloneNodeWithData(node, data);
     }),
     edges: snapshot.edges,

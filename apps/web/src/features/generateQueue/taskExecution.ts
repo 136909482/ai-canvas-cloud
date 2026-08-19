@@ -36,6 +36,7 @@ import {
 } from "./imageProviderAdapters";
 import { runWithTaskImageInputRefresh } from "./taskImageInputs";
 import { getPreviewNodeSize, loadImageDimensions } from "./previewUtils";
+import { isSupportedTaskSourceNodeType } from "./taskSourcePolicy";
 import {
   resolvePreviewSourceImageNodeId,
   resolveTaskSourceImageUrl,
@@ -74,6 +75,16 @@ function generationFailureCategory(error: unknown) {
     : classifyGenerationFailure(error);
 }
 
+function reportCurrentTaskRecord(
+  task: GenerateTask,
+  terminal: Parameters<typeof reportTaskRecordForTask>[1],
+) {
+  const currentTask =
+    useTaskQueueStore.getState().tasks.find((item) => item.id === task.id) ??
+    task;
+  reportTaskRecordForTask(currentTask, terminal);
+}
+
 function getTaskRuntime(taskId: string) {
   const task = useTaskQueueStore
     .getState()
@@ -88,10 +99,7 @@ function getTaskRuntime(taskId: string) {
   );
   if (
     !sourceNode ||
-    (task.kind === "video"
-      ? sourceNode.type !== "videoGenerateNode"
-      : sourceNode.type !== "generateNode" &&
-        sourceNode.type !== "imageEditNode")
+    !isSupportedTaskSourceNodeType(task.kind, sourceNode.type)
   ) {
     throw new Error(
       task.kind === "video"
@@ -525,7 +533,7 @@ async function resumeRemoteGenerateTask(taskId: string) {
         status: "succeeded",
         resultCount: 1,
       });
-      reportTaskRecordForTask(runningTask, {
+      reportCurrentTaskRecord(runningTask, {
         status: "succeeded",
         resultCount: 1,
       });
@@ -558,7 +566,7 @@ async function resumeRemoteGenerateTask(taskId: string) {
       status: "succeeded",
       resultCount: 1,
     });
-    reportTaskRecordForTask(runningTask, {
+    reportCurrentTaskRecord(runningTask, {
       status: "succeeded",
       resultCount: 1,
     });
@@ -759,7 +767,7 @@ export async function runGenerateTask(taskId: string) {
         status: "succeeded",
         resultCount: 1,
       });
-      reportTaskRecordForTask(runningTask, {
+      reportCurrentTaskRecord(runningTask, {
         status: "succeeded",
         resultCount: 1,
       });
@@ -813,7 +821,7 @@ export async function runGenerateTask(taskId: string) {
         status: "succeeded",
         resultCount: 1,
       });
-      reportTaskRecordForTask(runningTask, {
+      reportCurrentTaskRecord(runningTask, {
         status: "succeeded",
         resultCount: 1,
       });
@@ -896,7 +904,7 @@ export async function runGenerateTask(taskId: string) {
       status: "succeeded",
       resultCount: 1,
     });
-    reportTaskRecordForTask(runningTask, {
+    reportCurrentTaskRecord(runningTask, {
       status: "succeeded",
       resultCount: 1,
     });

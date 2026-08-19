@@ -1,4 +1,5 @@
 import { decodeBase64DataUrl } from "@/utils/mediaDataUrl";
+import { buildDownloadFileName } from "@/utils/downloadFileName";
 
 export type ToolMode =
   "select" | "brush" | "line" | "rect" | "ellipse" | "text";
@@ -141,15 +142,8 @@ export function getImageNodeSize(width: number, height: number) {
   };
 }
 
-export function getDownloadFileName(title: string, suffix = "") {
-  const baseName =
-    (title || "edited-image")
-      .replace(/[\\/:*?"<>|]/g, "-")
-      .trim()
-      .replace(/\.(png|jpe?g|webp|gif|bmp|svg)$/i, "")
-      .replace(/\.+$/, "") || "edited-image";
-
-  return `${baseName}${suffix}.png`;
+export function getDownloadFileName(suffix = "") {
+  return buildDownloadFileName({ suffix, extension: "png" });
 }
 
 export function downloadDataUrl(dataUrl: string, fileName: string) {

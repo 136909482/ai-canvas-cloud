@@ -18,6 +18,7 @@ test("node registration protocol covers all shared node types and compatibility 
     "generateNode",
     "interiorDesignNode",
     "imageEditNode",
+    "entourageNode",
     "experimentalGenerateNode",
     "generatedPreviewNode",
     "compareNode",

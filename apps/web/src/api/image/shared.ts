@@ -214,12 +214,27 @@ export async function downloadMediaAsBlob(mediaUrl: string, context: string) {
 
 export function getImageResultFromUnknown(payload: unknown): string | null {
   if (typeof payload === "string" && payload.trim()) {
+    const trimmed = payload.trim();
     if (
-      payload.startsWith("http://") ||
-      payload.startsWith("https://") ||
-      payload.startsWith("data:image/")
+      trimmed.startsWith("http://") ||
+      trimmed.startsWith("https://") ||
+      trimmed.startsWith("data:image/")
     ) {
-      return payload;
+      return trimmed;
+    }
+
+    const embeddedDataUrl = trimmed.match(
+      /data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+/i,
+    )?.[0];
+    if (embeddedDataUrl) {
+      return embeddedDataUrl.replace(/\s+/g, "");
+    }
+
+    const markdownImageUrl = trimmed.match(
+      /!\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/i,
+    )?.[1];
+    if (markdownImageUrl) {
+      return markdownImageUrl;
     }
   }
 
@@ -239,6 +254,15 @@ export function getImageResultFromUnknown(payload: unknown): string | null {
   }
 
   const record = payload as Record<string, unknown>;
+
+  const inlineMimeType = getFirstStringValue(record.mimeType, record.mime_type);
+  if (
+    inlineMimeType?.startsWith("image/") &&
+    typeof record.data === "string" &&
+    record.data.trim()
+  ) {
+    return `data:${inlineMimeType};base64,${record.data.trim()}`;
+  }
 
   const embeddedBase64 = getFirstStringValue(
     record.b64_json,

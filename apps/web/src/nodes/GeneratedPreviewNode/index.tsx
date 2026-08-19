@@ -1,4 +1,4 @@
-﻿import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { Handle, Position, type OnResizeEnd } from "@xyflow/react";
 import {
   Brush,
@@ -33,6 +33,7 @@ import { getNodeShellClassName } from "../nodeShellClassName";
 import { areNodeContentPropsEqual } from "../nodePropComparators";
 import { downloadPreviewImage } from "./downloadImage";
 import { CommunitySubmissionDialog } from "@/features/community/CommunitySubmissionDialog";
+import { buildDownloadFileName } from "@/utils/downloadFileName";
 
 type GeneratedPreviewNodeProps = AppNodeProps<"generatedPreviewNode">;
 
@@ -62,10 +63,6 @@ const UI_TEXT = {
   generateFailed: "生成失败",
 } as const;
 
-function sanitizeFileName(value: string) {
-  return value.replace(/[\\/:*?"<>|]/g, "-").trim();
-}
-
 function formatPreviewDate(timestamp: number) {
   const date = new Date(timestamp);
   return [
@@ -76,18 +73,6 @@ function formatPreviewDate(timestamp: number) {
 
 function padTimePart(value: number) {
   return String(value).padStart(2, "0");
-}
-
-function buildDownloadFileName(timestamp: number, extension: string) {
-  const date = new Date(timestamp);
-  const year = date.getFullYear();
-  const month = date.getMonth() + 1;
-  const day = date.getDate();
-  const hours = padTimePart(date.getHours());
-  const minutes = padTimePart(date.getMinutes());
-  const seconds = padTimePart(date.getSeconds());
-
-  return `AIPure ${year}-${month}-${day} ${hours}_${minutes}_${seconds}.${extension}`;
 }
 
 function formatResolution(width: number, height: number) {
@@ -330,9 +315,7 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
       const mimeType =
         blob.type || data.imageAsset?.mimeType || inferMimeType(data.imageUrl);
       const extension = IMAGE_MIME_EXTENSIONS[mimeType] || "png";
-      const fileName = sanitizeFileName(
-        buildDownloadFileName(Date.now(), extension),
-      );
+      const fileName = buildDownloadFileName({ extension });
       fallbackDownload(blob, fileName);
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : UI_TEXT.retryLater);
