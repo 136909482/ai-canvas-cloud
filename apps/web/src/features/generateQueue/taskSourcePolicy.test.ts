@@ -7,6 +7,10 @@ test("image tasks accept every image generation source node", () => {
   assert.equal(isSupportedTaskSourceNodeType("image", "imageEditNode"), true);
   assert.equal(isSupportedTaskSourceNodeType("image", "entourageNode"), true);
   assert.equal(
+    isSupportedTaskSourceNodeType("image", "interiorRefurnishNode"),
+    true,
+  );
+  assert.equal(
     isSupportedTaskSourceNodeType("image", "videoGenerateNode"),
     false,
   );

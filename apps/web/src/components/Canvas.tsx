@@ -49,6 +49,7 @@ import { useProjectStore } from "@/store/useProjectStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { themeClasses } from "@/styles/themeClasses";
 import { MAX_GENERATE_REFERENCE_IMAGES } from "@/constants/generateNode";
+import { MAX_REFURNISH_PRODUCTS } from "@/features/interiorRefurnish/runtime";
 import { recordComponentRender } from "@/utils/performanceDiagnostics";
 import { getFloatingMenuPosition } from "@/utils/floatingMenuPosition";
 import { isImageSourceNodeType } from "@/types";
@@ -72,6 +73,7 @@ import { useCanvasKeyboardShortcuts } from "./canvas/useCanvasKeyboardShortcuts"
 const UI_TEXT = {
   maxReferenceImages: `AI绘图节点最多支持 ${MAX_GENERATE_REFERENCE_IMAGES} 张参考图`,
   maxImageEditReferences: `局部编辑节点最多支持 ${MAX_GENERATE_REFERENCE_IMAGES - 1} 张附加参考图`,
+  maxRefurnishProducts: `AI 换软装节点最多支持 ${MAX_REFURNISH_PRODUCTS} 张商品图`,
   invalidDroppedImage: "请拖入图片文件",
   importImageFailed: "图片导入失败，请稍后重试",
 } as const;
@@ -180,6 +182,7 @@ export function Canvas() {
     onConnect: connectNodes,
     addGenerateNode,
     addInteriorDesignNode,
+    addInteriorRefurnishNode,
     addEntourageNode,
     addVideoGenerateNode,
     addLLMNode,
@@ -203,6 +206,7 @@ export function Canvas() {
       onConnect: state.onConnect,
       addGenerateNode: state.addGenerateNode,
       addInteriorDesignNode: state.addInteriorDesignNode,
+      addInteriorRefurnishNode: state.addInteriorRefurnishNode,
       addEntourageNode: state.addEntourageNode,
       addVideoGenerateNode: state.addVideoGenerateNode,
       addLLMNode: state.addLLMNode,
@@ -336,6 +340,27 @@ export function Canvas() {
             title: "参考图已达上限",
             message: UI_TEXT.maxReferenceImages,
           });
+          return;
+        }
+      }
+
+      if (targetNode?.type === "interiorRefurnishNode") {
+        if (!isReferenceImageSource) return;
+        if (connection.targetHandle === "product") {
+          const productCount = edges.filter(
+            (edge) =>
+              edge.target === connection.target &&
+              edge.targetHandle === "product",
+          ).length;
+          if (productCount >= MAX_REFURNISH_PRODUCTS) {
+            notify({
+              tone: "warning",
+              title: "商品图已达上限",
+              message: UI_TEXT.maxRefurnishProducts,
+            });
+            return;
+          }
+        } else if (connection.targetHandle !== "scene") {
           return;
         }
       }
@@ -617,6 +642,7 @@ export function Canvas() {
         addImageNode,
         addGenerateNode,
         addInteriorDesignNode,
+        addInteriorRefurnishNode,
         addEntourageNode,
         addLLMNode,
         addVideoGenerateNode,
@@ -632,6 +658,7 @@ export function Canvas() {
       addEntourageNode,
       addGenerateNode,
       addInteriorDesignNode,
+      addInteriorRefurnishNode,
       addGeneratedPreviewNode,
       addImageCropNode,
       addImageNode,

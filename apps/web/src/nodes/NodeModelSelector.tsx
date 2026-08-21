@@ -37,6 +37,7 @@ type NodeModelSelectorProps = {
   modelAriaLabel: string;
   className?: string;
   menuClassName?: string;
+  menuPlacement?: "top" | "bottom";
   renderModelIcon?: (model: ModelEntry) => ReactNode;
   layout?: "split" | "grouped";
 };
@@ -63,6 +64,7 @@ export function NodeModelSelector({
   modelAriaLabel,
   className = "",
   menuClassName = "min-w-[210px]",
+  menuPlacement,
   renderModelIcon,
   layout = "split",
 }: NodeModelSelectorProps) {
@@ -334,7 +336,7 @@ export function NodeModelSelector({
           }}
           stopCanvasGesture={stopCanvasGesture}
           menuClassName={menuClassName}
-          menuPlacement="top"
+          menuPlacement={menuPlacement ?? "top"}
         />
       </div>
     );
@@ -354,6 +356,7 @@ export function NodeModelSelector({
         }}
         stopCanvasGesture={stopCanvasGesture}
         menuClassName={menuClassName}
+        menuPlacement={menuPlacement}
       />
 
       <InlineSelect
@@ -367,6 +370,7 @@ export function NodeModelSelector({
         }}
         stopCanvasGesture={stopCanvasGesture}
         menuClassName={menuClassName}
+        menuPlacement={menuPlacement}
       />
     </div>
   );

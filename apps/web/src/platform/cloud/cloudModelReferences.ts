@@ -8,6 +8,7 @@ const MODEL_NODE_TYPES = new Set([
   "generateNode",
   "imageEditNode",
   "entourageNode",
+  "interiorRefurnishNode",
   "generatedPreviewNode",
   "videoGenerateNode",
   "llmNode",
@@ -74,17 +75,18 @@ export function prepareCanvasForCloud(
       if (!MODEL_NODE_TYPES.has(node.type ?? "")) return node;
 
       const data = sanitizeRuntimeState({ ...(node.data ?? {}) });
-      const modelId = typeof data.model === "string" ? data.model.trim() : "";
-      if (modelId)
-        data.model = isLocalModelReference(modelId)
-          ? modelId
-          : ensureReference(modelId);
-      const plannerModelId =
-        typeof data.plannerModel === "string" ? data.plannerModel.trim() : "";
-      if (plannerModelId)
-        data.plannerModel = isLocalModelReference(plannerModelId)
-          ? plannerModelId
-          : ensureReference(plannerModelId);
+      for (const field of [
+        "model",
+        "plannerModel",
+        "recognitionModel",
+      ] as const) {
+        const modelId =
+          typeof data[field] === "string" ? data[field].trim() : "";
+        if (modelId)
+          data[field] = isLocalModelReference(modelId)
+            ? modelId
+            : ensureReference(modelId);
+      }
 
       return cloneNodeWithData(node, data);
     }),
@@ -101,17 +103,20 @@ export function hydrateCanvasLocalModelReferences(
       if (!MODEL_NODE_TYPES.has(node.type ?? "")) return node;
 
       const data = { ...(node.data ?? {}) };
-      const reference = typeof data.model === "string" ? data.model.trim() : "";
-      if (!isLocalModelReference(reference)) return node;
-
-      data.model = resolveReference(reference) ?? reference;
-      const plannerReference =
-        typeof data.plannerModel === "string" ? data.plannerModel.trim() : "";
-      if (isLocalModelReference(plannerReference)) {
-        data.plannerModel =
-          resolveReference(plannerReference) ?? plannerReference;
+      let changed = false;
+      for (const field of [
+        "model",
+        "plannerModel",
+        "recognitionModel",
+      ] as const) {
+        const reference =
+          typeof data[field] === "string" ? data[field].trim() : "";
+        if (isLocalModelReference(reference)) {
+          data[field] = resolveReference(reference) ?? reference;
+          changed = true;
+        }
       }
-      return cloneNodeWithData(node, data);
+      return changed ? cloneNodeWithData(node, data) : node;
     }),
     edges: snapshot.edges,
   };

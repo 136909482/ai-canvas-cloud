@@ -11,6 +11,7 @@ export function isSupportedTaskSourceNodeType(
   return (
     nodeType === "generateNode" ||
     nodeType === "imageEditNode" ||
-    nodeType === "entourageNode"
+    nodeType === "entourageNode" ||
+    nodeType === "interiorRefurnishNode"
   );
 }

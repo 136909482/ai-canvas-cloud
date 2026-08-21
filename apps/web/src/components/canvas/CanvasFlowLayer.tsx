@@ -1157,6 +1157,8 @@ export function CanvasFlowLayer({
         defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
         fitView={shouldFitView}
         fitViewOptions={{ padding: 0.2, maxZoom: 0.8 }}
+        selectionOnDrag
+        panOnDrag={[1, 2]}
         connectionRadius={CANVAS_CONNECTION_RADIUS}
         elevateNodesOnSelect={false}
         onlyRenderVisibleElements={shouldCullReactFlowElements}

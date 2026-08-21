@@ -130,3 +130,39 @@ test("interior design prompt nodes do not participate in local model binding", (
   assert.equal(data.compiledPrompt, '{"任务":"室内设计"}');
   assert.equal(data.outputTextNodeId, "text-1");
 });
+
+test("refurnish node anonymizes and hydrates both browser model bindings", () => {
+  const imageReference = createLocalModelReference();
+  const chatReference = createLocalModelReference([imageReference]);
+  const snapshot = {
+    nodes: [
+      {
+        id: "refurnish-1",
+        type: "interiorRefurnishNode",
+        position: { x: 0, y: 0 },
+        data: { model: "image-entry", recognitionModel: "chat-entry" },
+      },
+    ],
+    edges: [],
+  };
+  const references = new Map([
+    ["image-entry", imageReference],
+    ["chat-entry", chatReference],
+  ]);
+  const prepared = prepareCanvasForCloud(
+    snapshot,
+    (modelId) => references.get(modelId) ?? "",
+  );
+  assert.equal(prepared.nodes[0]?.data.model, imageReference);
+  assert.equal(prepared.nodes[0]?.data.recognitionModel, chatReference);
+
+  const hydrated = hydrateCanvasLocalModelReferences(prepared, (reference) =>
+    reference === imageReference
+      ? "image-entry"
+      : reference === chatReference
+        ? "chat-entry"
+        : null,
+  );
+  assert.equal(hydrated.nodes[0]?.data.model, "image-entry");
+  assert.equal(hydrated.nodes[0]?.data.recognitionModel, "chat-entry");
+});

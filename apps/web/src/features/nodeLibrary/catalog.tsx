@@ -10,6 +10,7 @@ import {
   ScissorsLineDashed,
   Sparkles,
   Trees,
+  Sofa,
   Type,
   Video,
 } from "lucide-react";
@@ -28,6 +29,7 @@ export interface CanvasNodeCatalogActions {
   addImageNode: CreateCanvasNode;
   addGenerateNode: CreateCanvasNode;
   addInteriorDesignNode: CreateCanvasNode;
+  addInteriorRefurnishNode: CreateCanvasNode;
   addEntourageNode: CreateCanvasNode;
   addLLMNode: CreateCanvasNode;
   addVideoGenerateNode: CreateCanvasNode;
@@ -84,6 +86,7 @@ function createIcon(icon: NodeLibraryIcon) {
     preview: <MonitorPlay className={className} />,
     house: <Home className={className} />,
     trees: <Trees className={className} />,
+    sofa: <Sofa className={className} />,
   };
   return icons[icon];
 }
@@ -97,6 +100,7 @@ export function createCanvasNodeCatalog(
       imageNode: actions.addImageNode,
       generateNode: actions.addGenerateNode,
       interiorDesignNode: actions.addInteriorDesignNode,
+      interiorRefurnishNode: actions.addInteriorRefurnishNode,
       entourageNode: actions.addEntourageNode,
       llmFileNode: actions.addLLMNode,
       videoGenerateNode: actions.addVideoGenerateNode,

@@ -2,8 +2,15 @@ import type { Edge, Node } from "@xyflow/react";
 import type { CanvasSnapshot } from "@/types";
 import { createInteriorDesignNodeData } from "@/features/interiorDesign/nodeData";
 import { createEntourageNodeData } from "./canvasNodeData";
+import { createInteriorRefurnishNodeData } from "@/features/interiorRefurnish/runtime";
+import {
+  DEFAULT_INTERIOR_REFURNISH_NODE_HEIGHT,
+  DEFAULT_INTERIOR_REFURNISH_NODE_WIDTH,
+} from "./canvasLayoutGeometry";
 
 type NormalizeNodes = (nodes: Node[]) => Node[];
+
+const LEGACY_INTERIOR_REFURNISH_NODE_HEIGHTS = new Set([480, 560]);
 
 function sanitizeNodeWithImageAsset(
   node: Node,
@@ -71,6 +78,31 @@ export function sanitizeNodeForPersistence(node: Node): Node {
     };
   }
 
+  if (node.type === "interiorRefurnishNode") {
+    return {
+      ...node,
+      height:
+        node.width === DEFAULT_INTERIOR_REFURNISH_NODE_WIDTH &&
+        typeof node.height === "number" &&
+        LEGACY_INTERIOR_REFURNISH_NODE_HEIGHTS.has(node.height)
+          ? DEFAULT_INTERIOR_REFURNISH_NODE_HEIGHT
+          : node.height,
+      selected: false,
+      data: createInteriorRefurnishNodeData({
+        ...node.data,
+        imageUrl: node.data?.imageAsset ? null : node.data?.imageUrl,
+        recognitionStatus:
+          node.data?.recognitionStatus === "recognizing"
+            ? "idle"
+            : node.data?.recognitionStatus,
+        recognitionError:
+          node.data?.recognitionStatus === "recognizing"
+            ? ""
+            : node.data?.recognitionError,
+      }),
+    };
+  }
+
   return {
     ...node,
     selected: false,
@@ -78,6 +110,19 @@ export function sanitizeNodeForPersistence(node: Node): Node {
 }
 
 export function sanitizeNodeForHistory(node: Node): Node {
+  if (node.type === "interiorRefurnishNode") {
+    return {
+      ...node,
+      height:
+        node.width === DEFAULT_INTERIOR_REFURNISH_NODE_WIDTH &&
+        typeof node.height === "number" &&
+        LEGACY_INTERIOR_REFURNISH_NODE_HEIGHTS.has(node.height)
+          ? DEFAULT_INTERIOR_REFURNISH_NODE_HEIGHT
+          : node.height,
+      selected: false,
+    };
+  }
+
   return {
     ...node,
     selected: false,

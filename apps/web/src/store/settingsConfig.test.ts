@@ -44,6 +44,38 @@ test("v2 settings config keeps provider keys and model identity local", () => {
   ]);
 });
 
+test("default providers are present and existing official profiles are not duplicated", () => {
+  const emptyConfig = normalizeConfig();
+  assert.equal(
+    emptyConfig.providerProfiles.some(
+      (profile) => profile.id === "builtin-provider-deepseek",
+    ),
+    true,
+  );
+
+  const existingConfig = normalizeConfig({
+    providerProfiles: [
+      {
+        id: "existing-deepseek",
+        name: "My DeepSeek",
+        protocol: "openai-compatible",
+        authMode: "bearer",
+        baseUrl: "https://api.deepseek.com/v1/",
+        enabled: true,
+        imageRequestMode: "sync",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+  });
+  assert.equal(
+    existingConfig.providerProfiles.filter((profile) =>
+      profile.baseUrl.startsWith("https://api.deepseek.com/v1"),
+    ).length,
+    1,
+  );
+});
+
 test("standard providers normalize to bearer and synchronous image requests", () => {
   const config = normalizeConfig({
     providerProfiles: [

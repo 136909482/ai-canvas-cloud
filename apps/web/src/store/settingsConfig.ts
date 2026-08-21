@@ -1,5 +1,9 @@
 import { normalizeLocalModelBindings } from "../features/settings/localModelReferences.ts";
 import { normalizeStoredCustomImageProviderManifest } from "../features/settings/customImageProviderManifest.ts";
+import {
+  createBuiltInProviderProfiles,
+  matchProviderPreset,
+} from "../features/settings/providerPresets.ts";
 import { inferProviderFromApiUrl } from "../config/modelCatalog.ts";
 import { DEFAULT_CANVAS_PREFERENCES } from "@ai-canvas-cloud/contracts/canvas-preferences";
 import type {
@@ -236,7 +240,7 @@ export function normalizeConfig(config: ConfigInput = {}): ApiConfig {
             index,
         )
     : [];
-  const providerProfiles = Array.isArray(config.providerProfiles)
+  const storedProviderProfiles = Array.isArray(config.providerProfiles)
     ? config.providerProfiles
         .map((profile) => normalizeProviderProfile(profile))
         .map((profile) => {
@@ -253,6 +257,17 @@ export function normalizeConfig(config: ConfigInput = {}): ApiConfig {
           };
         })
     : [];
+  const providerProfiles = [
+    ...storedProviderProfiles,
+    ...createBuiltInProviderProfiles().filter(
+      (builtIn) =>
+        !storedProviderProfiles.some(
+          (profile) =>
+            profile.id === builtIn.id ||
+            matchProviderPreset(profile.baseUrl)?.profileId === builtIn.id,
+        ),
+    ),
+  ];
   const profileIds = new Set(providerProfiles.map((profile) => profile.id));
   const modelEntries = Array.isArray(config.modelEntries)
     ? config.modelEntries.map((entry) => {

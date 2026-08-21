@@ -5,6 +5,7 @@ import {
   buildManualEntourageNode,
   buildManualGenerateNode,
   buildManualInteriorDesignNode,
+  buildManualInteriorRefurnishNode,
   buildManualGeneratedPreviewNode,
   buildManualImageCropNode,
   buildManualImageEditNode,
@@ -26,6 +27,8 @@ import {
   DEFAULT_GENERATE_NODE_WIDTH,
   DEFAULT_INTERIOR_DESIGN_NODE_HEIGHT,
   DEFAULT_INTERIOR_DESIGN_NODE_WIDTH,
+  DEFAULT_INTERIOR_REFURNISH_NODE_HEIGHT,
+  DEFAULT_INTERIOR_REFURNISH_NODE_WIDTH,
   DEFAULT_IMAGE_CROP_NODE_HEIGHT,
   DEFAULT_IMAGE_CROP_NODE_WIDTH,
   DEFAULT_IMAGE_EDIT_NODE_HEIGHT,
@@ -68,7 +71,8 @@ export type NodeLibraryIcon =
   | "panorama"
   | "preview"
   | "house"
-  | "trees";
+  | "trees"
+  | "sofa";
 export type NodeLibraryCategoryId =
   "common" | "text-tools" | "image-tools" | "ai-tools";
 
@@ -295,6 +299,32 @@ const registrations = {
       keywords: ["interior", "室内", "设计", "SU", "酷家乐", "3ds Max"],
     },
   },
+  interiorRefurnishNode: {
+    type: "interiorRefurnishNode",
+    idPrefix: "refurnish",
+    manual: {
+      size: size(
+        DEFAULT_INTERIOR_REFURNISH_NODE_WIDTH,
+        DEFAULT_INTERIOR_REFURNISH_NODE_HEIGHT,
+      ),
+      build: buildManualInteriorRefurnishNode,
+    },
+    connection: {
+      inputs: { scene: ["image"], product: ["image"] },
+      output: "image",
+      quickCreateTargetHandle: "scene",
+    },
+    outputLayout: "generated-preview",
+    library: {
+      id: "interior-refurnish",
+      category: "ai-tools",
+      order: 7,
+      icon: "sofa",
+      label: "AI 换软装",
+      description: "识别室内部件并用商品参考图替换软装。",
+      keywords: ["interior", "refurnish", "换软装", "家具", "室内"],
+    },
+  },
   imageEditNode: {
     type: "imageEditNode",
     idPrefix: "edit",
@@ -474,6 +504,7 @@ export type ManualCanvasNodeType =
   | "inlineTextSplitterNode"
   | "generateNode"
   | "interiorDesignNode"
+  | "interiorRefurnishNode"
   | "imageEditNode"
   | "entourageNode"
   | "llmFileNode"

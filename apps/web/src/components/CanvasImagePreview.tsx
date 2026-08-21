@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { ImageOff, RefreshCw } from "lucide-react";
 import { useCanvasPerformanceContext } from "@/components/CanvasPerformanceContext";
 import {
   cacheThumbnail,
@@ -84,6 +85,8 @@ function CanvasImagePreviewInner({
 }: CanvasImagePreviewInnerProps) {
   recordComponentRender("CanvasImagePreviewInner");
   const imageElementRef = useRef<HTMLImageElement>(null);
+  const automaticRecoveryKeyRef = useRef("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [isNearViewport, setIsNearViewport] = useState(
     () => typeof IntersectionObserver === "undefined",
   );
@@ -125,25 +128,35 @@ function CanvasImagePreviewInner({
     !directPersistentThumbnailSrc &&
     persistentThumbnailState.path === persistentThumbnailRelativePath &&
     persistentThumbnailState.unavailable;
-  const runtimeThumbnailSrc =
-    runtimeThumbnailState.source === src
-      ? runtimeThumbnailState.url
-      : getCachedThumbnailUrl(src);
+  const shouldResolvePersistentOriginal =
+    !shouldUseLowQualityPreview ||
+    !persistentThumbnailRelativePath ||
+    persistentThumbnailUnavailable;
   const persistentOriginalSrc =
     persistentOriginalState.path === persistentOriginalRelativePath
       ? persistentOriginalState.url
       : null;
+  const runtimeThumbnailSource = persistentOriginalSrc ?? src;
+  const runtimeThumbnailSrc =
+    runtimeThumbnailState.source === runtimeThumbnailSource
+      ? runtimeThumbnailState.url
+      : getCachedThumbnailUrl(runtimeThumbnailSource);
   const desiredSourceSrc = shouldUseLowQualityPreview
-    ? (persistentThumbnailSrc ?? runtimeThumbnailSrc ?? src)
+    ? (persistentThumbnailSrc ??
+      (runtimeThumbnailSrc !== runtimeThumbnailSource
+        ? runtimeThumbnailSrc
+        : null) ??
+      persistentOriginalSrc ??
+      src)
     : (persistentOriginalSrc ?? src);
   const desiredSourceType =
     shouldUseLowQualityPreview && persistentThumbnailSrc
       ? "workspace-thumbnail"
       : shouldUseLowQualityPreview &&
           runtimeThumbnailSrc &&
-          runtimeThumbnailSrc !== src
+          runtimeThumbnailSrc !== runtimeThumbnailSource
         ? "runtime-thumbnail"
-        : !shouldUseLowQualityPreview && persistentOriginalSrc
+        : persistentOriginalSrc && desiredSourceSrc === persistentOriginalSrc
           ? "workspace-original"
           : "original";
   const [renderedSource, setRenderedSource] = useState<{
@@ -154,6 +167,13 @@ function CanvasImagePreviewInner({
       | "workspace-thumbnail"
       | "runtime-thumbnail";
   }>(() => ({ src, type: "original" }));
+  const renderedSourceKey = `${renderedSource.src}\u0000${loadAttempt}`;
+  const [renderState, setRenderState] = useState<{
+    key: string;
+    status: "loading" | "ready" | "error";
+  }>(() => ({ key: renderedSourceKey, status: "loading" }));
+  const activeRenderStatus =
+    renderState.key === renderedSourceKey ? renderState.status : "loading";
 
   useEffect(() => {
     if (isNearViewport) return;
@@ -178,7 +198,7 @@ function CanvasImagePreviewInner({
   useEffect(() => {
     if (
       !persistentOriginalRelativePath ||
-      shouldUseLowQualityPreview ||
+      !shouldResolvePersistentOriginal ||
       !isNearViewport
     ) {
       return;
@@ -205,7 +225,22 @@ function CanvasImagePreviewInner({
           url: nextObjectUrl,
         });
       })
-      .catch(() => undefined);
+      .catch(async () => {
+        try {
+          platformBridge.clearWorkspaceAssetUrlCache();
+          const refreshedUrl = await platformBridge.resolveWorkspaceAssetUrl(
+            persistentOriginalRelativePath,
+          );
+          if (!cancelled) {
+            setPersistentOriginalState({
+              path: persistentOriginalRelativePath,
+              url: refreshedUrl,
+            });
+          }
+        } catch {
+          // The rendered image error state provides the final retry action.
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -213,8 +248,9 @@ function CanvasImagePreviewInner({
     };
   }, [
     isNearViewport,
+    loadAttempt,
     persistentOriginalRelativePath,
-    shouldUseLowQualityPreview,
+    shouldResolvePersistentOriginal,
   ]);
 
   useEffect(() => {
@@ -308,16 +344,17 @@ function CanvasImagePreviewInner({
     imageAsset?.relativePath,
     persistentThumbnailRelativePath,
     isNearViewport,
+    loadAttempt,
     shouldUseLowQualityPreview,
     src,
   ]);
 
   useEffect(() => {
     if (
-      !src ||
+      !runtimeThumbnailSource ||
       !shouldUseLowQualityPreview ||
       !isNearViewport ||
-      getCachedThumbnailUrl(src) ||
+      getCachedThumbnailUrl(runtimeThumbnailSource) ||
       (persistentThumbnailRelativePath && !persistentThumbnailUnavailable)
     ) {
       return;
@@ -325,13 +362,16 @@ function CanvasImagePreviewInner({
 
     let cancelled = false;
     const cancelIdleTask = scheduleIdleTask(() => {
-      void loadThumbnail(src)
+      void loadThumbnail(runtimeThumbnailSource)
         .then((nextThumbnailSrc) => {
           if (cancelled) {
             return;
           }
 
-          setRuntimeThumbnailState({ source: src, url: nextThumbnailSrc });
+          setRuntimeThumbnailState({
+            source: runtimeThumbnailSource,
+            url: nextThumbnailSrc,
+          });
         })
         .catch((error) => {
           if (cancelled) {
@@ -342,8 +382,11 @@ function CanvasImagePreviewInner({
             return;
           }
 
-          cacheThumbnail(src, src);
-          setRuntimeThumbnailState({ source: src, url: src });
+          cacheThumbnail(runtimeThumbnailSource, runtimeThumbnailSource);
+          setRuntimeThumbnailState({
+            source: runtimeThumbnailSource,
+            url: runtimeThumbnailSource,
+          });
         });
     });
 
@@ -355,8 +398,8 @@ function CanvasImagePreviewInner({
     isNearViewport,
     persistentThumbnailRelativePath,
     persistentThumbnailUnavailable,
+    runtimeThumbnailSource,
     shouldUseLowQualityPreview,
-    src,
   ]);
 
   useEffect(() => {
@@ -393,24 +436,92 @@ function CanvasImagePreviewInner({
     renderedSource.type === "workspace-thumbnail" ||
     renderedSource.type === "runtime-thumbnail";
 
+  const retryImageLoad = () => {
+    platformBridge.clearWorkspaceAssetUrlCache();
+    setIsNearViewport(true);
+    setLoadAttempt((attempt) => attempt + 1);
+  };
+
+  const handleImageError = () => {
+    setIsNearViewport(true);
+    const recoveryKey = `${src}\u0000${persistentOriginalRelativePath}\u0000${persistentThumbnailRelativePath}`;
+    const canRecoverFromWorkspaceAsset = Boolean(
+      persistentOriginalRelativePath || persistentThumbnailRelativePath,
+    );
+
+    if (
+      canRecoverFromWorkspaceAsset &&
+      automaticRecoveryKeyRef.current !== recoveryKey
+    ) {
+      automaticRecoveryKeyRef.current = recoveryKey;
+      retryImageLoad();
+      return;
+    }
+
+    setRenderState({ key: renderedSourceKey, status: "error" });
+  };
+
+  const wrapperPosition = className.split(/\s+/).includes("absolute")
+    ? "absolute"
+    : "relative";
+
   return (
-    <img
-      ref={imageElementRef}
-      src={renderedSource.src}
-      alt={alt}
-      className={className}
-      draggable={draggable}
-      loading="lazy"
-      decoding="async"
-      onError={() => setIsNearViewport(true)}
-      data-canvas-image-source={renderedSource.type}
-      data-low-quality-preview={isLowQualitySource ? "true" : undefined}
-      data-workspace-thumbnail-preview={
-        renderedSource.type === "workspace-thumbnail" ? "true" : undefined
-      }
-      data-workspace-original-preview={
-        renderedSource.type === "workspace-original" ? "true" : undefined
-      }
-    />
+    <span
+      className={`block overflow-hidden ${className}`}
+      style={{ position: wrapperPosition }}
+      data-canvas-image-preview="true"
+    >
+      {activeRenderStatus !== "error" ? (
+        <img
+          key={renderedSourceKey}
+          ref={imageElementRef}
+          src={renderedSource.src}
+          alt={alt}
+          className={`absolute inset-0 h-full w-full rounded-[inherit] transition-opacity duration-150 ${
+            activeRenderStatus === "ready" ? "opacity-100" : "opacity-0"
+          }`}
+          style={{ objectFit: "inherit" }}
+          draggable={draggable}
+          loading="lazy"
+          decoding="async"
+          onLoad={() =>
+            setRenderState({ key: renderedSourceKey, status: "ready" })
+          }
+          onError={handleImageError}
+          data-canvas-image-source={renderedSource.type}
+          data-low-quality-preview={isLowQualitySource ? "true" : undefined}
+          data-workspace-thumbnail-preview={
+            renderedSource.type === "workspace-thumbnail" ? "true" : undefined
+          }
+          data-workspace-original-preview={
+            renderedSource.type === "workspace-original" ? "true" : undefined
+          }
+        />
+      ) : null}
+
+      {activeRenderStatus === "error" ? (
+        <span
+          className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[var(--node-bg)] px-4 text-center text-[var(--text-secondary)]"
+          role="img"
+          aria-label={alt ? `${alt}：图片加载失败` : "图片加载失败"}
+          data-canvas-image-error="true"
+        >
+          <ImageOff className="h-5 w-5 opacity-60" aria-hidden="true" />
+          <span className="max-w-full truncate text-xs">图片加载失败</span>
+          <button
+            type="button"
+            className="nodrag nopan flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-subtle)] bg-[var(--surface-elevated)] text-[var(--text-secondary)] transition hover:border-[var(--border-default)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/30"
+            onClick={(event) => {
+              event.stopPropagation();
+              retryImageLoad();
+            }}
+            aria-label="重新加载图片"
+            title="重新加载图片"
+          >
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </span>
+      ) : null}
+    </span>
   );
 }

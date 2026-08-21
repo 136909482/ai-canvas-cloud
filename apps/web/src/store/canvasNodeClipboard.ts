@@ -9,6 +9,7 @@ import type {
   ImageEditNodeData,
   ImageNodeData,
   InteriorDesignNodeData,
+  InteriorRefurnishNodeData,
   InlineTextSplitterNodeData,
   LLMFileNodeData,
   LLMNodeData,
@@ -19,6 +20,7 @@ import type {
   VideoNodeData,
 } from "@/types";
 import type { InteriorDesignConfigV1 } from "@/features/interiorDesign/types";
+import { createInteriorRefurnishNodeData } from "@/features/interiorRefurnish/runtime";
 import {
   createImageCropNodeData,
   createImageNodeData,
@@ -42,6 +44,7 @@ export function canDuplicateNode(node: Node) {
     "imageCropNode",
     "generateNode",
     "interiorDesignNode",
+    "interiorRefurnishNode",
     "imageEditNode",
     "entourageNode",
     "llmNode",
@@ -251,6 +254,32 @@ export function cloneNodeForDuplicate(
         outputTextNodeId: null,
       } satisfies InteriorDesignNodeData,
     } satisfies Node<InteriorDesignNodeData>;
+  }
+
+  if (node.type === "interiorRefurnishNode") {
+    const data = createInteriorRefurnishNodeData(node.data);
+    return {
+      ...node,
+      id: nextId,
+      position: duplicatedPosition,
+      parentId: undefined,
+      extent: undefined,
+      selected: true,
+      data: {
+        ...data,
+        sceneSourceNodeId: null,
+        productSourceOrder: [],
+        bindings: [],
+        recognizedParts: [],
+        recognitionStatus: "idle",
+        recognitionError: "",
+        imageUrl: null,
+        imageAsset: null,
+        status: "idle",
+        errorMsg: "",
+        activeTaskId: null,
+      } satisfies InteriorRefurnishNodeData,
+    } satisfies Node<InteriorRefurnishNodeData>;
   }
 
   if (node.type === "imageEditNode") {

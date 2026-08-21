@@ -135,6 +135,13 @@ export function syncSourceNodeAfterTaskSettles(
     ...(sourceNode?.type === "entourageNode" && latestImageAsset !== undefined
       ? { imageAsset: latestImageAsset }
       : {}),
+    ...(sourceNode?.type === "interiorRefurnishNode" && latestImageUrl
+      ? { imageUrl: latestImageUrl }
+      : {}),
+    ...(sourceNode?.type === "interiorRefurnishNode" &&
+    latestImageAsset !== undefined
+      ? { imageAsset: latestImageAsset }
+      : {}),
   });
 }
 
@@ -153,6 +160,7 @@ export function syncSourceNodeWithTask(
     (sourceNode.type !== "generateNode" &&
       sourceNode.type !== "imageEditNode" &&
       sourceNode.type !== "entourageNode" &&
+      sourceNode.type !== "interiorRefurnishNode" &&
       sourceNode.type !== "videoGenerateNode")
   ) {
     return;
@@ -170,7 +178,8 @@ export function syncSourceNodeWithTask(
   if (
     sourceNode.type === "generateNode" ||
     sourceNode.type === "imageEditNode" ||
-    sourceNode.type === "entourageNode"
+    sourceNode.type === "entourageNode" ||
+    sourceNode.type === "interiorRefurnishNode"
   ) {
     patch.negativePrompt = task.negativePrompt;
     patch.activeTaskId =

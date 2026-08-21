@@ -8,6 +8,7 @@ import { InlineTextSplitterNode } from "./InlineTextSplitterNode";
 import { TextSplitterNode } from "./TextSplitterNode";
 import { GenerateNode } from "./GenerateNode";
 import { InteriorDesignNode } from "./InteriorDesignNode";
+import { InteriorRefurnishNode } from "./InteriorRefurnishNode";
 import { ImageEditNode } from "./ImageEditNode";
 import { EntourageNode } from "./EntourageNode";
 import { GeneratedPreviewNode } from "./GeneratedPreviewNode";
@@ -29,6 +30,7 @@ const nodeComponents = {
   textSplitterNode: TextSplitterNode,
   generateNode: GenerateNode,
   interiorDesignNode: InteriorDesignNode,
+  interiorRefurnishNode: InteriorRefurnishNode,
   imageEditNode: ImageEditNode,
   entourageNode: EntourageNode,
   generatedPreviewNode: GeneratedPreviewNode,

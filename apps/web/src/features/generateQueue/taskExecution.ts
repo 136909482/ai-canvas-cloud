@@ -449,7 +449,10 @@ function markTaskRestoreError(task: GenerateTask, errorMessage: string) {
         node.id === latestTask.sourceNodeId &&
         (latestTask.kind === "video"
           ? node.type === "videoGenerateNode"
-          : node.type === "generateNode" || node.type === "imageEditNode"),
+          : node.type === "generateNode" ||
+            node.type === "imageEditNode" ||
+            node.type === "entourageNode" ||
+            node.type === "interiorRefurnishNode"),
     );
 
   if (sourceNode) {

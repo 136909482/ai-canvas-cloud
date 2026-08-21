@@ -261,6 +261,36 @@ export interface InteriorDesignNodeData extends Record<string, unknown> {
   outputTextNodeId: string | null;
 }
 
+export type InteriorRefurnishRecognitionStatus =
+  "idle" | "recognizing" | "done" | "error";
+
+export interface InteriorRefurnishBinding {
+  sourceNodeId: string;
+  partName: string;
+}
+
+export interface InteriorRefurnishNodeData extends Record<string, unknown> {
+  schemaVersion: 1;
+  sceneSourceNodeId: string | null;
+  productSourceOrder: string[];
+  bindings: InteriorRefurnishBinding[];
+  recognizedParts: string[];
+  manualParts: string[];
+  requirements: string;
+  recognitionModel: string;
+  recognitionStatus: InteriorRefurnishRecognitionStatus;
+  recognitionError: string;
+  model: string;
+  resolution: string;
+  prompt: string;
+  imageUrl: string | null;
+  imageAsset?: WorkspaceImageAsset | null;
+  status: GenerateStatus;
+  errorMsg: string;
+  activeTaskId: string | null;
+  autoResizeHeight: number | null;
+}
+
 export interface ImageEditNodeData extends Record<string, unknown> {
   sourceImageNodeId: string | null;
   prompt: string;
@@ -572,6 +602,7 @@ export type AppNodeType =
   | "inlineTextSplitterNode"
   | "generateNode"
   | "interiorDesignNode"
+  | "interiorRefurnishNode"
   | "imageEditNode"
   | "entourageNode"
   | "experimentalGenerateNode"
@@ -588,11 +619,14 @@ export const IMAGE_SOURCE_NODE_TYPES = [
   "imageNode",
   "generatedPreviewNode",
   "testImageNode",
+  "entourageNode",
+  "interiorRefurnishNode",
 ] as const;
 export const WORKSPACE_ASSET_NODE_TYPES = [
   "imageNode",
   "videoNode",
   "generateNode",
+  "interiorRefurnishNode",
   "generatedPreviewNode",
   "testImageNode",
   "panoramaNode",
@@ -630,6 +664,7 @@ export interface AppNodeDataMap {
   inlineTextSplitterNode: InlineTextSplitterNodeData;
   generateNode: GenerateNodeData;
   interiorDesignNode: InteriorDesignNodeData;
+  interiorRefurnishNode: InteriorRefurnishNodeData;
   imageEditNode: ImageEditNodeData;
   entourageNode: EntourageNodeData;
   experimentalGenerateNode: GenerateNodeData;

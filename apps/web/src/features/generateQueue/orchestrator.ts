@@ -526,6 +526,66 @@ export function enqueueEntourageEditTask(input: {
   return taskId;
 }
 
+export function enqueueInteriorRefurnishTask(input: {
+  projectId?: string | null;
+  nodeId: string;
+  prompt: string;
+  model: string;
+  sourceImageNodeId: string;
+  referenceImages: GenerateTaskImageSource[];
+  resolution?: string;
+}) {
+  const canvasStore = useCanvasStore.getState();
+  const sourceNode = canvasStore.nodes.find(
+    (node) => node.id === input.nodeId && node.type === "interiorRefurnishNode",
+  );
+  const prompt = input.prompt.trim();
+  const model = input.model.trim();
+  if (!sourceNode || !prompt || !model || input.referenceImages.length < 2) {
+    return null;
+  }
+
+  const providerSnapshot = getTaskProviderSnapshot(model, "image");
+  const previewNodeId = createQueuedPreview(
+    input.nodeId,
+    prompt,
+    model,
+    "Auto",
+    {
+      originOperation: "generate",
+      sourceImageNodeId: input.sourceImageNodeId,
+      apiProfileName: providerSnapshot.apiProfileName,
+    },
+  );
+  const taskId = useTaskQueueStore.getState().createTask({
+    projectId: input.projectId ?? null,
+    sourceNodeId: input.nodeId,
+    previewNodeId,
+    model,
+    prompt,
+    negativePrompt: "",
+    ratio: "Auto",
+    resolution: input.resolution ?? "1K",
+    operationType: "image-to-image",
+    sourceImageNodeId: input.sourceImageNodeId,
+    ...providerSnapshot,
+    referenceImages: input.referenceImages,
+    inputFidelity: "high",
+    quality: null,
+    googleSearch: false,
+    googleImageSearch: false,
+  });
+
+  const sourceTaskState = getActiveSourceTaskState(input.nodeId);
+  canvasStore.updateNodeData(input.nodeId, {
+    status: sourceTaskState?.status ?? "queued",
+    errorMsg: sourceTaskState?.errorMsg ?? "",
+    activeTaskId: sourceTaskState?.activeTaskId ?? taskId,
+  });
+  canvasStore.updateNodeData(previewNodeId, { taskId });
+  return taskId;
+}
+
 export function enqueueVideoGenerateTask(input: EnqueueVideoGenerateTaskInput) {
   const canvasStore = useCanvasStore.getState();
   const sourceNode = canvasStore.nodes.find(

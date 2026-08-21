@@ -281,6 +281,9 @@ export function FloatingToolbar() {
   const addInteriorDesignNode = useCanvasStore(
     (state) => state.addInteriorDesignNode,
   );
+  const addInteriorRefurnishNode = useCanvasStore(
+    (state) => state.addInteriorRefurnishNode,
+  );
   const addEntourageNode = useCanvasStore((state) => state.addEntourageNode);
 
   const addGeneratedPreviewNode = useCanvasStore(
@@ -387,6 +390,7 @@ export function FloatingToolbar() {
         addImageNode,
         addGenerateNode,
         addInteriorDesignNode,
+        addInteriorRefurnishNode,
         addEntourageNode,
         addLLMNode,
         addVideoGenerateNode,
@@ -402,6 +406,7 @@ export function FloatingToolbar() {
       addEntourageNode,
       addGenerateNode,
       addInteriorDesignNode,
+      addInteriorRefurnishNode,
       addGeneratedPreviewNode,
       addImageCropNode,
       addImageNode,

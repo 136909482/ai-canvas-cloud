@@ -2,6 +2,10 @@ import type { Edge, Node } from "@xyflow/react";
 import { createRichPromptDocumentFromText } from "@/features/richPrompt/promptCompiler";
 import { sanitizeRichPrompt } from "./canvasNodeData";
 import {
+  MAX_REFURNISH_PRODUCTS,
+  sanitizeRefurnishBindings,
+} from "@/features/interiorRefurnish/runtime";
+import {
   getCanvasNodeById,
   getTextFromSourceEdge,
   isConnectedImageSourceNode,
@@ -158,6 +162,83 @@ export function syncConnectionDerivedNodeData(nodes: Node[], edges: Edge[]) {
             data: {
               ...candidate.data,
               outputTextNodeId: nextOutputTextNodeId,
+            },
+          }
+        : candidate,
+    );
+  }
+
+  const interiorRefurnishNodes = nextNodes.filter(
+    (node) => node.type === "interiorRefurnishNode",
+  );
+
+  for (const node of interiorRefurnishNodes) {
+    const incomingEdges = edges.filter(
+      (edge) => edge.target === node.id && typeof edge.source === "string",
+    );
+    const sceneEdge = incomingEdges.find(
+      (edge) =>
+        edge.targetHandle === "scene" &&
+        isConnectedImageSourceNode(getCanvasNodeById(nextNodes, edge.source)),
+    );
+    const nextSceneSourceNodeId = sceneEdge?.source ?? null;
+    const connectedProductIds = incomingEdges
+      .filter((edge) => edge.targetHandle === "product")
+      .map((edge) =>
+        isConnectedImageSourceNode(getCanvasNodeById(nextNodes, edge.source))
+          ? edge.source
+          : null,
+      )
+      .filter(
+        (sourceId, index, sourceIds): sourceId is string =>
+          Boolean(sourceId) && sourceIds.indexOf(sourceId) === index,
+      )
+      .slice(0, MAX_REFURNISH_PRODUCTS);
+    const currentSceneSourceNodeId =
+      typeof node.data?.sceneSourceNodeId === "string"
+        ? node.data.sceneSourceNodeId
+        : null;
+    const currentProductOrder = Array.isArray(node.data?.productSourceOrder)
+      ? node.data.productSourceOrder.filter(
+          (sourceId): sourceId is string => typeof sourceId === "string",
+        )
+      : [];
+    const nextProductOrder = [
+      ...currentProductOrder.filter((id) => connectedProductIds.includes(id)),
+      ...connectedProductIds.filter((id) => !currentProductOrder.includes(id)),
+    ].slice(0, MAX_REFURNISH_PRODUCTS);
+    const nextBindings = sanitizeRefurnishBindings(
+      node.data?.bindings,
+      nextProductOrder,
+    );
+    const sceneChanged = currentSceneSourceNodeId !== nextSceneSourceNodeId;
+    const orderChanged =
+      currentProductOrder.length !== nextProductOrder.length ||
+      currentProductOrder.some((id, index) => id !== nextProductOrder[index]);
+    const currentBindings = Array.isArray(node.data?.bindings)
+      ? node.data.bindings
+      : [];
+    const bindingsChanged =
+      JSON.stringify(currentBindings) !== JSON.stringify(nextBindings);
+    if (!sceneChanged && !orderChanged && !bindingsChanged) continue;
+
+    hasChanges = true;
+    nextNodes = nextNodes.map((candidate) =>
+      candidate.id === node.id
+        ? {
+            ...candidate,
+            data: {
+              ...candidate.data,
+              sceneSourceNodeId: nextSceneSourceNodeId,
+              productSourceOrder: nextProductOrder,
+              bindings: sceneChanged ? [] : nextBindings,
+              ...(sceneChanged
+                ? {
+                    recognizedParts: [],
+                    recognitionStatus: "idle",
+                    recognitionError: "",
+                  }
+                : {}),
             },
           }
         : candidate,

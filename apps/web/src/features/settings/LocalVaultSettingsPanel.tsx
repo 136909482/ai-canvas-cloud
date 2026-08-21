@@ -8,6 +8,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  ExternalLink,
   FileJson,
   FileUp,
   KeyRound,
@@ -54,6 +55,7 @@ import {
   validateProviderProfileDraft,
 } from "./providerConfig";
 import { ProviderModelImportDialog } from "./ProviderModelImportDialog";
+import { matchProviderPreset } from "./providerPresets";
 import {
   createCustomImageProviderImport,
   createDefaultCustomImageProviderManifest,
@@ -278,6 +280,9 @@ export function LocalVaultSettingsPanel() {
         (manifest) => manifest.id === providerDraft.customManifestId,
       )
     : undefined;
+  const activeProviderPreset = providerDraft
+    ? matchProviderPreset(providerDraft.baseUrl)
+    : null;
 
   useEffect(() => {
     if (isProviderDirty) return;
@@ -906,6 +911,7 @@ export function LocalVaultSettingsPanel() {
 
   const removeProvider = async () => {
     if (!providerDraft || !isSavedProviderDraft) return;
+    if (activeProviderPreset) return;
     if (
       !(await confirm({
         title: "删除服务商",
@@ -970,11 +976,13 @@ export function LocalVaultSettingsPanel() {
                       {profile.name}
                     </span>
                     <span className="mt-0.5 block truncate text-[10px] text-[var(--text-muted)]">
-                      {profile.protocol === "dashscope"
-                        ? "阿里百炼"
-                        : profile.protocol === "custom-http-image-v1"
-                          ? "自定义服务商"
-                          : "OpenAI Compatible"}
+                      {matchProviderPreset(profile.baseUrl)
+                        ? "默认服务商"
+                        : profile.protocol === "dashscope"
+                          ? "阿里百炼"
+                          : profile.protocol === "custom-http-image-v1"
+                            ? "自定义服务商"
+                            : "OpenAI Compatible"}
                     </span>
                   </button>
                 );
@@ -1002,6 +1010,11 @@ export function LocalVaultSettingsPanel() {
                     >
                       {providerDraft.name.trim() || "未命名服务商"}
                     </span>
+                    {activeProviderPreset ? (
+                      <span className="shrink-0 rounded-[5px] bg-[var(--control-bg)] px-1.5 py-0.5 text-[9px] text-[var(--text-muted)]">
+                        默认服务商
+                      </span>
+                    ) : null}
                     {providerSaveStatus.state !== "idle" ? (
                       <span
                         aria-live="polite"
@@ -1017,7 +1030,7 @@ export function LocalVaultSettingsPanel() {
                     ) : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    {isSavedProviderDraft ? (
+                    {isSavedProviderDraft && !activeProviderPreset ? (
                       <button
                         type="button"
                         onClick={() => void removeProvider()}
@@ -1046,8 +1059,12 @@ export function LocalVaultSettingsPanel() {
                   <span className="block leading-4">显示名称</span>
                   <input
                     name="provider-display-name"
-                    className={FIELD_INPUT_CLASS}
+                    className={cx(
+                      FIELD_INPUT_CLASS,
+                      activeProviderPreset && "cursor-default opacity-70",
+                    )}
                     value={providerDraft.name}
+                    readOnly={Boolean(activeProviderPreset)}
                     onFocus={() => focusProviderField("name")}
                     onBlur={() => setProviderFocusedField(null)}
                     onChange={(event) =>
@@ -1066,8 +1083,12 @@ export function LocalVaultSettingsPanel() {
                   <input
                     type="url"
                     name="provider-base-url"
-                    className={FIELD_INPUT_CLASS}
+                    className={cx(
+                      FIELD_INPUT_CLASS,
+                      activeProviderPreset && "cursor-default opacity-70",
+                    )}
                     value={providerDraft.baseUrl}
+                    readOnly={Boolean(activeProviderPreset)}
                     onFocus={() => focusProviderField("baseUrl")}
                     onBlur={() => setProviderFocusedField(null)}
                     onChange={(event) =>
@@ -1132,6 +1153,29 @@ export function LocalVaultSettingsPanel() {
                     </button>
                   </span>
                 </label>
+                {activeProviderPreset ? (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[7px] border border-[var(--border-subtle)] bg-[var(--control-bg)] px-3 py-2 text-[10px] text-[var(--text-muted)]">
+                    <span>只需填写当前账号的 API Key</span>
+                    <a
+                      href={activeProviderPreset.apiKeyUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-violet-300 hover:text-violet-200"
+                    >
+                      创建 API Key
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                    <a
+                      href={activeProviderPreset.docsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-violet-300 hover:text-violet-200"
+                    >
+                      接口文档
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                ) : null}
                 {providerDraft.protocol === "custom-http-image-v1" ? (
                   <>
                     <div className="border-t border-[var(--border-subtle)] pt-3">

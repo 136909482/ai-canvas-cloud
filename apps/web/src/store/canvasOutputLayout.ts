@@ -16,6 +16,8 @@ import {
   DEFAULT_GENERATE_NODE_WIDTH,
   DEFAULT_INTERIOR_DESIGN_NODE_HEIGHT,
   DEFAULT_INTERIOR_DESIGN_NODE_WIDTH,
+  DEFAULT_INTERIOR_REFURNISH_NODE_HEIGHT,
+  DEFAULT_INTERIOR_REFURNISH_NODE_WIDTH,
   DEFAULT_IMAGE_CROP_NODE_HEIGHT,
   DEFAULT_IMAGE_CROP_NODE_WIDTH,
   DEFAULT_IMAGE_EDIT_NODE_HEIGHT,
@@ -85,9 +87,11 @@ function layoutGeneratedPreviewNodes(
           ? DEFAULT_IMAGE_EDIT_NODE_WIDTH
           : sourceNode.type === "entourageNode"
             ? DEFAULT_ENTOURAGE_NODE_WIDTH
-            : sourceNode.type === "interiorDesignNode"
-              ? DEFAULT_INTERIOR_DESIGN_NODE_WIDTH
-              : DEFAULT_GENERATE_NODE_WIDTH;
+            : sourceNode.type === "interiorRefurnishNode"
+              ? DEFAULT_INTERIOR_REFURNISH_NODE_WIDTH
+              : sourceNode.type === "interiorDesignNode"
+                ? DEFAULT_INTERIOR_DESIGN_NODE_WIDTH
+                : DEFAULT_GENERATE_NODE_WIDTH;
   const sourceHeight =
     typeof sourceNode.height === "number"
       ? sourceNode.height
@@ -97,9 +101,11 @@ function layoutGeneratedPreviewNodes(
           ? DEFAULT_IMAGE_EDIT_NODE_HEIGHT
           : sourceNode.type === "entourageNode"
             ? DEFAULT_ENTOURAGE_NODE_HEIGHT
-            : sourceNode.type === "interiorDesignNode"
-              ? DEFAULT_INTERIOR_DESIGN_NODE_HEIGHT
-              : DEFAULT_GENERATE_NODE_HEIGHT;
+            : sourceNode.type === "interiorRefurnishNode"
+              ? DEFAULT_INTERIOR_REFURNISH_NODE_HEIGHT
+              : sourceNode.type === "interiorDesignNode"
+                ? DEFAULT_INTERIOR_DESIGN_NODE_HEIGHT
+                : DEFAULT_GENERATE_NODE_HEIGHT;
   const slotWidth = Math.max(
     DEFAULT_PREVIEW_NODE_WIDTH,
     ...relatedPreviewNodes.map((node) =>
@@ -401,7 +407,8 @@ export function applyDragStopSideEffects(
 
     if (
       draggedNode.type === "generateNode" ||
-      draggedNode.type === "imageEditNode"
+      draggedNode.type === "imageEditNode" ||
+      draggedNode.type === "interiorRefurnishNode"
     ) {
       affectedGenerateNodeIds.add(draggedNode.id);
     }

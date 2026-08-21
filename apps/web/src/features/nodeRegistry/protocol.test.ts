@@ -17,6 +17,7 @@ test("node registration protocol covers all shared node types and compatibility 
     "inlineTextSplitterNode",
     "generateNode",
     "interiorDesignNode",
+    "interiorRefurnishNode",
     "imageEditNode",
     "entourageNode",
     "experimentalGenerateNode",
@@ -69,6 +70,10 @@ test("protocol owns manual factories, connection rules, output layouts, and libr
   assert.equal(interiorRegistration.connection.inputs, undefined);
   assert.equal(interiorRegistration.outputLayout, "none");
   assert.equal(interiorRegistration.library?.label, "室内设计");
+  assert.deepEqual(canvasNodeRegistrations.interiorRefurnishNode.manual?.size, {
+    width: 420,
+    height: 440,
+  });
   assert.equal(
     nodeLibraryRegistrations.some(
       (registration) => registration.library.id === "text",

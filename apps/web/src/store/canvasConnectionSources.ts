@@ -6,6 +6,7 @@ import type {
   GeneratedPreviewNodeData,
   ImageNodeData,
   InteriorDesignNodeData,
+  InteriorRefurnishNodeData,
   LLMOutputTextNodeData,
   TestImageNodeData,
   TextNodeData,
@@ -38,13 +39,15 @@ export function isConnectedImageSourceNode(
   | GeneratedPreviewNodeData
   | TestImageNodeData
   | EntourageNodeData
+  | InteriorRefurnishNodeData
 > {
   return Boolean(
     node &&
     (node.type === "imageNode" ||
       node.type === "generatedPreviewNode" ||
       node.type === "testImageNode" ||
-      node.type === "entourageNode") &&
+      node.type === "entourageNode" ||
+      node.type === "interiorRefurnishNode") &&
     typeof node.data?.imageUrl === "string" &&
     node.data.imageUrl,
   );

@@ -35,6 +35,8 @@ type InlineSelectProps = {
   stopCanvasGesture: (event: SyntheticEvent) => void;
   menuClassName?: string;
   menuPlacement?: "top" | "bottom";
+  density?: "compact" | "regular";
+  appearance?: "default" | "ghost";
   disabled?: boolean;
 };
 
@@ -46,6 +48,8 @@ export function InlineSelect({
   stopCanvasGesture,
   menuClassName = "",
   menuPlacement = "bottom",
+  density = "regular",
+  appearance = "default",
   disabled = false,
 }: InlineSelectProps) {
   const [open, setOpen] = useState(false);
@@ -57,6 +61,14 @@ export function InlineSelect({
     options.find((option) => option.value === value) ?? options[0];
   const selectedLabel =
     selectedOption?.triggerLabel ?? selectedOption?.label ?? value;
+  const triggerAppearanceClassName =
+    appearance === "ghost"
+      ? open
+        ? "border-transparent bg-[var(--control-bg-hover)] text-[var(--text-primary)]"
+        : "border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
+      : open
+        ? "border-[var(--accent-violet-strong)] bg-[var(--node-control-bg-hover)] text-[var(--text-primary)] shadow-[0_10px_24px_rgba(0,0,0,0.16)]"
+        : "border-[var(--border-subtle)] bg-[var(--node-control-bg)] text-[var(--text-secondary)] hover:border-[var(--accent-violet-muted)] hover:bg-[var(--node-control-bg-hover)]";
 
   useEffect(() => {
     if (!open) {
@@ -99,11 +111,11 @@ export function InlineSelect({
       <button
         ref={triggerRef}
         type="button"
-        className={`nowheel nodrag nopan flex h-9 w-full items-center justify-between gap-2 rounded-md border px-3 text-left text-xs font-medium leading-5 transition-all ${
-          open
-            ? "border-[var(--accent-violet-strong)] bg-[var(--node-control-bg-hover)] text-[var(--text-primary)] shadow-[0_10px_24px_rgba(0,0,0,0.16)]"
-            : "border-[var(--border-subtle)] bg-[var(--node-control-bg)] text-[var(--text-secondary)] hover:border-[var(--accent-violet-muted)] hover:bg-[var(--node-control-bg-hover)]"
-        }`}
+        className={`nowheel nodrag nopan flex w-full items-center justify-between rounded-md border text-left font-medium transition-all ${
+          density === "compact"
+            ? "h-7 gap-1.5 px-2 text-[10px] leading-4"
+            : "h-9 gap-2 px-3 text-xs leading-5"
+        } ${triggerAppearanceClassName}`}
         title={selectedOption?.title ?? selectedLabel}
         disabled={disabled}
         aria-label={ariaLabel}
@@ -131,7 +143,7 @@ export function InlineSelect({
           </span>
         </span>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform ${open ? "rotate-180 text-[var(--text-secondary)]" : ""}`}
+          className={`${density === "compact" ? "h-3.5 w-3.5" : "h-4 w-4"} shrink-0 text-[var(--text-muted)] transition-transform ${open ? "rotate-180 text-[var(--text-secondary)]" : ""}`}
         />
       </button>
 
@@ -139,7 +151,7 @@ export function InlineSelect({
         <div
           id={menuId}
           ref={menuRef}
-          className={`nowheel nodrag nopan absolute left-0 right-0 z-40 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-xl ${menuPlacement === "top" ? "bottom-full mb-2" : "top-full"} ${menuClassName}`}
+          className={`nowheel nodrag nopan absolute left-0 right-0 z-40 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-xl ${menuPlacement === "top" ? "bottom-full mb-2" : "top-full mt-2"} ${menuClassName}`}
           role="listbox"
           aria-label={ariaLabel}
           onKeyDown={(event) =>

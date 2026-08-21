@@ -299,13 +299,14 @@ P11-2 至 P11-4 已通过 `community` 内容服务实现投稿、撤回、举报
 
 ## 浏览器 Vault 与本地生成
 
+- `interiorRefurnishNode` 是浏览器端专用多模型工作流：场景图只在用户点击后交给本机绑定的视觉 Chat 模型识别，失败时允许手工维护部件；场景图固定为多参考图第 1 张，最多 4 张画布商品图按部件绑定为第 2 至 5 张。节点通过统一图片 FIFO、受控 Provider adapter、加密任务恢复和 Cloud 资产入库生成标准预览，不新增平台 Provider 代理、服务端任务、商品库或积分。识别只返回部件标签，未取得坐标或分割结果时不得显示自动定位框。
 - `interiorDesignNode` 是独立于通用 `generateNode` 的确定性 JSON 提示词编译器。它不接受图片输入，不保存模型或任务运行态，只保存版本化 `InteriorDesignConfigV2`、编译结果和可选关联文本节点 ID；V2 使用 `lightEntryMode` 表达原图门窗、左侧、右侧、后方、关闭和自定义进光，兼容把 V1 的 `lightEntryEnabled` 迁移到 V2。18 套原创光影预设、参数联动、冲突提示、搜索和实时 JSON 预览均只在浏览器内工作；提示词中的画幅与 4K/8K 只描述期望画面，不代表 Provider 接口参数。
 - 首次输出室内提示词时创建普通可编辑 `textNode` 和可见文本边；关联存在期间，任意有效参数变化在同一次画布状态更新中重编译并覆盖文本内容。删除边即停止联动，删除任一节点不得级联删除另一侧内容。图片、模型、真实画幅/分辨率、Provider 调用、任务恢复和结果入云均由用户连接的通用 `generateNode` 负责。
 - Provider、endpoint、真实模型 ID、API Key、自定义图片 Provider Manifest、匿名引用绑定和可恢复本地任务只进入按 Origin、可信用户和项目隔离的加密 IndexedDB。任务缓存当前为 v4，兼容读取并迁移 v3；Provider 已返回但尚未入云的图片 Blob 也按用户、项目和任务加密暂存，保存成功后立即删除。
 - Vault 当前使用 `schemaVersion=3`、`cipherVersion=1`、不可导出的 AES-256-GCM `CryptoKey`，兼容按密文记录自身版本读取 v2 并重新加密迁移；Key 凭据与 Provider 配置分槽保存，版本化自定义图片 Manifest 只保存于 Vault 且不包含 Key。
 - 登出或换账号清除内存明文，但保留按账号隔离的设备密文；清除网站数据会删除密文、CryptoKey、绑定和任务缓存。
 - 浏览器继续实现受控 OpenAI Compatible/DashScope chat、image、video 协议；图片额外支持版本化 `custom-http-image-v1` Manifest。Manifest 只允许受控相对路径、固定鉴权模式和声明式 JSON/multipart 映射，不接受 JavaScript、表达式求值、任意 Header、凭据变量或任意 target URL。
-- OpenAI Compatible 与 DashScope 的标准图片配置对普通用户固定为 Bearer + 同步；底层 OpenAI 异步 adapter 保留但暂不提供设置入口。`custom-http-image-v1` 可通过已验证 Manifest 声明同步结果或轮询任务，只用于图片生成与编辑，自定义服务商不调用 `/v1/models`。
+- OpenAI Compatible 与 DashScope 的标准图片配置对普通用户固定为 Bearer + 同步；模型管理默认提供不可删除、不可修改官方地址的 DeepSeek 服务商，用户只需填写本机 Vault 中的 API Key，“添加服务商”只用于第三方或自建接口。底层 OpenAI 异步 adapter 保留但暂不提供设置入口。`custom-http-image-v1` 可通过已验证 Manifest 声明同步结果或轮询任务，只用于图片生成与编辑，自定义服务商不调用 `/v1/models`。
 - 云端图只保存 `local:<uuid>` 匿名模型引用。新设备必须由用户明确绑定本机同类型模型，不按名称或 ID 猜测。
 - 图片与视频分别使用独立 FIFO 执行通道；本地并发策略固定为图片 8、视频 1。调度器通过原子 claim 领取任务，Provider 请求、异步轮询、结果下载和 Cloud 入库完成后才释放槽位；第 9 个图片任务继续留在当前项目的浏览器队列。
 - 图片 Provider 通过按协议能力选择的受控 adapter 注册表统一返回同步完成结果或受控 remote task ID，不按 URL、服务商名称或运行时探测猜测协议。Provider POST 不自动重试；异步查询只对网络错误、429 和 5xx 执行有限退避，Cloud 保存失败只从加密临时 Blob 继续保存，不重新调用 Provider。

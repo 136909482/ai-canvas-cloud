@@ -150,6 +150,10 @@ interface CanvasStore {
     x: number;
     y: number;
   }) => string;
+  addInteriorRefurnishNode: (preferredPosition?: {
+    x: number;
+    y: number;
+  }) => string;
   addImageEditNode: (preferredPosition?: { x: number; y: number }) => string;
   addEntourageNode: (preferredPosition?: { x: number; y: number }) => string;
   addLLMNode: (preferredPosition?: { x: number; y: number }) => string;
@@ -410,6 +414,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
             conn.targetHandle === "mask") ||
           (targetNode?.type === "imageEditNode" &&
             conn.targetHandle === "base") ||
+          (targetNode?.type === "interiorRefurnishNode" &&
+            conn.targetHandle === "scene") ||
           ((targetNode?.type === "llmNode" ||
             targetNode?.type === "llmFileNode") &&
             isTextSource) ||
@@ -437,7 +443,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
                   (conn.targetHandle === "firstFrame" ||
                     conn.targetHandle === "lastFrame")) ||
                 (targetNode?.type === "imageEditNode" &&
-                  conn.targetHandle === "base")
+                  conn.targetHandle === "base") ||
+                (targetNode?.type === "interiorRefurnishNode" &&
+                  conn.targetHandle === "scene")
               ) {
                 return false;
               }
@@ -471,7 +479,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       );
       const newNode = registration.build(id, position, registration.size);
       const defaultModelCategory =
-        type === "generateNode" || type === "entourageNode"
+        type === "generateNode" ||
+        type === "entourageNode" ||
+        type === "interiorRefurnishNode"
           ? "image"
           : type === "videoGenerateNode"
             ? "video"
@@ -487,9 +497,11 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
                 useSettingsStore.getState().config,
                 defaultModelCategory,
               ),
-              ...(type === "entourageNode"
+              ...(type === "entourageNode" || type === "interiorRefurnishNode"
                 ? {
-                    plannerModel: getPreferredSelectableModelEntryId(
+                    [type === "entourageNode"
+                      ? "plannerModel"
+                      : "recognitionModel"]: getPreferredSelectableModelEntryId(
                       useSettingsStore.getState().config,
                       "chat",
                     ),
@@ -527,6 +539,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     get().addNodeByType("generateNode", preferredPosition),
   addInteriorDesignNode: (preferredPosition) =>
     get().addNodeByType("interiorDesignNode", preferredPosition),
+  addInteriorRefurnishNode: (preferredPosition) =>
+    get().addNodeByType("interiorRefurnishNode", preferredPosition),
   addImageEditNode: (preferredPosition) =>
     get().addNodeByType("imageEditNode", preferredPosition),
   addEntourageNode: (preferredPosition) =>

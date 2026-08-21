@@ -40,6 +40,7 @@ export function buildNodeDataUpdatedState(
     if (
       (node.type === "generateNode" ||
         node.type === "imageEditNode" ||
+        node.type === "interiorRefurnishNode" ||
         node.type === "imageCropNode") &&
       hasNodeSizePatch
     ) {

@@ -24,6 +24,7 @@ import {
   reconcileDiscoveredModels,
   type ProviderModelImportSelection,
 } from "../features/settings/providerModelDiscovery.ts";
+import { matchProviderPreset } from "../features/settings/providerPresets.ts";
 import type {
   WorkspacePermissionState,
   WorkspaceStatus,
@@ -868,11 +869,21 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
       const previous = normalized.providerProfiles.find(
         (item) => item.id === profile.id,
       );
+      const builtInPreset = previous
+        ? matchProviderPreset(previous.baseUrl)
+        : null;
       const nextProfile = normalizeProviderProfile({
         ...profile,
         // Provider protocol is selected at creation time and remains stable
         // for the lifetime of the profile. Re-adding is required to switch.
         ...(previous ? { protocol: previous.protocol } : {}),
+        ...(builtInPreset
+          ? {
+              name: builtInPreset.name,
+              protocol: builtInPreset.protocol,
+              baseUrl: builtInPreset.baseUrl,
+            }
+          : {}),
         createdAt: previous?.createdAt ?? profile.createdAt,
         updatedAt: Date.now(),
       });
@@ -1018,6 +1029,12 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
   deleteProviderProfile: (id) => {
     set((state) => {
       const normalized = normalizeConfig(state.config);
+      const profileToDelete = normalized.providerProfiles.find(
+        (profile) => profile.id === id,
+      );
+      if (profileToDelete && matchProviderPreset(profileToDelete.baseUrl)) {
+        return state;
+      }
       const deletedManifestId = normalized.providerProfiles.find(
         (profile) => profile.id === id,
       )?.customManifestId;

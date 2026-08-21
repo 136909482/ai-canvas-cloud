@@ -7,6 +7,7 @@ import type {
   GenerateStatus,
   GenerateNodeData,
   InteriorDesignNodeData,
+  InteriorRefurnishNodeData,
   GeneratedPreviewNodeData,
   GroupNodeData,
   ImageCropNodeData,
@@ -25,6 +26,7 @@ import {
   compileInteriorDesignPrompt,
   createDefaultInteriorDesignConfig,
 } from "@/features/interiorDesign/compiler";
+import { createInteriorRefurnishNodeData } from "@/features/interiorRefurnish/runtime";
 import {
   createEntourageNodeData,
   createImageCropNodeData,
@@ -259,6 +261,23 @@ export function buildManualInteriorDesignNode(
       compiledPrompt: compileInteriorDesignPrompt(config),
       outputTextNodeId: null,
     },
+  };
+}
+
+export function buildManualInteriorRefurnishNode(
+  id: string,
+  position: { x: number; y: number },
+  size: { width: number; height: number },
+): Node<InteriorRefurnishNodeData> {
+  return {
+    id,
+    type: "interiorRefurnishNode",
+    dragHandle: NODE_DRAG_HANDLE,
+    position,
+    width: size.width,
+    height: size.height,
+    selected: true,
+    data: createInteriorRefurnishNodeData(),
   };
 }
 
