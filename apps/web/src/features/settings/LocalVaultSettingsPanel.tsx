@@ -1107,9 +1107,33 @@ export function LocalVaultSettingsPanel() {
                   />
                 </label>
                 <label className="block space-y-1 text-xs text-[var(--text-secondary)]">
-                  <span className="flex items-center gap-1.5 leading-4">
-                    <KeyRound className="h-3.5 w-3.5" />
-                    API Key
+                  <span className="flex items-center justify-between gap-2 leading-4">
+                    <span className="flex items-center gap-1.5">
+                      <KeyRound className="h-3.5 w-3.5" />
+                      API Key
+                    </span>
+                    {activeProviderPreset ? (
+                      <span className="flex shrink-0 items-center gap-2.5">
+                        <a
+                          href={activeProviderPreset.apiKeyUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-violet-300 hover:text-violet-200"
+                        >
+                          创建 API Key
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                        <a
+                          href={activeProviderPreset.docsUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-violet-300 hover:text-violet-200"
+                        >
+                          接口文档
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </span>
+                    ) : null}
                   </span>
                   <span className="relative block">
                     <input
@@ -1153,29 +1177,6 @@ export function LocalVaultSettingsPanel() {
                     </button>
                   </span>
                 </label>
-                {activeProviderPreset ? (
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[7px] border border-[var(--border-subtle)] bg-[var(--control-bg)] px-3 py-2 text-[10px] text-[var(--text-muted)]">
-                    <span>只需填写当前账号的 API Key</span>
-                    <a
-                      href={activeProviderPreset.apiKeyUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-violet-300 hover:text-violet-200"
-                    >
-                      创建 API Key
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                    <a
-                      href={activeProviderPreset.docsUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-violet-300 hover:text-violet-200"
-                    >
-                      接口文档
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </div>
-                ) : null}
                 {providerDraft.protocol === "custom-http-image-v1" ? (
                   <>
                     <div className="border-t border-[var(--border-subtle)] pt-3">
