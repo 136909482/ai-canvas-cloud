@@ -37,6 +37,7 @@ export type LLMNodeStatus = "idle" | "running" | "success" | "error";
 export type LLMOutputNodeStatus = "queued" | "generating" | "done" | "error";
 export type ImageCropNodeStatus = "idle" | "running" | "done" | "error";
 export type VideoGenerateMode = "text" | "keyframes" | "reference";
+export type ImageResponseFormat = "url" | "b64_json";
 
 export interface ProviderProfileConfig {
   id: string;
@@ -47,6 +48,7 @@ export interface ProviderProfileConfig {
   baseUrl: string;
   enabled: boolean;
   imageRequestMode: ImageRequestMode;
+  imageResponseFormat?: ImageResponseFormat;
   createdAt: number;
   updatedAt: number;
   lastDiscoveryAt?: number;
@@ -151,6 +153,7 @@ export interface RuntimeModelConfig extends ModelEntry {
   authMode: ProviderAuthMode;
   customManifest?: CustomImageProviderManifestV1;
   imageRequestMode: ImageRequestMode;
+  imageResponseFormat?: ImageResponseFormat;
   requestMode: ImageRequestMode;
 }
 

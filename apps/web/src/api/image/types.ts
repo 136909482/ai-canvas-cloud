@@ -5,6 +5,7 @@ import type {
   ImageInputFidelity,
   ImageOperationType,
   ImageRequestMode,
+  ImageResponseFormat,
   ProviderAuthMode,
 } from "@/types";
 
@@ -25,6 +26,7 @@ export interface GenerateImageParams {
   customManifest?: CustomImageProviderManifestV1;
   signal?: AbortSignal;
   requestMode?: ImageRequestMode;
+  responseFormat?: ImageResponseFormat;
   operationType?: ImageOperationType;
   inputFidelity?: ImageInputFidelity | null;
   quality?: GptImageQuality | null;

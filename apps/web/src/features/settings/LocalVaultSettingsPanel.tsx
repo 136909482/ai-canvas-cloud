@@ -529,6 +529,7 @@ export function LocalVaultSettingsPanel() {
           : {}),
         imageRequestMode:
           protocol === "custom-http-image-v1" ? draft.imageRequestMode : "sync",
+        imageResponseFormat: draft.imageResponseFormat,
         createdAt: draft.createdAt,
         updatedAt: draft.updatedAt,
         ...(draft.lastDiscoveryAt && !needsRediscovery
@@ -727,6 +728,7 @@ export function LocalVaultSettingsPanel() {
         draft.protocol === "custom-http-image-v1"
           ? draft.imageRequestMode
           : "sync",
+      imageResponseFormat: draft.imageResponseFormat,
       createdAt: draft.createdAt,
       updatedAt: draft.updatedAt,
       lastDiscoveryAt: discoveredAt,
@@ -1177,6 +1179,28 @@ export function LocalVaultSettingsPanel() {
                     </button>
                   </span>
                 </label>
+                {providerDraft.protocol === "openai-compatible" ? (
+                  <label className="block space-y-1 text-xs text-[var(--text-secondary)]">
+                    <span className="block leading-4">图片结果格式</span>
+                    <SettingsSelect
+                      ariaLabel="图片结果格式"
+                      value={providerDraft.imageResponseFormat ?? "url"}
+                      onChange={(value) =>
+                        updateProviderDraft((draft) => ({
+                          ...draft,
+                          imageResponseFormat: value as "url" | "b64_json",
+                        }))
+                      }
+                      options={[
+                        { value: "url", label: "URL（下载地址）" },
+                        {
+                          value: "b64_json",
+                          label: "Base64 JSON（直接返回图片）",
+                        },
+                      ]}
+                    />
+                  </label>
+                ) : null}
                 {providerDraft.protocol === "custom-http-image-v1" ? (
                   <>
                     <div className="border-t border-[var(--border-subtle)] pt-3">

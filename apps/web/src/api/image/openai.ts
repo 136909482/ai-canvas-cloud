@@ -174,6 +174,12 @@ function isGemini25FlashImageModel(model: string) {
   return model.trim().toLowerCase().includes("gemini-2.5-flash-image");
 }
 
+function isNanoBanana2GenerationModel(model: string) {
+  return /nano[-_ ]?banana(?:[-_ ]?2)?(?:[-_ ]?pro)?/.test(
+    model.trim().toLowerCase(),
+  );
+}
+
 function getOpenAiCompatibleImageRequestFamily(
   model: string,
 ): OpenAiCompatibleImageRequestFamily {
@@ -411,12 +417,16 @@ function getOpenAiImageEditInputImages(params: GenerateImageParams) {
 }
 
 function shouldUseOpenAiImageEditRequest(params: GenerateImageParams) {
-  return getOpenAiImageEditInputImages(params).length > 0;
+  return (
+    getOpenAiImageEditInputImages(params).length > 0 &&
+    !isNanoBanana2GenerationModel(params.model)
+  );
 }
 
 function shouldUseGeminiChatImageRequest(params: GenerateImageParams) {
   return (
     getOpenAiCompatibleImageRequestFamily(params.model) === "gemini" &&
+    !isNanoBanana2GenerationModel(params.model) &&
     resolveImageOperationType(params) === "image-to-image" &&
     normalizeReferenceImages(
       params.referenceImageUrl,
@@ -496,7 +506,35 @@ async function buildGptImageGenerationPayload(
   }
 
   if (requestFamily === "gemini") {
-    addGeminiImagePayloadFields(payload, params, size);
+    if (isNanoBanana2GenerationModel(params.model)) {
+      delete payload.n;
+      delete payload.size;
+      payload.response_format = params.responseFormat ?? "url";
+      payload.image_size = normalizeGeminiImageResolution(params.resolution);
+      if (size !== "auto") payload.aspect_ratio = size;
+      const inputImages = normalizeReferenceImages(
+        params.referenceImageUrl,
+        params.referenceImageUrls,
+      );
+      const generationImageUrls = [
+        ...(params.editImageUrl ? [params.editImageUrl] : []),
+        ...inputImages,
+      ];
+      if (generationImageUrls.length > 0) {
+        payload.image = await Promise.all(
+          generationImageUrls.map(async (imageUrl, index) => {
+            if (imageUrl.startsWith("data:image/")) return imageUrl;
+            const imageFile = await convertReferenceImageToFile(
+              imageUrl,
+              index,
+            );
+            return blobToDataUrl(imageFile);
+          }),
+        );
+      }
+    } else {
+      addGeminiImagePayloadFields(payload, params, size);
+    }
   }
 
   return payload;

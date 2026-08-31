@@ -306,6 +306,7 @@ export function createEmptyProviderDraft(
     authMode: "bearer",
     baseUrl: "",
     imageRequestMode: "sync",
+    imageResponseFormat: "url",
     enabled: true,
     createdAt: now,
     updatedAt: now,

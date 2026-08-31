@@ -226,6 +226,7 @@ export function resolveRuntimeModelConfig(
       ...(customManifest ? { customManifest } : {}),
       imageRequestMode: effectiveImageRequestMode,
       requestMode: effectiveImageRequestMode,
+      imageResponseFormat: profile.imageResponseFormat,
     },
   };
 }

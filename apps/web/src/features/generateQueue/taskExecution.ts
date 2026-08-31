@@ -248,6 +248,7 @@ function buildTaskRequestParams(task: GenerateTask) {
       authMode: modelConfig.authMode,
       customManifest: modelConfig.customManifest,
       requestMode: modelConfig.requestMode,
+      responseFormat: modelConfig.imageResponseFormat,
       operationType: task.operationType,
     } as const,
   };

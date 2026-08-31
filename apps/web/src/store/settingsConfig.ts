@@ -111,6 +111,8 @@ export function createProviderProfile(
       overrides.imageRequestMode === "async"
         ? "async"
         : "sync",
+    imageResponseFormat:
+      overrides.imageResponseFormat === "b64_json" ? "b64_json" : "url",
     createdAt: normalizeTimestamp(overrides.createdAt, now),
     updatedAt: normalizeTimestamp(overrides.updatedAt, now),
     ...(typeof overrides.lastDiscoveryAt === "number" &&
