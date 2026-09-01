@@ -532,6 +532,25 @@ export function SiteConfigView() {
                 }
               />
             </div>
+            <div className="control-row">
+              <div>
+                <strong>官方接口服务</strong>
+                <span>关闭后拒绝新官方任务，并退回尚未执行任务的预留积分</span>
+              </div>
+              <Switch
+                aria-label="官方接口服务"
+                checked={config.features.officialGenerationEnabled}
+                onChange={(officialGenerationEnabled) =>
+                  setConfig((current) => ({
+                    ...current,
+                    features: {
+                      ...current.features,
+                      officialGenerationEnabled,
+                    },
+                  }))
+                }
+              />
+            </div>
           </div>
         </div>
       ),

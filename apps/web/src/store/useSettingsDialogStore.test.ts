@@ -11,6 +11,7 @@ test("Vault and cloud task-record settings are exposed", () => {
     "community",
     "devices",
     "models",
+    "credits",
     "storage",
     "canvas",
     "appearance",

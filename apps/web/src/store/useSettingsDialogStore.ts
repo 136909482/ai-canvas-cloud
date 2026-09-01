@@ -5,6 +5,7 @@ export type SettingsCategoryId =
   | "community"
   | "devices"
   | "models"
+  | "credits"
   | "storage"
   | "canvas"
   | "appearance"
@@ -15,6 +16,7 @@ export const EXPOSED_SETTINGS_CATEGORY_IDS: SettingsCategoryId[] = [
   "community",
   "devices",
   "models",
+  "credits",
   "storage",
   "canvas",
   "appearance",

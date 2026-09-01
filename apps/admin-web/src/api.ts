@@ -45,6 +45,18 @@ import type {
   CommunityPostResponse,
   SystemUpdateRequestResponse,
   SystemUpdateStatusResponse,
+  AdminCreateOfficialProviderRequest,
+  AdminCreateRedemptionBatchRequest,
+  AdminCreatedRedemptionBatch,
+  AdminCreditAdjustmentRequest,
+  AdminCreditSettings,
+  AdminOfficialModel,
+  AdminOfficialProviderSummary,
+  AdminRedemptionBatch,
+  AdminUpdateCreditSettingsRequest,
+  AdminUpsertOfficialModelRequest,
+  CreditBalance,
+  CreditLedgerEntry,
 } from "@ai-canvas-cloud/contracts";
 
 const configuredApiUrl = (
@@ -391,6 +403,80 @@ export const adminApi = {
   },
   siteAssets() {
     return request<SiteAssetsResponse>("/admin/v1/site-assets");
+  },
+  officialProviders() {
+    return request<{ items: AdminOfficialProviderSummary[] }>(
+      "/admin/v1/official-providers",
+    );
+  },
+  createOfficialProvider(input: AdminCreateOfficialProviderRequest) {
+    return post<AdminOfficialProviderSummary>(
+      "/admin/v1/official-providers",
+      input as unknown as Record<string, unknown>,
+    );
+  },
+  testOfficialProvider(id: string) {
+    return post<{ ok: true }>(
+      `/admin/v1/official-providers/${encodeURIComponent(id)}/test`,
+    );
+  },
+  officialProviderModels(id: string) {
+    return request<{ items: { id: string; name: string | null }[] }>(
+      `/admin/v1/official-providers/${encodeURIComponent(id)}/models`,
+    );
+  },
+  officialModels() {
+    return request<{ items: AdminOfficialModel[] }>(
+      "/admin/v1/official-models",
+    );
+  },
+  createOfficialModel(input: AdminUpsertOfficialModelRequest) {
+    return post<AdminOfficialModel>(
+      "/admin/v1/official-models",
+      input as unknown as Record<string, unknown>,
+    );
+  },
+  updateOfficialModel(id: string, input: AdminUpsertOfficialModelRequest) {
+    return post<AdminOfficialModel>(
+      `/admin/v1/official-models/${encodeURIComponent(id)}`,
+      input as unknown as Record<string, unknown>,
+    );
+  },
+  creditSettings() {
+    return request<AdminCreditSettings>("/admin/v1/credit-settings");
+  },
+  updateCreditSettings(input: AdminUpdateCreditSettingsRequest) {
+    return post<AdminCreditSettings>(
+      "/admin/v1/credit-settings",
+      input as unknown as Record<string, unknown>,
+    );
+  },
+  redemptionBatches() {
+    return request<{ items: AdminRedemptionBatch[] }>(
+      "/admin/v1/redemption-code-batches",
+    );
+  },
+  createRedemptionBatch(input: AdminCreateRedemptionBatchRequest) {
+    return post<AdminCreatedRedemptionBatch>(
+      "/admin/v1/redemption-code-batches",
+      input as unknown as Record<string, unknown>,
+    );
+  },
+  revokeRedemptionBatch(id: string) {
+    return post<AdminRedemptionBatch>(
+      `/admin/v1/redemption-code-batches/${encodeURIComponent(id)}/revoke`,
+    );
+  },
+  userCredits(userId: string) {
+    return request<{ balance: CreditBalance; entries: CreditLedgerEntry[] }>(
+      `/admin/v1/users/${encodeURIComponent(userId)}/credits`,
+    );
+  },
+  adjustUserCredits(userId: string, input: AdminCreditAdjustmentRequest) {
+    return post<{ balance: CreditBalance }>(
+      `/admin/v1/users/${encodeURIComponent(userId)}/credits/adjust`,
+      input as unknown as Record<string, unknown>,
+    );
   },
   async uploadSiteAsset(kind: SiteAssetKind, file: File) {
     const bytes = await file.arrayBuffer();

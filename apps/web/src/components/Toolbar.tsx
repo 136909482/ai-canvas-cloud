@@ -29,6 +29,8 @@ import {
 } from "@/components/toolbar/settingsModel";
 import { CanvasSettingsSwitch } from "@/components/toolbar/settingsComponents";
 import { LocalVaultSettingsPanel } from "@/features/settings/LocalVaultSettingsPanel";
+import { CreditSettingsPanel } from "@/features/officialGeneration/CreditSettingsPanel";
+import { CreditBalanceButton } from "@/features/officialGeneration/CreditBalanceButton";
 
 interface ToolbarProps {
   leftSlot?: ReactNode;
@@ -114,6 +116,7 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
         aria-label="应用工具"
         className={`absolute right-4 top-4 z-10 flex items-center gap-0.5 p-1 ${themeClasses.compactFloatingPanel}`}
       >
+        <CreditBalanceButton />
         <TaskQueueButton />
         {rightSlot}
       </div>
@@ -259,6 +262,9 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
                       <CommunityPostingSettings />
                     ) : null}
                     {activeCategory === "tasks" ? <TaskRecordsPanel /> : null}
+                    {activeCategory === "credits" ? (
+                      <CreditSettingsPanel />
+                    ) : null}
                     {activeCategory === "devices" ? (
                       <DeviceSettingsPanel />
                     ) : null}

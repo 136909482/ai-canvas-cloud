@@ -99,6 +99,34 @@
       "rollback": "drop generation_task_records only before any task record is stored",
       "forwardRepair": "rerun the idempotent task record table and index creation migration, then reprovision database roles",
       "backupRequired": false
+    },
+    {
+      "version": "0044",
+      "name": "add_official_generation_credits",
+      "releaseTrain": "official-generation-credits",
+      "phase": "expand",
+      "oldAppReadable": true,
+      "newAppReadable": true,
+      "oldAppWithNewSchema": true,
+      "lockRisk": "low",
+      "statementTimeoutMs": 30000,
+      "rollback": "disable official generation and drop the new tables only before issuing credits or accepting official tasks",
+      "forwardRepair": "rerun the idempotent migration, reprovision database roles, and reconcile reserved credits against non-terminal tasks",
+      "backupRequired": true
+    },
+    {
+      "version": "0045",
+      "name": "fix_official_admin_id_types",
+      "releaseTrain": "official-credits-repair",
+      "phase": "expand",
+      "oldAppReadable": true,
+      "newAppReadable": true,
+      "oldAppWithNewSchema": true,
+      "lockRisk": "low",
+      "statementTimeoutMs": 30000,
+      "rollback": "restore the three columns to UUID only when all stored admin identifiers are valid UUIDs",
+      "forwardRepair": "rerun the idempotent ALTER COLUMN statements and reprovision database roles",
+      "backupRequired": false
     }
   ]
 }

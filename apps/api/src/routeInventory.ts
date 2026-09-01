@@ -9,7 +9,9 @@ export type PublicRouteGroup =
   | "projects"
   | "settings"
   | "community"
-  | "announcements";
+  | "announcements"
+  | "official-generation"
+  | "credits";
 
 export interface PublicRouteInventoryEntry {
   method: "GET" | "POST" | "PATCH" | "DELETE";
@@ -437,6 +439,72 @@ export const PUBLIC_ROUTE_INVENTORY = [
     path: "/api/v1/projects/:projectId/revisions/:version/restore",
     operationId: "restoreProjectRevision",
     group: "projects",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/official-generation/preferences",
+    operationId: "getOfficialGenerationPreferences",
+    group: "official-generation",
+  },
+  {
+    method: "PATCH",
+    path: "/api/v1/official-generation/preferences",
+    operationId: "updateOfficialGenerationPreferences",
+    group: "official-generation",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/official-models",
+    operationId: "listOfficialModels",
+    group: "official-generation",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/credits",
+    operationId: "getCreditBalance",
+    group: "credits",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/credits/entries",
+    operationId: "listCreditEntries",
+    group: "credits",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/credits/redeem",
+    operationId: "redeemCreditCode",
+    group: "credits",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/official-image-tasks",
+    operationId: "createOfficialImageTask",
+    group: "official-generation",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/official-image-tasks",
+    operationId: "listOfficialImageTasks",
+    group: "official-generation",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/official-image-tasks/:taskId",
+    operationId: "getOfficialImageTask",
+    group: "official-generation",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/official-image-tasks/:taskId/cancel",
+    operationId: "cancelOfficialImageTask",
+    group: "official-generation",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/official-image-tasks/:taskId/acknowledge",
+    operationId: "acknowledgeOfficialImageTask",
+    group: "official-generation",
   },
 ] as const satisfies readonly PublicRouteInventoryEntry[];
 

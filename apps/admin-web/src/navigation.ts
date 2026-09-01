@@ -7,6 +7,7 @@ export type AdminView =
   | "security"
   | "users"
   | "site"
+  | "official-generation"
   | "storage"
   | "smtp"
   | "audit"
@@ -35,6 +36,11 @@ export const ADMIN_NAVIGATION: readonly AdminNavigationItem[] = [
   },
   { key: "community", label: "社区审核", roles: ["super_admin", "operator"] },
   { key: "site", label: "网站设置", roles: ["super_admin", "operator"] },
+  {
+    key: "official-generation",
+    label: "官方模型与积分",
+    roles: ["super_admin"],
+  },
   { key: "storage", label: "对象存储", roles: ["super_admin"] },
   { key: "smtp", label: "邮件服务", roles: ["super_admin"] },
   { key: "updates", label: "系统更新", roles: ["super_admin"] },

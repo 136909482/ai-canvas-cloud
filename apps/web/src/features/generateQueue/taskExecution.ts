@@ -12,8 +12,19 @@ import {
   type GenerationTelemetryAttempt,
 } from "@/features/generationTelemetry";
 import { reportTaskRecordForTask } from "@/features/taskRecords";
+import {
+  acknowledgeOfficialImageTask,
+  createOfficialImageTask,
+  fetchOfficialImageTask,
+  fetchOfficialResultAsset,
+} from "@/features/officialGeneration/api";
+import { parseModelSelectionRef } from "@/features/officialGeneration/modelReference";
 import { resolveRuntimeModelConfig } from "@/features/settings/providerConfig";
 import { platformBridge } from "@/platform";
+import {
+  createCloudAssetRelativePath,
+  getCloudAssetIdFromRelativePath,
+} from "@/platform/cloud/cloudAssetUrlCache";
 import { useCanvasStore } from "@/store/useCanvasStore";
 import { reportDiagnostic } from "@/store/useDiagnosticsStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
@@ -61,6 +72,7 @@ const UI_TEXT = {
 } as const;
 
 const activeRemoteResumeTaskIds = new Set<string>();
+const OFFICIAL_TASK_POLL_INTERVAL_MS = 1_500;
 
 class GenerationAssetPersistError extends Error {
   constructor(message: string) {
@@ -185,6 +197,183 @@ function getTaskModelConfig(task: GenerateTask) {
         resolution.runtimeConfig.customManifest?.schemaVersion ?? null,
     },
   };
+}
+
+function requireOfficialResolution(value: string) {
+  if (value === "1K" || value === "2K" || value === "4K") return value;
+  throw new Error("官方模型仅支持 1K、2K 或 4K 分辨率");
+}
+
+function requireCloudAssetId(
+  source: { assetRelativePath: string | null },
+  label: string,
+) {
+  const assetId = source.assetRelativePath
+    ? getCloudAssetIdFromRelativePath(source.assetRelativePath)
+    : null;
+  if (!assetId) {
+    throw new Error(
+      `${label}必须先上传到当前云工作区，不能使用本地文件或外部 URL`,
+    );
+  }
+  return assetId;
+}
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function finalizeOfficialTask(
+  task: GenerateTask,
+  resultAssetId: string,
+  runtimeVersion: number,
+) {
+  useTaskQueueStore.getState().setTaskPhase(task.id, "persisting");
+  const [{ asset: metadata }, resolvedUrl] = await Promise.all([
+    fetchOfficialResultAsset(resultAssetId),
+    platformBridge.resolveWorkspaceAssetUrl(
+      createCloudAssetRelativePath(resultAssetId),
+    ),
+  ]);
+  if (!isTaskQueueRuntimeCurrent(runtimeVersion)) return;
+
+  const imageAsset = {
+    assetId: metadata.id,
+    projectId: metadata.projectId,
+    assetKind: metadata.assetKind,
+    relativePath: createCloudAssetRelativePath(metadata.id),
+    mimeType: metadata.mimeType,
+    fileName: metadata.originalFileName ?? `official-${metadata.id}.png`,
+    displayWidth: metadata.width ?? undefined,
+    displayHeight: metadata.height ?? undefined,
+    originalWidth: metadata.width ?? undefined,
+    originalHeight: metadata.height ?? undefined,
+  } as const;
+  const width = metadata.width ?? 0;
+  const height = metadata.height ?? 0;
+  const previewSize =
+    width > 0 && height > 0
+      ? getPreviewNodeSize(width, height)
+      : { width: 300, height: 260 };
+
+  if (task.previewNodeId) {
+    useCanvasStore.getState().updateNodeData(task.previewNodeId, {
+      imageUrl: resolvedUrl,
+      imageAsset,
+      apiProfileName: "官方模型",
+      status: "done",
+      errorMsg: "",
+      imageWidth: width,
+      imageHeight: height,
+      width: previewSize.width,
+      height: previewSize.height,
+      sourceImageNodeId: resolvePreviewSourceImageNodeId(
+        task.sourceImageNodeId,
+      ),
+      originOperation:
+        task.operationType === "image-edit" ? "image-edit" : "generate",
+      taskId: task.id,
+    });
+  }
+  useTaskQueueStore.getState().markTaskDone(task.id, {
+    resultImageAsset: imageAsset,
+  });
+  syncSourceNodeAfterTaskSettles(task, {
+    status: "done",
+    imageUrl: resolvedUrl,
+    imageAsset,
+  });
+}
+
+async function runOfficialGenerationTask(
+  task: GenerateTask,
+  modelId: string,
+  runtimeVersion: number,
+) {
+  if (task.kind !== "image" || !task.projectId) {
+    throw new Error("官方图片任务必须关联当前云项目");
+  }
+
+  const inputAssetIds = task.referenceImages.map((source, index) =>
+    requireCloudAssetId(source, `参考图 ${index + 1}`),
+  );
+  const editAssetId = task.editImageSource
+    ? requireCloudAssetId(task.editImageSource, "编辑原图")
+    : null;
+  let maskAssetId = task.maskImageSource
+    ? requireCloudAssetId(task.maskImageSource, "蒙版")
+    : null;
+  if (!maskAssetId && task.maskImageUrl) {
+    if (!task.maskImageUrl.startsWith("data:image/")) {
+      throw new Error("官方任务的蒙版必须来自当前画布并先上传到云工作区");
+    }
+    const blob = await fetch(task.maskImageUrl).then((response) =>
+      response.blob(),
+    );
+    if (!blob.type.startsWith("image/")) throw new Error("蒙版图片格式无效");
+    const uploaded = await platformBridge.writeWorkspaceAsset({
+      pathSegments: ["official-task-inputs"],
+      fileName: `mask-${task.id}.png`,
+      blob,
+      projectId: task.projectId,
+      assetKind: "upload",
+      referenceRole: "mask",
+    });
+    maskAssetId =
+      uploaded.assetId ??
+      getCloudAssetIdFromRelativePath(uploaded.relativePath);
+    if (!maskAssetId) throw new Error("蒙版上传后未返回有效的云资产 ID");
+  }
+  let response = task.remoteTaskId
+    ? await fetchOfficialImageTask(task.remoteTaskId)
+    : await createOfficialImageTask({
+        projectId: task.projectId,
+        clientTaskId: task.id,
+        idempotencyKey: `official-image:${task.id}`,
+        modelId,
+        resolution: requireOfficialResolution(task.resolution),
+        operationType:
+          task.operationType === "text-to-image" ? "generate" : "edit",
+        prompt: task.prompt,
+        negativePrompt: task.negativePrompt || null,
+        ratio: task.ratio,
+        inputAssetIds,
+        editAssetId,
+        maskAssetId,
+      });
+
+  if (!task.remoteTaskId) {
+    useTaskQueueStore.getState().attachRemoteTask(task.id, response.task.id);
+  }
+  useTaskQueueStore.getState().setTaskPhase(task.id, "polling");
+  useTaskQueueStore.getState().setRemoteTaskStatus(task.id, "IN_PROGRESS");
+
+  while (
+    response.task.status === "queued" ||
+    response.task.status === "running"
+  ) {
+    await delay(OFFICIAL_TASK_POLL_INTERVAL_MS);
+    if (!isTaskQueueRuntimeCurrent(runtimeVersion)) return;
+    response = await fetchOfficialImageTask(response.task.id);
+  }
+
+  if (response.task.status === "succeeded" && response.task.resultAssetId) {
+    useTaskQueueStore.getState().setRemoteTaskStatus(task.id, "SUCCESS");
+    await finalizeOfficialTask(
+      task,
+      response.task.resultAssetId,
+      runtimeVersion,
+    );
+    await acknowledgeOfficialImageTask(response.task.id);
+    return;
+  }
+
+  useTaskQueueStore.getState().setRemoteTaskStatus(task.id, "FAILURE");
+  throw new Error(
+    response.task.status === "canceled"
+      ? "官方任务已取消，预留数量已退回"
+      : `官方任务失败${response.task.failureCategory ? `：${response.task.failureCategory}` : ""}`,
+  );
 }
 
 function buildTaskRequestParams(task: GenerateTask) {
@@ -674,6 +863,12 @@ export async function restoreTaskQueueAfterSnapshotLoad() {
 
     if (task.remoteTaskId) {
       try {
+        if (parseModelSelectionRef(task.model).source === "official") {
+          syncSourceNodeWithTask(task, "generating");
+          syncPreviewNodeWithTask(task, "generating");
+          void runGenerateTask(task.id);
+          continue;
+        }
         const { provider } = buildTaskRequestParams(task);
 
         if (
@@ -748,6 +943,32 @@ export async function runGenerateTask(taskId: string) {
 
   try {
     const { task: runningTask } = getTaskRuntime(taskId);
+    const modelReference = parseModelSelectionRef(runningTask.model);
+
+    if (modelReference.source === "official") {
+      syncSourceNodeWithTask(runningTask, "generating");
+      syncPreviewNodeWithTask(runningTask, "generating");
+      telemetryAttempt = beginGenerationTelemetry("image");
+      taskStore.attachTelemetryAttempt(
+        runningTask.id,
+        telemetryAttempt.attemptId,
+        telemetryAttempt.startedAt,
+      );
+      await runOfficialGenerationTask(
+        runningTask,
+        modelReference.modelId,
+        runtimeVersion,
+      );
+      completeGenerationTelemetry(telemetryAttempt, {
+        status: "succeeded",
+        resultCount: 1,
+      });
+      reportCurrentTaskRecord(runningTask, {
+        status: "succeeded",
+        resultCount: 1,
+      });
+      return;
+    }
 
     if (runningTask.phase === "polling" && runningTask.remoteTaskId) {
       await resumeRemoteGenerateTask(taskId);

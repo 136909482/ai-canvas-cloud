@@ -188,6 +188,27 @@ try {
     `GRANT SELECT, INSERT, UPDATE ON public.announcements TO ${admin}`,
   );
   await client.query(
+    `GRANT SELECT, INSERT ON public.official_provider_revisions TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT, INSERT, UPDATE ON public.official_models TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT, UPDATE ON public.credit_settings TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT, INSERT, UPDATE ON public.credit_accounts TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT, INSERT ON public.credit_ledger_entries TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT, INSERT, UPDATE ON public.redemption_code_batches TO ${admin}`,
+  );
+  await client.query(
+    `GRANT SELECT, INSERT, UPDATE ON public.redemption_codes TO ${admin}`,
+  );
+  await client.query(
     `REVOKE ALL ON public."user", public."session", public."account", public."verification", public.auth_devices, public.workspaces, public.workspace_members, public.workspace_user_state, public.projects, public.project_nodes, public.project_edges, public.project_snapshots, public.assets, public.asset_uploads, public.asset_references, public.migration_imports, public.migration_exports, public.migration_import_asset_uploads, public.generation_telemetry, public.account_erasure_jobs, public.registration_email_challenges, public.password_reset_email_challenges, public.user_public_profiles, public.community_posts, public.community_post_tags, public.community_reports FROM ${admin}`,
   );
   await client.query(

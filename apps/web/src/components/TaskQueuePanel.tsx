@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import { useReactFlow } from "@xyflow/react";
-import { ListTodo, Trash2, X } from "lucide-react";
+import type { OfficialModelPrices } from "@ai-canvas-cloud/contracts";
+import { Coins, ListTodo, Trash2, X } from "lucide-react";
 import { TaskQueueIconButton } from "@/components/TaskQueueIconButton";
 import { TASK_QUEUE_COPY } from "@/components/taskQueueCopy";
 import { TaskQueueTaskRow } from "@/components/TaskQueueTaskRow";
 import { LOCAL_IMAGE_CONCURRENCY_LIMIT } from "@/features/generateQueue/concurrencyPolicy";
 import { clearFinishedGenerateTasks } from "@/features/generateQueue/orchestrator";
 import { getTaskQueuePosition } from "@/features/generateQueue/taskQueueView";
+import { fetchOfficialModels } from "@/features/officialGeneration/api";
+import { parseModelSelectionRef } from "@/features/officialGeneration/modelReference";
 import { useCanvasStore } from "@/store/useCanvasStore";
 import { useProjectStore } from "@/store/useProjectStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
@@ -21,6 +24,9 @@ type TaskQueuePanelProps = {
 
 export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
   const [now, setNow] = useState(() => Date.now());
+  const [officialModelLabels, setOfficialModelLabels] = useState(
+    () => new Map<string, { name: string; prices: OfficialModelPrices }>(),
+  );
   const reactFlow = useReactFlow();
   const selectNode = useCanvasStore((state) => state.selectNode);
   const modelEntries = useSettingsStore((state) => state.config.modelEntries);
@@ -73,6 +79,33 @@ export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [hasActiveTask]);
+
+  useEffect(() => {
+    if (
+      !tasks.some(
+        (task) => parseModelSelectionRef(task.model).source === "official",
+      )
+    ) {
+      return;
+    }
+    let active = true;
+    void fetchOfficialModels()
+      .then((response) => {
+        if (!active) return;
+        setOfficialModelLabels(
+          new Map(
+            response.models.map((model) => [
+              model.id,
+              { name: model.name, prices: model.prices },
+            ]),
+          ),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [tasks]);
 
   const handleLocateResult = (task: GenerateTask) => {
     if (!task.previewNodeId) return;
@@ -151,18 +184,51 @@ export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
       {sortedTasks.length > 0 ? (
         <div className="task-queue-scrollbar max-h-[16rem] overflow-x-hidden overflow-y-auto px-2 py-2">
           <div className="space-y-1">
-            {sortedTasks.map((task) => (
-              <TaskQueueTaskRow
-                key={task.id}
-                task={task}
-                now={now}
-                modelDisplayName={modelNameById.get(task.model) || task.model}
-                queuePosition={getTaskQueuePosition(tasks, task.id)}
-                activeProjectId={activeProjectId}
-                projectName={projectNameById.get(task.projectId ?? "") ?? null}
-                onLocateResult={handleLocateResult}
-              />
-            ))}
+            {sortedTasks.map((task) => {
+              const reference = parseModelSelectionRef(task.model);
+              const official =
+                reference.source === "official"
+                  ? officialModelLabels.get(reference.modelId)
+                  : null;
+              const officialPrice =
+                task.resolution === "1K" ||
+                task.resolution === "2K" ||
+                task.resolution === "4K"
+                  ? (official?.prices[task.resolution] ?? null)
+                  : null;
+              const modelDisplayName = (
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  <span className="truncate">
+                    {reference.source === "official"
+                      ? "官方模型 · "
+                      : "我的模型 · "}
+                    {reference.source === "official"
+                      ? `${official?.name ?? "当前不可用"} · ${task.resolution}`
+                      : modelNameById.get(task.model) || task.model}
+                  </span>
+                  {reference.source === "official" && officialPrice ? (
+                    <span className="inline-flex shrink-0 items-center gap-0.5 text-[var(--text-muted)]">
+                      {officialPrice}
+                      <Coins className="h-3 w-3" aria-label="使用点数" />
+                    </span>
+                  ) : null}
+                </span>
+              );
+              return (
+                <TaskQueueTaskRow
+                  key={task.id}
+                  task={task}
+                  now={now}
+                  modelDisplayName={modelDisplayName}
+                  queuePosition={getTaskQueuePosition(tasks, task.id)}
+                  activeProjectId={activeProjectId}
+                  projectName={
+                    projectNameById.get(task.projectId ?? "") ?? null
+                  }
+                  onLocateResult={handleLocateResult}
+                />
+              );
+            })}
           </div>
         </div>
       ) : (

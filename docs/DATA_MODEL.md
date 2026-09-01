@@ -238,6 +238,14 @@ SMTP 密码使用 AES-256-GCM 信封加密，每个 revision 使用随机 96 位
 
 `admin.object_storage_config_revisions` 保存不可修改的 Endpoint、签名 Endpoint/Origin、Region、Bucket、路径样式、加密凭据信封、key version、创建管理员和时间；`admin.object_storage_config_current` 保存 singleton 当前指针。AccessKey ID/Secret 合并为 AES-256-GCM 信封，AAD 固定为 `object-storage-config:<revisionId>:credentials`；独立主密钥版本映射 `OBJECT_STORAGE_CREDENTIAL_KEYS` 只存在 API/Admin API 环境。
 
+## 官方生成与积分
+
+`user_feature_preferences` 保存用户级官方服务偏好，默认关闭。`official_provider_revisions` 保存不可变 Provider 协议、HTTPS endpoint 和 AES-256-GCM 凭据信封；`official_models` 保存公开名称、能力、1K/2K/4K 正整数价格和启停状态。真实模型 ID、endpoint 与凭据只允许 Admin 和执行器读取，不进入普通用户响应。
+
+`credit_accounts` 以用户为唯一账户，`available_balance` 与 `reserved_balance` 均有非负约束。`credit_ledger_entries` 是不可变流水；任务提交事务同时锁定账户、可用余额减价、预留余额加价并写 `generation_reserve`，成功结算写 `generation_capture`，失败/排队取消写 `generation_release`。后台减分只检查可用余额，不触碰预留。`credit_settings.signup_bonus_enabled_at` 界定注册赠送生效时间，账户首次创建时按用户注册时间幂等判断。
+
+`redemption_code_batches` 保存批次面值、数量、过期和作废状态；`redemption_codes` 只保存独立 pepper 的 HMAC 与尾号，明文不落库且单码只能成功兑换一次。`official_generation_tasks` 保存任务状态、模型/价格快照、积分结算状态、加密请求载荷和结果资产。成功结果在确认接入项目前由 `result_protected_until` 临时保护，确认后由正常项目图引用保护。
+
 `public.object_storage_config_publications` 是普通 API 动态选择 S3 客户端所需的最小加密投影。发布先在事务外对候选 Bucket 完成 `HeadBucket` 和随机探针对象写、读、删，再以 `expectedRevisionId` 乐观锁原子插入 revision、切换 current、upsert publication 和追加脱敏审计。恢复环境配置删除 current/publication，保留不可变历史 revision，并回退部署 `S3_*`；失败或冲突不改变旧发布。
 
 `admin.object_storage_test_attempts` 只保存管理员、`pending|success|failure`、受限失败类别与时间，用于每管理员 10 分钟 5 次限频；不保存 Endpoint、Bucket、探针 object key 或凭据。只要存在未删除正式资产，服务拒绝改变 Endpoint、Region、Bucket 或路径样式；RAM AccessKey 和签名访问地址仍可通过新 revision 轮换。

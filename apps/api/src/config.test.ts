@@ -140,6 +140,11 @@ test("API config reads development admin seed options outside production", () =>
         1: Buffer.alloc(32, 4).toString("base64"),
       }),
       OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION: "1",
+      OFFICIAL_GENERATION_CREDENTIAL_KEYS: JSON.stringify({
+        1: Buffer.alloc(32, 6).toString("base64"),
+      }),
+      OFFICIAL_GENERATION_CREDENTIAL_ACTIVE_KEY_VERSION: "1",
+      REDEMPTION_CODE_PEPPER: "p".repeat(48),
       AUTH_EMAIL_TRANSPORT: "managed",
       SMTP_CREDENTIAL_KEYS: JSON.stringify({
         1: Buffer.alloc(32, 5).toString("base64"),

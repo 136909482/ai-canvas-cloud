@@ -9,6 +9,7 @@ export * from "./modules/auth/index.js";
 export * from "./modules/community/index.js";
 export * from "./modules/generation-telemetry/index.js";
 export * from "./modules/generation-task-records/index.js";
+export * from "./modules/official-generation/index.js";
 export * from "./modules/mail/index.js";
 export * from "./modules/migrations/index.js";
 export * from "./modules/project-graph/index.js";

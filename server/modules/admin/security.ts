@@ -19,6 +19,9 @@ const ROLE_PERMISSIONS: Readonly<
     "announcement.write",
     "community.moderate",
     "system_update.write",
+    "official_generation.write",
+    "credit.read",
+    "credit.write",
   ]),
   operator: new Set([
     "audit.read",
@@ -27,7 +30,13 @@ const ROLE_PERMISSIONS: Readonly<
     "announcement.write",
     "community.moderate",
   ]),
-  support: new Set(["audit.read", "dashboard.read", "user.read", "user.write"]),
+  support: new Set([
+    "audit.read",
+    "dashboard.read",
+    "user.read",
+    "user.write",
+    "credit.read",
+  ]),
   auditor: new Set(["audit.read", "dashboard.read"]),
 };
 

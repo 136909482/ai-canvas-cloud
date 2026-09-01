@@ -112,6 +112,7 @@ function assetSelect(lockClause = "") {
       a.object_key,
       a.byte_size,
       a.status,
+      (
       EXISTS (
         SELECT 1
         FROM asset_references ar
@@ -121,7 +122,15 @@ function assetSelect(lockClause = "") {
         WHERE ar.workspace_id = a.workspace_id
           AND ar.asset_id = a.id
           AND referenced_project.deleted_at IS NULL
-      ) AS has_current_reference,
+      ) OR EXISTS (
+        SELECT 1
+        FROM official_generation_tasks ogt
+        WHERE ogt.result_asset_id = a.id
+          AND ogt.workspace_id = a.workspace_id
+          AND ogt.status = 'succeeded'
+          AND ogt.acknowledged_at IS NULL
+          AND ogt.result_protected_until > now()
+      )) AS has_current_reference,
       EXISTS (
         SELECT 1
         FROM project_snapshots s
@@ -202,6 +211,15 @@ async function readCleanupAssetBatch(
           AND ar.asset_id = a.id
           AND referenced_project.deleted_at IS NULL
       )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM official_generation_tasks ogt
+          WHERE ogt.result_asset_id = a.id
+            AND ogt.workspace_id = a.workspace_id
+            AND ogt.status = 'succeeded'
+            AND ogt.acknowledged_at IS NULL
+            AND ogt.result_protected_until > now()
+        )
         AND NOT EXISTS (
           SELECT 1
           FROM project_snapshots s

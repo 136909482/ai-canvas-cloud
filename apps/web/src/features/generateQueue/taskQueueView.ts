@@ -1,4 +1,5 @@
 import type { GenerateTask } from "@/types";
+import { isOfficialModelReference } from "@/features/officialGeneration/modelReference";
 
 export type TaskQueueFilter = "all" | "active" | "finished";
 
@@ -54,9 +55,13 @@ export function hasInterruptibleSynchronousImageTask(tasks: GenerateTask[]) {
 
 export function canCancelQueuedTask(task: GenerateTask) {
   return (
-    task.status === "queued" &&
-    task.phase !== "polling" &&
-    task.phase !== "persisting" &&
-    !task.remoteTaskId
+    (task.status === "queued" &&
+      task.phase !== "polling" &&
+      task.phase !== "persisting" &&
+      !task.remoteTaskId) ||
+    (task.status === "running" &&
+      task.phase === "polling" &&
+      Boolean(task.remoteTaskId) &&
+      isOfficialModelReference(task.model))
   );
 }

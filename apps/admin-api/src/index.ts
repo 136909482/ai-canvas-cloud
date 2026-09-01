@@ -18,6 +18,8 @@ import {
   createManagedS3ObjectStorage,
   createObjectStorageCredentialKeyring,
   createSmtpCredentialKeyring,
+  createOfficialGenerationKeyring,
+  createPostgresAdminOfficialGenerationService,
   loadDotEnv,
 } from "@ai-canvas-cloud/server";
 import { loadAdminApiConfig } from "./config.js";
@@ -97,6 +99,19 @@ const userOperationsService = createPostgresAdminUserOperationsService(pool, {
   auditSecret: config.betterAuthSecret,
   ordinaryAuthSecret: config.ordinaryAuthSecret,
 });
+const officialGenerationService = createPostgresAdminOfficialGenerationService(
+  pool,
+  {
+    adminService,
+    keyring: createOfficialGenerationKeyring({
+      serializedKeys: config.officialGenerationCredentialKeys,
+      activeVersion: config.officialGenerationCredentialActiveKeyVersion,
+      developmentSecret: config.smtpDevelopmentSecret,
+    }),
+    redemptionCodePepper: config.redemptionCodePepper,
+    auditSecret: config.betterAuthSecret,
+  },
+);
 const announcementService = createPostgresAdminAnnouncementService(pool, {
   adminService,
   auditSecret: config.betterAuthSecret,
@@ -139,6 +154,7 @@ const serverOptions = {
   objectStorageConfigService,
   assetCleanupService,
   userOperationsService,
+  officialGenerationService,
   announcementService,
   communityModerationService,
   systemUpdateService,

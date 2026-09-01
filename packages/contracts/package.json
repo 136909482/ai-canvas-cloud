@@ -9,6 +9,7 @@
     "./http-schema": "./dist/httpSchema.js",
     "./canvas-preferences": "./dist/canvasPreferences.js",
     "./admin-http-schema": "./dist/adminHttpSchema.js",
+    "./official-generation-http-schema": "./dist/officialGenerationHttpSchema.js",
     "./migration-package": "./dist/migrationPackage.js",
     "./site-config": "./dist/siteConfig.js"
   },

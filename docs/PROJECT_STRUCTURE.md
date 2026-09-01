@@ -104,7 +104,14 @@ IndexedDB/WebCrypto 明文边界集中在 Vault 与任务快照模块。普通�
 - `admin` 只能通过受限服务读取普通用户最小投影、发布加密 SMTP/站点配置并写脱敏审计；资产清理只通过内部密钥调用普通 API 并接收聚合结果，Admin 数据库角色不得读取 object key。
 - `mail` 是 API 与 Admin API 共用的受控 SMTP 执行层；它不读取 HTTP 请求或数据库，主密钥只由两个服务器入口注入。
 
-普通 API 只注册当前路由清单，不提供 Provider 代理、官方模型、积分或服务器任务路由。
+普通 API 除账号、项目图和资产路由外，还提供官方模型偏好、公开模型目录、积分、兑换码及官方图片任务路由。用户自定义 Provider 仍不经过 Cloud；`server/modules/official-generation` 只执行后台预设的受控 Provider，并通过对象存储服务写入结果资产。
+
+官方能力的目录职责：
+
+- `server/modules/official-generation`：用户偏好、积分账户/流水、兑换与持久任务结算，以及 PostgreSQL 任务领取和上游执行。
+- `server/modules/admin/officialGenerationAdminService.ts`：Provider 不可变修订、模型与价格、注册赠送、兑换批次和用户积分调整。
+- `apps/web/src/features/officialGeneration`：普通用户 API 客户端、来源安全的模型引用、积分中心和顶栏余额。
+- `apps/admin-web/src/OfficialGenerationView.tsx`：超级管理员的 Provider、模型、价格和兑换码操作界面。
 
 `server/modules/community/` 独占公开昵称、投稿资格、帖子状态机（含作者编辑重审）、撤回和举报；`apps/api/src/fastify/routes/community.ts` 提供资料、投稿、编辑、我的投稿、撤回和举报路由。`apps/admin-api/src/fastify/routes/community.ts` 提供审核和举报处理路由。Web 在设置页个人资料分页管理用户昵称，社区投稿分页展示投稿须知和我的投稿（可编辑/撤回），并在有稳定 Cloud asset ID 的图片节点工具栏提供投稿入口。社区复用 `auth`、`workspaces` 和 `assets` 的授权与资产能力，不直接修改项目图；Admin 只读审核所需的最小社区字段，不读取 Provider Vault、项目正文或对象 key，社区列表不依赖浏览器本地生成任务。
 

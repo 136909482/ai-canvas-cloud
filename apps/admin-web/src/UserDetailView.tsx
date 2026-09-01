@@ -4,12 +4,15 @@ import type {
   AdminManagedWorkspaceSummary,
   AdminUserDeletionPreview,
   AdminUserResponse,
+  CreditBalance,
+  CreditLedgerEntry,
 } from "@ai-canvas-cloud/contracts";
 import {
   Avatar,
   Button,
   Checkbox,
   Input,
+  InputNumber,
   Modal,
   Skeleton,
   Space,
@@ -35,6 +38,7 @@ import {
   UserRound,
   UserX,
   WandSparkles,
+  Coins,
 } from "lucide-react";
 import { adminApi, AdminApiError } from "./api";
 import {
@@ -136,6 +140,14 @@ export function UserDetailView({
     resource: "users",
     action: "user.delete",
   });
+  const { data: creditReadAccess } = useCan({
+    resource: "credits",
+    action: "credit.read",
+  });
+  const { data: creditWriteAccess } = useCan({
+    resource: "credits",
+    action: "credit.write",
+  });
   const [detail, setDetail] = useState<AdminUserResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -161,6 +173,14 @@ export function UserDetailView({
   const [ownershipTransfers, setOwnershipTransfers] = useState<
     Record<string, string>
   >({});
+  const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(
+    null,
+  );
+  const [creditEntries, setCreditEntries] = useState<CreditLedgerEntry[]>([]);
+  const [creditAdjustOpen, setCreditAdjustOpen] = useState(false);
+  const [creditDelta, setCreditDelta] = useState(0);
+  const [creditReason, setCreditReason] = useState("");
+  const [creditBusy, setCreditBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!access?.can) return;
@@ -182,6 +202,44 @@ export function UserDetailView({
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadCredits = useCallback(async () => {
+    if (!creditReadAccess?.can) return;
+    try {
+      const result = await adminApi.userCredits(userId);
+      setCreditBalance(result.balance);
+      setCreditEntries(result.entries);
+    } catch (cause) {
+      setError(
+        cause instanceof AdminApiError ? cause.message : "积分信息加载失败",
+      );
+    }
+  }, [creditReadAccess?.can, userId]);
+
+  useEffect(() => {
+    void loadCredits();
+  }, [loadCredits]);
+
+  async function adjustCredits() {
+    if (creditDelta === 0 || creditReason.trim().length < 3) return;
+    setCreditBusy(true);
+    setError(null);
+    try {
+      await adminApi.adjustUserCredits(userId, {
+        delta: creditDelta,
+        reason: creditReason.trim(),
+      });
+      setCreditAdjustOpen(false);
+      setCreditDelta(0);
+      setCreditReason("");
+      setNotice("用户积分已调整并写入管理审计");
+      await loadCredits();
+    } catch (cause) {
+      setError(cause instanceof AdminApiError ? cause.message : "积分调整失败");
+    } finally {
+      setCreditBusy(false);
+    }
+  }
 
   async function submitAction() {
     if (!pendingAction || reason.trim().length < 3) return;
@@ -522,6 +580,68 @@ export function UserDetailView({
             </article>
           </section>
 
+          {creditReadAccess?.can && creditBalance ? (
+            <section className="table-section user-workspaces">
+              <header className="user-workspaces__header">
+                <div className="user-workspaces__title">
+                  <span className="user-workspaces__icon">
+                    <Coins size={17} />
+                  </span>
+                  <div>
+                    <h2>积分账户</h2>
+                    <p>
+                      可用 {creditBalance.available} · 预留{" "}
+                      {creditBalance.reserved}
+                    </p>
+                  </div>
+                </div>
+                {creditWriteAccess?.can ? (
+                  <Button
+                    type="primary"
+                    onClick={() => setCreditAdjustOpen(true)}
+                  >
+                    调整积分
+                  </Button>
+                ) : null}
+              </header>
+              <Table<CreditLedgerEntry>
+                rowKey="id"
+                pagination={{ pageSize: 10, hideOnSinglePage: true }}
+                dataSource={creditEntries}
+                columns={[
+                  {
+                    title: "时间",
+                    dataIndex: "createdAt",
+                    render: formatDateTime,
+                  },
+                  { title: "类型", dataIndex: "type" },
+                  {
+                    title: "可用变化",
+                    dataIndex: "availableDelta",
+                    render: (value: number) =>
+                      value > 0 ? `+${value}` : value,
+                  },
+                  {
+                    title: "预留变化",
+                    dataIndex: "reservedDelta",
+                    render: (value: number) =>
+                      value > 0 ? `+${value}` : value,
+                  },
+                  {
+                    title: "余额",
+                    render: (_, item) =>
+                      `${item.availableBalance} / 预留 ${item.reservedBalance}`,
+                  },
+                  {
+                    title: "说明",
+                    dataIndex: "note",
+                    render: (value: string | null) => value ?? "-",
+                  },
+                ]}
+              />
+            </section>
+          ) : null}
+
           {credentialAccess?.can && detail.user.status !== "deleted" ? (
             <section className="user-recovery-panel">
               <div className="user-recovery-panel__intro">
@@ -620,6 +740,42 @@ export function UserDetailView({
           ) : null}
         </>
       )}
+
+      <Modal
+        open={creditAdjustOpen}
+        title="调整用户积分"
+        okText="确认调整"
+        confirmLoading={creditBusy}
+        okButtonProps={{
+          disabled: creditDelta === 0 || creditReason.trim().length < 3,
+        }}
+        onOk={() => void adjustCredits()}
+        onCancel={() => setCreditAdjustOpen(false)}
+      >
+        <label className="modal-field-label" htmlFor="credit-adjust-delta">
+          积分变化
+        </label>
+        <InputNumber
+          id="credit-adjust-delta"
+          value={creditDelta}
+          min={-1_000_000}
+          max={1_000_000}
+          onChange={(value) => setCreditDelta(value ?? 0)}
+          style={{ width: "100%" }}
+        />
+        <label className="modal-field-label" htmlFor="credit-adjust-reason">
+          调整原因
+        </label>
+        <Input.TextArea
+          id="credit-adjust-reason"
+          value={creditReason}
+          minLength={3}
+          maxLength={500}
+          rows={3}
+          showCount
+          onChange={(event) => setCreditReason(event.target.value)}
+        />
+      </Modal>
 
       <Modal
         open={passwordResetOpen}

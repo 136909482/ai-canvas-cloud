@@ -12,6 +12,7 @@
     "./modules/community": "./dist/modules/community/index.js",
     "./modules/generation-telemetry": "./dist/modules/generation-telemetry/index.js",
     "./modules/generation-task-records": "./dist/modules/generation-task-records/index.js",
+    "./modules/official-generation": "./dist/modules/official-generation/index.js",
     "./modules/mail": "./dist/modules/mail/index.js",
     "./modules/migrations": "./dist/modules/migrations/index.js",
     "./modules/project-graph": "./dist/modules/project-graph/index.js",

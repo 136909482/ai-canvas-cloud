@@ -1,6 +1,6 @@
 # AI Canvas Cloud
 
-AI Canvas Cloud 是 AI Canvas 的独立账号网站端。它提供账号、个人空间、云端项目图、私有媒体资产、目录包迁移和独立 Admin；用户 Provider、endpoint、模型 ID、API Key 与可恢复生成任务只保存在当前浏览器的加密设备存储中，不进入 Cloud。
+AI Canvas Cloud 是 AI Canvas 的独立账号网站端。它提供账号、个人空间、云端项目图、私有媒体资产、目录包迁移、官方图片生成与独立 Admin。用户自定义 Provider、endpoint、模型 ID 和 API Key 仍只保存在当前浏览器的加密设备存储中；平台官方 Provider 使用独立的服务端加密配置和 PostgreSQL 持久任务，不接收用户密钥。
 
 仓库使用 npm workspaces，常驻应用只有 Web、API、Admin Web 和 Admin API。当前阶段与剩余工作以 [`docs/ROADMAP.md`](docs/ROADMAP.md) 为准，用户可见版本变化记录在 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -113,7 +113,7 @@ npm run version:set -- 0.3.0
 - PostgreSQL 保存认证、工作区、关系化项目图、变更、检查点、资产元数据、迁移会话和 Admin 数据；不保存媒体 blob 或浏览器生成任务。
 - OSS/S3 兼容私有对象存储保存图片和视频；Redis 只用于普通 API 分布式安全限流和 readiness。
 - Web 只能通过 Cloud API 和客户端平台适配层持久化；API 路由必须经可信 session、workspace 成员关系和领域服务授权。
-- 平台不提供 Provider 代理，不接收用户 API Key、endpoint、真实模型 ID 或任意 target URL。
+- 平台不代理用户自定义 Provider，也不接收用户 API Key、endpoint、真实模型 ID 或任意 target URL。官方图片模型由后台预设受控 HTTPS Provider，使用双开关和积分预留/结算机制执行。
 
 ## 其他命令
 

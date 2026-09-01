@@ -17,6 +17,7 @@ import {
 import { createUnavailableWorkspaceUsageService } from "@ai-canvas-cloud/server/modules/workspaces";
 import { createUnavailableGenerationTelemetryService } from "@ai-canvas-cloud/server/modules/generation-telemetry";
 import { createUnavailableGenerationTaskRecordService } from "@ai-canvas-cloud/server/modules/generation-task-records";
+import { createUnavailableOfficialGenerationService } from "@ai-canvas-cloud/server/modules/official-generation";
 import { createUnavailableAssetService } from "@ai-canvas-cloud/server/modules/assets";
 import {
   createUnavailableMigrationAssetUploadService,
@@ -45,6 +46,7 @@ import { registerProjectRoutes } from "./routes/projects.js";
 import { registerAnnouncementRoutes } from "./routes/announcements.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerCommunityRoutes } from "./routes/community.js";
+import { registerOfficialGenerationRoutes } from "./routes/officialGeneration.js";
 import { APPLICATION_VERSION } from "../applicationVersion.js";
 
 const PUBLIC_SITE_CONTENT_SECURITY_POLICY =
@@ -77,6 +79,9 @@ export async function createFastifyApiServer(options: ServerOptions) {
   const generationTaskRecordService =
     options.generationTaskRecordService ??
     createUnavailableGenerationTaskRecordService();
+  const officialGenerationService =
+    options.officialGenerationService ??
+    createUnavailableOfficialGenerationService();
   const assetService = options.assetService ?? createUnavailableAssetService();
   const migrationImportService =
     options.migrationImportService ?? createUnavailableMigrationImportService();
@@ -155,6 +160,10 @@ export async function createFastifyApiServer(options: ServerOptions) {
   registerTaskRecordRoutes(app, {
     authContext,
     generationTaskRecordService,
+  });
+  registerOfficialGenerationRoutes(app, {
+    authContext,
+    service: officialGenerationService,
   });
   registerAuthRoutes(app, authContext);
   registerAssetRoutes(app, {

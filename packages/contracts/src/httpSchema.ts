@@ -242,6 +242,7 @@ const SiteConfigDocumentSchema = Type.Object(
       {
         registrationEnabled: Type.Boolean(),
         registrationEmailVerificationRequired: Type.Boolean(),
+        officialGenerationEnabled: Type.Boolean(),
         feedbackEnabled: Type.Boolean(),
       },
       { additionalProperties: false },

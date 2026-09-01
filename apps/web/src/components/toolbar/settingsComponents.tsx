@@ -65,12 +65,14 @@ type CanvasSettingsSwitchProps = {
   checked: boolean;
   label: string;
   onChange: () => void;
+  disabled?: boolean;
 };
 
 export function CanvasSettingsSwitch({
   checked,
   label,
   onChange,
+  disabled = false,
 }: CanvasSettingsSwitchProps) {
   return (
     <button
@@ -80,7 +82,8 @@ export function CanvasSettingsSwitch({
       aria-label={label}
       data-state={checked ? "checked" : "unchecked"}
       onClick={onChange}
-      className="settings-switch"
+      disabled={disabled}
+      className="settings-switch disabled:cursor-not-allowed disabled:opacity-40"
     >
       <span className="settings-switch__thumb" aria-hidden="true" />
     </button>

@@ -9,6 +9,7 @@ import type {
   AdminSiteConfigService,
   AdminSmtpConfigService,
   AdminUserOperationsService,
+  AdminOfficialGenerationService,
   SystemUpdateService,
 } from "@ai-canvas-cloud/server/modules/admin";
 import type { AdminAnnouncementService } from "@ai-canvas-cloud/server/modules/announcements";
@@ -174,6 +175,7 @@ async function listen(options: { env?: string } = {}) {
     announcementService: serviceProxy<AdminAnnouncementService>(),
     communityModerationService: serviceProxy<AdminCommunityModerationService>(),
     systemUpdateService,
+    officialGenerationService: serviceProxy<AdminOfficialGenerationService>(),
     logger,
     readinessChecks: {
       postgres: async () => ({ ok: true, latencyMs: 1 }),
@@ -212,7 +214,10 @@ test("Admin Fastify registers and serves the complete route inventory", async ()
       assert.equal(
         response.status,
         route.operationId === "createAdminSiteAsset" ||
-          route.operationId === "createAdminAnnouncementDraft"
+          route.operationId === "createAdminAnnouncementDraft" ||
+          route.operationId === "createAdminOfficialProvider" ||
+          route.operationId === "createAdminOfficialModel" ||
+          route.operationId === "createAdminRedemptionBatch"
           ? 201
           : route.operationId === "requestAdminSystemUpdate"
             ? 202

@@ -12,7 +12,7 @@ import { handleMenuKeyboard } from "@/utils/menuKeyboard";
 
 export type InlineSelectOption = {
   value: string;
-  label: string;
+  label: ReactNode;
   icon?: ReactNode;
   trailing?: ReactNode;
   title?: string;
@@ -24,6 +24,7 @@ export type InlineSelectOption = {
     label: string;
     icon?: ReactNode;
   };
+  section?: { key: string; label: string; icon?: ReactNode };
   disabled?: boolean;
 };
 
@@ -116,7 +117,7 @@ export function InlineSelect({
             ? "h-7 gap-1.5 px-2 text-[10px] leading-4"
             : "h-9 gap-2 px-3 text-xs leading-5"
         } ${triggerAppearanceClassName}`}
-        title={selectedOption?.title ?? selectedLabel}
+        title={selectedOption?.title ?? value}
         disabled={disabled}
         aria-label={ariaLabel}
         aria-haspopup="listbox"
@@ -171,9 +172,20 @@ export function InlineSelect({
               const previousGroup = options[index - 1]?.group;
               const showGroup =
                 option.group && option.group.key !== previousGroup?.key;
+              const previousSection = options[index - 1]?.section;
+              const showSection =
+                option.section && option.section.key !== previousSection?.key;
 
               return (
                 <Fragment key={option.value}>
+                  {showSection ? (
+                    <div className="flex items-center gap-2 px-2.5 py-1.5 text-[11px] font-semibold text-[var(--text-primary)]">
+                      {option.section?.icon}
+                      <span className="min-w-0 truncate">
+                        {option.section?.label}
+                      </span>
+                    </div>
+                  ) : null}
                   {showGroup ? (
                     <div
                       role="presentation"
@@ -208,10 +220,7 @@ export function InlineSelect({
                       className={`flex min-w-0 items-center gap-1.5 ${option.group ? "pl-5" : ""}`}
                     >
                       {option.icon}
-                      <span
-                        className="min-w-0 truncate"
-                        title={option.title ?? option.label}
-                      >
+                      <span className="min-w-0 truncate" title={option.title}>
                         {option.label}
                       </span>
                     </span>

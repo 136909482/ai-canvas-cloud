@@ -44,6 +44,7 @@ export interface SiteConfigDocument {
     registrationEnabled: boolean;
     registrationEmailVerificationRequired: boolean;
     feedbackEnabled: boolean;
+    officialGenerationEnabled: boolean;
   };
   logoAssetId: string | null;
   faviconAssetId: string | null;
@@ -157,6 +158,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfigDocument = {
     registrationEnabled: true,
     registrationEmailVerificationRequired: false,
     feedbackEnabled: false,
+    officialGenerationEnabled: false,
   },
   logoAssetId: null,
   faviconAssetId: null,
@@ -185,6 +187,22 @@ function exactKeys(
   if (
     actual.length !== expected.length ||
     actual.some((key, index) => key !== expected[index])
+  ) {
+    throw new Error(`${field} contains unsupported fields`);
+  }
+}
+
+function optionalExactKeys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[],
+  field: string,
+) {
+  const keys = Object.keys(value);
+  const allowed = new Set([...required, ...optional]);
+  if (
+    required.some((key) => !Object.hasOwn(value, key)) ||
+    keys.some((key) => !allowed.has(key))
   ) {
     throw new Error(`${field} contains unsupported fields`);
   }
@@ -277,13 +295,14 @@ export function validateSiteConfigDocument(value: unknown): SiteConfigDocument {
     "links",
   );
   const features = object(root.features, "features");
-  exactKeys(
+  optionalExactKeys(
     features,
     [
       "registrationEnabled",
       "registrationEmailVerificationRequired",
       "feedbackEnabled",
     ],
+    ["officialGenerationEnabled"],
     "features",
   );
 
@@ -365,6 +384,13 @@ export function validateSiteConfigDocument(value: unknown): SiteConfigDocument {
         features.feedbackEnabled,
         "features.feedbackEnabled",
       ),
+      officialGenerationEnabled:
+        features.officialGenerationEnabled === undefined
+          ? false
+          : boolean(
+              features.officialGenerationEnabled,
+              "features.officialGenerationEnabled",
+            ),
     },
     logoAssetId: nullableAssetId(root.logoAssetId, "logoAssetId"),
     faviconAssetId: nullableAssetId(root.faviconAssetId, "faviconAssetId"),

@@ -9,6 +9,7 @@ import {
   Video,
   XCircle,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import { TaskQueueIconButton } from "@/components/TaskQueueIconButton";
 import { TASK_QUEUE_COPY } from "@/components/taskQueueCopy";
 import {
@@ -25,7 +26,7 @@ import type { GenerateTask } from "@/types";
 type TaskQueueTaskRowProps = {
   task: GenerateTask;
   now: number;
-  modelDisplayName: string;
+  modelDisplayName: ReactNode;
   queuePosition: number | null;
   activeProjectId: string | null;
   projectName: string | null;
@@ -95,7 +96,7 @@ export function TaskQueueTaskRow({
     <div
       data-testid={`task-row-${task.id}`}
       className="group/task grid min-h-8 min-w-0 grid-cols-[2.75rem_minmax(0,1fr)_1.25rem_2.75rem_3.5rem_1.5rem_1.5rem] items-center justify-between gap-0 rounded-md border border-[var(--border-subtle)] bg-[var(--control-bg)] px-2 py-1 transition hover:bg-[var(--control-bg-hover)] sm:grid-cols-[3rem_7rem_1.5rem_3rem_4rem_2rem_2rem]"
-      title={`${modelDisplayName} (${task.model}) ${task.displayId}`}
+      title={`${task.model} ${task.displayId}`}
     >
       <span className="inline-flex h-5 w-12 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded border border-[var(--accent-violet-muted)] bg-[var(--accent-violet-soft)] px-1 text-[10px] font-semibold leading-none text-[var(--accent-violet-strong)]">
         {task.kind === "video" ? (
@@ -169,7 +170,7 @@ export function TaskQueueTaskRow({
         ) : canCancelQueuedTask(task) ? (
           <TaskQueueIconButton
             label={TASK_QUEUE_COPY.cancelQueued}
-            onClick={() => cancelQueuedGenerateTask(task.id)}
+            onClick={() => void cancelQueuedGenerateTask(task.id)}
             testId={`cancel-task-${task.id}`}
             showTooltip={false}
             className="hover:border-red-400/20 hover:bg-red-500/10 hover:text-red-500 dark:hover:text-red-200"

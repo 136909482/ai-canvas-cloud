@@ -28,7 +28,6 @@ import { compileImageMentionPrompt } from "@/features/richPrompt/promptCompiler"
 import {
   getNodeModelIssueLabel,
   getNodeModelSelection,
-  getPreferredSelectableModelEntryId,
 } from "@/features/settings/nodeModelSelection";
 import { RichPromptEditor } from "@/features/richPrompt/RichPromptEditor";
 import type {
@@ -53,6 +52,7 @@ import { type AppNodeProps } from "@/types";
 import { useShallow } from "zustand/react/shallow";
 import { themeClasses } from "@/styles/themeClasses";
 import { NodeModelSelector } from "../NodeModelSelector";
+import { isOfficialModelReference } from "@/features/officialGeneration/modelReference";
 import { NodeDeleteButton, NodeHeader, NodeResizerPreset } from "../nodeShell";
 import { getNodeShellClassName } from "../nodeShellClassName";
 import { areNodeContentPropsEqual } from "../nodePropComparators";
@@ -244,10 +244,6 @@ export const GenerateNode = memo(function GenerateNode({
       }),
     [data.model, settingsConfig],
   );
-  const hasSelectableImageModels = useMemo(
-    () => Boolean(getPreferredSelectableModelEntryId(settingsConfig, "image")),
-    [settingsConfig],
-  );
   const modelIssueLabel = getNodeModelIssueLabel(modelSelection);
   const effectiveModel = data.model.trim();
   const selectedModel = modelSelection.selectedModel;
@@ -280,13 +276,15 @@ export const GenerateNode = memo(function GenerateNode({
   const selectModel = (modelId: string) => {
     runTracked(() => {
       if (
+        !isOfficialModelReference(modelId) &&
         modelSelection.issue === "unbound" &&
         modelId !== data.model &&
         !bindLocalModelReference(data.model, modelId)
       )
         return;
       updateNodeData(id, { model: modelId, errorMsg: "" });
-      if (modelId) setDefaultModel(modelId);
+      if (modelId && !isOfficialModelReference(modelId))
+        setDefaultModel(modelId);
     });
   };
 
@@ -674,20 +672,19 @@ export const GenerateNode = memo(function GenerateNode({
 
         <div className={themeClasses.nodeFooter}>
           <div className="flex items-center gap-1.5">
-            {hasSelectableImageModels ? (
-              <NodeModelSelector
-                category="image"
-                config={settingsConfig}
-                selection={modelSelection}
-                onSelectModel={selectModel}
-                stopCanvasGesture={stopCanvasGesture}
-                providerAriaLabel="选择图像服务商"
-                modelAriaLabel="选择图像模型和服务商"
-                className="min-w-[250px] flex-[1.2]"
-                menuClassName="min-w-[240px]"
-                layout="grouped"
-              />
-            ) : null}
+            <NodeModelSelector
+              category="image"
+              config={settingsConfig}
+              selection={modelSelection}
+              onSelectModel={selectModel}
+              stopCanvasGesture={stopCanvasGesture}
+              providerAriaLabel="选择图像服务商"
+              modelAriaLabel="选择图像模型和服务商"
+              className="min-w-[250px] flex-[1.2]"
+              menuClassName="min-w-[240px]"
+              layout="grouped"
+              resolution={resolution}
+            />
 
             <div ref={settingsRef} className="relative min-w-0 flex-[1.15]">
               <button

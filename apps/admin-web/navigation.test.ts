@@ -18,6 +18,7 @@ test("admin navigation follows the existing RBAC projection", () => {
       "announcements",
       "community",
       "site",
+      "official-generation",
       "storage",
       "smtp",
       "updates",

@@ -16,6 +16,7 @@ import {
   UsersRound,
   ShieldAlert,
   PackageCheck,
+  Coins,
 } from "lucide-react";
 import { Brand } from "./components";
 import { navigationForRole, type AdminView } from "./navigation";
@@ -27,6 +28,7 @@ const ICONS: Record<AdminView, ReactNode> = {
   community: <ShieldAlert size={18} />,
   users: <UsersRound size={18} />,
   site: <SlidersHorizontal size={18} />,
+  "official-generation": <Coins size={18} />,
   smtp: <Mail size={18} />,
   storage: <HardDrive size={18} />,
   audit: <ScrollText size={18} />,

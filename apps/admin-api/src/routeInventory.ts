@@ -7,7 +7,8 @@ export type AdminRouteGroup =
   | "smtp"
   | "object-storage"
   | "announcements"
-  | "community";
+  | "community"
+  | "official-generation";
 
 export interface AdminRouteInventoryEntry {
   method: "GET" | "POST";
@@ -334,6 +335,90 @@ export const ADMIN_ROUTE_INVENTORY = [
     path: "/admin/v1/asset-cleanup/apply",
     operationId: "applyAdminAssetCleanup",
     group: "object-storage",
+  },
+  {
+    method: "GET",
+    path: "/admin/v1/official-providers",
+    operationId: "listAdminOfficialProviders",
+    group: "official-generation",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/official-providers",
+    operationId: "createAdminOfficialProvider",
+    group: "official-generation",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/official-providers/:id/test",
+    operationId: "testAdminOfficialProvider",
+    group: "official-generation",
+  },
+  {
+    method: "GET",
+    path: "/admin/v1/official-providers/:id/models",
+    operationId: "listAdminOfficialProviderModels",
+    group: "official-generation",
+  },
+  {
+    method: "GET",
+    path: "/admin/v1/official-models",
+    operationId: "listAdminOfficialModels",
+    group: "official-generation",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/official-models",
+    operationId: "createAdminOfficialModel",
+    group: "official-generation",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/official-models/:id",
+    operationId: "updateAdminOfficialModel",
+    group: "official-generation",
+  },
+  {
+    method: "GET",
+    path: "/admin/v1/credit-settings",
+    operationId: "getAdminCreditSettings",
+    group: "official-generation",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/credit-settings",
+    operationId: "updateAdminCreditSettings",
+    group: "official-generation",
+  },
+  {
+    method: "GET",
+    path: "/admin/v1/redemption-code-batches",
+    operationId: "listAdminRedemptionBatches",
+    group: "official-generation",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/redemption-code-batches",
+    operationId: "createAdminRedemptionBatch",
+    group: "official-generation",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/redemption-code-batches/:id/revoke",
+    operationId: "revokeAdminRedemptionBatch",
+    group: "official-generation",
+  },
+  {
+    method: "GET",
+    path: "/admin/v1/users/:id/credits",
+    operationId: "getAdminUserCredits",
+    group: "official-generation",
+  },
+  {
+    method: "POST",
+    path: "/admin/v1/users/:id/credits/adjust",
+    operationId: "adjustAdminUserCredits",
+    group: "official-generation",
   },
 ] as const satisfies readonly AdminRouteInventoryEntry[];
 

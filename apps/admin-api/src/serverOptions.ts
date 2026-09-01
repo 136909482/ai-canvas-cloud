@@ -7,6 +7,7 @@ import type {
   AdminSmtpConfigService,
   AdminUserOperationsService,
   SystemUpdateService,
+  AdminOfficialGenerationService,
 } from "@ai-canvas-cloud/server/modules/admin";
 import type { AdminAnnouncementService } from "@ai-canvas-cloud/server/modules/announcements";
 import type { AdminCommunityModerationService } from "@ai-canvas-cloud/server/modules/community";
@@ -29,6 +30,7 @@ export interface AdminServerOptions {
   announcementService?: AdminAnnouncementService;
   communityModerationService?: AdminCommunityModerationService;
   systemUpdateService?: SystemUpdateService;
+  officialGenerationService?: AdminOfficialGenerationService;
   logger: Logger;
   metrics?: MetricsRegistry;
   readinessChecks?: {

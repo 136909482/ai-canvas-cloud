@@ -161,7 +161,15 @@ test("Admin API config rejects credential-bearing or path-bearing origins", () =
 
 test("Admin API config requires managed SMTP keys in protected environments", () => {
   assert.throws(
-    () => loadAdminApiConfig({ ...baseEnv, NODE_ENV: "staging" }),
+    () =>
+      loadAdminApiConfig({
+        ...baseEnv,
+        NODE_ENV: "staging",
+        OFFICIAL_GENERATION_CREDENTIAL_KEYS: JSON.stringify({
+          1: Buffer.alloc(32, 4).toString("base64"),
+        }),
+        REDEMPTION_CODE_PEPPER: "p".repeat(48),
+      }),
     /SMTP_CREDENTIAL_KEYS/,
   );
   const keys = JSON.stringify({ 3: Buffer.alloc(32, 3).toString("base64") });
@@ -175,6 +183,11 @@ test("Admin API config requires managed SMTP keys in protected environments", ()
     SMTP_CREDENTIAL_ACTIVE_KEY_VERSION: "3",
     OBJECT_STORAGE_CREDENTIAL_KEYS: storageKeys,
     OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION: "2",
+    OFFICIAL_GENERATION_CREDENTIAL_KEYS: JSON.stringify({
+      1: Buffer.alloc(32, 4).toString("base64"),
+    }),
+    OFFICIAL_GENERATION_CREDENTIAL_ACTIVE_KEY_VERSION: "1",
+    REDEMPTION_CODE_PEPPER: "p".repeat(48),
   });
   assert.equal(config.smtpCredentialKeys, keys);
   assert.equal(config.smtpCredentialActiveKeyVersion, 3);

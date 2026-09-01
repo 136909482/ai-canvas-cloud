@@ -12,6 +12,7 @@ import type {
   ModelEntry,
   ProviderProfileConfig,
 } from "@/types";
+import { isOfficialModelReference } from "@/features/officialGeneration/modelReference";
 
 export type NodeModelSelectionIssue =
   "none" | "unbound" | "deleted" | "unavailable";
@@ -75,6 +76,18 @@ export function getNodeModelSelection(
         (profile) => profile.id === selectedModel.providerProfileId,
       ) ?? null)
     : null;
+
+  if (reference && isOfficialModelReference(reference)) {
+    return {
+      reference,
+      modelEntryId: null,
+      selectedModel: null,
+      selectedProvider: null,
+      diagnostic: null,
+      issue: "none",
+      canExecute: true,
+    };
+  }
 
   if (!reference) {
     return {

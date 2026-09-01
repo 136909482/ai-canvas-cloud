@@ -127,6 +127,9 @@ const PERMISSIONS: Record<AdminRole, ReadonlySet<string>> = {
     "user.delete",
     "announcement.write",
     "community.moderate",
+    "official_generation.write",
+    "credit.read",
+    "credit.write",
   ]),
   operator: new Set([
     "audit.read",
@@ -135,7 +138,13 @@ const PERMISSIONS: Record<AdminRole, ReadonlySet<string>> = {
     "announcement.write",
     "community.moderate",
   ]),
-  support: new Set(["audit.read", "dashboard.read", "user.read", "user.write"]),
+  support: new Set([
+    "audit.read",
+    "dashboard.read",
+    "user.read",
+    "user.write",
+    "credit.read",
+  ]),
   auditor: new Set(["audit.read", "dashboard.read"]),
 };
 

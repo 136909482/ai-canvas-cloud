@@ -1,4 +1,6 @@
 import { resolveRuntimeModelConfig } from "@/features/settings/providerConfig";
+import { cancelOfficialImageTask } from "@/features/officialGeneration/api";
+import { isOfficialModelReference } from "@/features/officialGeneration/modelReference";
 import {
   makeSelectGenerateMaskSourceNode,
   makeSelectGenerateReferenceSourceNodes,
@@ -873,10 +875,14 @@ function syncSourceNodeAfterTaskRemoval(task: GenerateTask) {
   });
 }
 
-export function cancelQueuedGenerateTask(taskId: string) {
+export async function cancelQueuedGenerateTask(taskId: string) {
   const taskStore = useTaskQueueStore.getState();
   const task = taskStore.tasks.find((candidate) => candidate.id === taskId);
   if (!task || !canCancelQueuedTask(task)) return false;
+
+  if (task.remoteTaskId && isOfficialModelReference(task.model)) {
+    await cancelOfficialImageTask(task.remoteTaskId);
+  }
 
   taskStore.removeTask(task.id);
   if (task.previewNodeId) {

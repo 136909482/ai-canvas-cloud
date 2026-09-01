@@ -34,6 +34,8 @@ function loadMigrations() {
     "0041_add_user_public_profiles.sql",
     "0042_add_community_content.sql",
     "0043_add_generation_task_records.sql",
+    "0044_add_official_generation_credits.sql",
+    "0045_fix_official_admin_id_types.sql",
   ]);
   return files.map((fileName) => {
     const match = migrationPattern.exec(fileName);

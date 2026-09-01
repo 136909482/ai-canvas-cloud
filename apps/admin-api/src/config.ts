@@ -40,6 +40,9 @@ export interface AdminApiConfig {
   smtpCredentialKeys?: string;
   smtpCredentialActiveKeyVersion: number;
   smtpDevelopmentSecret?: string;
+  officialGenerationCredentialKeys?: string;
+  officialGenerationCredentialActiveKeyVersion: number;
+  redemptionCodePepper: string;
   systemUpdateDirectory?: string;
   systemUpdateRepository?: string;
   systemUpdateCurrentImage?: string;
@@ -109,6 +112,11 @@ export function loadAdminApiConfig(
     env.OBJECT_STORAGE_CREDENTIAL_KEYS?.trim() || undefined;
   const objectStorageCredentialActiveKeyVersion = Number(
     env.OBJECT_STORAGE_CREDENTIAL_ACTIVE_KEY_VERSION ?? 1,
+  );
+  const officialGenerationCredentialKeys =
+    env.OFFICIAL_GENERATION_CREDENTIAL_KEYS?.trim() || undefined;
+  const officialGenerationCredentialActiveKeyVersion = Number(
+    env.OFFICIAL_GENERATION_CREDENTIAL_ACTIVE_KEY_VERSION ?? 1,
   );
   const objectStorageEnvironmentFallback = readBoolean(
     env,
@@ -240,6 +248,14 @@ export function loadAdminApiConfig(
     );
   }
   if (
+    !Number.isInteger(officialGenerationCredentialActiveKeyVersion) ||
+    officialGenerationCredentialActiveKeyVersion < 1
+  ) {
+    throw new Error(
+      "OFFICIAL_GENERATION_CREDENTIAL_ACTIVE_KEY_VERSION must be positive",
+    );
+  }
+  if (
     !Number.isInteger(smtpCredentialActiveKeyVersion) ||
     smtpCredentialActiveKeyVersion < 1
   ) {
@@ -257,6 +273,20 @@ export function loadAdminApiConfig(
     throw new Error(
       "OBJECT_STORAGE_CREDENTIAL_KEYS is required in a protected environment",
     );
+  }
+  if (
+    isProtectedDeploymentEnvironment(appEnv) &&
+    !officialGenerationCredentialKeys
+  ) {
+    throw new Error(
+      "OFFICIAL_GENERATION_CREDENTIAL_KEYS is required in a protected environment",
+    );
+  }
+  const redemptionCodePepper =
+    env.REDEMPTION_CODE_PEPPER?.trim() ||
+    (appEnv === "development" ? ordinaryAuthSecret : "");
+  if (redemptionCodePepper.length < 32) {
+    throw new Error("REDEMPTION_CODE_PEPPER must be at least 32 characters");
   }
   const ordinaryOrigins = (env.WEB_ALLOWED_ORIGINS ?? env.WEB_PUBLIC_URL ?? "")
     .split(",")
@@ -324,6 +354,9 @@ export function loadAdminApiConfig(
     smtpCredentialActiveKeyVersion,
     smtpDevelopmentSecret:
       appEnv === "development" ? ordinaryAuthSecret : undefined,
+    officialGenerationCredentialKeys,
+    officialGenerationCredentialActiveKeyVersion,
+    redemptionCodePepper,
     systemUpdateDirectory,
     systemUpdateRepository,
     systemUpdateCurrentImage,

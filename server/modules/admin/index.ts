@@ -12,3 +12,4 @@ export * from "./accountErasureMaintenance.js";
 export * from "./types.js";
 export * from "./userOperationsService.js";
 export * from "./systemUpdateService.js";
+export * from "./officialGenerationAdminService.js";

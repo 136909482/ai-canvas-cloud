@@ -17,6 +17,7 @@ export {
 } from "./communityProfile.js";
 export * from "./communityContent.js";
 export * from "./generationTaskRecord.js";
+export * from "./officialGeneration.js";
 export * from "./systemUpdate.js";
 
 export const apiErrorCodes = [
@@ -41,6 +42,14 @@ export const apiErrorCodes = [
   "ASSET_NOT_READY",
   "ASSET_VALIDATION_FAILED",
   "QUOTA_EXCEEDED",
+  "CREDIT_INSUFFICIENT",
+  "REDEMPTION_CODE_INVALID",
+  "REDEMPTION_CODE_EXPIRED",
+  "REDEMPTION_CODE_REDEEMED",
+  "OFFICIAL_GENERATION_DISABLED",
+  "OFFICIAL_MODEL_UNAVAILABLE",
+  "OFFICIAL_TASK_STATE_INVALID",
+  "OFFICIAL_INPUT_ASSET_NOT_ALLOWED",
   "IMPORT_CONFLICT",
   "IMPORT_INVALID",
   "EXPORT_CONFLICT",

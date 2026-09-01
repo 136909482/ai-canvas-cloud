@@ -11,6 +11,7 @@ import type {
 } from "@ai-canvas-cloud/server/modules/community";
 import type { GenerationTelemetryService } from "@ai-canvas-cloud/server/modules/generation-telemetry";
 import type { GenerationTaskRecordService } from "@ai-canvas-cloud/server/modules/generation-task-records";
+import type { OfficialGenerationService } from "@ai-canvas-cloud/server/modules/official-generation";
 import type {
   MigrationAssetUploadService,
   MigrationExportService,
@@ -33,6 +34,7 @@ export interface ServerOptions {
   communityContentService?: CommunityContentService;
   generationTelemetryService?: GenerationTelemetryService;
   generationTaskRecordService?: GenerationTaskRecordService;
+  officialGenerationService?: OfficialGenerationService;
   assetService?: AssetService;
   assetCleanupService?: AssetCleanupService;
   projectGraphService?: ProjectGraphService;

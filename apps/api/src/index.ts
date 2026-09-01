@@ -8,6 +8,9 @@ import {
   createPostgresAuthService,
   createPostgresGenerationTelemetryService,
   createPostgresGenerationTaskRecordService,
+  createOfficialGenerationKeyring,
+  createPostgresOfficialGenerationService,
+  createOfficialGenerationWorker,
   createPostgresPool,
   createPostgresProjectGraphService,
   createPostgresProjectSnapshotService,
@@ -73,6 +76,19 @@ const generationTaskRecordService = createPostgresGenerationTaskRecordService(
     authorizationService: workspaceAuthorizationService,
   },
 );
+const officialGenerationKeyring = createOfficialGenerationKeyring({
+  serializedKeys: config.officialGenerationCredentialKeys,
+  activeVersion: config.officialGenerationCredentialActiveKeyVersion,
+  developmentSecret:
+    config.env === "development" ? config.betterAuthSecret : undefined,
+});
+const officialGenerationService = createPostgresOfficialGenerationService(
+  dbPool,
+  {
+    keyring: officialGenerationKeyring,
+    redemptionCodePepper: config.redemptionCodePepper,
+  },
+);
 const objectStorage = createManagedS3ObjectStorage(dbPool, {
   keyring: createObjectStorageCredentialKeyring({
     serializedKeys: config.objectStorageCredentialKeys,
@@ -99,6 +115,11 @@ const assetService = createPostgresAssetService(dbPool, {
 const assetCleanupService = createAssetCleanupService(
   createPostgresAssetMaintenanceService(dbPool, objectStorage),
 );
+const officialGenerationWorker = createOfficialGenerationWorker({
+  pool: dbPool,
+  storage: objectStorage,
+  keyring: officialGenerationKeyring,
+});
 const projectGraphService = createPostgresProjectGraphService(dbPool, {
   authorizationService: workspaceAuthorizationService,
 });
@@ -155,6 +176,7 @@ const serverOptions = {
   authService,
   generationTelemetryService,
   generationTaskRecordService,
+  officialGenerationService,
   assetService,
   assetCleanupService,
   projectGraphService,
@@ -185,6 +207,7 @@ const serverOptions = {
   },
 };
 const server = await createFastifyApiServer(serverOptions);
+await officialGenerationWorker.start();
 void migrationExportService.recoverExports().catch(() => undefined);
 void migrationAssetUploadService
   .maintainStagingObjects()
@@ -224,6 +247,7 @@ async function shutdown(signal: NodeJS.Signals) {
 
   try {
     await closeApiServer(server, config.shutdownTimeoutMs);
+    await officialGenerationWorker.stop();
     await rateLimiter.close();
     objectStorage.destroy();
     await dbPool.end();

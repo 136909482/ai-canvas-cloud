@@ -6,7 +6,7 @@ import {
   type ReactNode,
   type SyntheticEvent,
 } from "react";
-import { Server } from "lucide-react";
+import { Coins, Server, ShieldCheck } from "lucide-react";
 import {
   getNodeModelIssueLabel,
   getSelectableModelGroups,
@@ -23,6 +23,12 @@ import type {
 } from "@/types";
 import { ModelOptionIcon } from "@/components/icons/ModelOptionIcon";
 import { InlineSelect, type InlineSelectOption } from "./InlineSelect";
+import type { OfficialModelSummary } from "@ai-canvas-cloud/contracts";
+import { fetchOfficialModels } from "@/features/officialGeneration/api";
+import {
+  isOfficialModelReference,
+  serializeModelSelectionRef,
+} from "@/features/officialGeneration/modelReference";
 
 const EMPTY_PROVIDER_VALUE = "__provider-empty__";
 const EMPTY_MODEL_VALUE = "__model-empty__";
@@ -40,6 +46,7 @@ type NodeModelSelectorProps = {
   menuPlacement?: "top" | "bottom";
   renderModelIcon?: (model: ModelEntry) => ReactNode;
   layout?: "split" | "grouped";
+  resolution?: string;
 };
 
 function getProviderOption(
@@ -67,7 +74,17 @@ export function NodeModelSelector({
   menuPlacement,
   renderModelIcon,
   layout = "split",
+  resolution = "1K",
 }: NodeModelSelectorProps) {
+  const [officialModels, setOfficialModels] = useState<OfficialModelSummary[]>(
+    [],
+  );
+  useEffect(() => {
+    if (category !== "image") return;
+    void fetchOfficialModels()
+      .then((response) => setOfficialModels(response.models))
+      .catch(() => setOfficialModels([]));
+  }, [category]);
   const selectableProfiles = useMemo(
     () => getSelectableProviderProfiles(config, category),
     [category, config],
@@ -208,6 +225,14 @@ export function NodeModelSelector({
     const selectableModelIds = new Set(
       groupedModels.flatMap((group) => group.models.map((model) => model.id)),
     );
+    for (const official of officialModels) {
+      selectableModelIds.add(
+        serializeModelSelectionRef({
+          source: "official",
+          modelId: official.id,
+        }),
+      );
+    }
 
     if (groupedModelValue === EMPTY_MODEL_VALUE) {
       options.push({
@@ -221,7 +246,10 @@ export function NodeModelSelector({
       groupedModelValue !== EMPTY_MODEL_VALUE &&
       !selectableModelIds.has(groupedModelValue)
     ) {
-      const issueLabel = getNodeModelIssueLabel(selection);
+      const officialUnavailable = isOfficialModelReference(groupedModelValue);
+      const issueLabel = officialUnavailable
+        ? "官方模型当前不可用"
+        : getNodeModelIssueLabel(selection);
       const selectedModelLabel = selection.selectedModel?.modelId || issueLabel;
       const providerLabel = selection.selectedProvider?.name || issueLabel;
       options.push({
@@ -254,14 +282,51 @@ export function NodeModelSelector({
       });
     }
 
-    for (const group of groupedModels) {
-      const firstModel = group.models[0];
-      const groupIcon = firstModel
-        ? (renderModelIcon?.(firstModel) ?? (
-            <ModelOptionIcon model={firstModel} />
-          ))
-        : undefined;
+    for (const official of officialModels) {
+      const value = serializeModelSelectionRef({
+        source: "official",
+        modelId: official.id,
+      });
+      const price =
+        official.prices[resolution as keyof typeof official.prices] ?? null;
+      options.push({
+        value,
+        label: official.name,
+        title: `${official.name} / 官方模型${price ? ` / ${price}` : ""}`,
+        triggerLabel: official.name,
+        triggerIcon: <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />,
+        triggerTrailing: (
+          <span className="shrink-0 text-[10px] font-medium text-amber-400">
+            {price ? (
+              <span className="inline-flex items-center gap-0.5 text-[var(--text-muted)]">
+                {price}
+                <Coins className="h-3 w-3" aria-label="使用点数" />
+              </span>
+            ) : (
+              "不可用"
+            )}
+          </span>
+        ),
+        trailing: price ? (
+          <span className="inline-flex items-center gap-0.5 text-[10px] font-normal text-[var(--text-muted)]">
+            {price}
+            <Coins className="h-3 w-3" aria-label="使用点数" />
+          </span>
+        ) : (
+          <span className="text-[10px] font-normal text-[var(--text-muted)]">
+            不可用
+          </span>
+        ),
+        group: {
+          key: "official",
+          label: "官方模型",
+          icon: <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />,
+        },
+        disabled: !price,
+      });
+    }
 
+    for (const group of groupedModels) {
       for (const model of group.models) {
         const provider = model.providerProfileId
           ? config.providerProfiles.find(
@@ -287,10 +352,15 @@ export function NodeModelSelector({
               {providerName}
             </span>
           ),
+          section: {
+            key: "custom",
+            label: "我的模型",
+            icon: <Server className="h-3.5 w-3.5 text-[var(--text-muted)]" />,
+          },
           group: {
-            key: group.modelId,
+            key: `custom:${group.modelId}`,
             label: group.modelId,
-            icon: groupIcon,
+            icon: renderModelIcon?.(model) ?? <ModelOptionIcon model={model} />,
           },
         });
       }
@@ -309,6 +379,8 @@ export function NodeModelSelector({
     config.providerProfiles,
     groupedModelValue,
     groupedModels,
+    officialModels,
+    resolution,
     renderModelIcon,
     selection,
   ]);

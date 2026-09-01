@@ -1,5 +1,6 @@
 import {
   Brush,
+  Coins,
   HardDrive,
   ImageIcon,
   Layers3,
@@ -203,6 +204,12 @@ export const SETTINGS_CATEGORIES: Array<{
     label: "模型管理",
     description: "API、模型库与默认模型",
     Icon: SlidersHorizontal,
+  },
+  {
+    id: "credits",
+    label: "官方接口服务",
+    description: "官方模型开关、兑换与使用记录",
+    Icon: Coins,
   },
   {
     id: "storage",

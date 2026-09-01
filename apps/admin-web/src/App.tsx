@@ -39,6 +39,11 @@ const SiteConfigView = lazy(() =>
     default: module.SiteConfigView,
   })),
 );
+const OfficialGenerationView = lazy(() =>
+  import("./OfficialGenerationView").then((module) => ({
+    default: module.OfficialGenerationView,
+  })),
+);
 const SmtpSettingsView = lazy(() =>
   import("./SmtpSettingsView").then((module) => ({
     default: module.SmtpSettingsView,
@@ -98,6 +103,7 @@ function Console({
       <UsersView onSelectUser={setSelectedUserId} />
     );
   else if (view === "site") page = <SiteConfigView />;
+  else if (view === "official-generation") page = <OfficialGenerationView />;
   else if (view === "smtp") page = <SmtpSettingsView />;
   else if (view === "storage") page = <ObjectStorageSettingsView />;
   else if (view === "updates") page = <SystemUpdateView />;
