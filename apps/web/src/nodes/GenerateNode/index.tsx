@@ -53,6 +53,7 @@ import { useShallow } from "zustand/react/shallow";
 import { themeClasses } from "@/styles/themeClasses";
 import { NodeModelSelector } from "../NodeModelSelector";
 import { isOfficialModelReference } from "@/features/officialGeneration/modelReference";
+import { useOfficialGenerationRuntime } from "@/features/officialGeneration/runtime";
 import { NodeDeleteButton, NodeHeader, NodeResizerPreset } from "../nodeShell";
 import { getNodeShellClassName } from "../nodeShellClassName";
 import { areNodeContentPropsEqual } from "../nodePropComparators";
@@ -109,6 +110,7 @@ export const GenerateNode = memo(function GenerateNode({
   data,
   selected,
 }: GenerateNodeProps) {
+  const officialRuntime = useOfficialGenerationRuntime();
   recordComponentRender("GenerateNode");
   const isQueued = data.status === "queued";
   const isGenerating = data.status === "generating";
@@ -241,8 +243,10 @@ export const GenerateNode = memo(function GenerateNode({
       getNodeModelSelection(settingsConfig, {
         category: "image",
         reference: data.model,
+        officialGenerationEnabled:
+          officialRuntime.preferences?.effectiveEnabled,
       }),
-    [data.model, settingsConfig],
+    [data.model, officialRuntime.preferences?.effectiveEnabled, settingsConfig],
   );
   const modelIssueLabel = getNodeModelIssueLabel(modelSelection);
   const effectiveModel = data.model.trim();
@@ -357,7 +361,9 @@ export const GenerateNode = memo(function GenerateNode({
       return;
     }
 
-    const modelEntryId = modelSelection.modelEntryId;
+    const modelEntryId = isOfficialModelReference(modelSelection.reference)
+      ? modelSelection.reference
+      : modelSelection.modelEntryId;
     if (!modelSelection.canExecute || !modelEntryId) {
       updateNodeData(id, {
         status: "error",

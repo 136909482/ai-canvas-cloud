@@ -23,12 +23,16 @@ import type {
 } from "@/types";
 import { ModelOptionIcon } from "@/components/icons/ModelOptionIcon";
 import { InlineSelect, type InlineSelectOption } from "./InlineSelect";
-import type { OfficialModelSummary } from "@ai-canvas-cloud/contracts";
 import { fetchOfficialModels } from "@/features/officialGeneration/api";
 import {
   isOfficialModelReference,
   serializeModelSelectionRef,
 } from "@/features/officialGeneration/modelReference";
+import {
+  getOfficialGenerationRevision,
+  setOfficialGenerationRuntime,
+  useOfficialGenerationRuntime,
+} from "@/features/officialGeneration/runtime";
 
 const EMPTY_PROVIDER_VALUE = "__provider-empty__";
 const EMPTY_MODEL_VALUE = "__model-empty__";
@@ -76,14 +80,22 @@ export function NodeModelSelector({
   layout = "split",
   resolution = "1K",
 }: NodeModelSelectorProps) {
-  const [officialModels, setOfficialModels] = useState<OfficialModelSummary[]>(
-    [],
+  const officialRuntime = useOfficialGenerationRuntime();
+  const officialEnabled = officialRuntime.preferences?.effectiveEnabled === true;
+  const officialModels = useMemo(
+    () => (officialEnabled ? officialRuntime.models : []),
+    [officialEnabled, officialRuntime.models],
   );
+  const officialModelCatalog = officialRuntime.models;
   useEffect(() => {
     if (category !== "image") return;
+    const requestRevision = getOfficialGenerationRevision();
     void fetchOfficialModels()
-      .then((response) => setOfficialModels(response.models))
-      .catch(() => setOfficialModels([]));
+      .then((response) => {
+        if (getOfficialGenerationRevision() !== requestRevision) return;
+        setOfficialGenerationRuntime(response);
+      })
+      .catch(() => undefined);
   }, [category]);
   const selectableProfiles = useMemo(
     () => getSelectableProviderProfiles(config, category),
@@ -248,9 +260,21 @@ export function NodeModelSelector({
     ) {
       const officialUnavailable = isOfficialModelReference(groupedModelValue);
       const issueLabel = officialUnavailable
-        ? "官方模型当前不可用"
+        ? getNodeModelIssueLabel(selection)
         : getNodeModelIssueLabel(selection);
-      const selectedModelLabel = selection.selectedModel?.modelId || issueLabel;
+      const unavailableOfficialModel = officialUnavailable
+        ? officialModelCatalog.find(
+            (model) =>
+              serializeModelSelectionRef({
+                source: "official",
+                modelId: model.id,
+              }) === groupedModelValue,
+          )
+        : null;
+      const selectedModelLabel =
+        unavailableOfficialModel?.name ||
+        selection.selectedModel?.modelId ||
+        (officialUnavailable ? "官方模型" : issueLabel);
       const providerLabel = selection.selectedProvider?.name || issueLabel;
       options.push({
         value: groupedModelValue,
@@ -277,6 +301,14 @@ export function NodeModelSelector({
                 <ModelOptionIcon model={selection.selectedModel} />
               ),
             }
+          : unavailableOfficialModel
+            ? {
+                key: `unavailable:official:${unavailableOfficialModel.id}`,
+                label: unavailableOfficialModel.name,
+                icon: (
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                ),
+              }
           : undefined,
         disabled: true,
       });
@@ -380,6 +412,7 @@ export function NodeModelSelector({
     groupedModelValue,
     groupedModels,
     officialModels,
+    officialModelCatalog,
     resolution,
     renderModelIcon,
     selection,

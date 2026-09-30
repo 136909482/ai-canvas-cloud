@@ -15,6 +15,27 @@ export function loadImageDimensions(
   });
 }
 
+export async function resolveImageDimensions(
+  metadata: { width?: number | null; height?: number | null },
+  imageUrl: string,
+  readImageDimensions = loadImageDimensions,
+) {
+  const metadataWidth = metadata.width ?? 0;
+  const metadataHeight = metadata.height ?? 0;
+  if (metadataWidth > 0 && metadataHeight > 0) {
+    return { width: metadataWidth, height: metadataHeight };
+  }
+
+  try {
+    const dimensions = await readImageDimensions(imageUrl);
+    return dimensions.width > 0 && dimensions.height > 0
+      ? dimensions
+      : { width: metadataWidth, height: metadataHeight };
+  } catch {
+    return { width: metadataWidth, height: metadataHeight };
+  }
+}
+
 export function getPreviewNodeSize(imageWidth: number, imageHeight: number) {
   const MIN_WIDTH = 260;
   const MIN_HEIGHT = 200;

@@ -18,6 +18,8 @@ import { useCanvasStore } from "@/store/useCanvasStore";
 import { useHistoryStore } from "@/store/useHistoryStore";
 import { useImageEditorStore } from "@/store/useImageEditorStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
+import { parseModelSelectionRef } from "@/features/officialGeneration/modelReference";
+import { useOfficialGenerationRuntime } from "@/features/officialGeneration/runtime";
 import { platformBridge } from "@/platform";
 import type { AppNodeProps } from "@/types";
 import { themeClasses } from "@/styles/themeClasses";
@@ -32,8 +34,10 @@ import {
 import { getNodeShellClassName } from "../nodeShellClassName";
 import { areNodeContentPropsEqual } from "../nodePropComparators";
 import { downloadPreviewImage } from "./downloadImage";
+import { resolvePreviewModelLabel } from "./previewMetadata";
 import { CommunitySubmissionDialog } from "@/features/community/CommunitySubmissionDialog";
 import { buildDownloadFileName } from "@/utils/downloadFileName";
+import { loadImageDimensions } from "@/features/generateQueue/previewUtils";
 
 type GeneratedPreviewNodeProps = AppNodeProps<"generatedPreviewNode">;
 
@@ -106,37 +110,6 @@ function formatPreviewRatio(
   if (width <= 0 || height <= 0) return null;
   const divisor = greatestCommonDivisor(width, height);
   return `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
-}
-
-function formatModelLabel(model: string, modelName?: string) {
-  if (model.trim().toLowerCase() === "manual-edit") {
-    return "图片编辑";
-  }
-
-  const normalizedModelName = modelName?.trim();
-  if (normalizedModelName) {
-    return normalizedModelName;
-  }
-
-  switch (model.toLowerCase()) {
-    case "gpt-image-1":
-      return "GPT Image 1";
-    case "gpt-image-1-mini":
-      return "GPT Image 1 Mini";
-    case "gpt-image-1.5":
-      return "GPT Image 1.5";
-    case "gpt-image-2":
-    case "gpt-img-2":
-      return "GPT Image 2";
-    case "mj":
-      return "MJ";
-    case "nano-banana-2":
-      return "Nano Banana 2";
-    case "nano-banana-pro":
-      return "Nano Banana Pro";
-    default:
-      return model.toUpperCase();
-  }
 }
 
 function getPreviewTimestamp(data: GeneratedPreviewNodeProps["data"]) {
@@ -223,6 +196,14 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
   const modelName = useSettingsStore(
     (s) => s.getModelConfig(data.model)?.displayName,
   );
+  const officialRuntime = useOfficialGenerationRuntime();
+  const modelReference = parseModelSelectionRef(data.model);
+  const officialModelName =
+    modelReference.source === "official"
+      ? officialRuntime.models.find(
+          (model) => model.id === modelReference.modelId,
+        )?.name
+      : undefined;
   const beginTransaction = useHistoryStore((s) => s.beginTransaction);
   const runTracked = useHistoryStore((s) => s.runTracked);
   const hasImage = Boolean(data.imageUrl);
@@ -241,9 +222,18 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
     data.imageWidth,
     data.imageHeight,
   );
-  const previewMetaParts = [formatModelLabel(data.model, modelName)];
+  const previewMetaParts = [
+    resolvePreviewModelLabel(
+      data.model,
+      data.modelName,
+      officialModelName ?? modelName,
+    ),
+  ];
   const apiProfileName =
-    typeof data.apiProfileName === "string" ? data.apiProfileName.trim() : "";
+    modelReference.source !== "official" &&
+    typeof data.apiProfileName === "string"
+      ? data.apiProfileName.trim()
+      : "";
 
   const handleResizeEnd: OnResizeEnd = useCallback(
     (
@@ -279,6 +269,45 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
 
   const previewMeta = previewMetaParts.join(" / ");
   const nodeTitle = hasImage ? previewMeta : UI_TEXT.previewTitle;
+
+  useEffect(() => {
+    if (!data.imageUrl || (data.imageWidth > 0 && data.imageHeight > 0)) {
+      return;
+    }
+
+    let canceled = false;
+    void loadImageDimensions(data.imageUrl)
+      .then(({ width, height }) => {
+        if (canceled || width <= 0 || height <= 0) return;
+        updateNodeData(id, {
+          imageWidth: width,
+          imageHeight: height,
+          ...(data.imageAsset
+            ? {
+                imageAsset: {
+                  ...data.imageAsset,
+                  displayWidth: width,
+                  displayHeight: height,
+                  originalWidth: width,
+                  originalHeight: height,
+                },
+              }
+            : {}),
+        });
+      })
+      .catch(() => undefined);
+
+    return () => {
+      canceled = true;
+    };
+  }, [
+    data.imageAsset,
+    data.imageHeight,
+    data.imageUrl,
+    data.imageWidth,
+    id,
+    updateNodeData,
+  ]);
 
   useEffect(() => {
     if (!showPreview) {

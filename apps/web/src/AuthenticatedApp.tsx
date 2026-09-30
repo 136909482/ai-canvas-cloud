@@ -15,6 +15,7 @@ import { TooltipIconButton } from "@/components/TooltipIconButton";
 import { Toolbar } from "@/components/Toolbar";
 import { AccountMenu } from "@/features/auth/AccountMenu";
 import { registerAuthenticatedRuntimeCleanup } from "@/features/auth/useAuthStore";
+import { resetCreditBalanceRuntime } from "@/features/officialGeneration/creditRuntime";
 import { useImageEditorStore } from "@/store/useImageEditorStore";
 import { useProjectDialogStore } from "@/store/useProjectDialogStore";
 import { useProjectStore } from "@/store/useProjectStore";
@@ -22,6 +23,7 @@ import { useSettingsStore } from "@/store/useSettingsStore";
 import { themeClasses } from "@/styles/themeClasses";
 
 registerAuthenticatedRuntimeCleanup(() => {
+  resetCreditBalanceRuntime();
   useSettingsStore.getState().clearVaultSession();
   useProjectStore.getState().resetForSession();
 });

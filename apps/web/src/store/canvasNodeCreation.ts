@@ -61,7 +61,7 @@ export type GeneratedPreviewNodeDraft = Pick<
   | "sourceImageNodeId"
   | "originOperation"
   | "taskId"
->;
+> & { modelName?: string | null };
 
 export interface CropPreviewNodeDraft {
   label: string;
@@ -413,6 +413,7 @@ export function buildGeneratedPreviewNode(
       imageAsset: preview.imageAsset ?? null,
       prompt: preview.prompt,
       model: preview.model,
+      modelName: preview.modelName ?? null,
       apiProfileName: preview.apiProfileName ?? null,
       ratio: preview.ratio,
       status: preview.status,
@@ -500,6 +501,7 @@ export function buildManualGeneratedPreviewNode(
       imageAsset: null,
       prompt: "",
       model: DEFAULT_IMAGE_MODEL_ID,
+      modelName: null,
       apiProfileName: null,
       ratio: "1:1",
       status: "idle",

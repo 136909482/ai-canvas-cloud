@@ -10,6 +10,9 @@ import type {
 import {
   Button,
   Checkbox,
+  Alert,
+  AutoComplete,
+  Divider,
   Form,
   Input,
   InputNumber,
@@ -24,6 +27,7 @@ import {
 } from "antd";
 import {
   Download,
+  Pencil,
   PlugZap,
   Plus,
   RefreshCw,
@@ -38,6 +42,32 @@ function message(error: unknown) {
   return error instanceof AdminApiError
     ? error.message
     : "请求未完成，请稍后重试";
+}
+
+type ModelDraft = {
+  providerRevisionId: string;
+  publicName: string;
+  upstreamModelId: string;
+  generate: boolean;
+  edit: boolean;
+  references: boolean;
+  price1K: number;
+  price2K: number;
+  price4K: number;
+};
+
+function emptyModelDraft(providerRevisionId = ""): ModelDraft {
+  return {
+    providerRevisionId,
+    publicName: "",
+    upstreamModelId: "",
+    generate: true,
+    edit: false,
+    references: false,
+    price1K: 1,
+    price2K: 1,
+    price4K: 1,
+  };
 }
 
 export function OfficialGenerationView() {
@@ -68,17 +98,13 @@ export function OfficialGenerationView() {
     baseUrl: "",
     apiKey: "",
   });
-  const [modelDraft, setModelDraft] = useState({
-    providerRevisionId: "",
-    publicName: "",
-    upstreamModelId: "",
-    generate: true,
-    edit: false,
-    references: false,
-    price1K: 1,
-    price2K: 1,
-    price4K: 1,
-  });
+  const [modelDraft, setModelDraft] = useState<ModelDraft>(emptyModelDraft());
+  const [editingModel, setEditingModel] = useState<AdminOfficialModel | null>(
+    null,
+  );
+  const [modelStatusFilter, setModelStatusFilter] = useState<
+    "all" | "active" | "disabled"
+  >("all");
   const [signupBonus, setSignupBonus] = useState(0);
   const [batchDraft, setBatchDraft] = useState({
     creditAmount: 100,
@@ -114,10 +140,22 @@ export function OfficialGenerationView() {
   useEffect(() => void load(), [load]);
 
   async function createProvider() {
+    const displayName = providerDraft.displayName.trim();
+    const baseUrl = providerDraft.baseUrl.trim();
+    const apiKey = providerDraft.apiKey.trim();
+    if (!displayName || !baseUrl || !apiKey) {
+      setError("请填写 Provider 名称、HTTPS Endpoint 和 API Key");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await adminApi.createOfficialProvider(providerDraft);
+      await adminApi.createOfficialProvider({
+        ...providerDraft,
+        displayName,
+        baseUrl,
+        apiKey,
+      });
       setProviderOpen(false);
       setProviderDraft({
         displayName: "",
@@ -135,13 +173,43 @@ export function OfficialGenerationView() {
   }
 
   async function createModel() {
+    const publicName = modelDraft.publicName.trim();
+    const upstreamModelId = modelDraft.upstreamModelId.trim();
+    if (!modelDraft.providerRevisionId || !publicName || !upstreamModelId) {
+      setError("请先选择 Provider，并填写公开名称和上游模型 ID");
+      return;
+    }
+    if (
+      models.some(
+        (item) =>
+          item.id !== editingModel?.id &&
+          item.providerRevisionId === modelDraft.providerRevisionId &&
+          item.upstreamModelId.trim().toLowerCase() ===
+            upstreamModelId.toLowerCase(),
+      )
+    ) {
+      setError("这个 Provider 已经添加过相同的上游模型 ID");
+      return;
+    }
+    if (!modelDraft.generate && !modelDraft.edit) {
+      setError("至少启用一种模型能力：文生图或图片编辑");
+      return;
+    }
+    if (
+      ![modelDraft.price1K, modelDraft.price2K, modelDraft.price4K].every(
+        (price) => Number.isInteger(price) && price >= 1,
+      )
+    ) {
+      setError("1K、2K、4K 价格必须是大于 0 的整数");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await adminApi.createOfficialModel({
+      const input = {
         providerRevisionId: modelDraft.providerRevisionId,
-        publicName: modelDraft.publicName,
-        upstreamModelId: modelDraft.upstreamModelId,
+        publicName,
+        upstreamModelId,
         capabilities: {
           generate: modelDraft.generate,
           edit: modelDraft.edit,
@@ -152,10 +220,18 @@ export function OfficialGenerationView() {
           "2K": modelDraft.price2K,
           "4K": modelDraft.price4K,
         },
-        status: "active",
-      });
+        status: editingModel?.status ?? "active",
+      } as const;
+      if (editingModel) {
+        await adminApi.updateOfficialModel(editingModel.id, input);
+      } else {
+        await adminApi.createOfficialModel(input);
+      }
       setModelOpen(false);
-      setNotice("官方模型已创建");
+      setEditingModel(null);
+      setModelOptions([]);
+      setModelDraft(emptyModelDraft());
+      setNotice(editingModel ? "官方模型已更新" : "官方模型已创建");
       await load();
     } catch (cause) {
       setError(message(cause));
@@ -172,7 +248,11 @@ export function OfficialGenerationView() {
       const result = await adminApi.officialProviderModels(
         modelDraft.providerRevisionId,
       );
-      setModelOptions(result.items);
+      setModelOptions(
+        [...new Map(result.items.map((item) => [item.id, item])).values()].sort(
+          (left, right) => left.id.localeCompare(right.id),
+        ),
+      );
       if (result.items.length === 0)
         setNotice("Provider 未返回可用模型，请手动填写模型 ID");
       else setNotice(`已获取 ${result.items.length} 个模型`);
@@ -181,6 +261,34 @@ export function OfficialGenerationView() {
     } finally {
       setModelsLoading(false);
     }
+  }
+
+  function openNewModel() {
+    setEditingModel(null);
+    setModelOptions([]);
+    setModelDraft(emptyModelDraft(providers[0]?.id ?? ""));
+    setError(null);
+    setModelOpen(true);
+  }
+
+  function openEditModel(item: AdminOfficialModel) {
+    setEditingModel(item);
+    setModelOptions([
+      { id: item.upstreamModelId, name: item.upstreamModelId },
+    ]);
+    setModelDraft({
+      providerRevisionId: item.providerRevisionId,
+      publicName: item.name,
+      upstreamModelId: item.upstreamModelId,
+      generate: item.capabilities.generate,
+      edit: item.capabilities.edit,
+      references: item.capabilities.references,
+      price1K: item.prices["1K"] ?? 1,
+      price2K: item.prices["2K"] ?? 1,
+      price4K: item.prices["4K"] ?? 1,
+    });
+    setError(null);
+    setModelOpen(true);
   }
 
   async function toggleModel(model: AdminOfficialModel, active: boolean) {
@@ -338,12 +446,7 @@ export function OfficialGenerationView() {
                           icon={<Plus size={16} />}
                           disabled={!providers.length}
                           onClick={() => {
-                            setModelDraft((value) => ({
-                              ...value,
-                              providerRevisionId:
-                                value.providerRevisionId || providers[0]!.id,
-                            }));
-                            setModelOpen(true);
+                            openNewModel();
                           }}
                         >
                           新建模型
@@ -353,7 +456,27 @@ export function OfficialGenerationView() {
                     <Table
                       rowKey="id"
                       pagination={false}
-                      dataSource={models}
+                      dataSource={models.filter(
+                        (item) =>
+                          modelStatusFilter === "all" ||
+                          item.status === modelStatusFilter,
+                      )}
+                      title={() => (
+                        <Space wrap>
+                          <span style={{ color: "#657084" }}>显示状态</span>
+                          <Select
+                            size="small"
+                            value={modelStatusFilter}
+                            options={[
+                              { value: "all", label: "全部" },
+                              { value: "active", label: "已启用" },
+                              { value: "disabled", label: "已停用" },
+                            ]}
+                            onChange={setModelStatusFilter}
+                          />
+                          <Tag color="blue">共 {models.length} 个模型</Tag>
+                        </Space>
+                      )}
                       columns={[
                         { title: "公开名称", dataIndex: "name" },
                         { title: "Provider", dataIndex: "providerName" },
@@ -373,6 +496,18 @@ export function OfficialGenerationView() {
                                 void toggleModel(item, checked)
                               }
                             />
+                          ),
+                        },
+                        {
+                          title: "操作",
+                          render: (_, item) => (
+                            <Button
+                              type="link"
+                              icon={<Pencil size={14} />}
+                              onClick={() => openEditModel(item)}
+                            >
+                              编辑
+                            </Button>
                           ),
                         },
                       ]}
@@ -603,13 +738,20 @@ export function OfficialGenerationView() {
       </Modal>
 
       <Modal
-        title="新建官方模型"
+        title={editingModel ? "编辑官方模型" : "新建官方模型"}
         open={modelOpen}
         confirmLoading={busy}
-        okText="创建"
+        okText={editingModel ? "保存修改" : "创建模型"}
         onOk={() => void createModel()}
         onCancel={() => setModelOpen(false)}
       >
+        <Alert
+          type="info"
+          showIcon
+          message="先获取 Provider 模型目录，再选择一个上游模型"
+          description="模型 ID 会原样发送给上游服务；公开名称只用于画布和用户侧展示。没有目录接口时，可直接手动填写。"
+          style={{ marginBottom: 16 }}
+        />
         <Form layout="vertical">
           <Form.Item label="Provider">
             <Select
@@ -618,14 +760,15 @@ export function OfficialGenerationView() {
                 value: item.id,
                 label: item.displayName,
               }))}
-              onChange={(providerRevisionId) => (
-                setModelOptions([]),
+              onChange={(providerRevisionId) => {
+                setModelOptions([]);
                 setModelDraft((draft) => ({
                   ...draft,
                   providerRevisionId,
                   upstreamModelId: "",
-                }))
-              )}
+                  publicName: "",
+                }));
+              }}
             />
           </Form.Item>
           <Form.Item label="公开名称">
@@ -644,7 +787,7 @@ export function OfficialGenerationView() {
             extra="可从 Provider 获取列表，也可以手动填写"
           >
             <Space.Compact style={{ width: "100%" }}>
-              <Select
+              <AutoComplete
                 showSearch
                 value={modelDraft.upstreamModelId || undefined}
                 placeholder="选择或输入模型 ID"
@@ -652,16 +795,19 @@ export function OfficialGenerationView() {
                   value: item.id,
                   label: item.name ? `${item.name} (${item.id})` : item.id,
                 }))}
-                onChange={(upstreamModelId) =>
-                  setModelDraft((draft) => ({ ...draft, upstreamModelId }))
-                }
+                onChange={(upstreamModelId) => {
+                  const option = modelOptions.find(
+                    (item) => item.id === upstreamModelId,
+                  );
+                  setModelDraft((draft) => ({
+                    ...draft,
+                    upstreamModelId,
+                    publicName:
+                      draft.publicName || option?.name || upstreamModelId,
+                  }));
+                }}
                 onSearch={(upstreamModelId) =>
                   setModelDraft((draft) => ({ ...draft, upstreamModelId }))
-                }
-                filterOption={(input, option) =>
-                  String(option?.label ?? "")
-                    .toLowerCase()
-                    .includes(input.toLowerCase())
                 }
                 style={{ flex: 1 }}
               />
@@ -673,17 +819,11 @@ export function OfficialGenerationView() {
                 获取模型
               </Button>
             </Space.Compact>
-            {/* Keep a plain input fallback for providers that do not expose a catalog. */}
-            <Input
-              style={{ marginTop: 8 }}
-              value={modelDraft.upstreamModelId}
-              onChange={(event) =>
-                setModelDraft((draft) => ({
-                  ...draft,
-                  upstreamModelId: event.target.value,
-                }))
-              }
-            />
+            {modelOptions.length === 0 ? (
+              <div style={{ marginTop: 8, color: "#8a94a5", fontSize: 12 }}>
+                还没有目录结果，可以直接在上方输入模型 ID。
+              </div>
+            ) : null}
           </Form.Item>
           <Form.Item label="能力">
             <Space>
@@ -722,7 +862,10 @@ export function OfficialGenerationView() {
               </Checkbox>
             </Space>
           </Form.Item>
-          <Space>
+          <Divider orientation="left" plain>
+            计费价格（每次任务提交时锁定快照）
+          </Divider>
+          <Space wrap>
             <Form.Item label="1K 积分">
               <InputNumber
                 min={1}

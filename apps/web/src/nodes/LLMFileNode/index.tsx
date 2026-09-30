@@ -32,6 +32,7 @@ import {
   getNodeModelSelection,
   getPreferredSelectableModelEntryId,
 } from "@/features/settings/nodeModelSelection";
+import { useOfficialGenerationRuntime } from "@/features/officialGeneration/runtime";
 import {
   getMaxInputFiles,
   LLM_INPUT_FILE_ACCEPT,
@@ -299,6 +300,7 @@ export const LLMFileNode = memo(function LLMFileNode({
   data,
   selected,
 }: LLMFileNodeProps) {
+  const officialRuntime = useOfficialGenerationRuntime();
   recordComponentRender("LLMFileNode");
   const [isRunning, setIsRunning] = useState(false);
   const [instructionDraft, setInstructionDraft] = useState(
@@ -362,8 +364,10 @@ export const LLMFileNode = memo(function LLMFileNode({
       getNodeModelSelection(settingsConfig, {
         category: "chat",
         reference: data.model,
+        officialGenerationEnabled:
+          officialRuntime.preferences?.effectiveEnabled,
       }),
-    [data.model, settingsConfig],
+    [data.model, officialRuntime.preferences?.effectiveEnabled, settingsConfig],
   );
   const hasSelectableChatModels = useMemo(
     () => Boolean(getPreferredSelectableModelEntryId(settingsConfig, "chat")),

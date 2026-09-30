@@ -26,6 +26,7 @@ import {
   getAvailableRefurnishParts,
   MAX_REFURNISH_REQUIREMENTS,
 } from "@/features/interiorRefurnish/runtime";
+import { useOfficialGenerationRuntime } from "@/features/officialGeneration/runtime";
 import {
   getNodeModelIssueLabel,
   getNodeModelSelection,
@@ -51,6 +52,7 @@ export const InteriorRefurnishNode = memo(function InteriorRefurnishNode({
   data,
   selected,
 }: Props) {
+  const officialRuntime = useOfficialGenerationRuntime();
   const [manualDraft, setManualDraft] = useState("");
   const [contentMinHeight, setContentMinHeight] = useState(
     MIN_REFURNISH_NODE_HEIGHT,
@@ -101,16 +103,20 @@ export const InteriorRefurnishNode = memo(function InteriorRefurnishNode({
       getNodeModelSelection(config, {
         category: "chat",
         reference: data.recognitionModel,
+        officialGenerationEnabled:
+          officialRuntime.preferences?.effectiveEnabled,
       }),
-    [config, data.recognitionModel],
+    [config, data.recognitionModel, officialRuntime.preferences?.effectiveEnabled],
   );
   const imageSelection = useMemo(
     () =>
       getNodeModelSelection(config, {
         category: "image",
         reference: data.model,
+        officialGenerationEnabled:
+          officialRuntime.preferences?.effectiveEnabled,
       }),
-    [config, data.model],
+    [config, data.model, officialRuntime.preferences?.effectiveEnabled],
   );
   const isBusy = data.status === "queued" || data.status === "generating";
   const isRecognizing = data.recognitionStatus === "recognizing";

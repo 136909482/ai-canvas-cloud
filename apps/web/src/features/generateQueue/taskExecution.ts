@@ -46,7 +46,11 @@ import {
   resolveTaskExecutionMode,
 } from "./imageProviderAdapters";
 import { runWithTaskImageInputRefresh } from "./taskImageInputs";
-import { getPreviewNodeSize, loadImageDimensions } from "./previewUtils";
+import {
+  getPreviewNodeSize,
+  loadImageDimensions,
+  resolveImageDimensions,
+} from "./previewUtils";
 import { isSupportedTaskSourceNodeType } from "./taskSourcePolicy";
 import {
   resolvePreviewSourceImageNodeId,
@@ -226,6 +230,7 @@ function delay(ms: number) {
 async function finalizeOfficialTask(
   task: GenerateTask,
   resultAssetId: string,
+  modelName: string,
   runtimeVersion: number,
 ) {
   useTaskQueueStore.getState().setTaskPhase(task.id, "persisting");
@@ -236,6 +241,8 @@ async function finalizeOfficialTask(
     ),
   ]);
   if (!isTaskQueueRuntimeCurrent(runtimeVersion)) return;
+  const { width, height } = await resolveImageDimensions(metadata, resolvedUrl);
+  if (!isTaskQueueRuntimeCurrent(runtimeVersion)) return;
 
   const imageAsset = {
     assetId: metadata.id,
@@ -244,13 +251,11 @@ async function finalizeOfficialTask(
     relativePath: createCloudAssetRelativePath(metadata.id),
     mimeType: metadata.mimeType,
     fileName: metadata.originalFileName ?? `official-${metadata.id}.png`,
-    displayWidth: metadata.width ?? undefined,
-    displayHeight: metadata.height ?? undefined,
-    originalWidth: metadata.width ?? undefined,
-    originalHeight: metadata.height ?? undefined,
+    displayWidth: width || undefined,
+    displayHeight: height || undefined,
+    originalWidth: width || undefined,
+    originalHeight: height || undefined,
   } as const;
-  const width = metadata.width ?? 0;
-  const height = metadata.height ?? 0;
   const previewSize =
     width > 0 && height > 0
       ? getPreviewNodeSize(width, height)
@@ -260,7 +265,8 @@ async function finalizeOfficialTask(
     useCanvasStore.getState().updateNodeData(task.previewNodeId, {
       imageUrl: resolvedUrl,
       imageAsset,
-      apiProfileName: "官方模型",
+      modelName,
+      apiProfileName: null,
       status: "done",
       errorMsg: "",
       imageWidth: width,
@@ -345,6 +351,12 @@ async function runOfficialGenerationTask(
   if (!task.remoteTaskId) {
     useTaskQueueStore.getState().attachRemoteTask(task.id, response.task.id);
   }
+  if (task.previewNodeId) {
+    useCanvasStore.getState().updateNodeData(task.previewNodeId, {
+      modelName: response.task.modelName,
+      apiProfileName: null,
+    });
+  }
   useTaskQueueStore.getState().setTaskPhase(task.id, "polling");
   useTaskQueueStore.getState().setRemoteTaskStatus(task.id, "IN_PROGRESS");
 
@@ -362,6 +374,7 @@ async function runOfficialGenerationTask(
     await finalizeOfficialTask(
       task,
       response.task.resultAssetId,
+      response.task.modelName,
       runtimeVersion,
     );
     await acknowledgeOfficialImageTask(response.task.id);

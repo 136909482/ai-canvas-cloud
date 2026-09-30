@@ -221,13 +221,18 @@ export function UserDetailView({
   }, [loadCredits]);
 
   async function adjustCredits() {
-    if (creditDelta === 0 || creditReason.trim().length < 3) return;
+    const normalizedReason = creditReason.trim();
+    if (
+      creditDelta === 0 ||
+      (normalizedReason.length > 0 && normalizedReason.length < 3)
+    )
+      return;
     setCreditBusy(true);
     setError(null);
     try {
       await adminApi.adjustUserCredits(userId, {
         delta: creditDelta,
-        reason: creditReason.trim(),
+        reason: normalizedReason || "管理员手动调整",
       });
       setCreditAdjustOpen(false);
       setCreditDelta(0);
@@ -747,7 +752,9 @@ export function UserDetailView({
         okText="确认调整"
         confirmLoading={creditBusy}
         okButtonProps={{
-          disabled: creditDelta === 0 || creditReason.trim().length < 3,
+          disabled:
+            creditDelta === 0 ||
+            (creditReason.trim().length > 0 && creditReason.trim().length < 3),
         }}
         onOk={() => void adjustCredits()}
         onCancel={() => setCreditAdjustOpen(false)}
@@ -764,7 +771,7 @@ export function UserDetailView({
           style={{ width: "100%" }}
         />
         <label className="modal-field-label" htmlFor="credit-adjust-reason">
-          调整原因
+          调整原因（可选）
         </label>
         <Input.TextArea
           id="credit-adjust-reason"
@@ -772,7 +779,12 @@ export function UserDetailView({
           minLength={3}
           maxLength={500}
           rows={3}
-          showCount
+          placeholder="可选；留空将记录为“管理员手动调整”"
+          status={
+            creditReason.trim().length > 0 && creditReason.trim().length < 3
+              ? "error"
+              : undefined
+          }
           onChange={(event) => setCreditReason(event.target.value)}
         />
       </Modal>

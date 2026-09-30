@@ -27,6 +27,7 @@ import {
   getNodeModelSelection,
   getPreferredSelectableModelEntryId,
 } from "@/features/settings/nodeModelSelection";
+import { useOfficialGenerationRuntime } from "@/features/officialGeneration/runtime";
 import { getCanvasNodeById } from "@/store/canvasConnectionSources";
 import { useCanvasStore } from "@/store/useCanvasStore";
 import { useHistoryStore } from "@/store/useHistoryStore";
@@ -230,6 +231,7 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({
   data,
   selected,
 }: VideoGenerateNodeProps) {
+  const officialRuntime = useOfficialGenerationRuntime();
   recordComponentRender("VideoGenerateNode");
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const deleteNode = useCanvasStore((s) => s.deleteNode);
@@ -263,8 +265,10 @@ export const VideoGenerateNode = memo(function VideoGenerateNode({
       getNodeModelSelection(settingsConfig, {
         category: "video",
         reference: data.model,
+        officialGenerationEnabled:
+          officialRuntime.preferences?.effectiveEnabled,
       }),
-    [data.model, settingsConfig],
+    [data.model, officialRuntime.preferences?.effectiveEnabled, settingsConfig],
   );
   const hasSelectableVideoModels = useMemo(
     () => Boolean(getPreferredSelectableModelEntryId(settingsConfig, "video")),

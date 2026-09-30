@@ -62,7 +62,11 @@ export function resolveNodeModelEntryId(
 
 export function getNodeModelSelection(
   config: ApiConfig,
-  input: { category: ModelCategory; reference: unknown },
+  input: {
+    category: ModelCategory;
+    reference: unknown;
+    officialGenerationEnabled?: boolean;
+  },
 ): NodeModelSelection {
   const reference = normalizeReference(input.reference);
   const modelEntryId = resolveNodeModelEntryId(config, reference);
@@ -76,6 +80,22 @@ export function getNodeModelSelection(
         (profile) => profile.id === selectedModel.providerProfileId,
       ) ?? null)
     : null;
+
+  if (
+    reference &&
+    isOfficialModelReference(reference) &&
+    input.officialGenerationEnabled === false
+  ) {
+    return {
+      reference,
+      modelEntryId: null,
+      selectedModel: null,
+      selectedProvider: null,
+      diagnostic: null,
+      issue: "unavailable",
+      canExecute: false,
+    };
+  }
 
   if (reference && isOfficialModelReference(reference)) {
     return {
@@ -160,6 +180,11 @@ export function getNodeModelSelection(
 export function getNodeModelIssueLabel(selection: NodeModelSelection) {
   if (selection.issue === "unbound") return NODE_MODEL_SELECTION_LABELS.unbound;
   if (selection.issue === "deleted") return NODE_MODEL_SELECTION_LABELS.deleted;
+  if (
+    selection.issue === "unavailable" &&
+    isOfficialModelReference(selection.reference)
+  )
+    return "官方接口服务已关闭";
 
   switch (selection.diagnostic?.code) {
     case "modelDisabled":

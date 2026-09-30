@@ -10,6 +10,15 @@ import type {
   RedeemCreditCodeResponse,
 } from "@ai-canvas-cloud/contracts";
 import { requestCloudJson } from "@/api/cloudApiClient";
+import { setCreditBalanceRuntime } from "./creditRuntime";
+
+async function requestWithCreditBalance<T extends { balance: CreditBalance }>(
+  request: Promise<T>,
+) {
+  const response = await request;
+  setCreditBalanceRuntime(response.balance);
+  return response;
+}
 
 export const fetchOfficialGenerationPreferences = () =>
   requestCloudJson<OfficialGenerationPreferences>(
@@ -28,8 +37,13 @@ export const fetchOfficialModels = () =>
     method: "GET",
   });
 
-export const fetchCreditBalance = () =>
-  requestCloudJson<CreditBalance>("/credits", { method: "GET" });
+export const fetchCreditBalance = async () => {
+  const balance = await requestCloudJson<CreditBalance>("/credits", {
+    method: "GET",
+  });
+  setCreditBalanceRuntime(balance);
+  return balance;
+};
 
 export const fetchCreditLedger = (cursor?: string | null) =>
   requestCloudJson<CreditLedgerPage>(
@@ -38,18 +52,22 @@ export const fetchCreditLedger = (cursor?: string | null) =>
   );
 
 export const redeemCreditCode = (code: string) =>
-  requestCloudJson<RedeemCreditCodeResponse>("/credits/redeem", {
-    method: "POST",
-    body: JSON.stringify({ code, idempotencyKey: crypto.randomUUID() }),
-  });
+  requestWithCreditBalance(
+    requestCloudJson<RedeemCreditCodeResponse>("/credits/redeem", {
+      method: "POST",
+      body: JSON.stringify({ code, idempotencyKey: crypto.randomUUID() }),
+    }),
+  );
 
 export const createOfficialImageTask = (
   input: CreateOfficialImageTaskRequest,
 ) =>
-  requestCloudJson<OfficialGenerationTaskResponse>("/official-image-tasks", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+  requestWithCreditBalance(
+    requestCloudJson<OfficialGenerationTaskResponse>("/official-image-tasks", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  );
 
 export const fetchOfficialImageTasks = (cursor?: string | null) =>
   requestCloudJson<OfficialGenerationTaskPage>(
@@ -58,21 +76,27 @@ export const fetchOfficialImageTasks = (cursor?: string | null) =>
   );
 
 export const fetchOfficialImageTask = (taskId: string) =>
-  requestCloudJson<OfficialGenerationTaskResponse>(
-    `/official-image-tasks/${encodeURIComponent(taskId)}`,
-    { method: "GET" },
+  requestWithCreditBalance(
+    requestCloudJson<OfficialGenerationTaskResponse>(
+      `/official-image-tasks/${encodeURIComponent(taskId)}`,
+      { method: "GET" },
+    ),
   );
 
 export const cancelOfficialImageTask = (taskId: string) =>
-  requestCloudJson<OfficialGenerationTaskResponse>(
-    `/official-image-tasks/${encodeURIComponent(taskId)}/cancel`,
-    { method: "POST" },
+  requestWithCreditBalance(
+    requestCloudJson<OfficialGenerationTaskResponse>(
+      `/official-image-tasks/${encodeURIComponent(taskId)}/cancel`,
+      { method: "POST" },
+    ),
   );
 
 export const acknowledgeOfficialImageTask = (taskId: string) =>
-  requestCloudJson<OfficialGenerationTaskResponse>(
-    `/official-image-tasks/${encodeURIComponent(taskId)}/acknowledge`,
-    { method: "POST" },
+  requestWithCreditBalance(
+    requestCloudJson<OfficialGenerationTaskResponse>(
+      `/official-image-tasks/${encodeURIComponent(taskId)}/acknowledge`,
+      { method: "POST" },
+    ),
   );
 
 export const fetchOfficialResultAsset = (assetId: string) =>

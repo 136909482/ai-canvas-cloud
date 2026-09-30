@@ -9,7 +9,6 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type {
-  CreditBalance,
   CreditLedgerEntry,
   OfficialGenerationPreferences,
 } from "@ai-canvas-cloud/contracts";
@@ -19,10 +18,17 @@ import { themeClasses } from "@/styles/themeClasses";
 import {
   fetchCreditBalance,
   fetchCreditLedger,
+  fetchOfficialModels,
   fetchOfficialGenerationPreferences,
   redeemCreditCode,
   updateOfficialGenerationPreferences,
 } from "./api";
+import { useCreditBalanceRuntime } from "./creditRuntime";
+import { getVisibleCreditLedgerEntries } from "./creditLedger";
+import {
+  setOfficialGenerationPreferences,
+  setOfficialGenerationRuntime,
+} from "./runtime";
 
 const ENTRY_LABELS: Record<CreditLedgerEntry["type"], string> = {
   signup_bonus: "注册赠送",
@@ -42,24 +48,25 @@ function errorText(error: unknown) {
 export function CreditSettingsPanel() {
   const [preferences, setPreferences] =
     useState<OfficialGenerationPreferences | null>(null);
-  const [balance, setBalance] = useState<CreditBalance | null>(null);
+  const balance = useCreditBalanceRuntime();
   const [entries, setEntries] = useState<CreditLedgerEntry[]>([]);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const visibleEntries = getVisibleCreditLedgerEntries(entries);
 
   const load = useCallback(async () => {
     setBusy(true);
     setError("");
     try {
-      const [nextPreferences, nextBalance, ledger] = await Promise.all([
+      const [nextPreferences, , ledger] = await Promise.all([
         fetchOfficialGenerationPreferences(),
         fetchCreditBalance(),
         fetchCreditLedger(),
       ]);
       setPreferences(nextPreferences);
-      setBalance(nextBalance);
+      setOfficialGenerationPreferences(nextPreferences);
       setEntries(ledger.items);
     } catch (reason) {
       setError(errorText(reason));
@@ -82,9 +89,16 @@ export function CreditSettingsPanel() {
     setBusy(true);
     setError("");
     try {
-      setPreferences(
-        await updateOfficialGenerationPreferences(!preferences.userEnabled),
+      const nextPreferences = await updateOfficialGenerationPreferences(
+        !preferences.userEnabled,
       );
+      setPreferences(nextPreferences);
+      if (nextPreferences.effectiveEnabled) {
+        const models = await fetchOfficialModels();
+        setOfficialGenerationRuntime(models);
+      } else {
+        setOfficialGenerationPreferences(nextPreferences);
+      }
       setNotice(
         preferences.userEnabled ? "官方接口服务已关闭" : "官方接口服务已开启",
       );
@@ -102,7 +116,6 @@ export function CreditSettingsPanel() {
     setNotice("");
     try {
       const result = await redeemCreditCode(code);
-      setBalance(result.balance);
       setCode("");
       setNotice(`兑换成功，已增加 ${result.credited}`);
       const ledger = await fetchCreditLedger();
@@ -228,40 +241,44 @@ export function CreditSettingsPanel() {
           </button>
         </header>
         <div className="divide-y divide-[var(--border-subtle)]">
-          {entries.length === 0 ? (
+          {visibleEntries.length === 0 ? (
             <p
               className={`px-4 py-8 text-center text-xs ${themeClasses.textMuted}`}
             >
               暂无使用记录
             </p>
           ) : (
-            entries.map((entry) => (
-              <div
-                key={entry.id}
-                className="flex items-center justify-between gap-4 px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <strong
-                    className={`block truncate text-[13px] ${themeClasses.textPrimary}`}
-                  >
-                    {ENTRY_LABELS[entry.type]}
-                  </strong>
-                  <time
-                    className={`mt-0.5 block text-[11px] ${themeClasses.textMuted}`}
-                  >
-                    {new Date(entry.createdAt).toLocaleString("zh-CN", {
-                      hour12: false,
-                    })}
-                  </time>
-                </div>
-                <span
-                  className={`shrink-0 font-mono text-sm ${entry.availableDelta > 0 ? "text-emerald-400" : entry.availableDelta < 0 ? "text-amber-400" : themeClasses.textMuted}`}
+            visibleEntries.map((entry) => {
+              const displayedDelta =
+                entry.availableDelta || entry.reservedDelta;
+              return (
+                <div
+                  key={entry.id}
+                  className="flex items-center justify-between gap-4 px-4 py-3"
                 >
-                  {entry.availableDelta > 0 ? "+" : ""}
-                  {entry.availableDelta || entry.reservedDelta}
-                </span>
-              </div>
-            ))
+                  <div className="min-w-0">
+                    <strong
+                      className={`block truncate text-[13px] ${themeClasses.textPrimary}`}
+                    >
+                      {ENTRY_LABELS[entry.type]}
+                    </strong>
+                    <time
+                      className={`mt-0.5 block text-[11px] ${themeClasses.textMuted}`}
+                    >
+                      {new Date(entry.createdAt).toLocaleString("zh-CN", {
+                        hour12: false,
+                      })}
+                    </time>
+                  </div>
+                  <span
+                    className={`shrink-0 font-mono text-sm ${displayedDelta > 0 ? "text-emerald-400" : displayedDelta < 0 ? "text-amber-400" : themeClasses.textMuted}`}
+                  >
+                    {displayedDelta > 0 ? "+" : ""}
+                    {displayedDelta}
+                  </span>
+                </div>
+              );
+            })
           )}
         </div>
       </section>

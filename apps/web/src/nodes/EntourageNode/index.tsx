@@ -35,6 +35,7 @@ import {
   getNodeModelSelection,
   getPreferredSelectableModelEntryId,
 } from "@/features/settings/nodeModelSelection";
+import { useOfficialGenerationRuntime } from "@/features/officialGeneration/runtime";
 import { runEntourageFeature } from "@/features/entourage/execute";
 import {
   ENTOURAGE_FEATURE_LABELS,
@@ -109,6 +110,7 @@ export const EntourageNode = memo(function EntourageNode({
   data,
   selected,
 }: EntourageNodeProps) {
+  const officialRuntime = useOfficialGenerationRuntime();
   recordComponentRender("EntourageNode");
   const baseSourceNodeId =
     typeof data.sourceImageNodeId === "string" ? data.sourceImageNodeId : null;
@@ -148,16 +150,20 @@ export const EntourageNode = memo(function EntourageNode({
       getNodeModelSelection(settingsConfig, {
         category: "chat",
         reference: data.plannerModel,
+        officialGenerationEnabled:
+          officialRuntime.preferences?.effectiveEnabled,
       }),
-    [data.plannerModel, settingsConfig],
+    [data.plannerModel, officialRuntime.preferences?.effectiveEnabled, settingsConfig],
   );
   const imageModelSelection = useMemo(
     () =>
       getNodeModelSelection(settingsConfig, {
         category: "image",
         reference: data.model,
+        officialGenerationEnabled:
+          officialRuntime.preferences?.effectiveEnabled,
       }),
-    [data.model, settingsConfig],
+    [data.model, officialRuntime.preferences?.effectiveEnabled, settingsConfig],
   );
   const hasSelectableChatModels = useMemo(
     () => Boolean(getPreferredSelectableModelEntryId(settingsConfig, "chat")),

@@ -191,6 +191,16 @@ test("unbound, deleted, and upstream-missing references stay visible but cannot 
   assert.equal(missing.canExecute, false);
 });
 
+test("official references become unavailable when the official service is disabled", () => {
+  const selection = getNodeModelSelection(createConfig(), {
+    category: "image",
+    reference: "official:123e4567-e89b-42d3-a456-426614174000",
+    officialGenerationEnabled: false,
+  });
+  assert.equal(selection.canExecute, false);
+  assert.equal(getNodeModelIssueLabel(selection), "官方接口服务已关闭");
+});
+
 test("a bound anonymous reference resolves only to its selected local model entry", () => {
   const reference = "local:11111111-1111-4111-8111-111111111111";
   const config = normalizeConfig({

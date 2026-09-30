@@ -357,6 +357,7 @@ export interface GeneratedPreviewNodeData extends Record<string, unknown> {
   imageAsset?: WorkspaceImageAsset | null;
   prompt: string;
   model: string;
+  modelName?: string | null;
   apiProfileName?: string | null;
   ratio: string;
   status: GenerateStatus;
