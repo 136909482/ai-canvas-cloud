@@ -15,6 +15,10 @@ import {
   type SecretEnvelope,
   type SecretKeyring,
 } from "./crypto.js";
+import {
+  buildOfficialImageProviderRequest,
+  type OfficialImageRequestSnapshot,
+} from "./imageRequest.js";
 
 const MAX_INPUT_BYTES = 50 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
@@ -221,7 +225,7 @@ async function executeProvider(
   keyring: SecretKeyring,
   task: ClaimedTask,
 ) {
-  const request = openSecret<CreateOfficialImageTaskRequest>(
+  const request = openSecret<OfficialImageRequestSnapshot>(
     task.request_envelope,
     keyring,
   );
@@ -230,64 +234,26 @@ async function executeProvider(
     keyring,
   );
   const inputs = await loadInputs(pool, storage, task, request);
-  const size =
-    SIZES[request.ratio]?.[request.resolution] ??
-    SIZES["1:1"]![request.resolution];
-  const headers = { Authorization: `Bearer ${apiKey}` };
-  if (task.operation_type === "generate" && inputs.size === 0) {
-    const requestUrl = await assertPublicHttpsUrl(
-      endpoint(task.base_url, "generate"),
-    );
-    const response = await fetch(requestUrl, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: task.upstream_model_id,
-        prompt: request.prompt,
-        ...(request.negativePrompt
-          ? { negative_prompt: request.negativePrompt }
-          : {}),
-        size,
-        response_format: "b64_json",
-        n: 1,
-      }),
-      redirect: "error",
-      signal: AbortSignal.timeout(10 * 60_000),
-    });
-    return parseProviderResult(response);
-  }
-  const form = new FormData();
-  form.set("model", task.upstream_model_id);
-  form.set("prompt", request.prompt);
-  form.set("size", size);
-  form.set("response_format", "b64_json");
-  const orderedIds = [
-    ...(request.inputAssetIds ?? []),
-    request.editAssetId,
-  ].filter((value): value is string => Boolean(value));
-  for (const [index, id] of orderedIds.entries()) {
-    const source = inputs.get(id)!;
-    form.append(
-      "image",
-      new Blob([source.bytes], { type: source.mimeType }),
-      `input-${index}.${extension(source.mimeType)}`,
-    );
-  }
-  if (request.maskAssetId) {
-    const source = inputs.get(request.maskAssetId)!;
-    form.set(
-      "mask",
-      new Blob([source.bytes], { type: source.mimeType }),
-      `mask.${extension(source.mimeType)}`,
-    );
-  }
+  const providerRequest = buildOfficialImageProviderRequest({
+    request,
+    modelId: task.upstream_model_id,
+    size:
+      SIZES[request.ratio]?.[request.resolution] ??
+      SIZES["1:1"]![request.resolution],
+    inputs,
+  });
   const requestUrl = await assertPublicHttpsUrl(
-    endpoint(task.base_url, "edit"),
+    endpoint(task.base_url, providerRequest.operation),
   );
   const response = await fetch(requestUrl, {
     method: "POST",
-    headers,
-    body: form,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      ...(providerRequest.contentType
+        ? { "Content-Type": providerRequest.contentType }
+        : {}),
+    },
+    body: providerRequest.body,
     redirect: "error",
     signal: AbortSignal.timeout(10 * 60_000),
   });

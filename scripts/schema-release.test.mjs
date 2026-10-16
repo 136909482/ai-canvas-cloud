@@ -20,8 +20,9 @@ test("schema release manifest describes the current baseline and repair", () => 
     "0043_add_generation_task_records.sql",
     "0044_add_official_generation_credits.sql",
     "0045_fix_official_admin_id_types.sql",
+    "0046_add_official_model_parameter_templates.sql",
   ]);
-  assert.equal(result.manifest.migrations.length, 9);
+  assert.equal(result.manifest.migrations.length, 10);
   assert.deepEqual(result.manifest.migrations[0], {
     version: "0001",
     name: "current_schema",
@@ -146,10 +147,11 @@ test("role isolation accepts current and legacy migration histories", () => {
     "0043",
     "0044",
     "0045",
+    "0046",
   ]);
   assert.deepEqual(
     histories.legacyUpgrade,
-    Array.from({ length: 45 }, (_, index) =>
+    Array.from({ length: 46 }, (_, index) =>
       String(index + 1).padStart(4, "0"),
     ),
   );

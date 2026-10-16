@@ -17,6 +17,7 @@ import type {
   CreditBalance,
   CreditLedgerPage,
 } from "@ai-canvas-cloud/contracts";
+import { resolveOfficialImageParameterTemplate } from "@ai-canvas-cloud/contracts";
 import type { DbClient, DbPool } from "../../db/postgres.js";
 import { withTransaction } from "../../db/postgres.js";
 import {
@@ -179,6 +180,11 @@ function model(row: any): AdminOfficialModel {
     providerRevisionId: row.provider_revision_id,
     providerName: row.provider_name,
     upstreamModelId: row.upstream_model_id,
+    parameterTemplateSetting: row.parameter_template ?? "auto",
+    parameterTemplate: resolveOfficialImageParameterTemplate(
+      row.parameter_template,
+      row.upstream_model_id,
+    ),
     capabilities: {
       generate: row.supports_generate,
       edit: row.supports_edit,
@@ -214,7 +220,7 @@ function normalizedCode(value: string) {
 
 const MODEL_SELECT = `
   SELECT m.id::text, m.provider_revision_id::text, p.display_name AS provider_name,
-         m.public_name, m.upstream_model_id, m.supports_generate, m.supports_edit,
+         m.public_name, m.upstream_model_id, m.parameter_template, m.supports_generate, m.supports_edit,
          m.supports_references, m.price_1k, m.price_2k, m.price_4k,
          m.status, m.created_at, m.updated_at
   FROM public.official_models m
@@ -525,8 +531,8 @@ export function createPostgresAdminOfficialGenerationService(
           INSERT INTO public.official_models (
             id, provider_revision_id, public_name, upstream_model_id,
             supports_generate, supports_edit, supports_references,
-            price_1k, price_2k, price_4k, status
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            price_1k, price_2k, price_4k, status, parameter_template
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
         `,
           [
             id,
@@ -540,6 +546,7 @@ export function createPostgresAdminOfficialGenerationService(
             input.prices["2K"],
             input.prices["4K"],
             input.status,
+            input.parameterTemplate ?? "auto",
           ],
         );
         await insertAdminAuditEvent(
@@ -555,6 +562,7 @@ export function createPostgresAdminOfficialGenerationService(
             userAgent: context.userAgent,
             after: {
               publicName: input.publicName,
+              parameterTemplate: input.parameterTemplate ?? "auto",
               prices: input.prices,
               status: input.status,
             },
@@ -575,7 +583,7 @@ export function createPostgresAdminOfficialGenerationService(
           UPDATE public.official_models SET provider_revision_id=$2, public_name=$3,
             upstream_model_id=$4, supports_generate=$5, supports_edit=$6,
             supports_references=$7, price_1k=$8, price_2k=$9, price_4k=$10,
-            status=$11, updated_at=now() WHERE id=$1
+            status=$11, parameter_template=$12, updated_at=now() WHERE id=$1
         `,
           [
             modelId,
@@ -589,6 +597,7 @@ export function createPostgresAdminOfficialGenerationService(
             input.prices["2K"],
             input.prices["4K"],
             input.status,
+            input.parameterTemplate ?? "auto",
           ],
         );
         if (result.rowCount !== 1)
@@ -610,6 +619,7 @@ export function createPostgresAdminOfficialGenerationService(
             userAgent: context.userAgent,
             after: {
               publicName: input.publicName,
+              parameterTemplate: input.parameterTemplate ?? "auto",
               prices: input.prices,
               status: input.status,
             },

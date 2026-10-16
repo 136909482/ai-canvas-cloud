@@ -4,6 +4,7 @@ import {
   AdminRequestBodySchema,
 } from "@ai-canvas-cloud/contracts/admin-http-schema";
 import { Type } from "@sinclair/typebox";
+import { AdminUpsertOfficialModelRequestSchema } from "@ai-canvas-cloud/contracts/official-generation-http-schema";
 import type {
   AdminCreateOfficialProviderRequest,
   AdminCreateRedemptionBatchRequest,
@@ -126,7 +127,7 @@ export function registerAdminOfficialGenerationRoutes(
       schema: {
         operationId: adminOperation("createAdminOfficialModel"),
         tags: ["official-generation"],
-        body: AdminRequestBodySchema,
+        body: AdminUpsertOfficialModelRequestSchema,
         response: responses,
       },
     },
@@ -150,7 +151,7 @@ export function registerAdminOfficialGenerationRoutes(
         operationId: adminOperation("updateAdminOfficialModel"),
         tags: ["official-generation"],
         params: PathIdSchema,
-        body: AdminRequestBodySchema,
+        body: AdminUpsertOfficialModelRequestSchema,
         response: responses,
       },
     },

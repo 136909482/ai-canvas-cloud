@@ -6,6 +6,11 @@ import type {
   AdminOfficialProviderSummary,
   AdminRedemptionBatch,
   OfficialProviderProtocol,
+  OfficialImageParameterTemplateSetting,
+} from "@ai-canvas-cloud/contracts";
+import {
+  OFFICIAL_IMAGE_TEMPLATE_LABELS,
+  resolveOfficialImageParameterTemplate,
 } from "@ai-canvas-cloud/contracts";
 import {
   Button,
@@ -48,6 +53,7 @@ type ModelDraft = {
   providerRevisionId: string;
   publicName: string;
   upstreamModelId: string;
+  parameterTemplate: OfficialImageParameterTemplateSetting;
   generate: boolean;
   edit: boolean;
   references: boolean;
@@ -61,6 +67,7 @@ function emptyModelDraft(providerRevisionId = ""): ModelDraft {
     providerRevisionId,
     publicName: "",
     upstreamModelId: "",
+    parameterTemplate: "auto",
     generate: true,
     edit: false,
     references: false,
@@ -210,6 +217,7 @@ export function OfficialGenerationView() {
         providerRevisionId: modelDraft.providerRevisionId,
         publicName,
         upstreamModelId,
+        parameterTemplate: modelDraft.parameterTemplate,
         capabilities: {
           generate: modelDraft.generate,
           edit: modelDraft.edit,
@@ -273,13 +281,12 @@ export function OfficialGenerationView() {
 
   function openEditModel(item: AdminOfficialModel) {
     setEditingModel(item);
-    setModelOptions([
-      { id: item.upstreamModelId, name: item.upstreamModelId },
-    ]);
+    setModelOptions([{ id: item.upstreamModelId, name: item.upstreamModelId }]);
     setModelDraft({
       providerRevisionId: item.providerRevisionId,
       publicName: item.name,
       upstreamModelId: item.upstreamModelId,
+      parameterTemplate: item.parameterTemplateSetting ?? "auto",
       generate: item.capabilities.generate,
       edit: item.capabilities.edit,
       references: item.capabilities.references,
@@ -298,6 +305,7 @@ export function OfficialGenerationView() {
         providerRevisionId: model.providerRevisionId,
         publicName: model.name,
         upstreamModelId: model.upstreamModelId,
+        parameterTemplate: model.parameterTemplateSetting ?? "auto",
         capabilities: model.capabilities,
         prices: model.prices,
         status: active ? "active" : "disabled",
@@ -481,6 +489,13 @@ export function OfficialGenerationView() {
                         { title: "公开名称", dataIndex: "name" },
                         { title: "Provider", dataIndex: "providerName" },
                         { title: "上游模型 ID", dataIndex: "upstreamModelId" },
+                        {
+                          title: "参数模板",
+                          render: (_, item) =>
+                            OFFICIAL_IMAGE_TEMPLATE_LABELS[
+                              item.parameterTemplate ?? "generic"
+                            ],
+                        },
                         {
                           title: "1K / 2K / 4K",
                           render: (_, item) =>
@@ -767,6 +782,7 @@ export function OfficialGenerationView() {
                   providerRevisionId,
                   upstreamModelId: "",
                   publicName: "",
+                  parameterTemplate: "auto",
                 }));
               }}
             />
@@ -824,6 +840,33 @@ export function OfficialGenerationView() {
                 还没有目录结果，可以直接在上方输入模型 ID。
               </div>
             ) : null}
+          </Form.Item>
+          <Form.Item
+            label="参数模板"
+            extra={
+              modelDraft.parameterTemplate === "auto"
+                ? `当前识别：${OFFICIAL_IMAGE_TEMPLATE_LABELS[resolveOfficialImageParameterTemplate("auto", modelDraft.upstreamModelId)]}，可手动切换`
+                : modelDraft.parameterTemplate === "gpt-image"
+                  ? "显示画质与背景，并用于生成请求"
+                  : modelDraft.parameterTemplate === "nano-banana"
+                    ? "使用 Nano Banana 的比例、清晰度和参考图参数，适用于兼容图片接口"
+                    : "使用通用比例和清晰度参数"
+            }
+          >
+            <Select<OfficialImageParameterTemplateSetting>
+              value={modelDraft.parameterTemplate}
+              options={(
+                Object.keys(
+                  OFFICIAL_IMAGE_TEMPLATE_LABELS,
+                ) as OfficialImageParameterTemplateSetting[]
+              ).map((value) => ({
+                value,
+                label: OFFICIAL_IMAGE_TEMPLATE_LABELS[value],
+              }))}
+              onChange={(parameterTemplate) =>
+                setModelDraft((draft) => ({ ...draft, parameterTemplate }))
+              }
+            />
           </Form.Item>
           <Form.Item label="能力">
             <Space>

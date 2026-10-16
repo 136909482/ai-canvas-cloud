@@ -152,6 +152,16 @@ function concretePath(path: string) {
 }
 
 function bodyFor(path: string) {
+  if (/\/official-models(?:\/|$)/.test(path))
+    return {
+      providerRevisionId: "123e4567-e89b-42d3-a456-426614174000",
+      publicName: "Test image model",
+      upstreamModelId: "test-image",
+      parameterTemplate: "nano-banana",
+      capabilities: { generate: true, edit: true, references: true },
+      prices: { "1K": 1, "2K": 2, "4K": 4 },
+      status: "active",
+    };
   if (path.endsWith("/auth/login"))
     return { username: "admin", password: "password" };
   if (path.endsWith("/auth/username")) return { username: "admin" };
@@ -225,6 +235,38 @@ test("Admin Fastify registers and serves the complete route inventory", async ()
         `${route.method} ${route.path}: ${response.text}`,
       );
       assert.equal(typeof response.headers["x-request-id"], "string");
+    }
+  } finally {
+    await closeAdminApiServer(server, 1_000);
+  }
+});
+
+test("Admin official model templates accept supported choices and reject unknown settings", async () => {
+  const { server, port } = await listen();
+  try {
+    const csrfResponse = await request(port, { path: "/admin/v1/auth/csrf" });
+    const csrf = JSON.parse(csrfResponse.text).token as string;
+    const cookie = csrfResponse.headers["set-cookie"]?.[0]?.split(";")[0];
+    assert(cookie);
+    for (const parameterTemplate of [
+      "auto",
+      "generic",
+      "gpt-image",
+      "nano-banana",
+      "invalid",
+    ]) {
+      const response = await request(port, {
+        path: "/admin/v1/official-models",
+        method: "POST",
+        origin: "http://localhost:5174",
+        csrf,
+        cookie,
+        body: { ...bodyFor("/official-models"), parameterTemplate },
+      });
+      assert.equal(
+        response.status,
+        parameterTemplate === "invalid" ? 400 : 201,
+      );
     }
   } finally {
     await closeAdminApiServer(server, 1_000);

@@ -240,7 +240,7 @@ SMTP 密码使用 AES-256-GCM 信封加密，每个 revision 使用随机 96 位
 
 ## 官方生成与积分
 
-`user_feature_preferences` 保存用户级官方服务偏好，默认关闭。`official_provider_revisions` 保存不可变 Provider 协议、HTTPS endpoint 和 AES-256-GCM 凭据信封；`official_models` 保存公开名称、能力、1K/2K/4K 正整数价格和启停状态。真实模型 ID、endpoint 与凭据只允许 Admin 和执行器读取，不进入普通用户响应。
+`user_feature_preferences` 保存用户级官方服务偏好，默认关闭。`official_provider_revisions` 保存不可变 Provider 协议、HTTPS endpoint 和 AES-256-GCM 凭据信封；`official_models` 保存公开名称、能力、1K/2K/4K 正整数价格和启停状态。迁移 `0046` 增加 `parameter_template`，默认 `auto`，约束为 `auto/generic/gpt-image/nano-banana`；只向普通用户公开解析后的模板，不公开上游模型 ID。提交任务时将服务端解析的模板、画质和背景一起冻结在现有加密请求信封中，不新增任务明文字段；模板配置修改不改变已提交任务。该迁移可重复执行，回退应用时保留新增列和任务快照，前向修复通过重跑迁移或后台修改模型模板完成。真实模型 ID、endpoint 与凭据只允许 Admin 和执行器读取，不进入普通用户响应。
 
 `credit_accounts` 以用户为唯一账户，`available_balance` 与 `reserved_balance` 均有非负约束。`credit_ledger_entries` 是不可变流水；任务提交事务同时锁定账户、可用余额减价、预留余额加价并写 `generation_reserve`，成功结算写 `generation_capture`，失败/排队取消写 `generation_release`。后台减分只检查可用余额，不触碰预留。`credit_settings.signup_bonus_enabled_at` 界定注册赠送生效时间，账户首次创建时按用户注册时间幂等判断。
 

@@ -7,6 +7,11 @@ const Resolution = Type.Union([
   Type.Literal("2K"),
   Type.Literal("4K"),
 ]);
+const ParameterTemplate = Type.Union([
+  Type.Literal("generic"),
+  Type.Literal("gpt-image"),
+  Type.Literal("nano-banana"),
+]);
 const Prices = Type.Object(
   {
     "1K": Type.Union([
@@ -46,7 +51,13 @@ export const UpdateOfficialGenerationPreferencesRequestSchema = Type.Object(
   { additionalProperties: false },
 );
 export const OfficialModelSummarySchema = Type.Object(
-  { id: Uuid, name: Type.String(), capabilities: Capabilities, prices: Prices },
+  {
+    id: Uuid,
+    name: Type.String(),
+    parameterTemplate: Type.Optional(ParameterTemplate),
+    capabilities: Capabilities,
+    prices: Prices,
+  },
   { additionalProperties: false },
 );
 export const OfficialModelsResponseSchema = Type.Object(
@@ -110,6 +121,21 @@ export const CreateOfficialImageTaskRequestSchema = Type.Object(
       Type.Union([Type.String({ maxLength: 10_000 }), Type.Null()]),
     ),
     ratio: Type.String({ minLength: 1, maxLength: 32 }),
+    quality: Type.Optional(
+      Type.Union([
+        Type.Literal("auto"),
+        Type.Literal("low"),
+        Type.Literal("medium"),
+        Type.Literal("high"),
+      ]),
+    ),
+    background: Type.Optional(
+      Type.Union([
+        Type.Literal("auto"),
+        Type.Literal("opaque"),
+        Type.Literal("transparent"),
+      ]),
+    ),
     inputAssetIds: Type.Optional(
       Type.Array(Uuid, { maxItems: 8, uniqueItems: true }),
     ),
@@ -169,6 +195,9 @@ export const AdminCreateOfficialProviderRequestSchema = Type.Object(
 );
 export const AdminUpsertOfficialModelRequestSchema = Type.Object(
   {
+    parameterTemplate: Type.Optional(
+      Type.Union([Type.Literal("auto"), ParameterTemplate]),
+    ),
     providerRevisionId: Uuid,
     publicName: Type.String({ minLength: 1, maxLength: 120 }),
     upstreamModelId: Type.String({ minLength: 1, maxLength: 256 }),

@@ -457,8 +457,9 @@ Vault 解密、设备模型绑定以及浏览器自定义 Provider/CORS 错误�
 ## 官方生成与积分 API
 
 - `GET/PATCH /api/v1/official-generation/preferences`：读取平台/个人/有效开关并更新个人偏好。
-- `GET /api/v1/official-models`：仅在有效开关开启时返回可用官方模型的公开能力和 1K/2K/4K 价格。
+- `GET /api/v1/official-models`：仅在有效开关开启时返回可用官方模型的公开能力、已解析的 `parameterTemplate`（`generic`、`gpt-image`、`nano-banana`）和 1K/2K/4K 价格；不公开上游模型 ID。
 - `GET /api/v1/credits`、`GET /api/v1/credits/entries?cursor=`、`POST /api/v1/credits/redeem`：余额、分页不可变流水与单次兑换。
-- `POST /api/v1/official-image-tasks`：以项目、客户端任务幂等键、官方模型、分辨率和当前 workspace 图片资产 ID 提交；服务端在同一事务重新授权并预留积分。
+- `POST /api/v1/official-image-tasks`：以项目、客户端任务幂等键、官方模型、分辨率和当前 workspace 图片资产 ID 提交；可选 `quality`（`auto/low/medium/high`）和 `background`（`auto/opaque/transparent`）仅在 GPT Image 模板生效。服务端在同一事务重新授权、冻结模板及请求到加密快照并预留积分；客户端不能指定模板。Nano Banana 模板使用兼容图片接口的 `image_size`、`aspect_ratio` 和内联参考图，不支持蒙版重绘。
 - `GET /api/v1/official-image-tasks`、`GET /api/v1/official-image-tasks/:taskId`：跨设备恢复任务；`cancel` 只允许排队任务并退款，`acknowledge` 确认成功资产已接入画布。
 - Admin `/admin/v1/official-providers`、`official-models`、`credit-settings`、`redemption-code-batches` 和 `users/:id/credits` 写操作仅超级管理员可用并受 Origin、CSRF、权限与脱敏审计保护；客服仅可读取用户积分摘要和流水。
+- Admin 官方模型写入支持 `parameterTemplate: auto|generic|gpt-image|nano-banana`；默认自动识别，管理响应的 `parameterTemplateSetting` 保留原始选择，`parameterTemplate` 返回解析结果。手动模板优先于上游名称识别，修改配置不影响已经提交的任务。

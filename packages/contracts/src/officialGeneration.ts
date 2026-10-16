@@ -1,6 +1,33 @@
 export type OfficialImageResolution = "1K" | "2K" | "4K";
 export type OfficialModelStatus = "active" | "disabled";
 export type OfficialProviderProtocol = "openai-compatible" | "dashscope";
+export type OfficialImageParameterTemplate =
+  "generic" | "gpt-image" | "nano-banana";
+export type OfficialImageParameterTemplateSetting =
+  "auto" | OfficialImageParameterTemplate;
+
+export const OFFICIAL_IMAGE_TEMPLATE_LABELS = {
+  auto: "自动识别",
+  generic: "通用图片",
+  "gpt-image": "GPT Image",
+  "nano-banana": "Google Nano Banana",
+} as const;
+
+export function resolveOfficialImageParameterTemplate(
+  setting: OfficialImageParameterTemplateSetting | undefined,
+  modelId: string,
+): OfficialImageParameterTemplate {
+  if (setting && setting !== "auto") return setting;
+  const normalized = modelId.trim().toLowerCase();
+  if (/(?:^|[-_/])gpt[-_]?image(?:[-_/]|$)/.test(normalized))
+    return "gpt-image";
+  if (
+    /nano[-_ ]?banana/.test(normalized) ||
+    (normalized.includes("gemini") && normalized.includes("image"))
+  )
+    return "nano-banana";
+  return "generic";
+}
 
 export interface OfficialGenerationPreferences {
   platformEnabled: boolean;
@@ -21,6 +48,7 @@ export interface OfficialModelPrices {
 export interface OfficialModelSummary {
   id: string;
   name: string;
+  parameterTemplate?: OfficialImageParameterTemplate;
   capabilities: {
     generate: boolean;
     edit: boolean;
@@ -90,6 +118,8 @@ export interface CreateOfficialImageTaskRequest {
   prompt: string;
   negativePrompt?: string | null;
   ratio: string;
+  quality?: "auto" | "low" | "medium" | "high";
+  background?: "auto" | "opaque" | "transparent";
   inputAssetIds?: string[];
   editAssetId?: string | null;
   maskAssetId?: string | null;
@@ -144,6 +174,7 @@ export interface AdminOfficialProviderModelOption {
 }
 
 export interface AdminOfficialModel extends OfficialModelSummary {
+  parameterTemplateSetting?: OfficialImageParameterTemplateSetting;
   providerRevisionId: string;
   providerName: string;
   upstreamModelId: string;
@@ -153,6 +184,7 @@ export interface AdminOfficialModel extends OfficialModelSummary {
 }
 
 export interface AdminUpsertOfficialModelRequest {
+  parameterTemplate?: OfficialImageParameterTemplateSetting;
   providerRevisionId: string;
   publicName: string;
   upstreamModelId: string;

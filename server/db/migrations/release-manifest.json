@@ -127,6 +127,20 @@
       "rollback": "restore the three columns to UUID only when all stored admin identifiers are valid UUIDs",
       "forwardRepair": "rerun the idempotent ALTER COLUMN statements and reprovision database roles",
       "backupRequired": false
+    },
+    {
+      "version": "0046",
+      "name": "add_official_model_parameter_templates",
+      "releaseTrain": "official-image-templates",
+      "phase": "expand",
+      "oldAppReadable": true,
+      "newAppReadable": true,
+      "oldAppWithNewSchema": true,
+      "lockRisk": "low",
+      "statementTimeoutMs": 30000,
+      "rollback": "roll back application code while retaining the additive column and encrypted task snapshots",
+      "forwardRepair": "rerun the idempotent column migration and correct individual model template settings in Admin",
+      "backupRequired": false
     }
   ]
 }

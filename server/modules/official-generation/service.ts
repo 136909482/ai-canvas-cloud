@@ -12,6 +12,10 @@ import type {
   RedeemCreditCodeResponse,
   UpdateOfficialGenerationPreferencesRequest,
 } from "@ai-canvas-cloud/contracts";
+import {
+  resolveOfficialImageParameterTemplate,
+  type OfficialImageParameterTemplateSetting,
+} from "@ai-canvas-cloud/contracts";
 import type { DbClient, DbPool } from "../../db/postgres.js";
 import { withTransaction } from "../../db/postgres.js";
 import { AuthServiceError } from "../auth/service.js";
@@ -339,6 +343,8 @@ export function createPostgresOfficialGenerationService(
         ? await pool.query<{
             id: string;
             public_name: string;
+            upstream_model_id: string;
+            parameter_template: OfficialImageParameterTemplateSetting;
             supports_generate: boolean;
             supports_edit: boolean;
             supports_references: boolean;
@@ -346,7 +352,7 @@ export function createPostgresOfficialGenerationService(
             price_2k: number | null;
             price_4k: number | null;
           }>(`
-            SELECT id::text, public_name, supports_generate, supports_edit,
+            SELECT id::text, public_name, upstream_model_id, parameter_template, supports_generate, supports_edit,
                    supports_references, price_1k, price_2k, price_4k
             FROM official_models WHERE status = 'active' ORDER BY created_at, id
           `)
@@ -356,6 +362,10 @@ export function createPostgresOfficialGenerationService(
         models: result.rows.map((row) => ({
           id: row.id,
           name: row.public_name,
+          parameterTemplate: resolveOfficialImageParameterTemplate(
+            row.parameter_template,
+            row.upstream_model_id,
+          ),
           capabilities: {
             generate: row.supports_generate,
             edit: row.supports_edit,
@@ -566,13 +576,14 @@ export function createPostgresOfficialGenerationService(
           provider_revision_id: string;
           public_name: string;
           upstream_model_id: string;
+          parameter_template: OfficialImageParameterTemplateSetting;
           supports_generate: boolean;
           supports_edit: boolean;
           supports_references: boolean;
           price: number | null;
         }>(
           `
-          SELECT id::text, provider_revision_id::text, public_name, upstream_model_id,
+          SELECT id::text, provider_revision_id::text, public_name, upstream_model_id, parameter_template,
                  supports_generate, supports_edit, supports_references,
                  CASE $2 WHEN '1K' THEN price_1k WHEN '2K' THEN price_2k WHEN '4K' THEN price_4k END AS price
           FROM official_models WHERE id = $1 AND status = 'active'
@@ -585,6 +596,18 @@ export function createPostgresOfficialGenerationService(
             409,
             "OFFICIAL_MODEL_UNAVAILABLE",
             "Official model or resolution is unavailable",
+          );
+        if (
+          input.maskAssetId &&
+          resolveOfficialImageParameterTemplate(
+            selected.parameter_template,
+            selected.upstream_model_id,
+          ) === "nano-banana"
+        )
+          return error(
+            409,
+            "OFFICIAL_MODEL_UNAVAILABLE",
+            "Nano Banana template does not support masked editing",
           );
         if (input.operationType === "edit" && !selected.supports_edit)
           return error(
@@ -675,7 +698,18 @@ export function createPostgresOfficialGenerationService(
             input.resolution,
             price,
             input.operationType,
-            JSON.stringify(sealSecret(input, options.keyring)),
+            JSON.stringify(
+              sealSecret(
+                {
+                  ...input,
+                  parameterTemplate: resolveOfficialImageParameterTemplate(
+                    selected.parameter_template,
+                    selected.upstream_model_id,
+                  ),
+                },
+                options.keyring,
+              ),
+            ),
             assetIds,
           ],
         );

@@ -36,6 +36,7 @@ function loadMigrations() {
     "0043_add_generation_task_records.sql",
     "0044_add_official_generation_credits.sql",
     "0045_fix_official_admin_id_types.sql",
+    "0046_add_official_model_parameter_templates.sql",
   ]);
   return files.map((fileName) => {
     const match = migrationPattern.exec(fileName);
@@ -102,6 +103,10 @@ const [
   assetQuotaReleaseMigration,
   communityProfileMigration,
   communityContentMigration,
+  generationRecordsMigration,
+  officialGenerationMigration,
+  officialAdminTypesMigration,
+  officialParameterTemplatesMigration,
 ] = loadMigrations();
 const databaseUrl =
   process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL;
@@ -306,6 +311,54 @@ try {
     );
   }
 
+  for (const migration of [
+    generationRecordsMigration,
+    officialGenerationMigration,
+    officialAdminTypesMigration,
+  ]) {
+    await client.query(
+      isolatedBaselineSql(migration.sql, publicSchema, adminSchema),
+    );
+  }
+  const provider = await client.query(
+    `INSERT INTO "${publicSchema}".official_provider_revisions (display_name,protocol,base_url,credential_envelope) VALUES ('Migration test','openai-compatible','https://example.com/v1','{}') RETURNING id`,
+  );
+  const existingModel = await client.query(
+    `INSERT INTO "${publicSchema}".official_models (provider_revision_id,public_name,upstream_model_id,price_1k) VALUES ($1,'Existing model','gpt-image-1',1) RETURNING id`,
+    [provider.rows[0].id],
+  );
+  const templateSql = isolatedBaselineSql(
+    officialParameterTemplatesMigration.sql,
+    publicSchema,
+    adminSchema,
+  );
+  await client.query(templateSql);
+  await client.query(templateSql);
+  assert.equal(
+    (
+      await client.query(
+        `SELECT parameter_template FROM "${publicSchema}".official_models WHERE id=$1`,
+        [existingModel.rows[0].id],
+      )
+    ).rows[0].parameter_template,
+    "auto",
+  );
+  for (const template of ["generic", "gpt-image", "nano-banana"]) {
+    await client.query(
+      `UPDATE "${publicSchema}".official_models SET parameter_template=$2 WHERE id=$1`,
+      [existingModel.rows[0].id, template],
+    );
+  }
+  await client.query("SAVEPOINT invalid_template");
+  await assert.rejects(
+    () =>
+      client.query(
+        `UPDATE "${publicSchema}".official_models SET parameter_template='unknown' WHERE id=$1`,
+        [existingModel.rows[0].id],
+      ),
+    (error) => error.code === "23514",
+  );
+  await client.query("ROLLBACK TO SAVEPOINT invalid_template");
   await client.query("SET CONSTRAINTS ALL IMMEDIATE");
   await client.query("ROLLBACK");
   console.log(`Checked current database baseline ${baseline.fileName}.`);
