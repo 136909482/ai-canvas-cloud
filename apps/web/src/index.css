@@ -13,8 +13,11 @@
   --panel-bg-strong: rgba(9, 9, 11, 0.98);
   --floating-panel-bg: rgba(24, 24, 27, 0.9);
   --floating-panel-border: rgba(255, 255, 255, 0.14);
-  --node-bg: #18181b;
-  --node-border: rgba(63, 63, 70, 0.95);
+  --node-bg: #171719;
+  --node-border: #353538;
+  --node-border-hover: #626267;
+  --shadow-node: 0 2px 6px rgba(0, 0, 0, 0.16);
+  --shadow-node-selected: 0 3px 10px rgba(0, 0, 0, 0.22);
   --border-subtle: rgba(255, 255, 255, 0.1);
   --text-primary: #fafafa;
   --text-secondary: #d4d4d8;
@@ -43,6 +46,9 @@
   --floating-panel-border: rgba(24, 24, 27, 0.12);
   --node-bg: #ffffff;
   --node-border: rgba(212, 212, 216, 0.95);
+  --node-border-hover: #a1a1aa;
+  --shadow-node: 0 2px 6px rgba(24, 24, 27, 0.04);
+  --shadow-node-selected: 0 3px 10px rgba(24, 24, 27, 0.08);
   --border-subtle: rgba(24, 24, 27, 0.12);
   --text-primary: #18181b;
   --text-secondary: #3f3f46;
@@ -1848,11 +1854,11 @@ body:has(.auth-modal-backdrop) .home-scene-node {
 :root[data-canvas-performance="performance"]
   .react-flow__node.dragging
   .node-shell {
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-node-selected);
 }
 
 .canvas-performance-rendering .node-shell {
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-node);
 }
 
 .canvas-performance-rendering .react-flow__edge path {
@@ -1863,7 +1869,7 @@ body:has(.auth-modal-backdrop) .home-scene-node {
 .canvas-performance-rendering
   .react-flow__node:not(.selected)
   .node-shell:hover {
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-node);
 }
 
 .canvas-performance-rendering .react-flow__resize-control {
@@ -1881,7 +1887,7 @@ body:has(.auth-modal-backdrop) .home-scene-node {
 }
 
 .canvas-image-heavy-stable .react-flow__node:not(.selected) .node-shell {
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-node);
 }
 
 .canvas-image-heavy-stable .backdrop-blur,
@@ -1917,26 +1923,54 @@ body:has(.auth-modal-backdrop) .home-scene-node {
 }
 
 .react-flow__node.dragging .node-shell {
+  border-color: var(--accent-violet);
+  box-shadow: var(--shadow-node-selected);
+}
+
+.react-flow__node[data-connection-drop-target] .node-shell {
   border-color: var(--accent-violet-strong);
-  background-color: color-mix(
-    in srgb,
-    var(--node-bg) 92%,
-    var(--accent-violet) 8%
-  );
-  box-shadow:
-    0 24px 58px rgba(0, 0, 0, 0.42),
-    0 0 0 1px var(--accent-violet-soft),
-    0 0 34px var(--accent-violet-glow);
+  box-shadow: var(--shadow-node-selected);
+}
+
+.react-flow__node[data-connection-drop-target]::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  z-index: 70;
+  border: 1px solid var(--accent-violet);
+  border-radius: 12px;
+  pointer-events: none;
+  animation: canvas-connection-target-in 160ms ease-out both;
+}
+
+@keyframes canvas-connection-target-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__node[data-connection-drop-target]::after {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 
 .canvas-performance-rendering .react-flow__node.dragging .node-shell {
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+  box-shadow: var(--shadow-node-selected);
 }
 
 @layer base {
   .handle-orb-anchor {
     width: 18px !important;
     height: 18px !important;
+    z-index: 60 !important;
+    overflow: visible !important;
     box-shadow: none !important;
   }
 
@@ -1954,6 +1988,30 @@ body:has(.auth-modal-backdrop) .home-scene-node {
 
   .handle-orb-anchor.react-flow__handle-bottom {
     bottom: -10px !important;
+  }
+}
+
+.react-flow__node .handle-orb-anchor {
+  opacity: 0;
+  pointer-events: none !important;
+  transition: opacity 140ms ease;
+}
+
+.react-flow__node:hover .handle-orb-anchor,
+.react-flow__node:focus-visible .handle-orb-anchor,
+.react-flow__node[data-handle-hover] .handle-orb-anchor,
+.react-flow__node .handle-orb-anchor.connectingfrom,
+.react-flow__node .handle-orb-anchor.clickconnecting,
+.react-flow:has(.react-flow__connection, .handle-orb-anchor.clickconnecting)
+  .handle-orb-anchor.connectionindicator {
+  opacity: 1;
+  pointer-events: all !important;
+}
+
+@media (hover: none) {
+  .react-flow__node.selected .handle-orb-anchor {
+    opacity: 1;
+    pointer-events: all !important;
   }
 }
 
@@ -1981,7 +2039,31 @@ body:has(.auth-modal-backdrop) .home-scene-node {
   width: min(36px, var(--canvas-handle-hit-size, 24px));
   height: min(36px, var(--canvas-handle-hit-size, 24px));
   border-radius: 9999px;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%)
+    translate(var(--handle-magnet-x, 0px), var(--handle-magnet-y, 0px));
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.handle-orb-anchor[data-magnet-active] .handle-orb {
+  transition: transform 90ms ease-out;
+}
+
+.handle-orb-anchor.connectingfrom .handle-orb {
+  transition: none;
+}
+
+/* Hit the fixed Handle during connections; displaced orbs remain clickable at rest. */
+.react-flow:has(.react-flow__connection, .handle-orb-anchor.clickconnecting)
+  .handle-orb {
+  pointer-events: none;
+}
+
+/* Hide the drag origin's controls while keeping destination hints and hit areas. */
+.react-flow:has(.react-flow__connection)
+  .react-flow__node:has(.handle-orb-anchor.connectingfrom)
+  .handle-orb-anchor {
+  opacity: 0 !important;
+  transition: none;
 }
 
 .handle-orb--target {
@@ -2072,6 +2154,7 @@ body:has(.auth-modal-backdrop) .home-scene-node {
   }
 }
 
+.handle-orb-anchor[data-magnet-active] .handle-orb__glow,
 .react-flow__handle:hover .handle-orb__glow,
 .react-flow__handle.connectingfrom .handle-orb__glow {
   opacity: 0.52;
@@ -2079,6 +2162,7 @@ body:has(.auth-modal-backdrop) .home-scene-node {
   animation: handle-orb-glow-pulse 1.45s ease-in-out infinite;
 }
 
+.handle-orb-anchor[data-magnet-active] .handle-orb__ring,
 .react-flow__handle:hover .handle-orb__ring,
 .react-flow__handle.connectingfrom .handle-orb__ring {
   opacity: 1;
@@ -2088,6 +2172,7 @@ body:has(.auth-modal-backdrop) .home-scene-node {
   animation: handle-orb-ring-pulse 1.45s ease-in-out infinite;
 }
 
+.handle-orb-anchor[data-magnet-active] .handle-orb__dot,
 .react-flow__handle:hover .handle-orb__dot,
 .react-flow__handle.connectingfrom .handle-orb__dot {
   transform: translate(-50%, -50%) scale(0.96);
@@ -2259,36 +2344,41 @@ body:has(.auth-modal-backdrop) .home-scene-node {
 }
 
 .node-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(
-      in srgb,
-      var(--accent-violet-strong) 52%,
-      var(--text-muted)
-    )
-    color-mix(in srgb, var(--node-bg) 88%, transparent);
+  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
 }
 
 .node-scrollbar::-webkit-scrollbar {
-  width: 10px;
+  width: 0;
   height: 0;
 }
 
 .node-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
   border-radius: 9999px;
-  background: color-mix(in srgb, var(--node-bg) 88%, transparent);
 }
 
 .node-scrollbar::-webkit-scrollbar-thumb {
-  border: 2px solid color-mix(in srgb, var(--node-bg) 88%, transparent);
+  border: 2px solid transparent;
   border-radius: 9999px;
+  background: linear-gradient(180deg, transparent, transparent);
+  background-clip: padding-box;
+}
+
+.node-scrollbar:hover {
+  scrollbar-color: rgba(82, 82, 91, 0.72) transparent;
+  scrollbar-width: thin;
+}
+
+.node-scrollbar:hover::-webkit-scrollbar {
+  width: 8px;
+}
+
+.node-scrollbar:hover::-webkit-scrollbar-thumb {
   background: linear-gradient(
     180deg,
-    color-mix(
-      in srgb,
-      var(--accent-violet-strong) 54%,
-      var(--control-bg-hover)
-    ),
-    color-mix(in srgb, var(--accent-violet-strong) 38%, var(--text-muted))
+    rgba(82, 82, 91, 0.82),
+    rgba(63, 63, 70, 0.9)
   );
   background-clip: padding-box;
 }
@@ -2296,10 +2386,69 @@ body:has(.auth-modal-backdrop) .home-scene-node {
 .node-scrollbar::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--accent-violet-strong) 68%, var(--text-primary)),
-    color-mix(in srgb, var(--accent-violet-strong) 52%, var(--text-secondary))
+    rgba(113, 113, 122, 0.9),
+    rgba(82, 82, 91, 0.96)
   );
   background-clip: padding-box;
+}
+
+.node-scrollbar::-webkit-scrollbar-button,
+.node-scrollbar::-webkit-scrollbar-corner {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.prompt-editor-scrollbar {
+  scrollbar-gutter: stable;
+  /* Non-auto standard values override WebKit styling and restore native arrows. */
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+
+.prompt-editor-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 0;
+}
+
+.prompt-editor-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.prompt-editor-scrollbar::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background-color: transparent;
+  background-clip: padding-box;
+}
+
+.prompt-editor-scrollbar:hover::-webkit-scrollbar-thumb,
+.prompt-editor-scrollbar:focus-within::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--text-primary) 30%, transparent);
+}
+
+.prompt-editor-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--text-primary) 45%, transparent);
+}
+
+.prompt-editor-scrollbar::-webkit-scrollbar-button,
+.prompt-editor-scrollbar::-webkit-scrollbar-corner {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .prompt-editor-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  .prompt-editor-scrollbar:hover,
+  .prompt-editor-scrollbar:focus-within {
+    scrollbar-color: color-mix(in srgb, var(--text-primary) 30%, transparent)
+      transparent;
+  }
 }
 
 .node-menu-scrollbar {
@@ -2621,6 +2770,10 @@ body:has(.auth-modal-backdrop) .home-scene-node {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .handle-orb {
+    transition: none !important;
+  }
+
   .handle-orb__glow,
   .handle-orb__ring,
   .preview-aurora-field,

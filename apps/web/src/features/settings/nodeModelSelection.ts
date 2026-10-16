@@ -3,9 +3,11 @@ import {
   resolveLocalModelReference,
 } from "./localModelReferences";
 import {
+  PROVIDER_CONFIG_MESSAGES,
   resolveRuntimeModelConfig,
   type ProviderConfigDiagnostic,
 } from "./providerConfig";
+import type { OfficialModelSummary } from "@ai-canvas-cloud/contracts";
 import type {
   ApiConfig,
   ModelCategory,
@@ -84,28 +86,33 @@ export function getNodeModelSelection(
   if (
     reference &&
     isOfficialModelReference(reference) &&
-    input.officialGenerationEnabled === false
+    input.category !== "image"
   ) {
     return {
       reference,
       modelEntryId: null,
       selectedModel: null,
       selectedProvider: null,
-      diagnostic: null,
+      diagnostic: {
+        code: "providerCategoryMismatch",
+        field: "modelEntryId",
+        message: PROVIDER_CONFIG_MESSAGES.providerCategoryMismatch,
+      },
       issue: "unavailable",
       canExecute: false,
     };
   }
 
   if (reference && isOfficialModelReference(reference)) {
+    const enabled = input.officialGenerationEnabled !== false;
     return {
       reference,
       modelEntryId: null,
       selectedModel: null,
       selectedProvider: null,
       diagnostic: null,
-      issue: "none",
-      canExecute: true,
+      issue: enabled ? "none" : "unavailable",
+      canExecute: enabled,
     };
   }
 
@@ -182,7 +189,8 @@ export function getNodeModelIssueLabel(selection: NodeModelSelection) {
   if (selection.issue === "deleted") return NODE_MODEL_SELECTION_LABELS.deleted;
   if (
     selection.issue === "unavailable" &&
-    isOfficialModelReference(selection.reference)
+    isOfficialModelReference(selection.reference) &&
+    !selection.diagnostic
   )
     return "官方接口服务已关闭";
 
@@ -203,6 +211,13 @@ export function getNodeModelIssueLabel(selection: NodeModelSelection) {
     default:
       return selection.diagnostic?.message ?? "";
   }
+}
+
+export function getOfficialModelsForCategory(
+  models: OfficialModelSummary[],
+  category: ModelCategory,
+) {
+  return category === "image" ? models : [];
 }
 
 export function getSelectableModels(

@@ -5,11 +5,13 @@ import type {
   GenerateTaskImageSource,
   GenerateTaskPhase,
   GptImageQuality,
+  GptImageBackground,
   ImageInputFidelity,
   ImageOperationType,
   VideoGenerateMode,
   VideoGenerateNodeData,
 } from "@/types";
+import { normalizeGptImageBackground } from "@/constants/generateNode";
 
 export interface GenerateTaskSnapshot {
   projectId?: string | null;
@@ -32,6 +34,7 @@ export interface GenerateTaskSnapshot {
   maskImageSource?: GenerateTaskImageSource | null;
   inputFidelity?: ImageInputFidelity | null;
   quality?: GptImageQuality | null;
+  background?: GptImageBackground | null;
   googleSearch?: boolean;
   googleImageSearch?: boolean;
   videoMode?: VideoGenerateMode | null;
@@ -122,6 +125,10 @@ function sanitizeTask(
     maskImageSource: sanitizeImageSource(task.maskImageSource),
     inputFidelity: task.inputFidelity ?? null,
     quality: task.quality ?? null,
+    background:
+      task.background == null
+        ? null
+        : normalizeGptImageBackground(task.background),
     googleSearch: Boolean(task.googleSearch),
     googleImageSearch: Boolean(task.googleImageSearch),
     videoMode: task.videoMode ?? null,
@@ -298,6 +305,12 @@ export function mergeTaskSnapshot(
       patch && "quality" in patch
         ? (patch.quality ?? null)
         : (task.quality ?? null),
+    background:
+      patch && "background" in patch
+        ? patch.background == null
+          ? null
+          : normalizeGptImageBackground(patch.background)
+        : (task.background ?? null),
     googleSearch:
       patch && "googleSearch" in patch
         ? Boolean(patch.googleSearch)

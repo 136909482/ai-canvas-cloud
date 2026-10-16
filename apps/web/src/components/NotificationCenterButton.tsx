@@ -240,7 +240,13 @@ function EmptyState({ view }: { view: CenterView }) {
   );
 }
 
-export function NotificationCenterButton() {
+export function NotificationCenterButton({
+  variant = "icon",
+  onOpen,
+}: {
+  variant?: "icon" | "menu";
+  onOpen?: () => void;
+}) {
   const emailVerified = useAuthStore(
     (state) => state.session?.user.emailVerified ?? true,
   );
@@ -334,10 +340,21 @@ export function NotificationCenterButton() {
         aria-haspopup="dialog"
         aria-expanded={isOpen}
         data-testid="notification-center-button"
-        onClick={() => setIsOpen((current) => !current)}
-        className={`${themeClasses.iconButton} relative h-6 w-6 rounded-md ${isOpen ? themeClasses.iconButtonActive : ""}`}
+        role={variant === "menu" ? "menuitem" : undefined}
+        onClick={() => {
+          setIsOpen((current) => !current);
+          if (!isOpen) onOpen?.();
+        }}
+        className={
+          variant === "menu"
+            ? "relative flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-xs text-[var(--text-secondary)] transition hover:bg-[var(--control-bg-hover)] focus-visible:outline-none focus-visible:bg-[var(--control-bg-hover)]"
+            : `${themeClasses.iconButton} relative h-8 w-8 rounded-md ${isOpen ? themeClasses.iconButtonActive : ""}`
+        }
       >
         <Bell className="h-3.5 w-3.5" />
+        {variant === "menu" ? (
+          <span>通知{unreadCount > 0 ? ` · ${unreadCount} 条未读` : ""}</span>
+        ) : null}
         {unreadCount > 0 ? (
           <span
             className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-red-500 ring-2 ring-[var(--panel-bg-strong)]"

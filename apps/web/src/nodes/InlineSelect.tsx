@@ -116,7 +116,7 @@ export function InlineSelect({
           density === "compact"
             ? "h-7 gap-1.5 px-2 text-[10px] leading-4"
             : "h-9 gap-2 px-3 text-xs leading-5"
-        } ${triggerAppearanceClassName}`}
+        } ${triggerAppearanceClassName} ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
         title={selectedOption?.title ?? value}
         disabled={disabled}
         aria-label={ariaLabel}

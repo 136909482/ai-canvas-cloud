@@ -1,4 +1,5 @@
 import type { Edge, Node } from "@xyflow/react";
+import type { AppNode } from "@/types";
 import {
   getGenerateMaskSourceNode,
   getGenerateReferenceSourceNodes,
@@ -11,6 +12,38 @@ export const selectSelectedTopLevelNodes = ({ nodes }: { nodes: Node[] }) =>
 
 export const selectSelectedGroupNodes = ({ nodes }: { nodes: Node[] }) =>
   nodes.filter((node) => node.selected && node.type === "groupNode");
+
+export function selectSingleSelectedGenerateNode({
+  nodes,
+}: {
+  nodes: Node[];
+}): AppNode<"generateNode"> | null {
+  let selected: Node | null = null;
+  for (const node of nodes) {
+    if (!node.selected) continue;
+    if (selected) return null;
+    selected = node;
+  }
+  return selected?.type === "generateNode"
+    ? (selected as AppNode<"generateNode">)
+    : null;
+}
+
+export function selectSingleSelectedTextNode({
+  nodes,
+}: {
+  nodes: Node[];
+}): AppNode<"textNode"> | null {
+  let selected: Node | null = null;
+  for (const node of nodes) {
+    if (!node.selected) continue;
+    if (selected) return null;
+    selected = node;
+  }
+  return selected?.type === "textNode"
+    ? (selected as AppNode<"textNode">)
+    : null;
+}
 
 export const selectHasCanvasContent = ({
   nodes,

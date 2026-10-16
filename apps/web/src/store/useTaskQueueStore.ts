@@ -123,6 +123,7 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
           maskImageSource: input.maskImageSource ?? null,
           inputFidelity: input.inputFidelity ?? null,
           quality: input.quality ?? null,
+          background: input.background ?? null,
           googleSearch: Boolean(input.googleSearch),
           googleImageSearch: Boolean(input.googleImageSearch),
           videoMode: input.videoMode ?? null,

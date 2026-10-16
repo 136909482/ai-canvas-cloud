@@ -2,6 +2,7 @@ import type { ImageOperationType } from "@/types";
 import { buildChatCompletionsUrl } from "../chatAdapter.ts";
 import {
   SUPPORTED_GENERATE_RATIOS,
+  normalizeGptImageBackground,
   type SupportedGenerateRatio,
 } from "@/constants/generateNode";
 import { fetchPollingRequestWithRetry } from "../pollingRetry.ts";
@@ -503,6 +504,8 @@ async function buildGptImageGenerationPayload(
       moderation: "auto",
       output_format: "png",
     });
+    const background = normalizeGptImageBackground(params.background);
+    if (background !== "auto") payload.background = background;
   }
 
   if (requestFamily === "gemini") {
@@ -586,6 +589,9 @@ async function buildGptImageEditFormData(
     );
     appendStringFormField(formData, "moderation", "auto");
     appendStringFormField(formData, "output_format", "png");
+    const background = normalizeGptImageBackground(params.background);
+    if (background !== "auto")
+      appendStringFormField(formData, "background", background);
     if (params.inputFidelity) {
       appendStringFormField(formData, "input_fidelity", params.inputFidelity);
     }
@@ -779,6 +785,7 @@ function getAsyncTaskErrorMessage(payload: unknown) {
       getNestedValue(payload, ["fail_reason"]),
       getNestedValue(payload, ["data", "fail_reason"]),
       getNestedValue(payload, ["data", "error"]),
+      getNestedValue(payload, ["data", "error", "message"]),
       getNestedValue(payload, ["data", "data", "fail_reason"]),
       getNestedValue(payload, ["error", "message"]),
       getNestedValue(payload, ["message"]),

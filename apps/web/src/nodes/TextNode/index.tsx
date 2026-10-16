@@ -2,6 +2,7 @@ import {
   memo,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FocusEvent,
   type SyntheticEvent,
@@ -17,15 +18,27 @@ import {
   Copy,
   Eraser,
   FilePlus2,
+  AlignLeft,
+  Loader2,
   Maximize,
   RotateCcw,
   Save,
+  Sparkles,
   Type,
   X,
 } from "lucide-react";
 import type { AppNodeProps } from "@/types";
 import { themeClasses } from "@/styles/themeClasses";
-import { RichPromptEditor } from "@/features/richPrompt/RichPromptEditor";
+import {
+  RichPromptEditor,
+  type RichPromptEditorHandle,
+} from "@/features/richPrompt/RichPromptEditor";
+import { textGenerationRunner } from "@/features/textGeneration/orchestrator";
+import {
+  EMPTY_TEXT_NODE_RUNTIME,
+  isTextGenerationPanelOpen,
+  useTextGenerationRuntime,
+} from "@/features/textGeneration/runtime";
 import { createRichPromptDocumentFromText } from "@/features/richPrompt/promptCompiler";
 import type {
   RichPromptDocument,
@@ -39,7 +52,7 @@ import { areNodeContentPropsEqual } from "../nodePropComparators";
 
 type TextNodeProps = AppNodeProps<"textNode">;
 
-const DEFAULT_TEXT_NODE_LABEL = "提示词";
+const DEFAULT_TEXT_NODE_LABEL = "文本节点";
 const DEFAULT_TEXT_NODE_WIDTH = 280;
 const DEFAULT_TEXT_NODE_HEIGHT = 220;
 const MIN_TEXT_NODE_HEIGHT = 190;
@@ -283,14 +296,22 @@ export const TextNode = memo(function TextNode({
   const runTracked = useHistoryStore((s) => s.runTracked);
   const undo = useHistoryStore((s) => s.undo);
   const text = (data.text as string) || "";
+  const generation = useTextGenerationRuntime(
+    (state) => state.nodes[id] ?? EMPTY_TEXT_NODE_RUNTIME,
+  );
+  const generating = generation.status === "running";
+  const displayedText = generation.preview ?? text;
+  const editorRef = useRef<RichPromptEditorHandle>(null);
+  const editingBodyRef = useRef(false);
   const richPrompt = data.richPrompt as RichPromptDocument | null | undefined;
   const label =
     typeof data.label === "string" &&
     data.label.trim() &&
-    data.label !== "Prompt"
+    data.label !== "Prompt" &&
+    data.label !== "提示词"
       ? data.label
       : DEFAULT_TEXT_NODE_LABEL;
-  const stats = useMemo(() => getTextStats(text), [text]);
+  const stats = useMemo(() => getTextStats(displayedText), [displayedText]);
   const richPromptValue = useMemo(
     () => richPrompt ?? createRichPromptDocumentFromText(text),
     [richPrompt, text],
@@ -313,6 +334,19 @@ export const TextNode = memo(function TextNode({
   const showClearNotice = clearNoticeId !== null && !text;
 
   useEffect(() => {
+    if (!bodyEditing) return;
+    const frame = requestAnimationFrame(() => editorRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [bodyEditing]);
+
+  useEffect(
+    () => () => {
+      if (editingBodyRef.current) commitTransaction();
+    },
+    [commitTransaction],
+  );
+
+  useEffect(() => {
     if (copyState === "idle") {
       return;
     }
@@ -328,13 +362,14 @@ export const TextNode = memo(function TextNode({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        commitTransaction();
         setFullscreenOpen(false);
       }
     };
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [fullscreenOpen]);
+  }, [fullscreenOpen, commitTransaction]);
 
   useEffect(() => {
     if (clearNoticeId === null) {
@@ -380,10 +415,13 @@ export const TextNode = memo(function TextNode({
       return;
     }
 
+    textGenerationRunner.cancel(id);
+    useTextGenerationRuntime.getState().patch(id, { panelOpen: false });
     runTracked(() => {
       updateNodeData(id, {
         text: "",
         richPrompt: createRichPromptDocumentFromText(""),
+        generationMode: "text",
       });
     });
     setCopyState("idle");
@@ -423,6 +461,9 @@ export const TextNode = memo(function TextNode({
         richPrompt,
         label,
         focusBodyRequestId: Date.now(),
+        generationMode: "text",
+        generationPrompt: data.generationPrompt ?? "",
+        model: data.model ?? "",
         width: sourceWidth,
         height: sourceHeight,
       });
@@ -430,6 +471,8 @@ export const TextNode = memo(function TextNode({
   };
 
   const openFullscreenEditor = () => {
+    textGenerationRunner.cancel(id);
+    useTextGenerationRuntime.getState().patch(id, { panelOpen: false });
     setFullscreenText(text);
     setFullscreenOpen(true);
     beginTransaction();
@@ -437,7 +480,11 @@ export const TextNode = memo(function TextNode({
 
   const saveFullscreenEditor = () => {
     if (fullscreenText !== text) {
-      updateNodeData(id, { text: fullscreenText });
+      updateNodeData(id, {
+        text: fullscreenText,
+        richPrompt: createRichPromptDocumentFromText(fullscreenText),
+        generationMode: "text",
+      });
     }
 
     commitTransaction();
@@ -455,8 +502,22 @@ export const TextNode = memo(function TextNode({
           <div className={NODE_TOOLBAR_CLASS_NAME}>
             <button
               type="button"
+              onClick={() =>
+                useTextGenerationRuntime.getState().patch(id, {
+                  panelOpen: !isTextGenerationPanelOpen(data, generation),
+                })
+              }
+              className={NODE_TOOLBAR_BUTTON_CLASS_NAME}
+              aria-label="AI 生成文本"
+              title="AI 生成文本"
+              data-testid={`open-text-ai-${id}`}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
               onClick={handleCopyText}
-              disabled={!text}
+              disabled={!text || generating}
               className={NODE_TOOLBAR_BUTTON_CLASS_NAME}
               aria-label={
                 copyState === "copied"
@@ -480,7 +541,7 @@ export const TextNode = memo(function TextNode({
             <button
               type="button"
               onClick={handleClearText}
-              disabled={!text}
+              disabled={!text || generating}
               className={NODE_TOOLBAR_BUTTON_CLASS_NAME}
               aria-label={QUICK_TOOLBAR_TEXT.clearText}
               title={QUICK_TOOLBAR_TEXT.clearText}
@@ -490,7 +551,7 @@ export const TextNode = memo(function TextNode({
             <button
               type="button"
               onClick={handleDuplicateTextNode}
-              disabled={!text}
+              disabled={!text || generating}
               className={NODE_TOOLBAR_BUTTON_CLASS_NAME}
               aria-label={QUICK_TOOLBAR_TEXT.duplicateAsTextNode}
               title={QUICK_TOOLBAR_TEXT.duplicateAsTextNode}
@@ -581,31 +642,74 @@ export const TextNode = memo(function TextNode({
           }
         />
 
-        <div className="node-drag-handle flex min-h-0 flex-1 cursor-grab flex-col p-3 active:cursor-grabbing">
-          <RichPromptEditor
-            value={richPromptValue}
-            fallbackText={text}
-            references={richPromptReferences}
-            placeholder={UI_TEXT.inputPlaceholder}
-            readOnly={false}
-            minHeightClassName="min-h-[88px]"
-            onChange={(nextDocument, nextText) => {
-              if (nextText !== text || nextDocument !== richPrompt) {
-                updateNodeData(id, {
-                  text: nextText,
-                  richPrompt: nextDocument,
-                });
-              }
-            }}
-            onFocus={() => {
-              setBodyEditing(true);
-              beginTransaction();
-            }}
-            onBlur={() => {
-              setBodyEditing(false);
-              commitTransaction();
-            }}
-          />
+        <div
+          className="node-drag-handle flex min-h-0 flex-1 cursor-grab flex-col p-3 active:cursor-grabbing"
+          data-testid={`text-body-${id}`}
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+            if (bodyEditing) return;
+            textGenerationRunner.cancel(id);
+            useTextGenerationRuntime
+              .getState()
+              .patch(id, { panelOpen: false, error: "", status: "idle" });
+            editingBodyRef.current = true;
+            beginTransaction();
+            updateNodeData(id, { generationMode: "text" });
+            setBodyEditing(true);
+          }}
+          onKeyDown={(event) => {
+            if (!bodyEditing) return;
+            event.stopPropagation();
+            if (event.key === "Escape" && event.target instanceof HTMLElement)
+              event.target.blur();
+          }}
+        >
+          {generating ? (
+            <div
+              className="node-scrollbar nowheel min-h-0 flex-1 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-3 py-2.5 text-sm leading-6 text-[var(--text-primary)]"
+              data-testid={`text-preview-${id}`}
+            >
+              {displayedText || (
+                <span className="flex items-center gap-2 text-[var(--text-muted)]">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  正在生成文本…
+                </span>
+              )}
+            </div>
+          ) : !text && !bodyEditing ? (
+            <div className="flex min-h-[88px] flex-1 flex-col items-center justify-center gap-3 text-[var(--text-muted)]">
+              <AlignLeft className="h-10 w-10 opacity-40" strokeWidth={1.5} />
+              <span className="text-xs">双击输入文字</span>
+            </div>
+          ) : (
+            <RichPromptEditor
+              ref={editorRef}
+              value={richPromptValue}
+              fallbackText={text}
+              references={richPromptReferences}
+              placeholder={UI_TEXT.inputPlaceholder}
+              readOnly={!bodyEditing}
+              appearance="plain"
+              minHeightClassName="min-h-[88px]"
+              onChange={(nextDocument, nextText) => {
+                if (nextText !== text || nextDocument !== richPrompt) {
+                  updateNodeData(id, {
+                    text: nextText,
+                    richPrompt: nextDocument,
+                  });
+                }
+              }}
+              onFocus={() => {
+                if (bodyEditing) beginTransaction();
+              }}
+              onBlur={() => {
+                if (!editingBodyRef.current) return;
+                editingBodyRef.current = false;
+                setBodyEditing(false);
+                commitTransaction();
+              }}
+            />
+          )}
           <div className="mt-2 flex h-4 shrink-0 items-center justify-between gap-2 px-0.5 text-[10px] font-medium text-[var(--text-muted)]">
             <span className="truncate">{stats.characters} 字符</span>
             <span className="flex shrink-0 items-center gap-2">
@@ -685,7 +789,10 @@ export const TextNode = memo(function TextNode({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setFullscreenOpen(false)}
+                  onClick={() => {
+                    commitTransaction();
+                    setFullscreenOpen(false);
+                  }}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-secondary)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
                   aria-label={FULLSCREEN_EDITOR_TEXT.closeEditor}
                   title={FULLSCREEN_EDITOR_TEXT.closeEditor}

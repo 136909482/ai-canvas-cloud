@@ -166,3 +166,43 @@ test("refurnish node anonymizes and hydrates both browser model bindings", () =>
   assert.equal(hydrated.nodes[0]?.data.model, "image-entry");
   assert.equal(hydrated.nodes[0]?.data.recognitionModel, "chat-entry");
 });
+
+test("text generation round-trips content and opaque models without leaking provider state to a second device", () => {
+  const reference = createLocalModelReference();
+  const snapshot: CanvasSnapshot = {
+    nodes: [
+      {
+        id: "text-1",
+        type: "textNode",
+        position: { x: 0, y: 0 },
+        data: {
+          text: "正文\n第二行",
+          richPrompt: null,
+          generationMode: "text",
+          generationPrompt: "写两行文字",
+          model: "private-chat-entry",
+          apiKey: "private-key",
+          endpoint: "https://private-provider.test",
+          status: "running",
+        },
+      },
+    ],
+    edges: [],
+  };
+  const cloud = prepareCanvasForCloud(snapshot, () => reference);
+  const serialized = JSON.stringify(cloud);
+  assert.equal(serialized.includes("private-"), false);
+  assert.equal(cloud.nodes[0]?.data.text, "正文\n第二行");
+  assert.equal(cloud.nodes[0]?.data.generationPrompt, "写两行文字");
+  assert.equal(cloud.nodes[0]?.data.model, reference);
+  assert.equal(cloud.nodes[0]?.data.generationMode, "text");
+  assert.equal(
+    hydrateCanvasLocalModelReferences(cloud, () => null).nodes[0]?.data.model,
+    reference,
+  );
+  assert.equal(
+    hydrateCanvasLocalModelReferences(cloud, () => "same-device-model").nodes[0]
+      ?.data.model,
+    "same-device-model",
+  );
+});

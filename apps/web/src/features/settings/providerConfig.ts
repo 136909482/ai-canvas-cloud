@@ -192,6 +192,7 @@ export function resolveRuntimeModelConfig(
   const effectiveAuthMode =
     profile.protocol === "custom-http-image-v1" ? profile.authMode : "bearer";
   const effectiveImageRequestMode =
+    profile.protocol === "openai-compatible" ||
     profile.protocol === "custom-http-image-v1"
       ? profile.imageRequestMode
       : "sync";

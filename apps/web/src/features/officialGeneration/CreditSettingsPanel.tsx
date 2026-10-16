@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   BadgeCheck,
-  CircleDollarSign,
-  Coins,
   KeyRound,
   LoaderCircle,
   RefreshCw,
   ShieldCheck,
+  Zap,
 } from "lucide-react";
 import type {
   CreditLedgerEntry,
@@ -159,13 +158,13 @@ export function CreditSettingsPanel() {
           <div className="px-4 py-4">
             <span className={`text-xs ${themeClasses.textMuted}`}>
               可用
-              <Coins
-                className="ml-1 inline h-3 w-3 text-[var(--text-muted)]"
-                aria-label="使用点数"
+              <Zap
+                className="ml-1 inline h-3 w-3 fill-current text-[var(--text-secondary)]"
+                aria-label="算力"
               />
             </span>
             <strong
-              className={`mt-1 block text-2xl ${themeClasses.textPrimary}`}
+              className={`mt-1 block text-2xl ${themeClasses.textSecondary}`}
             >
               {balance?.available ?? "--"}
             </strong>
@@ -175,7 +174,7 @@ export function CreditSettingsPanel() {
               任务预留
             </span>
             <strong
-              className={`mt-1 block text-2xl ${themeClasses.textPrimary}`}
+              className={`mt-1 block text-2xl ${themeClasses.textSecondary}`}
             >
               {balance?.reserved ?? "--"}
             </strong>
@@ -224,7 +223,7 @@ export function CreditSettingsPanel() {
       <section className="overflow-hidden rounded-[10px] border border-[var(--border-subtle)] bg-[var(--control-bg)]">
         <header className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3">
           <div className="flex items-center gap-2">
-            <CircleDollarSign className="h-4 w-4 text-sky-400" />
+            <Zap className="h-4 w-4 fill-current text-[var(--text-secondary)]" />
             <h3 className={`text-sm font-semibold ${themeClasses.textPrimary}`}>
               使用记录
             </h3>
@@ -271,7 +270,7 @@ export function CreditSettingsPanel() {
                     </time>
                   </div>
                   <span
-                    className={`shrink-0 font-mono text-sm ${displayedDelta > 0 ? "text-emerald-400" : displayedDelta < 0 ? "text-amber-400" : themeClasses.textMuted}`}
+                    className={`shrink-0 font-mono text-sm ${themeClasses.textSecondary}`}
                   >
                     {displayedDelta > 0 ? "+" : ""}
                     {displayedDelta}

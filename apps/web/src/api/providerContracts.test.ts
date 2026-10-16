@@ -6,6 +6,7 @@ import {
   generateWithOpenAI,
   submitOpenAiAsyncImageGeneration,
 } from "./image/openai.ts";
+import { getImageResultFromResponsePayload } from "./image/shared.ts";
 import { submitAliyunTextToVideoGeneration } from "./videoAdapter.ts";
 
 type CapturedRequest = {
@@ -178,6 +179,114 @@ test("OpenAI compatible sync image provider preserves model options and extracts
     },
   );
   assert.equal("resolution" in body, false);
+  assert.equal("background" in body, false);
+});
+
+test("GPT background options reach sync and async generation requests with PNG output", async () => {
+  for (const background of ["auto", "opaque", "transparent"] as const) {
+    for (const requestMode of ["sync", "async"] as const) {
+      const params = {
+        prompt: "an isolated product",
+        ratio: "1:1",
+        background,
+        apiKey: "test-only-key",
+        apiUrl: "https://images.example/v1",
+        model: "gpt-image-2",
+        provider: "openai" as const,
+        requestMode,
+      };
+      const { requests } = await withMockFetch(
+        () =>
+          requestMode === "async"
+            ? Response.json({ task_id: "background-task" })
+            : Response.json({ data: [{ b64_json: "dGVzdA==" }] }),
+        async () => {
+          if (requestMode === "async")
+            await submitOpenAiAsyncImageGeneration(params);
+          else await generateWithOpenAI(params);
+        },
+      );
+      const body = JSON.parse(String(requests[0]?.init?.body));
+      assert.equal(
+        body.background,
+        background === "auto" ? undefined : background,
+      );
+      assert.equal(body.output_format, "png");
+    }
+  }
+});
+
+test("GPT background options reach image-to-image and masked edit multipart requests", async () => {
+  const originalBitmap = globalThis.createImageBitmap;
+  globalThis.createImageBitmap = async () =>
+    ({ width: 1024, height: 1024, close() {} }) as ImageBitmap;
+  try {
+    for (const background of ["auto", "opaque", "transparent"] as const) {
+      for (const operationType of ["image-to-image", "image-edit"] as const) {
+        for (const requestMode of ["sync", "async"] as const) {
+          const imageUrl = "data:image/png;base64,dGVzdA==";
+          const params = {
+            prompt: "isolate the product",
+            ratio: "1:1",
+            background,
+            referenceImageUrls:
+              operationType === "image-to-image" ? [imageUrl] : [],
+            editImageUrl: operationType === "image-edit" ? imageUrl : null,
+            maskImageUrl: operationType === "image-edit" ? imageUrl : null,
+            operationType,
+            apiKey: "test-only-key",
+            apiUrl: "https://images.example/v1",
+            model: "gpt-image-2",
+            provider: "openai" as const,
+            requestMode,
+          };
+          const { requests } = await withMockFetch(
+            () =>
+              requestMode === "async"
+                ? Response.json({ task_id: "background-edit-task" })
+                : Response.json({
+                    data: [{ url: "https://assets.example/result.png" }],
+                  }),
+            async () => {
+              if (requestMode === "async")
+                await submitOpenAiAsyncImageGeneration(params);
+              else await generateWithOpenAI(params);
+            },
+          );
+          const body = requests[0]?.init?.body;
+          assert.ok(body instanceof FormData);
+          assert.equal(
+            body.get("background"),
+            background === "auto" ? null : background,
+          );
+          assert.equal(body.get("output_format"), "png");
+          assert.equal(body.has("mask"), operationType === "image-edit");
+        }
+      }
+    }
+  } finally {
+    globalThis.createImageBitmap = originalBitmap;
+  }
+});
+
+test("background options are not sent to non-GPT image models", async () => {
+  for (const model of ["generic-image-model", "nano-banana-2"]) {
+    const { requests } = await withMockFetch(
+      () =>
+        Response.json({ data: [{ url: "https://assets.example/result.png" }] }),
+      () =>
+        generateWithOpenAI({
+          prompt: "a product",
+          background: "transparent",
+          apiKey: "test-only-key",
+          apiUrl: "https://images.example/v1",
+          model,
+          provider: "openai",
+        }),
+    );
+    const body = JSON.parse(String(requests[0]?.init?.body));
+    assert.equal("background" in body, false);
+  }
 });
 
 test("GPT Image passes Auto through for text-to-image requests", async () => {
@@ -642,9 +751,13 @@ test("OpenAI compatible image-to-image preserves multiple image file order", asy
   assert.equal(files[1].type, "image/webp");
 });
 
-test("OpenAI compatible async provider accepts the task_id submission contract", async () => {
+test("OpenAI compatible async provider accepts the APIMart task submission envelope", async () => {
   const { result, requests } = await withMockFetch(
-    () => Response.json({ task_id: "remote-task-1" }),
+    () =>
+      Response.json({
+        code: 200,
+        data: [{ status: "submitted", task_id: "remote-task-1" }],
+      }),
     () =>
       submitOpenAiAsyncImageGeneration({
         prompt: "draw a triangle",
@@ -670,6 +783,31 @@ test("OpenAI compatible async provider accepts the task_id submission contract",
   );
   const body = JSON.parse(String(requests[0]?.init?.body));
   assert.equal(body.size, "auto");
+});
+
+test("OpenAI compatible async polling extracts APIMart result URLs", () => {
+  const result = getImageResultFromResponsePayload(
+    {
+      code: 200,
+      data: {
+        status: "completed",
+        result: {
+          images: [{ url: ["https://cdn.apimart.example/result.png"] }],
+        },
+      },
+    },
+    JSON.stringify({
+      code: 200,
+      data: {
+        status: "completed",
+        result: {
+          images: [{ url: ["https://cdn.apimart.example/result.png"] }],
+        },
+      },
+    }),
+  );
+
+  assert.equal(result, "https://cdn.apimart.example/result.png");
 });
 
 test("chat provider uses the OpenAI-compatible completion contract", async () => {

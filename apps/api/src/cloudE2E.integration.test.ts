@@ -444,6 +444,24 @@ async function runCloudE2E() {
     const sourceNodeId = `source-${runId}`;
     const previewNodeId = `preview-${runId}`;
     const graphPath = `/api/v1/projects/${projectA}/graph`;
+    const textNodeId = `text-${runId}`;
+    const generatedPreviewData = {
+      sourceGenerateNodeId: sourceNodeId,
+      resultDisplay: "inline",
+    };
+    const generatedTextData = {
+      text: "生成正文\n第二行",
+      richPrompt: {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "生成正文" }] },
+          { type: "paragraph", content: [{ type: "text", text: "第二行" }] },
+        ],
+      },
+      generationMode: "text",
+      generationPrompt: "写两行文字",
+      model: `local:${randomUUID()}`,
+    };
     const graphBody = (
       baseVersion: number,
       batchId: string,
@@ -457,6 +475,13 @@ async function runCloudE2E() {
     });
     const nodes = [
       {
+        id: textNodeId,
+        nodeType: "textNode",
+        position: { x: 0, y: 480 },
+        dataSchemaVersion: 1,
+        data: generatedTextData,
+      },
+      {
         id: sourceNodeId,
         nodeType: "generate",
         position: { x: 0, y: 0 },
@@ -468,7 +493,7 @@ async function runCloudE2E() {
         nodeType: "preview",
         position: { x: 240, y: 0 },
         dataSchemaVersion: 1,
-        data: {},
+        data: generatedPreviewData,
       },
     ];
     const graphCreated = await accountA.request(
@@ -535,6 +560,18 @@ async function runCloudE2E() {
     );
     const currentGraph = await accountA.request(port, "GET", graphPath);
     assert.equal(currentGraph.statusCode, 200);
+    assert.deepEqual(
+      (
+        currentGraph.body as { nodes: Array<{ id: string; data: unknown }> }
+      ).nodes.find((node) => node.id === textNodeId)?.data,
+      generatedTextData,
+    );
+    assert.deepEqual(
+      (
+        currentGraph.body as { nodes: Array<{ id: string; data: unknown }> }
+      ).nodes.find((node) => node.id === previewNodeId)?.data,
+      generatedPreviewData,
+    );
     const currentVersion = (
       currentGraph.body as { version: number; sequence: number }
     ).version;
@@ -705,6 +742,25 @@ async function runCloudE2E() {
     assert.notEqual(
       (await accountA.request(port, "GET", "/api/v1/auth/session")).statusCode,
       200,
+    );
+
+    const secondDeviceGraph = await takeover.request(port, "GET", graphPath);
+    assert.equal(secondDeviceGraph.statusCode, 200);
+    assert.deepEqual(
+      (
+        secondDeviceGraph.body as {
+          nodes: Array<{ id: string; data: unknown }>;
+        }
+      ).nodes.find((node) => node.id === textNodeId)?.data,
+      generatedTextData,
+    );
+    assert.deepEqual(
+      (
+        secondDeviceGraph.body as {
+          nodes: Array<{ id: string; data: unknown }>;
+        }
+      ).nodes.find((node) => node.id === previewNodeId)?.data,
+      generatedPreviewData,
     );
 
     await pool.query(

@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, useReactFlow, useViewport } from "@xyflow/react";
-import { Keyboard, Maximize, Minus, Plus, Redo2, Undo2 } from "lucide-react";
+import {
+  AlignHorizontalJustifyCenter,
+  Grid3X3,
+  Keyboard,
+  Moon,
+  Redo2,
+  Sun,
+  Undo2,
+} from "lucide-react";
 import { TooltipIconButton } from "@/components/TooltipIconButton";
 import { useHistoryStore } from "@/store/useHistoryStore";
+import { useSettingsStore } from "@/store/useSettingsStore";
 import { themeClasses } from "@/styles/themeClasses";
 import { handleMenuKeyboard } from "@/utils/menuKeyboard";
 
 const ZOOM_PRESETS = [2, 1, 0.5, 0.2];
-const FIT_VIEW_OPTIONS = {
-  padding: 0.2,
-  maxZoom: 0.8,
-  duration: 220,
-};
 
 const CONTROL_TEXT_STYLE = {
   fontSize: "9px",
@@ -74,11 +78,21 @@ export function ViewportControls({
   const zoomTriggerRef = useRef<HTMLButtonElement | null>(null);
   const zoomMenuRef = useRef<HTMLDivElement | null>(null);
   const { zoom } = useViewport();
-  const { zoomIn, zoomOut, zoomTo, fitView } = useReactFlow();
+  const { zoomTo, fitView } = useReactFlow();
   const undo = useHistoryStore((state) => state.undo);
   const redo = useHistoryStore((state) => state.redo);
   const canUndo = useHistoryStore((state) => state.canUndo());
   const canRedo = useHistoryStore((state) => state.canRedo());
+  const themeMode = useSettingsStore((state) => state.config.storage.themeMode);
+  const canvasGridEnabled = useSettingsStore(
+    (state) => state.config.storage.canvasGridEnabled,
+  );
+  const alignmentGuidesEnabled = useSettingsStore(
+    (state) => state.config.storage.alignmentGuidesEnabled,
+  );
+  const updateStorageSettings = useSettingsStore(
+    (state) => state.updateStorageSettings,
+  );
   const currentZoomLabel = useMemo(() => formatZoomLabel(zoom), [zoom]);
 
   useEffect(() => {
@@ -114,11 +128,6 @@ export function ViewportControls({
     window.requestAnimationFrame(() => zoomTriggerRef.current?.focus());
   };
 
-  const handleFitView = async () => {
-    await fitView(FIT_VIEW_OPTIONS);
-    setShowZoomMenu(false);
-  };
-
   const handleZoomPreset = async (nextZoom: number) => {
     await zoomTo(nextZoom, { duration: 180 });
     setShowZoomMenu(false);
@@ -130,7 +139,7 @@ export function ViewportControls({
         ref={containerRef}
         role="toolbar"
         aria-label="画布视图与历史操作"
-        className="flex items-end gap-2"
+        className={`flex items-center gap-0 ${COMPACT_FLOATING_SURFACE_CLASS}`}
       >
         <div className="relative">
           {showZoomMenu ? (
@@ -146,22 +155,8 @@ export function ViewportControls({
                   closeZoomMenu,
                 )
               }
-              className={`absolute bottom-[calc(100%+8px)] left-1/2 w-[92px] -translate-x-1/2 animate-in fade-in-0 slide-in-from-bottom-2 duration-200 ${COMPACT_FLOATING_SURFACE_CLASS}`}
+              className={`absolute bottom-[calc(100%+8px)] left-0 w-[92px] animate-in fade-in-0 slide-in-from-bottom-2 duration-200 ${COMPACT_FLOATING_SURFACE_CLASS}`}
             >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  void handleFitView();
-                }}
-                className={`${themeClasses.iconButton} h-6 w-full gap-1 text-[var(--text-secondary)]`}
-              >
-                <Maximize className="h-2.5 w-2.5" />
-                <span style={CONTROL_TEXT_STYLE}>适应视图</span>
-              </button>
-
-              <div className={`my-1 h-px ${themeClasses.divider}`} />
-
               <div className="flex flex-col gap-0.5">
                 {ZOOM_PRESETS.map((preset) => {
                   const active = Math.abs(zoom - preset) < 0.01;
@@ -190,79 +185,42 @@ export function ViewportControls({
             </div>
           ) : null}
 
-          <div
-            className={`flex items-center gap-0 ${COMPACT_FLOATING_SURFACE_CLASS}`}
-          >
-            <button
-              ref={zoomTriggerRef}
-              type="button"
-              onClick={() => {
-                void zoomOut({ duration: 160 });
-              }}
-              className={ICON_BUTTON_CLASS}
-              aria-label="缩小画布"
-              title="缩小画布"
-            >
-              <Minus className="h-3 w-3" />
-            </button>
-
-            <span className={DIVIDER_CLASS} aria-hidden="true" />
-
-            <button
-              type="button"
-              onClick={() => {
+          <button
+            ref={zoomTriggerRef}
+            type="button"
+            onClick={() => {
+              setShowShortcutMenu(false);
+              setShowZoomMenu((current) => !current);
+            }}
+            onDoubleClick={(event) => {
+              event.stopPropagation();
+              setShowZoomMenu(false);
+              setShowShortcutMenu(false);
+              void fitView({ padding: 0.2, maxZoom: 0.8, duration: 220 });
+            }}
+            className={`inline-flex h-6 min-w-[38px] items-center justify-center rounded-lg border px-2 text-[var(--text-secondary)] transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--text-primary)_20%,transparent)] ${
+              showZoomMenu
+                ? ACTIVE_ICON_BUTTON_CLASS
+                : "border-transparent bg-transparent hover:border-[var(--border-subtle)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
+            }`}
+            aria-label="打开缩放菜单"
+            aria-haspopup="menu"
+            aria-expanded={showZoomMenu}
+            aria-controls={showZoomMenu ? "zoom-menu" : undefined}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
                 setShowShortcutMenu(false);
-                setShowZoomMenu((current) => !current);
-              }}
-              className={`inline-flex h-6 min-w-[38px] items-center justify-center rounded-lg border px-2 text-[var(--text-secondary)] transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--text-primary)_20%,transparent)] ${
-                showZoomMenu
-                  ? ACTIVE_ICON_BUTTON_CLASS
-                  : "border-transparent bg-transparent hover:border-[var(--border-subtle)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
-              }`}
-              aria-label="打开缩放菜单"
-              aria-haspopup="menu"
-              aria-expanded={showZoomMenu}
-              aria-controls={showZoomMenu ? "zoom-menu" : undefined}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                  event.preventDefault();
-                  setShowZoomMenu(true);
-                }
-              }}
-              title="打开缩放菜单"
-            >
-              <span style={CONTROL_TEXT_STYLE}>{currentZoomLabel}</span>
-            </button>
-
-            <span className={DIVIDER_CLASS} aria-hidden="true" />
-
-            <button
-              type="button"
-              onClick={() => {
-                void zoomIn({ duration: 160 });
-              }}
-              className={ICON_BUTTON_CLASS}
-              aria-label="放大画布"
-              title="放大画布"
-            >
-              <Plus className="h-3 w-3" />
-            </button>
-
-            <span className={DIVIDER_CLASS} aria-hidden="true" />
-
-            <button
-              type="button"
-              onClick={() => {
-                void handleFitView();
-              }}
-              className={ICON_BUTTON_CLASS}
-              aria-label="适配画布"
-              title="适配画布"
-            >
-              <Maximize className="h-3 w-3" />
-            </button>
-          </div>
+                setShowZoomMenu(true);
+              }
+            }}
+            title="单击选择缩放比例，双击适应画布"
+          >
+            <span style={CONTROL_TEXT_STYLE}>{currentZoomLabel}</span>
+          </button>
         </div>
+
+        <span className={DIVIDER_CLASS} aria-hidden="true" />
 
         <div
           className="relative"
@@ -305,61 +263,105 @@ export function ViewportControls({
             </div>
           ) : null}
 
-          <div className={COMPACT_FLOATING_SURFACE_CLASS}>
-            <button
-              type="button"
-              onClick={() => {
-                setShowZoomMenu(false);
-                setShowShortcutMenu((current) => !current);
-              }}
-              onFocus={() => {
-                setShowZoomMenu(false);
-                setShowShortcutMenu(true);
-              }}
-              className={`${ICON_BUTTON_CLASS} ${
-                showShortcutMenu ? ACTIVE_ICON_BUTTON_CLASS : ""
-              }`}
-              aria-label="查看快捷键说明"
-              aria-haspopup="dialog"
-              aria-expanded={showShortcutMenu}
-              aria-controls={showShortcutMenu ? "shortcut-help" : undefined}
-            >
-              <Keyboard className="h-3 w-3" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setShowZoomMenu(false);
+              setShowShortcutMenu((current) => !current);
+            }}
+            onFocus={() => {
+              setShowZoomMenu(false);
+              setShowShortcutMenu(true);
+            }}
+            className={`${ICON_BUTTON_CLASS} ${
+              showShortcutMenu ? ACTIVE_ICON_BUTTON_CLASS : ""
+            }`}
+            aria-label="查看快捷键说明"
+            aria-haspopup="dialog"
+            aria-expanded={showShortcutMenu}
+            aria-controls={showShortcutMenu ? "shortcut-help" : undefined}
+          >
+            <Keyboard className="h-3 w-3" />
+          </button>
         </div>
 
-        <div
-          className={`flex items-center gap-0 ${COMPACT_FLOATING_SURFACE_CLASS}`}
-        >
-          <TooltipIconButton
-            label="撤销"
-            onClick={() => {
-              onBeforeHistoryAction?.();
-              undo();
-            }}
-            disabled={!canUndo}
-            testId="undo-button"
-            tooltipPlacement="top"
-            tooltipAlign="start"
-            className={ICON_BUTTON_CLASS}
-            icon={<Undo2 className="h-3 w-3" />}
-          />
-          <span className={DIVIDER_CLASS} aria-hidden="true" />
-          <TooltipIconButton
-            label="重做"
-            onClick={() => {
-              onBeforeHistoryAction?.();
-              redo();
-            }}
-            disabled={!canRedo}
-            testId="redo-button"
-            tooltipPlacement="top"
-            tooltipAlign="start"
-            className={ICON_BUTTON_CLASS}
-            icon={<Redo2 className="h-3 w-3" />}
-          />
-        </div>
+        <TooltipIconButton
+          label="撤销"
+          onClick={() => {
+            onBeforeHistoryAction?.();
+            undo();
+          }}
+          disabled={!canUndo}
+          testId="undo-button"
+          tooltipPlacement="top"
+          tooltipAlign="start"
+          className={ICON_BUTTON_CLASS}
+          icon={<Undo2 className="h-3 w-3" />}
+        />
+        <TooltipIconButton
+          label="重做"
+          onClick={() => {
+            onBeforeHistoryAction?.();
+            redo();
+          }}
+          disabled={!canRedo}
+          testId="redo-button"
+          tooltipPlacement="top"
+          tooltipAlign="start"
+          className={ICON_BUTTON_CLASS}
+          icon={<Redo2 className="h-3 w-3" />}
+        />
+
+        <TooltipIconButton
+          label={themeMode === "light" ? "切换到暗色主题" : "切换到浅色主题"}
+          onClick={() => {
+            setShowZoomMenu(false);
+            setShowShortcutMenu(false);
+            void updateStorageSettings({
+              themeMode: themeMode === "light" ? "dark" : "light",
+            }).catch(() => undefined);
+          }}
+          testId="toggle-theme-button"
+          tooltipPlacement="top"
+          className={ICON_BUTTON_CLASS}
+          icon={
+            themeMode === "light" ? (
+              <Moon className="h-3 w-3" />
+            ) : (
+              <Sun className="h-3 w-3" />
+            )
+          }
+        />
+        <TooltipIconButton
+          label={canvasGridEnabled ? "隐藏画布网格" : "显示画布网格"}
+          onClick={() => {
+            setShowZoomMenu(false);
+            setShowShortcutMenu(false);
+            void updateStorageSettings({
+              canvasGridEnabled: !canvasGridEnabled,
+            }).catch(() => undefined);
+          }}
+          pressed={canvasGridEnabled}
+          testId="toggle-canvas-grid-button"
+          tooltipPlacement="top"
+          className={`${ICON_BUTTON_CLASS} ${canvasGridEnabled ? ACTIVE_ICON_BUTTON_CLASS : ""}`}
+          icon={<Grid3X3 className="h-3 w-3" />}
+        />
+        <TooltipIconButton
+          label={alignmentGuidesEnabled ? "关闭对齐参考线" : "开启对齐参考线"}
+          onClick={() => {
+            setShowZoomMenu(false);
+            setShowShortcutMenu(false);
+            void updateStorageSettings({
+              alignmentGuidesEnabled: !alignmentGuidesEnabled,
+            }).catch(() => undefined);
+          }}
+          pressed={alignmentGuidesEnabled}
+          testId="toggle-alignment-guides-button"
+          tooltipPlacement="top"
+          className={`${ICON_BUTTON_CLASS} ${alignmentGuidesEnabled ? ACTIVE_ICON_BUTTON_CLASS : ""}`}
+          icon={<AlignHorizontalJustifyCenter className="h-3 w-3" />}
+        />
       </div>
     </Panel>
   );

@@ -175,7 +175,7 @@ export function RatioPreview({ ratio }: { ratio: string }) {
   );
 }
 
-export function SettingsSegment<T extends string>({
+export function SettingsSegment<T extends string | number>({
   value,
   options,
   ariaLabel,
@@ -252,7 +252,7 @@ export function SettingsSegment<T extends string>({
           <button
             key={option}
             type="button"
-            className={`${themeClasses.nodeSegmentButton} ${hasAnimatedIndicator ? "relative z-10 bg-transparent shadow-none" : ""} ${buttonClassName} ${
+            className={`cursor-pointer ${themeClasses.nodeSegmentButton} ${hasAnimatedIndicator ? "relative z-10 bg-transparent shadow-none" : ""} ${buttonClassName} ${
               active
                 ? hasAnimatedIndicator
                   ? "text-[var(--text-primary)]"

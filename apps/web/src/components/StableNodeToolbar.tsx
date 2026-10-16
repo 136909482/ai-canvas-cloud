@@ -8,7 +8,12 @@ import {
 import { createPortal } from "react-dom";
 import { Position, useNodeId, useStore, useStoreApi } from "@xyflow/react";
 
-type ToolbarAlign = "start" | "center" | "end";
+import {
+  getToolbarTransform,
+  isNodeInViewport,
+  shouldShowNodeToolbar,
+  type ToolbarAlign,
+} from "./stableNodeToolbarGeometry";
 
 type StableNodeToolbarProps = Omit<
   HTMLAttributes<HTMLDivElement>,
@@ -20,45 +25,9 @@ type StableNodeToolbarProps = Omit<
   position?: Position;
   offset?: number;
   align?: ToolbarAlign;
+  hideWhenNodeOffscreen?: boolean;
+  hideWhenNodeDragging?: boolean;
 };
-
-function getAlignmentFactor(align: ToolbarAlign) {
-  if (align === "start") return 0;
-  if (align === "end") return 1;
-  return 0.5;
-}
-
-function getToolbarTransform(
-  nodeRect: { x: number; y: number; width: number; height: number },
-  viewport: { x: number; y: number; zoom: number },
-  position: Position,
-  offset: number,
-  align: ToolbarAlign,
-) {
-  const alignment = getAlignmentFactor(align);
-  let x =
-    (nodeRect.x + nodeRect.width * alignment) * viewport.zoom + viewport.x;
-  let y = nodeRect.y * viewport.zoom + viewport.y - offset;
-  let shiftX = -100 * alignment;
-  let shiftY = -100;
-
-  if (position === Position.Right) {
-    x = (nodeRect.x + nodeRect.width) * viewport.zoom + viewport.x + offset;
-    y = (nodeRect.y + nodeRect.height * alignment) * viewport.zoom + viewport.y;
-    shiftX = 0;
-    shiftY = -100 * alignment;
-  } else if (position === Position.Bottom) {
-    y = (nodeRect.y + nodeRect.height) * viewport.zoom + viewport.y + offset;
-    shiftY = 0;
-  } else if (position === Position.Left) {
-    x = nodeRect.x * viewport.zoom + viewport.x - offset;
-    y = (nodeRect.y + nodeRect.height * alignment) * viewport.zoom + viewport.y;
-    shiftX = -100;
-    shiftY = -100 * alignment;
-  }
-
-  return `translate(${x}px, ${y}px) translate(${shiftX}%, ${shiftY}%)`;
-}
 
 export function StableNodeToolbar({
   children,
@@ -67,6 +36,8 @@ export function StableNodeToolbar({
   position = Position.Top,
   offset = 10,
   align = "center",
+  hideWhenNodeOffscreen = false,
+  hideWhenNodeDragging = false,
   className,
   style,
   ...rest
@@ -74,6 +45,30 @@ export function StableNodeToolbar({
   const contextNodeId = useNodeId();
   const effectiveNodeId = nodeId ?? contextNodeId;
   const storeApi = useStoreApi();
+  const nodeIsDragging = useStore((state) =>
+    Boolean(
+      hideWhenNodeDragging &&
+      effectiveNodeId &&
+      state.nodeLookup.get(effectiveNodeId)?.dragging,
+    ),
+  );
+  const nodeInViewport = useStore((state) => {
+    if (!hideWhenNodeOffscreen) return true;
+    const node = effectiveNodeId
+      ? state.nodeLookup.get(effectiveNodeId)
+      : undefined;
+    if (!node || node.hidden) return false;
+    const [x, y, zoom] = state.transform;
+    return isNodeInViewport(
+      {
+        ...node.internals.positionAbsolute,
+        width: node.measured.width ?? node.internals.userNode.width ?? 0,
+        height: node.measured.height ?? node.internals.userNode.height ?? 0,
+      },
+      { x, y, zoom },
+      { width: state.width, height: state.height },
+    );
+  });
   const selectedNodeCount = useStore((state) => {
     let count = 0;
     for (const node of state.nodes) {
@@ -89,8 +84,12 @@ export function StableNodeToolbar({
   );
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const positionSignatureRef = useRef("");
-  const isActive =
-    typeof isVisible === "boolean" ? isVisible : selectedNodeCount === 1;
+  const isActive = shouldShowNodeToolbar({
+    isVisible,
+    selectedNodeCount,
+    nodeInViewport,
+    nodeIsDragging,
+  });
 
   useLayoutEffect(() => {
     if (!isActive || !effectiveNodeId) {
@@ -121,19 +120,28 @@ export function StableNodeToolbar({
       }
 
       positionSignatureRef.current = signature;
-      toolbar.style.transform = getToolbarTransform(
+      const transform = getToolbarTransform(
         { x, y, width, height },
         { x: viewportX, y: viewportY, zoom },
         position,
         offset,
         align,
       );
+      toolbar.style.transform = transform;
       toolbar.style.zIndex = String(zIndex);
     };
 
     updatePosition();
     return storeApi.subscribe(updatePosition);
-  }, [align, effectiveNodeId, isActive, offset, position, storeApi]);
+  }, [
+    align,
+    effectiveNodeId,
+    isActive,
+    offset,
+    portalRoot,
+    position,
+    storeApi,
+  ]);
 
   if (!isActive || !effectiveNodeId || !portalRoot) {
     return null;

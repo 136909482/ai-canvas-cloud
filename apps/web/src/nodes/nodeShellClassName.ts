@@ -1,9 +1,9 @@
 const NODE_SHELL_BASE_CLASS =
-  "node-shell group relative flex h-full w-full flex-col overflow-visible rounded-xl border bg-[var(--node-bg)] text-[var(--text-primary)] shadow-[var(--shadow-panel)] transition-[border-color,box-shadow,background-color] duration-200";
+  "node-shell group relative flex h-full w-full flex-col overflow-visible rounded-lg border bg-[var(--node-bg)] text-[var(--text-primary)] shadow-[var(--shadow-node)] transition-[border-color,box-shadow] duration-150";
 const NODE_SHELL_SELECTED_CLASS =
-  "border-[var(--accent-violet-strong)] shadow-[0_16px_40px_var(--accent-violet-glow),0_0_0_1px_var(--accent-violet-soft)]";
+  "border-[var(--accent-violet)] shadow-[var(--shadow-node-selected)]";
 const NODE_SHELL_UNSELECTED_CLASS =
-  "border-[var(--node-border)] hover:border-[var(--accent-violet-muted)] hover:shadow-[var(--shadow-panel)]";
+  "border-[var(--node-border)] hover:border-[var(--node-border-hover)]";
 
 type NodeShellClassNameOptions = {
   selected: boolean;

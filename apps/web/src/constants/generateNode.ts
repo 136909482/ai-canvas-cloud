@@ -1,5 +1,20 @@
 export const MAX_GENERATE_REFERENCE_IMAGES = 16;
 export const DEFAULT_GENERATE_RATIO = "Auto";
+export const GENERATE_OUTPUT_COUNTS = [1, 2, 4] as const;
+export type GenerateOutputCount = (typeof GENERATE_OUTPUT_COUNTS)[number];
+export const GPT_IMAGE_BACKGROUNDS = ["auto", "opaque", "transparent"] as const;
+
+export function normalizeGptImageBackground(value: unknown) {
+  return value === "opaque" || value === "transparent" ? value : "auto";
+}
+
+export function normalizeGenerateOutputCount(
+  value: unknown,
+): GenerateOutputCount {
+  return GENERATE_OUTPUT_COUNTS.includes(value as GenerateOutputCount)
+    ? (value as GenerateOutputCount)
+    : 1;
+}
 
 export const SUPPORTED_GENERATE_RATIOS = [
   "1:1",

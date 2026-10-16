@@ -6,9 +6,10 @@ import {
   type ReactNode,
   type SyntheticEvent,
 } from "react";
-import { Coins, Server, ShieldCheck } from "lucide-react";
+import { Server, ShieldCheck, Zap } from "lucide-react";
 import {
   getNodeModelIssueLabel,
+  getOfficialModelsForCategory,
   getSelectableModelGroups,
   getSelectableModels,
   getSelectableProviderProfiles,
@@ -24,6 +25,7 @@ import type {
 import { ModelOptionIcon } from "@/components/icons/ModelOptionIcon";
 import { InlineSelect, type InlineSelectOption } from "./InlineSelect";
 import { fetchOfficialModels } from "@/features/officialGeneration/api";
+import { getOfficialModelCreditCost } from "@/features/officialGeneration/modelPricing";
 import {
   isOfficialModelReference,
   serializeModelSelectionRef,
@@ -51,6 +53,7 @@ type NodeModelSelectorProps = {
   renderModelIcon?: (model: ModelEntry) => ReactNode;
   layout?: "split" | "grouped";
   resolution?: string;
+  appearance?: "default" | "ghost";
 };
 
 function getProviderOption(
@@ -79,14 +82,19 @@ export function NodeModelSelector({
   renderModelIcon,
   layout = "split",
   resolution = "1K",
+  appearance = "default",
 }: NodeModelSelectorProps) {
   const officialRuntime = useOfficialGenerationRuntime();
-  const officialEnabled = officialRuntime.preferences?.effectiveEnabled === true;
-  const officialModels = useMemo(
-    () => (officialEnabled ? officialRuntime.models : []),
-    [officialEnabled, officialRuntime.models],
+  const officialEnabled =
+    officialRuntime.preferences?.effectiveEnabled === true;
+  const officialModelCatalog = useMemo(
+    () => getOfficialModelsForCategory(officialRuntime.models, category),
+    [officialRuntime.models, category],
   );
-  const officialModelCatalog = officialRuntime.models;
+  const officialModels = useMemo(
+    () => (officialEnabled ? officialModelCatalog : []),
+    [officialEnabled, officialModelCatalog],
+  );
   useEffect(() => {
     if (category !== "image") return;
     const requestRevision = getOfficialGenerationRevision();
@@ -259,9 +267,7 @@ export function NodeModelSelector({
       !selectableModelIds.has(groupedModelValue)
     ) {
       const officialUnavailable = isOfficialModelReference(groupedModelValue);
-      const issueLabel = officialUnavailable
-        ? getNodeModelIssueLabel(selection)
-        : getNodeModelIssueLabel(selection);
+      const issueLabel = getNodeModelIssueLabel(selection);
       const unavailableOfficialModel = officialUnavailable
         ? officialModelCatalog.find(
             (model) =>
@@ -305,11 +311,9 @@ export function NodeModelSelector({
             ? {
                 key: `unavailable:official:${unavailableOfficialModel.id}`,
                 label: unavailableOfficialModel.name,
-                icon: (
-                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                ),
+                icon: <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />,
               }
-          : undefined,
+            : undefined,
         disabled: true,
       });
     }
@@ -319,20 +323,23 @@ export function NodeModelSelector({
         source: "official",
         modelId: official.id,
       });
-      const price =
-        official.prices[resolution as keyof typeof official.prices] ?? null;
+      const price = getOfficialModelCreditCost(
+        value,
+        resolution,
+        officialModels,
+      );
       options.push({
         value,
         label: official.name,
-        title: `${official.name} / 官方模型${price ? ` / ${price}` : ""}`,
+        title: `${official.name} / 官方模型${price ? ` / ${price} 算力` : ""}`,
         triggerLabel: official.name,
         triggerIcon: <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />,
         triggerTrailing: (
-          <span className="shrink-0 text-[10px] font-medium text-amber-400">
+          <span className="shrink-0 text-[10px] font-medium text-[var(--text-secondary)]">
             {price ? (
-              <span className="inline-flex items-center gap-0.5 text-[var(--text-muted)]">
+              <span className="inline-flex items-center gap-0.5">
                 {price}
-                <Coins className="h-3 w-3" aria-label="使用点数" />
+                <Zap className="h-3 w-3 fill-current" aria-label="算力" />
               </span>
             ) : (
               "不可用"
@@ -340,9 +347,9 @@ export function NodeModelSelector({
           </span>
         ),
         trailing: price ? (
-          <span className="inline-flex items-center gap-0.5 text-[10px] font-normal text-[var(--text-muted)]">
+          <span className="inline-flex items-center gap-0.5 text-[10px] font-normal text-[var(--text-secondary)]">
             {price}
-            <Coins className="h-3 w-3" aria-label="使用点数" />
+            <Zap className="h-3 w-3 fill-current" aria-label="算力" />
           </span>
         ) : (
           <span className="text-[10px] font-normal text-[var(--text-muted)]">
@@ -432,6 +439,7 @@ export function NodeModelSelector({
       <div className={`min-w-0 ${className}`}>
         <InlineSelect
           value={groupedModelValue}
+          appearance={appearance}
           options={groupedModelOptions}
           ariaLabel={modelAriaLabel}
           disabled={groupedModelPickerDisabled}

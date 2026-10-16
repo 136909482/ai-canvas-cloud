@@ -485,7 +485,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           ? "image"
           : type === "videoGenerateNode"
             ? "video"
-            : type === "llmFileNode"
+            : type === "llmFileNode" || type === "textNode"
               ? "chat"
               : null;
       const initializedNode = defaultModelCategory

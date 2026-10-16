@@ -528,7 +528,10 @@ export function LocalVaultSettingsPanel() {
           ? { customManifestId: draft.customManifestId }
           : {}),
         imageRequestMode:
-          protocol === "custom-http-image-v1" ? draft.imageRequestMode : "sync",
+          protocol === "openai-compatible" ||
+          protocol === "custom-http-image-v1"
+            ? draft.imageRequestMode
+            : "sync",
         imageResponseFormat: draft.imageResponseFormat,
         createdAt: draft.createdAt,
         updatedAt: draft.updatedAt,
@@ -725,6 +728,7 @@ export function LocalVaultSettingsPanel() {
         ? { customManifestId: draft.customManifestId }
         : {}),
       imageRequestMode:
+        draft.protocol === "openai-compatible" ||
         draft.protocol === "custom-http-image-v1"
           ? draft.imageRequestMode
           : "sync",
@@ -1180,26 +1184,49 @@ export function LocalVaultSettingsPanel() {
                   </span>
                 </label>
                 {providerDraft.protocol === "openai-compatible" ? (
-                  <label className="block space-y-1 text-xs text-[var(--text-secondary)]">
-                    <span className="block leading-4">图片结果格式</span>
-                    <SettingsSelect
-                      ariaLabel="图片结果格式"
-                      value={providerDraft.imageResponseFormat ?? "url"}
-                      onChange={(value) =>
-                        updateProviderDraft((draft) => ({
-                          ...draft,
-                          imageResponseFormat: value as "url" | "b64_json",
-                        }))
-                      }
-                      options={[
-                        { value: "url", label: "URL（下载地址）" },
-                        {
-                          value: "b64_json",
-                          label: "Base64 JSON（直接返回图片）",
-                        },
-                      ]}
-                    />
-                  </label>
+                  <>
+                    <label className="block space-y-1 text-xs text-[var(--text-secondary)]">
+                      <span className="block leading-4">图片请求模式</span>
+                      <SettingsSelect
+                        ariaLabel="图片请求模式"
+                        value={providerDraft.imageRequestMode}
+                        onChange={(value) =>
+                          updateProviderDraft((draft) => ({
+                            ...draft,
+                            imageRequestMode: value as "sync" | "async",
+                          }))
+                        }
+                        options={[
+                          { value: "sync", label: "同步返回图片" },
+                          { value: "async", label: "异步提交并轮询" },
+                        ]}
+                      />
+                      <span className="block text-[10px] leading-4 text-[var(--text-muted)]">
+                        服务商返回 task_id 后，使用 /v1/tasks/{"{task_id}"}{" "}
+                        轮询结果。
+                      </span>
+                    </label>
+                    <label className="block space-y-1 text-xs text-[var(--text-secondary)]">
+                      <span className="block leading-4">图片结果格式</span>
+                      <SettingsSelect
+                        ariaLabel="图片结果格式"
+                        value={providerDraft.imageResponseFormat ?? "url"}
+                        onChange={(value) =>
+                          updateProviderDraft((draft) => ({
+                            ...draft,
+                            imageResponseFormat: value as "url" | "b64_json",
+                          }))
+                        }
+                        options={[
+                          { value: "url", label: "URL（下载地址）" },
+                          {
+                            value: "b64_json",
+                            label: "Base64 JSON（直接返回图片）",
+                          },
+                        ]}
+                      />
+                    </label>
+                  </>
                 ) : null}
                 {providerDraft.protocol === "custom-http-image-v1" ? (
                   <>

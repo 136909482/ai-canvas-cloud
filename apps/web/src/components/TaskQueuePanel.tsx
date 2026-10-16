@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import { useReactFlow } from "@xyflow/react";
 import type { OfficialModelPrices } from "@ai-canvas-cloud/contracts";
-import { Coins, ListTodo, Trash2, X } from "lucide-react";
+import { ListTodo, Trash2, X, Zap } from "lucide-react";
 import { TaskQueueIconButton } from "@/components/TaskQueueIconButton";
 import { TASK_QUEUE_COPY } from "@/components/taskQueueCopy";
 import { TaskQueueTaskRow } from "@/components/TaskQueueTaskRow";
@@ -207,9 +207,9 @@ export function TaskQueuePanel({ panelRef, onClose }: TaskQueuePanelProps) {
                       : modelNameById.get(task.model) || task.model}
                   </span>
                   {reference.source === "official" && officialPrice ? (
-                    <span className="inline-flex shrink-0 items-center gap-0.5 text-[var(--text-muted)]">
+                    <span className="inline-flex shrink-0 items-center gap-0.5 text-[var(--text-secondary)]">
                       {officialPrice}
-                      <Coins className="h-3 w-3" aria-label="使用点数" />
+                      <Zap className="h-3 w-3 fill-current" aria-label="算力" />
                     </span>
                   ) : null}
                 </span>

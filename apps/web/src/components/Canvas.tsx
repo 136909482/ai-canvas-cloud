@@ -23,7 +23,6 @@ import {
   FileText,
   Image as ImageIcon,
   ScissorsLineDashed,
-  Sparkles,
   Video,
 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -53,12 +52,11 @@ import { MAX_REFURNISH_PRODUCTS } from "@/features/interiorRefurnish/runtime";
 import { recordComponentRender } from "@/utils/performanceDiagnostics";
 import { getFloatingMenuPosition } from "@/utils/floatingMenuPosition";
 import { isImageSourceNodeType } from "@/types";
-import { CanvasTopBar } from "./CanvasTopBar";
 import { SelectionActionsToolbar } from "./SelectionActionsToolbar";
 import { CanvasFlowLayer } from "./canvas/CanvasFlowLayer";
 import {
   getSingleSelectedNodeId,
-  shouldAnimateIncomingEdge,
+  shouldAnimateConnectedEdge,
 } from "./canvas/incomingEdgeAnimation";
 import {
   CANVAS_NODE_DRAG_MIME_TYPE,
@@ -486,8 +484,8 @@ export function Canvas() {
       > = [
         {
           id: "generate",
-          label: "AI 绘图",
-          icon: <Sparkles className="h-3 w-3" />,
+          label: "图片节点",
+          icon: <ImageIcon className="h-3 w-3" />,
           sourceKinds: ["text", "image"],
           createNode: addGenerateNode,
           createConnection: (newNodeId, pendingConnection) => ({
@@ -598,10 +596,10 @@ export function Canvas() {
         label: "图片节点",
         icon: <ImageIcon className="h-3 w-3" />,
         outputKind: "image",
-        createNode: addImageNode,
+        createNode: addGenerateNode,
         createConnection: (newNodeId, pendingConnection) => ({
           source: newNodeId,
-          sourceHandle: "output",
+          sourceHandle: "image",
           target: pendingConnection.nodeId,
           targetHandle: pendingConnection.handleId,
         }),
@@ -615,7 +613,6 @@ export function Canvas() {
     addCompareNode,
     addGenerateNode,
     addImageCropNode,
-    addImageNode,
     addLLMNode,
     addTextNode,
     addTextSplitterNode,
@@ -960,7 +957,7 @@ export function Canvas() {
   const useStepEdges = edgeStyle === "step";
   const useSmoothStepEdges = edgeStyle === "smoothstep";
   const selectedNodeId = useMemo(() => getSingleSelectedNodeId(nodes), [nodes]);
-  const shouldAnimateSelectedIncomingEdges =
+  const shouldAnimateSelectedConnectedEdges =
     incomingEdgeAnimationEnabled && !shouldUseLiteRendering;
   const edgeOptions = useMemo<DefaultEdgeOptions>(
     () => ({
@@ -977,10 +974,10 @@ export function Canvas() {
   const renderedEdges = useMemo(
     () =>
       edges.map((edge) => {
-        const animated = shouldAnimateIncomingEdge(
+        const animated = shouldAnimateConnectedEdge(
           edge,
           selectedNodeId,
-          shouldAnimateSelectedIncomingEdges,
+          shouldAnimateSelectedConnectedEdges,
         );
         const baseStyle = useDashedEdges
           ? { ...edge.style, strokeDasharray: "6 4" }
@@ -1008,13 +1005,12 @@ export function Canvas() {
     [
       edges,
       selectedNodeId,
-      shouldAnimateSelectedIncomingEdges,
+      shouldAnimateSelectedConnectedEdges,
       useDashedEdges,
       useSmoothStepEdges,
       useStepEdges,
     ],
   );
-  const topLeftPanel = useMemo(() => <CanvasTopBar />, []);
 
   return (
     <div
@@ -1050,7 +1046,6 @@ export function Canvas() {
         miniMapNodeColor={miniMapNodeColor}
         miniMapSelectedNodeColor={miniMapSelectedNodeColor}
         miniMapMaskColor={miniMapMaskColor}
-        topLeftPanel={topLeftPanel}
       />
 
       {quickCreateMenu &&

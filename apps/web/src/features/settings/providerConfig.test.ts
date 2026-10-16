@@ -45,8 +45,8 @@ test("runtime resolution uses model entry identity and its owning provider", () 
     assert.equal(resolved.runtimeConfig.modelId, "gpt-image");
     assert.equal(resolved.runtimeConfig.apiKey, "key-a");
     assert.equal(resolved.runtimeConfig.authMode, "bearer");
-    assert.equal(resolved.runtimeConfig.imageRequestMode, "sync");
-    assert.equal(resolved.runtimeConfig.requestMode, "sync");
+    assert.equal(resolved.runtimeConfig.imageRequestMode, "async");
+    assert.equal(resolved.runtimeConfig.requestMode, "async");
   }
 });
 
@@ -127,7 +127,7 @@ test("same upstream model ids resolve to their selected provider route", () => {
     assert.equal(routeA.runtimeConfig.authMode, "bearer");
     assert.equal(routeB.runtimeConfig.authMode, "bearer");
     assert.equal(routeA.runtimeConfig.requestMode, "sync");
-    assert.equal(routeB.runtimeConfig.requestMode, "sync");
+    assert.equal(routeB.runtimeConfig.requestMode, "async");
   }
 });
 

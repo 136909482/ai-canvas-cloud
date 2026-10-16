@@ -26,6 +26,7 @@ export type ImageOperationType =
   "text-to-image" | "image-to-image" | "image-edit";
 export type ImageInputFidelity = "low" | "high";
 export type GptImageQuality = "auto" | "low" | "medium" | "high";
+export type GptImageBackground = "auto" | "opaque" | "transparent";
 export type ImageEditBrushMode = "paint" | "erase";
 export type CompareMode = "slider" | "toggle";
 export type CompareImageSlot = "image1" | "image2";
@@ -240,6 +241,11 @@ export interface VideoGenerateNodeData extends Record<string, unknown> {
 export interface GenerateNodeData extends Record<string, unknown> {
   prompt: string;
   richPrompt?: RichPromptDocument | null;
+  /** Editable addition while prompt/richPrompt derive from a connected text source. */
+  promptSupplement?: {
+    prompt: string;
+    richPrompt?: RichPromptDocument | null;
+  } | null;
   negativePrompt: string;
   imageUrl: string | null;
   imageAsset?: WorkspaceImageAsset | null;
@@ -249,6 +255,8 @@ export interface GenerateNodeData extends Record<string, unknown> {
   model: string;
   resolution: string;
   quality: GptImageQuality;
+  outputCount?: number;
+  background?: GptImageBackground;
   googleSearch: boolean;
   googleImageSearch: boolean;
   connectedTextNode: string | null;
@@ -370,12 +378,16 @@ export interface GeneratedPreviewNodeData extends Record<string, unknown> {
   taskId: string | null;
   createdAt: number;
   layoutMode?: "auto" | "manual";
+  resultDisplay?: "inline" | "canvas";
 }
 
 export interface TextNodeData extends Record<string, unknown> {
   text: string;
   richPrompt?: RichPromptDocument | null;
   label?: string;
+  generationMode?: "ai" | "text";
+  generationPrompt?: string;
+  model?: string;
 }
 
 export interface TextSplitterNodeData extends Record<string, unknown> {
@@ -525,6 +537,7 @@ export interface GenerateTask {
   maskImageSource?: GenerateTaskImageSource | null;
   inputFidelity?: ImageInputFidelity | null;
   quality?: GptImageQuality | null;
+  background?: GptImageBackground | null;
   googleSearch?: boolean;
   googleImageSearch?: boolean;
   videoMode?: VideoGenerateMode | null;
@@ -621,6 +634,7 @@ export type AppNodeType =
 
 export const IMAGE_SOURCE_NODE_TYPES = [
   "imageNode",
+  "generateNode",
   "generatedPreviewNode",
   "testImageNode",
   "entourageNode",

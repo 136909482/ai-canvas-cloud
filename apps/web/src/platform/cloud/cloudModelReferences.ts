@@ -3,6 +3,7 @@ import type { CanvasSnapshot } from "@/types";
 import { isLocalModelReference } from "@/features/settings/localModelReferences";
 
 const MODEL_NODE_TYPES = new Set([
+  "textNode",
   "imageNode",
   "videoNode",
   "generateNode",

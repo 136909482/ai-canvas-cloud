@@ -17,7 +17,7 @@ test("floating node header renders above the shell as a drag handle", () => {
   const className = getNodeHeaderClassName("floating");
 
   assert.match(className, /node-drag-handle/);
-  assert.match(className, /absolute -top-6/);
+  assert.match(className, /absolute -top-5/);
   assert.match(className, /max-w-\[220px\]/);
   assert.doesNotMatch(className, /border-b/);
 });

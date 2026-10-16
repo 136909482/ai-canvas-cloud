@@ -1,6 +1,5 @@
 import {
   Brush,
-  Coins,
   HardDrive,
   ImageIcon,
   Layers3,
@@ -11,6 +10,7 @@ import {
   SlidersHorizontal,
   UserRound,
   Video,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -96,9 +96,9 @@ export const CANVAS_EXPERIENCE_TEXT = {
   alignmentGuides: "\u62d6\u62fd\u5bf9\u9f50\u53c2\u8003\u7ebf",
   alignmentGuidesHint:
     "\u79fb\u52a8\u5230\u9644\u8fd1\u8282\u70b9\u5e76\u63a5\u8fd1\u5bf9\u9f50\u65f6\u663e\u793a\u8f85\u52a9\u7ebf",
-  incomingEdgeAnimation: "选中节点入线动效",
+  incomingEdgeAnimation: "选中节点连线动效",
   incomingEdgeAnimationHint:
-    "选中单个节点时，以流动虚线突出直接连接到它的上游连线；高性能模式下暂停动画。",
+    "选中单个节点时，以流动虚线突出与它直接连接的上游和下游连线；高性能模式下暂停动画。",
   edgeStyle: "节点连线样式",
   edgeStyleHint: "虚线、实线、直角折线与圆角折线均静态显示。",
   appearanceTheme: "外观主题",
@@ -209,7 +209,7 @@ export const SETTINGS_CATEGORIES: Array<{
     id: "credits",
     label: "官方接口服务",
     description: "官方模型开关、兑换与使用记录",
-    Icon: Coins,
+    Icon: Zap,
   },
   {
     id: "storage",
@@ -371,6 +371,7 @@ export function sanitizeProviderProfile(
     authMode:
       profile.protocol === "custom-http-image-v1" ? profile.authMode : "bearer",
     imageRequestMode:
+      profile.protocol === "openai-compatible" ||
       profile.protocol === "custom-http-image-v1"
         ? profile.imageRequestMode
         : "sync",

@@ -33,6 +33,7 @@ type CanvasImagePreviewProps = {
   className?: string;
   draggable?: boolean;
   forceLowQualityPreview?: boolean;
+  errorPresentation?: "full" | "compact";
 };
 
 export const CanvasImagePreview = memo(function CanvasImagePreview({
@@ -42,6 +43,7 @@ export const CanvasImagePreview = memo(function CanvasImagePreview({
   className = "",
   draggable = false,
   forceLowQualityPreview = false,
+  errorPresentation = "full",
 }: CanvasImagePreviewProps) {
   recordComponentRender("CanvasImagePreview");
   const highQualityPreviewEnabled = useSettingsStore(
@@ -67,6 +69,7 @@ export const CanvasImagePreview = memo(function CanvasImagePreview({
       className={className}
       draggable={draggable}
       shouldUseLowQualityPreview={shouldUseLowQualityPreview}
+      errorPresentation={errorPresentation}
     />
   );
 });
@@ -82,6 +85,7 @@ function CanvasImagePreviewInner({
   className = "",
   draggable = false,
   shouldUseLowQualityPreview,
+  errorPresentation = "full",
 }: CanvasImagePreviewInnerProps) {
   recordComponentRender("CanvasImagePreviewInner");
   const imageElementRef = useRef<HTMLImageElement>(null);
@@ -501,25 +505,36 @@ function CanvasImagePreviewInner({
 
       {activeRenderStatus === "error" ? (
         <span
-          className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[var(--node-bg)] px-4 text-center text-[var(--text-secondary)]"
+          className={`absolute inset-0 flex items-center justify-center bg-[var(--node-bg)] text-[var(--text-secondary)] ${
+            errorPresentation === "compact"
+              ? "p-px"
+              : "flex-col gap-2 px-4 text-center"
+          }`}
           role="img"
           aria-label={alt ? `${alt}：图片加载失败` : "图片加载失败"}
           data-canvas-image-error="true"
         >
-          <ImageOff className="h-5 w-5 opacity-60" aria-hidden="true" />
-          <span className="max-w-full truncate text-xs">图片加载失败</span>
-          <button
-            type="button"
-            className="nodrag nopan flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-subtle)] bg-[var(--surface-elevated)] text-[var(--text-secondary)] transition hover:border-[var(--border-default)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/30"
-            onClick={(event) => {
-              event.stopPropagation();
-              retryImageLoad();
-            }}
-            aria-label="重新加载图片"
-            title="重新加载图片"
-          >
-            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
+          <ImageOff
+            className={`shrink-0 opacity-60 ${errorPresentation === "compact" ? "h-3 w-3" : "h-5 w-5"}`}
+            aria-hidden="true"
+          />
+          {errorPresentation === "full" ? (
+            <>
+              <span className="max-w-full truncate text-xs">图片加载失败</span>
+              <button
+                type="button"
+                className="nodrag nopan flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-subtle)] bg-[var(--surface-elevated)] text-[var(--text-secondary)] transition hover:border-[var(--border-default)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/30"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  retryImageLoad();
+                }}
+                aria-label="重新加载图片"
+                title="重新加载图片"
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </>
+          ) : null}
         </span>
       ) : null}
     </span>

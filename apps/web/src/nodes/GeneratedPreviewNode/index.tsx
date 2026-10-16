@@ -3,7 +3,6 @@ import { Handle, Position, type OnResizeEnd } from "@xyflow/react";
 import {
   Brush,
   Check,
-  Clock3,
   Download,
   Image as ImageIcon,
   Loader2,
@@ -20,11 +19,9 @@ import { useImageEditorStore } from "@/store/useImageEditorStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { parseModelSelectionRef } from "@/features/officialGeneration/modelReference";
 import { useOfficialGenerationRuntime } from "@/features/officialGeneration/runtime";
-import { platformBridge } from "@/platform";
 import type { AppNodeProps } from "@/types";
 import { themeClasses } from "@/styles/themeClasses";
 import { recordComponentRender } from "@/utils/performanceDiagnostics";
-import { downloadMediaAsBlob } from "@/api/image/shared";
 import {
   NodeDeleteButton,
   NodeEmptyState,
@@ -33,20 +30,13 @@ import {
 } from "../nodeShell";
 import { getNodeShellClassName } from "../nodeShellClassName";
 import { areNodeContentPropsEqual } from "../nodePropComparators";
-import { downloadPreviewImage } from "./downloadImage";
 import { resolvePreviewModelLabel } from "./previewMetadata";
 import { CommunitySubmissionDialog } from "@/features/community/CommunitySubmissionDialog";
-import { buildDownloadFileName } from "@/utils/downloadFileName";
+import { downloadCanvasImage } from "@/utils/downloadCanvasImage";
 import { loadImageDimensions } from "@/features/generateQueue/previewUtils";
+import { ImageGenerationOverlay } from "@/features/canvasGeneration/ImageGenerationOverlay";
 
 type GeneratedPreviewNodeProps = AppNodeProps<"generatedPreviewNode">;
-
-const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-  "image/gif": "gif",
-};
 
 const UI_TEXT = {
   downloadFailed: "图片下载失败",
@@ -116,34 +106,6 @@ function getPreviewTimestamp(data: GeneratedPreviewNodeProps["data"]) {
   return typeof data.createdAt === "number" && Number.isFinite(data.createdAt)
     ? data.createdAt
     : Date.now();
-}
-
-function inferMimeType(url: string) {
-  if (url.startsWith("data:")) {
-    return url.slice(5, url.indexOf(";")) || "image/png";
-  }
-
-  const normalizedUrl = url.toLowerCase();
-  if (normalizedUrl.endsWith(".jpg") || normalizedUrl.endsWith(".jpeg"))
-    return "image/jpeg";
-  if (normalizedUrl.endsWith(".webp")) return "image/webp";
-  if (normalizedUrl.endsWith(".gif")) return "image/gif";
-  return "image/png";
-}
-
-async function imageUrlToBlob(imageUrl: string) {
-  return downloadMediaAsBlob(imageUrl, UI_TEXT.downloadFailed);
-}
-
-function fallbackDownload(blob: Blob, fileName: string) {
-  const objectUrl = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = fileName;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(objectUrl);
 }
 
 function getAppliedImageNodeSize(width: number, height: number) {
@@ -333,19 +295,10 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
     setSaveError("");
 
     try {
-      const blob = await downloadPreviewImage({
+      await downloadCanvasImage({
         imageUrl: data.imageUrl,
-        relativePath: data.imageAsset?.relativePath,
-        resolveAssetUrl: (relativePath) =>
-          platformBridge.resolveWorkspaceAssetUrl(relativePath),
-        clearAssetUrlCache: () => platformBridge.clearWorkspaceAssetUrlCache(),
-        download: imageUrlToBlob,
+        imageAsset: data.imageAsset,
       });
-      const mimeType =
-        blob.type || data.imageAsset?.mimeType || inferMimeType(data.imageUrl);
-      const extension = IMAGE_MIME_EXTENSIONS[mimeType] || "png";
-      const fileName = buildDownloadFileName({ extension });
-      fallbackDownload(blob, fileName);
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : UI_TEXT.retryLater);
     } finally {
@@ -574,34 +527,8 @@ export const GeneratedPreviewNode = memo(function GeneratedPreviewNode({
                 description={data.errorMsg || UI_TEXT.retryLater}
                 className="border-0 bg-transparent"
               />
-            ) : isQueued ? (
-              <NodeStatusSurface
-                tone="amber"
-                icon={<Clock3 className="h-5 w-5" />}
-                title={UI_TEXT.queued}
-                description={UI_TEXT.queuedDescription}
-                className="border-0 bg-transparent"
-              />
-            ) : isGenerating ? (
-              <>
-                <div className="preview-generating-surface absolute inset-0 overflow-hidden rounded-lg">
-                  <div className="preview-aurora-field absolute inset-[-28%]" />
-                  <div className="preview-silk-ribbon preview-silk-ribbon-a absolute inset-x-[-32%] top-[-4%] h-[58%]" />
-                  <div className="preview-silk-ribbon preview-silk-ribbon-b absolute inset-x-[-38%] bottom-[-8%] h-[62%]" />
-                  <div className="preview-light-veil absolute inset-[-12%]" />
-                </div>
-                <div className="preview-vignette absolute inset-0 rounded-lg" />
-                <div className="relative z-10 flex flex-1 items-center justify-center">
-                  <div className="preview-generating-status flex flex-col items-center gap-2 text-[var(--text-primary)]">
-                    <span className="preview-generating-mark flex h-7 w-7 items-center justify-center">
-                      <Sparkles className="h-4 w-4" aria-hidden="true" />
-                    </span>
-                    <span className="text-[11px] font-medium tracking-normal">
-                      {UI_TEXT.generating}
-                    </span>
-                  </div>
-                </div>
-              </>
+            ) : isQueued || isGenerating ? (
+              <ImageGenerationOverlay taskId={data.taskId} queued={isQueued} />
             ) : (
               <NodeEmptyState
                 tone="violet"

@@ -1,9 +1,9 @@
 export type NodeHeaderVariant = "embedded" | "floating";
 
 const EMBEDDED_NODE_HEADER_CLASS_NAME =
-  "node-drag-handle flex cursor-grab items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2 select-none active:cursor-grabbing";
+  "node-drag-handle flex h-8 shrink-0 cursor-grab items-center gap-1.5 border-b border-[var(--border-subtle)] px-2.5 select-none active:cursor-grabbing";
 const FLOATING_NODE_HEADER_CLASS_NAME =
-  "node-drag-handle absolute -top-6 left-1 z-10 flex h-5 w-max max-w-[220px] cursor-grab items-center gap-1.5 select-none active:cursor-grabbing";
+  "node-drag-handle absolute -top-5 left-0.5 z-10 flex h-4 w-max max-w-[220px] cursor-grab items-center gap-1 select-none active:cursor-grabbing";
 
 export function getNodeHeaderScale(zoom: number) {
   const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;

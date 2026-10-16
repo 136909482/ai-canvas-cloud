@@ -10,6 +10,7 @@ import { AccountSettingsPanel } from "@/features/auth/AccountMenu";
 import { CommunityPostingSettings } from "@/features/auth/CommunityPostingSettings";
 import { DeviceSettingsPanel } from "@/features/auth/DeviceSettingsPanel";
 import { TaskQueueButton } from "@/components/TaskQueueButton";
+import { NotificationCenterButton } from "@/components/NotificationCenterButton";
 import { TaskRecordsPanel } from "@/features/taskRecords/TaskRecordsPanel";
 import { themeClasses } from "@/styles/themeClasses";
 import type { CanvasPerformanceMode, EdgeStyle, ThemeMode } from "@/types";
@@ -105,20 +106,26 @@ export function Toolbar({ leftSlot, rightSlot }: ToolbarProps) {
 
   return (
     <>
-      {leftSlot ? (
-        <div className="absolute left-4 top-4 z-10 flex items-center gap-2">
-          {leftSlot}
-        </div>
-      ) : null}
-
       <div
         role="toolbar"
         aria-label="应用工具"
-        className={`absolute right-4 top-4 z-10 flex items-center gap-0.5 p-1 ${themeClasses.compactFloatingPanel}`}
+        className="pointer-events-none absolute inset-x-2 top-2 z-30 flex items-start justify-between gap-2 sm:inset-x-3 sm:top-3"
       >
-        <CreditBalanceButton />
-        <TaskQueueButton />
-        {rightSlot}
+        <div className="pointer-events-auto min-w-0">{leftSlot}</div>
+        <div
+          className={`pointer-events-auto flex h-9 shrink-0 items-center gap-0.5 px-0.5 ${themeClasses.canvasTopPanel}`}
+        >
+          <CreditBalanceButton />
+          <span
+            aria-hidden="true"
+            className={`mx-1 h-4 w-px shrink-0 ${themeClasses.divider}`}
+          />
+          <TaskQueueButton />
+          <div className="flex h-8 w-8 items-center justify-center">
+            <NotificationCenterButton />
+          </div>
+          {rightSlot}
+        </div>
       </div>
 
       {showSettings && (

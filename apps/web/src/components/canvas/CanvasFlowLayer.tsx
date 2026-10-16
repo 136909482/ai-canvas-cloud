@@ -8,18 +8,17 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type MutableRefObject,
-  type ReactNode,
 } from "react";
 import {
   ReactFlow,
   Background,
   MiniMap,
-  Panel,
   ViewportPortal,
   type Connection,
   type DefaultEdgeOptions,
   type Edge,
   type EdgeChange,
+  type EdgeTypes,
   type Node,
   type NodeChange,
   type OnNodeDrag,
@@ -46,11 +45,26 @@ import {
 } from "../canvasImagePreviewRuntime";
 import { CanvasPerformanceProvider } from "../CanvasPerformanceContext";
 import { ViewportControls } from "../ViewportControls";
+import { getInlineImageResultIds } from "@/features/canvasGeneration/imageNodePresentation";
 import {
   CANVAS_CONNECTION_RADIUS,
   getCanvasHandleSize,
 } from "./canvasHandleGeometry";
 import { isEditableTarget } from "./canvasDomUtils";
+import { useCanvasHandleMagnet } from "./useCanvasHandleMagnet";
+import { useCanvasBodyConnection } from "./useCanvasBodyConnection";
+import {
+  CanvasBorderConnectionLine,
+  CanvasBorderEdge,
+} from "./CanvasBorderEdge";
+
+const edgeTypes = {
+  default: CanvasBorderEdge,
+  simplebezier: CanvasBorderEdge,
+  smoothstep: CanvasBorderEdge,
+  step: CanvasBorderEdge,
+  straight: CanvasBorderEdge,
+} satisfies EdgeTypes;
 
 const VIEWPORT_INTERACTION_RESTORE_DELAY_MS = 140;
 const NODE_DRAG_RENDER_RESTORE_DELAY_MS = 220;
@@ -402,7 +416,6 @@ interface CanvasFlowLayerProps {
   miniMapNodeColor: string;
   miniMapSelectedNodeColor: string;
   miniMapMaskColor: string;
-  topLeftPanel: ReactNode;
 }
 
 export function CanvasFlowLayer({
@@ -433,10 +446,13 @@ export function CanvasFlowLayer({
   miniMapNodeColor,
   miniMapSelectedNodeColor,
   miniMapMaskColor,
-  topLeftPanel,
 }: CanvasFlowLayerProps) {
   recordComponentRender("CanvasFlowLayer");
   const [isNodeDragging, setIsNodeDragging] = useState(false);
+  const handleBodyConnectEnd = useCanvasBodyConnection({
+    onConnect,
+    onConnectEnd,
+  });
   const [imagePreviewQuality, setImagePreviewQuality] =
     useState<CanvasImagePreviewQuality>("full");
   const imagePreviewQualityRef = useRef<CanvasImagePreviewQuality>("full");
@@ -445,6 +461,13 @@ export function CanvasFlowLayer({
   const isViewportInteractingRef = useRef(false);
   const isViewportThumbnailQueuePausedRef = useRef(false);
   const isNodeDraggingRef = useRef(false);
+  const resetHandleMagnet = useCanvasHandleMagnet({
+    rootRef: canvasFlowRootRef,
+    zoomRef: lastViewportZoomRef,
+    viewportInteractingRef: isViewportInteractingRef,
+    nodeDraggingRef: isNodeDraggingRef,
+    enabled: !shouldUseLiteRendering,
+  });
   const isNodeDragRenderingActiveRef = useRef(false);
   const [interactiveNodes, setInteractiveNodes] = useState<Node[]>(nodes);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>({});
@@ -591,6 +614,7 @@ export function CanvasFlowLayer({
 
   const updateImagePreviewQuality = useCallback(
     (zoom: number, options?: { allowFullQualityRestore?: boolean }) => {
+      resetHandleMagnet();
       lastViewportZoomRef.current = zoom;
       canvasFlowRootRef.current?.style.setProperty(
         "--canvas-handle-hit-size",
@@ -615,7 +639,7 @@ export function CanvasFlowLayer({
       imagePreviewQualityRef.current = nextQuality;
       setImagePreviewQuality(nextQuality);
     },
-    [imagePreviewCount],
+    [imagePreviewCount, resetHandleMagnet],
   );
 
   const pauseViewportThumbnailWork = useCallback(() => {
@@ -1123,6 +1147,33 @@ export function CanvasFlowLayer({
   const shouldCullReactFlowElements = shouldStabilizeViewportElements
     ? false
     : shouldCullOffscreenElements;
+  const inlineImageResultIds = useMemo(
+    () => getInlineImageResultIds(nodes, edges),
+    [nodes, edges],
+  );
+  const displayNodes = useMemo(() => {
+    const currentNodes =
+      isNodeDragging && !shouldUseInternalDrag ? interactiveNodes : nodes;
+    return currentNodes.map((node) =>
+      inlineImageResultIds.has(node.id) ? { ...node, hidden: true } : node,
+    );
+  }, [
+    inlineImageResultIds,
+    interactiveNodes,
+    isNodeDragging,
+    nodes,
+    shouldUseInternalDrag,
+  ]);
+  const displayEdges = useMemo(
+    () =>
+      edges.map((edge) =>
+        inlineImageResultIds.has(edge.source) ||
+        inlineImageResultIds.has(edge.target)
+          ? { ...edge, hidden: true }
+          : edge,
+      ),
+    [edges, inlineImageResultIds],
+  );
 
   return (
     <CanvasPerformanceProvider value={canvasPerformanceContextValue}>
@@ -1133,17 +1184,17 @@ export function CanvasFlowLayer({
             "--canvas-handle-hit-size": `${getCanvasHandleSize(0.8)}px`,
           } as CSSProperties
         }
-        nodes={
-          isNodeDragging && !shouldUseInternalDrag ? interactiveNodes : nodes
-        }
-        edges={edges}
+        nodes={displayNodes}
+        edges={displayEdges}
         defaultEdgeOptions={edgeOptions}
+        edgeTypes={edgeTypes}
+        connectionLineComponent={CanvasBorderConnectionLine}
         nodeTypes={nodeTypes}
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onConnectStart={onConnectStart}
-        onConnectEnd={onConnectEnd}
+        onConnectEnd={handleBodyConnectEnd}
         onMoveStart={handleViewportMoveStart}
         onMove={handleViewportMove}
         onMoveEnd={handleViewportMoveEnd}
@@ -1167,9 +1218,6 @@ export function CanvasFlowLayer({
         onDragOver={onDragOver}
         onDrop={onDrop}
       >
-        <Panel position="top-left" className="m-4">
-          {topLeftPanel}
-        </Panel>
         {shouldShowBackground ? (
           <Background color="var(--flow-grid)" gap={28} size={1.6} />
         ) : null}

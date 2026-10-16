@@ -1,10 +1,12 @@
 import {
   useCallback,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
   type WheelEvent,
+  type Ref,
 } from "react";
 import { createPortal } from "react-dom";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -24,19 +26,26 @@ import {
   richPromptToPlainText,
 } from "./promptCompiler";
 import type { RichPromptDocument, RichPromptReferenceItem } from "./types";
-import { CanvasImagePreview } from "@/components/CanvasImagePreview";
+import { ImageMentionPreview } from "./ImageMentionPreview";
 import { themeClasses } from "@/styles/themeClasses";
 
 type RichPromptEditorProps = {
+  ref?: Ref<RichPromptEditorHandle>;
   value: RichPromptDocument | null | undefined;
   fallbackText: string;
   references: RichPromptReferenceItem[];
   placeholder: string;
   readOnly: boolean;
   minHeightClassName?: string;
+  appearance?: "default" | "plain";
   onChange: (nextDocument: RichPromptDocument, nextText: string) => void;
   onFocus?: () => void;
   onBlur?: () => void;
+};
+
+export type RichPromptEditorHandle = {
+  insertReference: (reference: RichPromptReferenceItem) => void;
+  focus: () => void;
 };
 
 function createInitialContent(
@@ -59,16 +68,22 @@ function createInitialContent(
 }
 
 export function RichPromptEditor({
+  ref,
   value,
   fallbackText,
   references,
   placeholder,
   readOnly,
   minHeightClassName = "min-h-[120px]",
+  appearance = "default",
   onChange,
   onFocus,
   onBlur,
 }: RichPromptEditorProps) {
+  const appearanceClassName =
+    appearance === "plain"
+      ? "border-0 bg-transparent text-[var(--text-primary)] outline-none"
+      : themeClasses.nodeTextarea;
   const editorFrameRef = useRef<HTMLDivElement>(null);
   const mentionMenuRef = useRef<HTMLDivElement>(null);
   const [mentionMenu, setMentionMenu] = useState<{
@@ -122,7 +137,7 @@ export function RichPromptEditor({
       return;
     }
 
-    editor.setEditable(!readOnly);
+    editor.setEditable(!readOnly, false);
   }, [editor, readOnly]);
 
   useEffect(() => {
@@ -203,32 +218,54 @@ export function RichPromptEditor({
     }
   }, [clearAbandonedMentionTrigger, editor, readOnly, references.length]);
 
-  const insertMention = (reference: RichPromptReferenceItem) => {
-    const chain = editor?.chain().focus();
+  const insertMention = useCallback(
+    (reference: RichPromptReferenceItem) => {
+      if (readOnly) return;
+      const chain = editor?.chain().focus();
 
-    if (!chain) {
-      return;
-    }
+      if (!chain) {
+        return;
+      }
 
-    if (mentionMenu) {
-      chain.deleteRange(mentionMenu.range);
-    }
+      if (mentionMenu) {
+        chain.deleteRange(mentionMenu.range);
+      }
 
-    chain
-      .focus()
-      .insertContent({
-        type: "imageMention",
-        attrs: {
-          sourceNodeId: reference.sourceId,
-          label: reference.label,
-          imageUrl: reference.imageUrl,
-          thumbnailRelativePath: reference.thumbnailRelativePath ?? "",
-        },
-      })
-      .insertContent(" ")
-      .run();
-    setMentionMenu(null);
-  };
+      chain
+        .focus()
+        .insertContent({
+          type: "imageMention",
+          attrs: {
+            sourceNodeId: reference.sourceId,
+            label: reference.label,
+            imageUrl: reference.imageUrl,
+            thumbnailRelativePath: reference.thumbnailRelativePath ?? "",
+          },
+        })
+        .insertContent(" ")
+        .run();
+      setMentionMenu(null);
+    },
+    [editor, mentionMenu, readOnly],
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      focus: () => {
+        if (!editor || readOnly) return;
+        editor.commands.focus("end");
+      },
+      insertReference: (reference) => {
+        if (!editor || readOnly) return;
+        // Begin history and focus synchronously before inserting from a reference card.
+        if (!editor.isFocused) onFocus?.();
+        editor.view.focus();
+        insertMention(reference);
+      },
+    }),
+    [editor, insertMention, onFocus, readOnly],
+  );
 
   const handleWheelCapture = (event: WheelEvent<HTMLDivElement>) => {
     if (!editor?.isFocused) {
@@ -268,7 +305,7 @@ export function RichPromptEditor({
   return (
     <div
       ref={editorFrameRef}
-      className="relative flex min-h-0 flex-1 cursor-text"
+      className="relative flex min-h-0 min-w-0 flex-1 cursor-text"
     >
       <EditorContent
         editor={editor}
@@ -276,8 +313,8 @@ export function RichPromptEditor({
         onMouseUp={updateMentionMenu}
         onWheelCapture={handleWheelCapture}
         onBlur={() => clearAbandonedMentionTrigger()}
-        className={`node-scrollbar nowheel h-full ${minHeightClassName} w-full cursor-text overflow-y-auto overscroll-contain rounded-lg px-3 py-2.5 text-sm leading-6 transition nodrag nopan ${themeClasses.nodeTextarea}
-          [&_.ProseMirror]:min-h-full [&_.ProseMirror]:cursor-text [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:my-0
+        className={`prompt-editor-scrollbar nowheel h-full ${minHeightClassName} min-w-0 w-full cursor-text overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg px-3 py-2.5 text-sm leading-6 transition nodrag nopan ${appearanceClassName}
+          [&_.ProseMirror]:min-h-full [&_.ProseMirror]:cursor-text [&_.ProseMirror]:outline-none [&_.ProseMirror]:[overflow-wrap:anywhere] [&_.ProseMirror_p]:my-0
           [&_.is-editor-empty:first-child::before]:float-left [&_.is-editor-empty:first-child::before]:h-0
           [&_.is-editor-empty:first-child::before]:pointer-events-none
           [&_.is-editor-empty:first-child::before]:text-[var(--text-muted)]
@@ -308,19 +345,11 @@ export function RichPromptEditor({
                   className="flex h-8 min-w-0 items-center gap-2 rounded-full px-1.5 pr-3 text-left text-xs font-medium text-[var(--text-secondary)] transition hover:bg-[var(--accent-violet-soft)] hover:text-[var(--text-primary)]"
                   onClick={() => insertMention(reference)}
                 >
-                  <CanvasImagePreview
-                    src={reference.imageUrl}
-                    alt=""
-                    imageAsset={
-                      reference.thumbnailRelativePath
-                        ? {
-                            thumbnailRelativePath:
-                              reference.thumbnailRelativePath,
-                          }
-                        : null
-                    }
+                  <ImageMentionPreview
+                    sourceId={reference.sourceId}
+                    imageUrl={reference.imageUrl}
+                    thumbnailRelativePath={reference.thumbnailRelativePath}
                     className="h-6 w-6 shrink-0 rounded-[6px] border border-[var(--border-subtle)] object-cover shadow-[0_2px_8px_rgba(0,0,0,0.28)]"
-                    draggable={false}
                   />
                   <span className="truncate">{reference.label}</span>
                 </button>

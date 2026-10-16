@@ -4,6 +4,7 @@ import type { RichPromptDocument } from "@/features/richPrompt/types";
 import type {
   EntourageNodeData,
   GeneratedPreviewNodeData,
+  GenerateNodeData,
   ImageNodeData,
   InteriorDesignNodeData,
   InteriorRefurnishNodeData,
@@ -36,6 +37,7 @@ export function isConnectedImageSourceNode(
   node: Node | undefined,
 ): node is Node<
   | ImageNodeData
+  | GenerateNodeData
   | GeneratedPreviewNodeData
   | TestImageNodeData
   | EntourageNodeData
@@ -44,6 +46,7 @@ export function isConnectedImageSourceNode(
   return Boolean(
     node &&
     (node.type === "imageNode" ||
+      node.type === "generateNode" ||
       node.type === "generatedPreviewNode" ||
       node.type === "testImageNode" ||
       node.type === "entourageNode" ||
@@ -187,4 +190,17 @@ export function getTextFromSourceEdge(nodes: Node[], edge: Edge | undefined) {
         ? sanitizeRichPrompt(sourceNode.data)
         : null,
   };
+}
+
+export function getGenerateTextSource(
+  nodes: Node[],
+  edges: Edge[],
+  nodeId: string,
+) {
+  const edge = edges.find(
+    (candidate) =>
+      candidate.target === nodeId &&
+      isTextSourceNode(getCanvasNodeById(nodes, candidate.source)),
+  );
+  return getTextFromSourceEdge(nodes, edge);
 }

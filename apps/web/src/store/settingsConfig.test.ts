@@ -76,7 +76,7 @@ test("default providers are present and existing official profiles are not dupli
   );
 });
 
-test("standard providers normalize to bearer and synchronous image requests", () => {
+test("standard providers normalize to bearer and preserve OpenAI polling mode", () => {
   const config = normalizeConfig({
     providerProfiles: [
       {
@@ -131,7 +131,7 @@ test("standard providers normalize to bearer and synchronous image requests", ()
   );
 
   assert.equal(openai?.authMode, "bearer");
-  assert.equal(openai?.imageRequestMode, "sync");
+  assert.equal(openai?.imageRequestMode, "async");
   assert.equal(dashscope?.authMode, "bearer");
   assert.equal(dashscope?.imageRequestMode, "sync");
   assert.equal(custom?.authMode, "x-api-key");

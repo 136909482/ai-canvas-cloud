@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { OfficialModelSummary } from "@ai-canvas-cloud/contracts";
 import {
   getNodeModelIssueLabel,
   getNodeModelSelection,
+  getOfficialModelsForCategory,
   getPreferredSelectableModelEntryId,
   getSelectableModelGroups,
   getSelectableModels,
@@ -199,6 +201,60 @@ test("official references become unavailable when the official service is disabl
   });
   assert.equal(selection.canExecute, false);
   assert.equal(getNodeModelIssueLabel(selection), "官方接口服务已关闭");
+});
+
+test("a cached official image catalog stays out of chat and video model menus", () => {
+  const models: OfficialModelSummary[] = [
+    {
+      id: "123e4567-e89b-42d3-a456-426614174000",
+      name: "Nano Banana2",
+      capabilities: { generate: true, edit: true, references: true },
+      prices: { "1K": 1, "2K": 2, "4K": 4 },
+    },
+  ];
+
+  assert.deepEqual(getOfficialModelsForCategory(models, "chat"), []);
+  assert.deepEqual(getOfficialModelsForCategory(models, "video"), []);
+  assert.deepEqual(getOfficialModelsForCategory(models, "image"), models);
+
+  const config = createConfig();
+  assert.equal(getSelectableModelGroups(config, "chat")[0]?.modelId, "gpt-4o");
+  assert.equal(
+    getNodeModelSelection(config, { category: "chat", reference: "entry-a" })
+      .canExecute,
+    true,
+  );
+});
+
+test("previously selected official image references cannot run on chat or video nodes", () => {
+  const config = createConfig();
+  const reference = "official:123e4567-e89b-42d3-a456-426614174000";
+
+  for (const category of ["chat", "video"] as const) {
+    for (const officialGenerationEnabled of [undefined, true, false]) {
+      const selection = getNodeModelSelection(config, {
+        category,
+        reference,
+        officialGenerationEnabled,
+      });
+      assert.equal(selection.reference, reference);
+      assert.equal(selection.issue, "unavailable");
+      assert.equal(selection.canExecute, false);
+      assert.equal(selection.diagnostic?.code, "providerCategoryMismatch");
+      assert.equal(
+        getNodeModelIssueLabel(selection),
+        "当前模型与请求类型不匹配",
+      );
+    }
+  }
+
+  const imageSelection = getNodeModelSelection(config, {
+    category: "image",
+    reference,
+    officialGenerationEnabled: true,
+  });
+  assert.equal(imageSelection.canExecute, true);
+  assert.equal(imageSelection.issue, "none");
 });
 
 test("a bound anonymous reference resolves only to its selected local model entry", () => {

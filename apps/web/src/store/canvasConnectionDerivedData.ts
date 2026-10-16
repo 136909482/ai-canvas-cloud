@@ -1,5 +1,6 @@
 import type { Edge, Node } from "@xyflow/react";
 import { createRichPromptDocumentFromText } from "@/features/richPrompt/promptCompiler";
+import { getConnectedGeneratePromptPatch } from "@/features/canvasGeneration/generatePrompt";
 import { sanitizeRichPrompt } from "./canvasNodeData";
 import {
   MAX_REFURNISH_PRODUCTS,
@@ -7,6 +8,7 @@ import {
 } from "@/features/interiorRefurnish/runtime";
 import {
   getCanvasNodeById,
+  getGenerateTextSource,
   getTextFromSourceEdge,
   isConnectedImageSourceNode,
   isTextSourceNode,
@@ -29,8 +31,11 @@ export function syncConnectionDerivedNodeData(nodes: Node[], edges: Edge[]) {
       .map((edge) => {
         const sourceNode = getCanvasNodeById(nextNodes, edge.source);
         return sourceNode?.type === "imageNode" ||
+          sourceNode?.type === "generateNode" ||
           sourceNode?.type === "generatedPreviewNode" ||
-          sourceNode?.type === "testImageNode"
+          sourceNode?.type === "testImageNode" ||
+          sourceNode?.type === "entourageNode" ||
+          sourceNode?.type === "interiorRefurnishNode"
           ? edge.source
           : null;
       })
@@ -67,28 +72,14 @@ export function syncConnectionDerivedNodeData(nodes: Node[], edges: Edge[]) {
         (sourceId) => !currentReferenceSourceOrder.includes(sourceId),
       ),
     ];
-    const incomingTextEdge = edges.find(
-      (edge) =>
-        edge.target === node.id &&
-        isTextSourceNode(getCanvasNodeById(nextNodes, edge.source)),
-    );
-    const {
-      sourceId: connectedTextNodeId,
-      text: connectedText,
-      richPrompt: connectedRichPrompt,
-    } = getTextFromSourceEdge(nextNodes, incomingTextEdge);
-
-    const currentPrompt =
-      typeof node.data?.prompt === "string" ? node.data.prompt : "";
-    const currentConnectedId =
-      typeof node.data?.connectedTextNode === "string"
-        ? node.data.connectedTextNode
-        : null;
     const currentMaskSourceNodeId =
       typeof node.data?.maskSourceNodeId === "string"
         ? node.data.maskSourceNodeId
         : null;
-    const nextPatch: Record<string, unknown> = {};
+    const nextPatch = getConnectedGeneratePromptPatch(
+      node.data,
+      getGenerateTextSource(nextNodes, edges, node.id),
+    );
 
     if (
       currentReferenceSourceOrder.length !== nextReferenceSourceOrder.length ||
@@ -101,21 +92,6 @@ export function syncConnectionDerivedNodeData(nodes: Node[], edges: Edge[]) {
 
     if (currentMaskSourceNodeId !== nextMaskSourceNodeId) {
       nextPatch.maskSourceNodeId = nextMaskSourceNodeId;
-    }
-
-    if (connectedTextNodeId) {
-      if (
-        currentConnectedId !== connectedTextNodeId ||
-        currentPrompt !== connectedText
-      ) {
-        nextPatch.connectedTextNode = connectedTextNodeId;
-        nextPatch.prompt = connectedText;
-        nextPatch.richPrompt =
-          connectedRichPrompt ??
-          createRichPromptDocumentFromText(connectedText);
-      }
-    } else if (currentConnectedId !== null) {
-      nextPatch.connectedTextNode = null;
     }
 
     if (Object.keys(nextPatch).length === 0) {
@@ -378,8 +354,11 @@ export function syncConnectionDerivedNodeData(nodes: Node[], edges: Edge[]) {
       .map((edge) => {
         const sourceNode = getCanvasNodeById(nextNodes, edge.source);
         return sourceNode?.type === "imageNode" ||
+          sourceNode?.type === "generateNode" ||
           sourceNode?.type === "generatedPreviewNode" ||
-          sourceNode?.type === "testImageNode"
+          sourceNode?.type === "testImageNode" ||
+          sourceNode?.type === "entourageNode" ||
+          sourceNode?.type === "interiorRefurnishNode"
           ? edge.source
           : null;
       })
@@ -451,8 +430,11 @@ export function syncConnectionDerivedNodeData(nodes: Node[], edges: Edge[]) {
       .map((edge) => {
         const sourceNode = getCanvasNodeById(nextNodes, edge.source);
         return sourceNode?.type === "imageNode" ||
+          sourceNode?.type === "generateNode" ||
           sourceNode?.type === "generatedPreviewNode" ||
-          sourceNode?.type === "testImageNode"
+          sourceNode?.type === "testImageNode" ||
+          sourceNode?.type === "entourageNode" ||
+          sourceNode?.type === "interiorRefurnishNode"
           ? edge.source
           : null;
       })

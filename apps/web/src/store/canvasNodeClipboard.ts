@@ -1,6 +1,10 @@
 import type { Node } from "@xyflow/react";
 import { DEFAULT_IMAGE_MODEL_ID } from "@/config/modelCatalog";
-import { normalizeGenerateRatio } from "@/constants/generateNode";
+import {
+  normalizeGenerateOutputCount,
+  normalizeGenerateRatio,
+  normalizeGptImageBackground,
+} from "@/constants/generateNode";
 import type {
   CompareNodeData,
   EntourageNodeData,
@@ -82,6 +86,12 @@ export function cloneNodeForDuplicate(
       data: {
         text: typeof node.data?.text === "string" ? node.data.text : "",
         richPrompt: sanitizeRichPrompt(node.data),
+        generationMode: "text",
+        generationPrompt:
+          typeof node.data?.generationPrompt === "string"
+            ? node.data.generationPrompt
+            : "",
+        model: typeof node.data?.model === "string" ? node.data.model : "",
         label:
           typeof node.data?.label === "string" && node.data.label !== "Prompt"
             ? node.data.label
@@ -226,6 +236,8 @@ export function cloneNodeForDuplicate(
             ? node.data.resolution
             : "1K",
         quality: sanitizeGptImageQuality(node.data?.quality),
+        outputCount: normalizeGenerateOutputCount(node.data?.outputCount),
+        background: normalizeGptImageBackground(node.data?.background),
         googleSearch: node.data?.googleSearch === true,
         googleImageSearch: node.data?.googleImageSearch === true,
         connectedTextNode: null,

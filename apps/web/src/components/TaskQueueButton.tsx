@@ -48,7 +48,7 @@ export function TaskQueueButton() {
         label={TASK_QUEUE_COPY.openTasks}
         onClick={() => setOpen((current) => !current)}
         testId="task-queue-button"
-        className="relative text-[var(--text-muted)]"
+        className="relative h-8 w-8 text-[var(--text-muted)]"
         tooltipPlacement="bottom"
         expanded={open}
         controls={open ? "task-queue-panel" : undefined}

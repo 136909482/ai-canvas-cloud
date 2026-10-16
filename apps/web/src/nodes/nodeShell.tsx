@@ -176,10 +176,10 @@ export function NodeHeader({
           className="flex min-w-0 max-w-[220px] items-center gap-1.5"
           style={headerContentStyle}
         >
-          <span className="flex-none text-[var(--accent-violet-strong)] [&_svg]:h-3 [&_svg]:w-3">
+          <span className="flex-none text-[var(--text-muted)] [&_svg]:h-3 [&_svg]:w-3">
             {icon}
           </span>
-          <span className="min-w-0 truncate text-[11px] font-medium leading-5 text-[var(--text-secondary)]">
+          <span className="min-w-0 truncate text-[10px] font-normal leading-4 text-[var(--text-secondary)]">
             {title}
           </span>
           {right}
@@ -191,7 +191,7 @@ export function NodeHeader({
   return (
     <div className={getNodeHeaderClassName(variant)}>
       <span className="flex-none text-[var(--text-secondary)]">{icon}</span>
-      <span className="min-w-0 flex-1 truncate text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">
+      <span className="min-w-0 flex-1 truncate text-[11px] font-normal text-[var(--text-secondary)]">
         {title}
       </span>
       {right}

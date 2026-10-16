@@ -4,6 +4,8 @@ export const themeClasses = {
     "rounded-xl border border-[var(--floating-panel-border)] bg-[var(--floating-panel-bg)] shadow-[var(--shadow-floating-panel)] backdrop-blur-2xl",
   compactFloatingPanel:
     "rounded-lg border border-[var(--floating-panel-border)] bg-[var(--floating-panel-bg)] shadow-[var(--shadow-floating-panel)] backdrop-blur-2xl",
+  canvasTopPanel:
+    "rounded-lg border border-[var(--floating-panel-border)] bg-[var(--floating-panel-bg)] shadow-[0_2px_8px_rgba(0,0,0,0.12)] backdrop-blur-xl",
   strongPanel:
     "rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] shadow-[var(--shadow-panel)] backdrop-blur-2xl",
   iconButton:
@@ -25,11 +27,11 @@ export const themeClasses = {
   nodeInput:
     "rounded-lg border border-[var(--border-subtle)] bg-[var(--node-control-bg)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none transition focus:border-[var(--accent-violet-strong)] focus:bg-[var(--node-control-bg-hover)] focus:ring-2 focus:ring-[var(--accent-violet-soft)]",
   nodeTextarea:
-    "rounded-xl border border-[var(--border-subtle)] bg-[var(--node-control-bg)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none transition focus:border-[var(--accent-violet-strong)] focus:bg-[var(--node-control-bg-hover)] focus:ring-2 focus:ring-[var(--accent-violet-soft)]",
+    "rounded-md border border-[var(--border-subtle)] bg-[var(--node-control-bg)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none transition focus:border-[var(--accent-violet-strong)] focus:bg-[var(--node-control-bg-hover)] focus:ring-1 focus:ring-[var(--accent-violet-soft)]",
   nodeSubtlePanel:
-    "rounded-xl border border-[var(--border-subtle)] bg-[var(--control-bg)]",
+    "rounded-md border border-[var(--border-subtle)] bg-[var(--control-bg)]",
   nodeRaisedPanel:
-    "rounded-xl border border-[var(--border-subtle)] bg-[var(--control-bg-hover)]",
+    "rounded-md border border-[var(--border-subtle)] bg-[var(--control-bg-hover)]",
   nodeToolbarPanel:
     "node-toolbar-panel rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] shadow-[var(--shadow-panel)] backdrop-blur-2xl",
   nodeToolbarButton:
@@ -41,7 +43,7 @@ export const themeClasses = {
   nodeFooter:
     "mt-auto border-t border-[var(--border-subtle)] bg-transparent px-0 pt-1.5",
   nodeBadge:
-    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]",
+    "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-normal",
   nodeBadgeViolet:
     "border-[var(--accent-violet-muted)] bg-[var(--accent-violet-soft)] text-[var(--accent-violet-strong)]",
   nodeBadgeAmber:
@@ -51,9 +53,9 @@ export const themeClasses = {
   nodeBadgeEmerald:
     "border-emerald-400/20 bg-emerald-400/8 text-emerald-600 dark:text-emerald-200",
   nodeAssetStrip:
-    "inline-flex max-w-full items-center self-start rounded-lg border border-[var(--accent-violet-muted)] bg-[var(--accent-violet-soft)] px-1.5 py-1",
+    "inline-flex max-w-full items-center self-start rounded-md border border-[var(--border-subtle)] bg-[var(--control-bg)] px-1 py-1",
   nodeAssetThumb:
-    "relative h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--control-bg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
+    "relative h-8 w-8 shrink-0 overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--control-bg)]",
   nodeAssetIndexBadge:
     "absolute left-0.5 top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] px-1 text-[7px] font-semibold leading-none text-[var(--text-primary)] shadow-[0_2px_8px_rgba(0,0,0,0.28)]",
   nodeAssetRemoveButton:

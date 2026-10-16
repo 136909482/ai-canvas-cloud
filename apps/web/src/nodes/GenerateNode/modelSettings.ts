@@ -1,7 +1,9 @@
-import type { GptImageQuality } from "@/types";
+import type { GptImageBackground, GptImageQuality } from "@/types";
 import {
   DEFAULT_GENERATE_RATIO,
   SUPPORTED_GENERATE_RATIOS,
+  normalizeGenerateOutputCount,
+  normalizeGptImageBackground,
 } from "@/constants/generateNode";
 
 export const RATIOS = [DEFAULT_GENERATE_RATIO, ...SUPPORTED_GENERATE_RATIOS];
@@ -12,6 +14,11 @@ export const GPT_IMAGE_QUALITY_LABELS: Record<GptImageQuality, string> = {
   low: "快速",
   medium: "均衡",
   high: "高质",
+};
+export const GPT_IMAGE_BACKGROUND_LABELS: Record<GptImageBackground, string> = {
+  auto: "自动",
+  opaque: "不透明",
+  transparent: "透明",
 };
 
 export function getRatioLabel(ratio: string) {
@@ -45,21 +52,26 @@ export function getGenerateSettingsSummary({
   resolution,
   quality,
   hasAutoRatioSource = false,
+  outputCount = 1,
+  background = "auto",
+  showBackgroundSettings = false,
 }: {
   isGptImageModel: boolean;
   ratio: string;
   resolution: string;
   quality: GptImageQuality;
   hasAutoRatioSource?: boolean;
+  outputCount?: number;
+  background?: GptImageBackground;
+  showBackgroundSettings?: boolean;
 }) {
-  const ratioLabel = getRatioLabel(ratio);
-  if (!isGptImageModel)
-    return `${ratioLabel} / ${getResolutionLabel(resolution)}`;
-  if (ratio === DEFAULT_GENERATE_RATIO) {
-    if (hasAutoRatioSource) {
-      return `${ratioLabel} / ${getResolutionLabel(resolution)} / ${GPT_IMAGE_QUALITY_LABELS[quality]}`;
-    }
-    return `${ratioLabel} / ${GPT_IMAGE_QUALITY_LABELS[quality]}`;
-  }
-  return `${ratioLabel} / ${getResolutionLabel(resolution)} / ${GPT_IMAGE_QUALITY_LABELS[quality]}`;
+  const summary = [getRatioLabel(ratio)];
+  if (shouldShowResolutionSettings(isGptImageModel, ratio, hasAutoRatioSource))
+    summary.push(getResolutionLabel(resolution));
+  if (isGptImageModel) summary.push(GPT_IMAGE_QUALITY_LABELS[quality]);
+  const normalizedBackground = normalizeGptImageBackground(background);
+  if (showBackgroundSettings && normalizedBackground !== "auto")
+    summary.push(GPT_IMAGE_BACKGROUND_LABELS[normalizedBackground]);
+  summary.push(`${normalizeGenerateOutputCount(outputCount)} 张`);
+  return summary.join(" / ");
 }

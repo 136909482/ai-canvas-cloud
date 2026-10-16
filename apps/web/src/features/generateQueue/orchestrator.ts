@@ -13,6 +13,7 @@ import type {
   GenerateTask,
   GenerateTaskImageSource,
   GptImageQuality,
+  GptImageBackground,
   ImageInputFidelity,
   ImageOperationType,
   VideoGenerateMode,
@@ -55,6 +56,7 @@ type EnqueueGenerateTaskInput = {
   maskImageSource?: GenerateTaskImageSource | null;
   inputFidelity?: ImageInputFidelity | null;
   quality?: GptImageQuality | null;
+  background?: GptImageBackground | null;
   googleSearch?: boolean;
   googleImageSearch?: boolean;
 };
@@ -425,6 +427,7 @@ export function enqueueGenerateTask(input: EnqueueGenerateTaskInput) {
     referenceImages,
     inputFidelity: null,
     quality: input.quality ?? null,
+    background: input.background ?? null,
     googleSearch: Boolean(input.googleSearch),
     googleImageSearch: Boolean(input.googleImageSearch),
   });
@@ -724,6 +727,7 @@ export function enqueueImageEditTask(input: EnqueueGenerateTaskInput) {
     referenceImages,
     inputFidelity: null,
     quality: input.quality ?? null,
+    background: input.background ?? null,
     googleSearch: Boolean(input.googleSearch),
     googleImageSearch: Boolean(input.googleImageSearch),
   });
@@ -820,6 +824,7 @@ export function retryGenerateTask(taskId: string) {
     ...refreshedImageSources,
     inputFidelity: task.inputFidelity ?? null,
     quality: task.quality ?? null,
+    background: task.background ?? null,
     googleSearch: Boolean(task.googleSearch),
     googleImageSearch: Boolean(task.googleImageSearch),
     videoMode: task.videoMode ?? null,

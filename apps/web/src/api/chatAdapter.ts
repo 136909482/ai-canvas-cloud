@@ -108,6 +108,7 @@ function buildFileInstruction(
 }
 
 export type ExecuteChatPromptParams = {
+  signal?: AbortSignal;
   model: Pick<RuntimeModelConfig, "apiKey" | "apiUrl" | "modelId">;
   systemPrompt?: string;
   instructionPrompt: string;
@@ -187,6 +188,7 @@ function extractChatCompletionText(payload: {
 
 export async function executeChatPrompt({
   model,
+  signal,
   systemPrompt = "",
   instructionPrompt,
   inputText,
@@ -205,6 +207,7 @@ export async function executeChatPrompt({
 
   const response = await fetch(buildChatCompletionsUrl(model.apiUrl), {
     method: "POST",
+    signal,
     headers: {
       Authorization: `Bearer ${model.apiKey}`,
       "Content-Type": "application/json",
@@ -237,6 +240,7 @@ export type ExecuteChatPromptStreamCallbacks = {
 export async function executeChatPromptStream(
   {
     model,
+    signal,
     systemPrompt = "",
     instructionPrompt,
     inputText,
@@ -257,6 +261,7 @@ export async function executeChatPromptStream(
 
   const response = await fetch(buildChatCompletionsUrl(model.apiUrl), {
     method: "POST",
+    signal,
     headers: {
       Authorization: `Bearer ${model.apiKey}`,
       "Content-Type": "application/json",
@@ -293,30 +298,30 @@ export async function executeChatPromptStream(
   const parser = createChatCompletionStreamParser();
   let fullText = "";
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) {
-      break;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      signal?.throwIfAborted();
+      const parsed = parser.push(decoder.decode(value, { stream: true }));
+      for (const delta of parsed.deltas) {
+        fullText += delta;
+        callbacks.onDelta?.(delta, fullText);
+      }
+      if (parsed.done) break;
     }
-
-    const parsed = parser.push(decoder.decode(value, { stream: true }));
-    for (const delta of parsed.deltas) {
-      fullText += delta;
-      callbacks.onDelta?.(delta, fullText);
+    const trailing = decoder.decode();
+    if (trailing) {
+      const parsed = parser.push(trailing);
+      for (const delta of parsed.deltas) {
+        fullText += delta;
+        callbacks.onDelta?.(delta, fullText);
+      }
     }
-
-    if (parsed.done) {
-      break;
-    }
-  }
-
-  const trailing = decoder.decode();
-  if (trailing) {
-    const parsed = parser.push(trailing);
-    for (const delta of parsed.deltas) {
-      fullText += delta;
-      callbacks.onDelta?.(delta, fullText);
-    }
+    signal?.throwIfAborted();
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
 
   const result = fullText.trim();

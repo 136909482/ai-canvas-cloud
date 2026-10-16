@@ -16,7 +16,7 @@ function getSize(node: Node): { width: number; height: number } {
     typeof node.width === "number"
       ? node.width
       : node.type === "generateNode"
-        ? 480
+        ? 360
         : node.type === "interiorDesignNode"
           ? 560
           : node.type === "imageEditNode"
@@ -55,7 +55,7 @@ function getSize(node: Node): { width: number; height: number } {
     typeof node.height === "number"
       ? node.height
       : node.type === "generateNode"
-        ? 360
+        ? 204
         : node.type === "interiorDesignNode"
           ? 620
           : node.type === "imageEditNode"

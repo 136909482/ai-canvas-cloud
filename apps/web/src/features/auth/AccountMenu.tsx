@@ -349,7 +349,7 @@ export function AccountMenu() {
         aria-haspopup="menu"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((current) => !current)}
-        className={`${themeClasses.iconButton} h-6 w-6 rounded-md`}
+        className={`${themeClasses.iconButton} h-8 w-8 rounded-md`}
       >
         <UserRound className="h-3.5 w-3.5" />
       </button>
@@ -358,7 +358,7 @@ export function AccountMenu() {
         <div
           role="menu"
           aria-label="用户菜单"
-          className={`absolute right-0 top-8 z-50 w-[180px] overflow-hidden rounded-[8px] ${themeClasses.strongPanel}`}
+          className={`absolute right-0 top-[calc(100%+10px)] z-50 w-[180px] overflow-hidden rounded-[8px] ${themeClasses.strongPanel}`}
         >
           <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-2 py-2">
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] border border-violet-400/25 bg-violet-400/10 text-violet-300">

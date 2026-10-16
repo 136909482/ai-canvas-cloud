@@ -1,882 +1,412 @@
-import {
-  memo,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type SyntheticEvent,
-} from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Handle, Position, useUpdateNodeInternals } from "@xyflow/react";
 import {
-  ChevronDown,
-  Clock3,
-  Link2,
+  Download,
+  Image as ImageIcon,
   Loader2,
-  Play,
-  SlidersHorizontal,
-  Sparkles,
-  X,
+  Maximize,
+  Send,
+  Upload,
 } from "lucide-react";
 import { CanvasImagePreview } from "@/components/CanvasImagePreview";
+import { StableNodeToolbar } from "@/components/StableNodeToolbar";
+import { ZoomableImagePreview } from "@/components/ZoomableImagePreview";
 import {
-  MAX_GENERATE_REFERENCE_IMAGES,
-  normalizeGenerateRatio,
-} from "@/constants/generateNode";
-import { isGptImageModel } from "@/api/imageAdapter";
-import { enqueueGenerateTask } from "@/features/generateQueue/orchestrator";
-import { compileImageMentionPrompt } from "@/features/richPrompt/promptCompiler";
-import {
-  getNodeModelIssueLabel,
-  getNodeModelSelection,
-} from "@/features/settings/nodeModelSelection";
-import { RichPromptEditor } from "@/features/richPrompt/RichPromptEditor";
-import type {
-  RichPromptDocument,
-  RichPromptReferenceItem,
-} from "@/features/richPrompt/types";
-import {
-  makeSelectGenerateMaskSourceNode,
-  makeSelectGenerateReferenceSourceNodes,
-  useCanvasStore,
-} from "@/store/useCanvasStore";
+  buildUploadedImageGraph,
+  getGeneratedImageCardSize,
+} from "@/features/canvasGeneration/imageNodePresentation";
+import { ImageGenerationOverlay } from "@/features/canvasGeneration/ImageGenerationOverlay";
+import { loadImageDimensions } from "@/features/generateQueue/previewUtils";
+import { CommunitySubmissionDialog } from "@/features/community/CommunitySubmissionDialog";
+import { importImageFile } from "@/features/imageImport/runtime";
+import { useCanvasStore } from "@/store/useCanvasStore";
+import { useFeedbackStore } from "@/store/useFeedbackStore";
 import { useHistoryStore } from "@/store/useHistoryStore";
 import { useProjectStore } from "@/store/useProjectStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
-import { useTaskQueueStore } from "@/store/useTaskQueueStore";
-import {
-  getWorkspaceAssetRelativePath,
-  getWorkspaceAssetThumbnailRelativePath,
-} from "@/utils/workspaceImageAsset";
-import { recordComponentRender } from "@/utils/performanceDiagnostics";
-import { type AppNodeProps } from "@/types";
-import { useShallow } from "zustand/react/shallow";
 import { themeClasses } from "@/styles/themeClasses";
-import { NodeModelSelector } from "../NodeModelSelector";
-import { isOfficialModelReference } from "@/features/officialGeneration/modelReference";
-import { useOfficialGenerationRuntime } from "@/features/officialGeneration/runtime";
+import type { AppNodeProps } from "@/types";
+import { recordComponentRender } from "@/utils/performanceDiagnostics";
+import { downloadCanvasImage } from "@/utils/downloadCanvasImage";
 import { NodeDeleteButton, NodeHeader, NodeResizerPreset } from "../nodeShell";
 import { getNodeShellClassName } from "../nodeShellClassName";
 import { areNodeContentPropsEqual } from "../nodePropComparators";
-import { RatioPreview, SettingsSection, SettingsSegment } from "./modelOptions";
-import {
-  GPT_IMAGE_QUALITIES,
-  GPT_IMAGE_QUALITY_LABELS,
-  RATIOS,
-  RESOLUTIONS,
-  getRatioLabel,
-  getResolutionLabel,
-  getGenerateSettingsSummary,
-  hasPromptRatio,
-  shouldShowResolutionSettings,
-} from "./modelSettings";
-import {
-  type ReferenceImageItem,
-  buildReferenceImageAsset,
-  decodeReferenceImageKey,
-  encodeReferenceImageKey,
-  getReferenceOrderLabel,
-} from "./referenceImages";
 
-type GenerateNodeProps = AppNodeProps<"generateNode">;
-
-const UI_TEXT = {
-  deleteNode: "删除 AI 绘图节点",
-  title: "AI绘图",
-  textToImage: "文生图",
-  imageToImage: "图生图",
-  syncedFromText: "已由文本节点同步",
-  placeholder: "输入提示词...",
-  chooseModel: "选择模型",
-  chooseRatio: "选择画幅",
-  chooseResolution: "选择分辨率",
-  generate: "生成预览",
-  queued: "排队中",
-  generating: "生成中",
-  generateFailed: "生成失败",
-  retry: "重试",
-  previewQueued: "已加入生成队列，等待前面的任务完成",
-  referenceLimitHint: `最多支持 ${MAX_GENERATE_REFERENCE_IMAGES} 张参考图`,
-  maskInput: "蒙版输入",
-  maskToggle: "遮罩开关",
-  enableMaskInput: "开启蒙版输入",
-  disableMaskInput: "关闭蒙版输入",
-  maskConnected: "已连接蒙版",
-  maskNeedsBaseImage: "使用蒙版重绘需要同时连接原图和蒙版",
-  maskUnsupportedModel: "请选择支持蒙版局部编辑的模型",
-} as const;
-
+// The existing generation node is presented as an image card; its task/data
+// contract stays intact and completed images already come back to imageUrl.
 export const GenerateNode = memo(function GenerateNode({
   id,
   data,
   selected,
-}: GenerateNodeProps) {
-  const officialRuntime = useOfficialGenerationRuntime();
+  dragging,
+}: AppNodeProps<"generateNode">) {
   recordComponentRender("GenerateNode");
   const isQueued = data.status === "queued";
   const isGenerating = data.status === "generating";
   const isBusy = isQueued || isGenerating;
-  const [hasPromptDraft, setHasPromptDraft] = useState(
-    Boolean((data.prompt || "").trim()),
+  const isResizing = useCanvasStore((state) =>
+    Boolean(state.nodes.find((node) => node.id === id)?.resizing),
   );
-  const [promptDraft, setPromptDraft] = useState(data.prompt || "");
-  const [richPromptDraft, setRichPromptDraft] =
-    useState<RichPromptDocument | null>(data.richPrompt ?? null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const latestPromptDraftRef = useRef(promptDraft);
-  const latestRichPromptDraftRef = useRef<RichPromptDocument | null>(
-    richPromptDraft,
-  );
-  const settingsRef = useRef<HTMLDivElement | null>(null);
-  const selectReferenceImageKeys = useMemo(() => {
-    const selectReferenceSourceNodes =
-      makeSelectGenerateReferenceSourceNodes(id);
-    return (state: Parameters<typeof selectReferenceSourceNodes>[0]) =>
-      selectReferenceSourceNodes(state).map((node) =>
-        encodeReferenceImageKey({
-          sourceId: node.id,
-          imageUrl: node.data.imageUrl as string,
-          thumbnailRelativePath: getWorkspaceAssetThumbnailRelativePath(
-            node.data.imageAsset,
-          ),
-          assetRelativePath: getWorkspaceAssetRelativePath(
-            node.data.imageAsset,
-          ),
-        }),
-      );
-  }, [id]);
-  const selectMaskImageKey = useMemo(() => {
-    const selectMaskSourceNode = makeSelectGenerateMaskSourceNode(id);
-    return (state: Parameters<typeof selectMaskSourceNode>[0]) => {
-      const node = selectMaskSourceNode(state);
-      return node
-        ? encodeReferenceImageKey({
-            sourceId: node.id,
-            imageUrl: node.data.imageUrl as string,
-            thumbnailRelativePath: getWorkspaceAssetThumbnailRelativePath(
-              node.data.imageAsset,
-            ),
-            assetRelativePath: getWorkspaceAssetRelativePath(
-              node.data.imageAsset,
-            ),
-          })
-        : "";
-    };
-  }, [id]);
-  const referenceImageKeys = useCanvasStore(
-    useShallow(selectReferenceImageKeys),
-  );
-  const maskImageKey = useCanvasStore(selectMaskImageKey);
-  const {
-    updateNodeData,
-    deleteNode,
-    deleteEdgesBySourceTargetExceptHandle,
-    deleteEdgesBySourceTargetHandle,
-  } = useCanvasStore(
-    useShallow((s) => ({
-      updateNodeData: s.updateNodeData,
-      deleteNode: s.deleteNode,
-      deleteEdgesBySourceTargetExceptHandle:
-        s.deleteEdgesBySourceTargetExceptHandle,
-      deleteEdgesBySourceTargetHandle: s.deleteEdgesBySourceTargetHandle,
-    })),
-  );
-  const beginTransaction = useHistoryStore((s) => s.beginTransaction);
-  const commitTransaction = useHistoryStore((s) => s.commitTransaction);
-  const runTracked = useHistoryStore((s) => s.runTracked);
-  const activeProjectId = useProjectStore((s) => s.activeProjectId);
+  const deleteNode = useCanvasStore((state) => state.deleteNode);
+  const runTracked = useHistoryStore((state) => state.runTracked);
+  const notify = useFeedbackStore((state) => state.notify);
   const updateNodeInternals = useUpdateNodeInternals();
-  const settingsConfig = useSettingsStore((s) => s.config);
-  const activeTaskCount = useTaskQueueStore(
-    (state) =>
-      state.tasks.filter(
-        (task) =>
-          task.sourceNodeId === id &&
-          (task.status === "queued" || task.status === "running"),
-      ).length,
-  );
-  const setDefaultModel = useSettingsStore((s) => s.setDefaultModel);
-  const bindLocalModelReference = useSettingsStore(
-    (s) => s.bindLocalModelReference,
-  );
-  const allReferenceImages = useMemo<ReferenceImageItem[]>(
-    () =>
-      referenceImageKeys
-        .map(decodeReferenceImageKey)
-        .filter((item): item is ReferenceImageItem => Boolean(item)),
-    [referenceImageKeys],
-  );
-  const maskSourceImage = useMemo(
-    () => (maskImageKey ? decodeReferenceImageKey(maskImageKey) : null),
-    [maskImageKey],
-  );
-  const referenceImages = useMemo(
-    () => allReferenceImages.slice(0, MAX_GENERATE_REFERENCE_IMAGES),
-    [allReferenceImages],
-  );
-  const richPromptReferences = useMemo<RichPromptReferenceItem[]>(
-    () =>
-      referenceImages.map((item, index) => ({
-        sourceId: item.sourceId,
-        imageUrl: item.imageUrl,
-        thumbnailRelativePath: item.thumbnailRelativePath,
-        label: `图片${index + 1}`,
-        order: index + 1,
-      })),
-    [referenceImages],
-  );
-
-  const isConnected = Boolean(data.connectedTextNode);
-  const maskInputEnabled = data.maskInputEnabled === true;
-  const referenceImageCount = referenceImages.length;
-  const maskImageUrl =
-    maskInputEnabled && maskSourceImage ? maskSourceImage.imageUrl : "";
-  const hasMaskImage = Boolean(maskImageUrl);
-  const hasReferenceLimit =
-    allReferenceImages.length >= MAX_GENERATE_REFERENCE_IMAGES;
-  const generationModeLabel = hasMaskImage
-    ? "局部重绘"
-    : referenceImageCount > 0
-      ? UI_TEXT.imageToImage
-      : UI_TEXT.textToImage;
-  const modelSelection = useMemo(
-    () =>
-      getNodeModelSelection(settingsConfig, {
-        category: "image",
-        reference: data.model,
-        officialGenerationEnabled:
-          officialRuntime.preferences?.effectiveEnabled,
-      }),
-    [data.model, officialRuntime.preferences?.effectiveEnabled, settingsConfig],
-  );
-  const modelIssueLabel = getNodeModelIssueLabel(modelSelection);
-  const effectiveModel = data.model.trim();
-  const selectedModel = modelSelection.selectedModel;
-  const isGptImageSettingsModel = isGptImageModel(selectedModel?.modelId ?? "");
-  const ratio = normalizeGenerateRatio(data.ratio);
-  const promptForSettings = isConnected ? data.prompt || "" : promptDraft;
-  const hasExplicitPromptRatio = hasPromptRatio(promptForSettings);
-  const resolution = RESOLUTIONS.includes(data.resolution)
-    ? data.resolution
-    : "1K";
-  const quality = data.quality || "auto";
-  const settingsSummary = getGenerateSettingsSummary({
-    isGptImageModel: isGptImageSettingsModel,
-    ratio,
-    resolution,
-    quality,
-    hasAutoRatioSource:
-      referenceImageCount > 0 || hasMaskImage || hasExplicitPromptRatio,
-  });
-  const showResolutionSettings = shouldShowResolutionSettings(
-    isGptImageSettingsModel,
-    ratio,
-    referenceImageCount > 0 || hasMaskImage || hasExplicitPromptRatio,
-  );
-
-  const stopCanvasGesture = (event: SyntheticEvent) => {
-    event.stopPropagation();
-  };
-
-  const selectModel = (modelId: string) => {
-    runTracked(() => {
-      if (
-        !isOfficialModelReference(modelId) &&
-        modelSelection.issue === "unbound" &&
-        modelId !== data.model &&
-        !bindLocalModelReference(data.model, modelId)
-      )
-        return;
-      updateNodeData(id, { model: modelId, errorMsg: "" });
-      if (modelId && !isOfficialModelReference(modelId))
-        setDefaultModel(modelId);
-    });
-  };
-
-  const updateRichPromptDraft = (
-    nextPrompt: string,
-    nextRichPrompt: RichPromptDocument | null,
-  ) => {
-    latestPromptDraftRef.current = nextPrompt;
-    latestRichPromptDraftRef.current = nextRichPrompt;
-    setPromptDraft(nextPrompt);
-    setRichPromptDraft(nextRichPrompt);
-    setHasPromptDraft(Boolean(nextPrompt.trim()));
-  };
-
-  const syncRichPromptToStore = (
-    nextPrompt: string,
-    nextRichPrompt: RichPromptDocument | null,
-  ) => {
-    if (
-      nextPrompt !== (data.prompt || "") ||
-      nextRichPrompt !== (data.richPrompt ?? null)
-    ) {
-      updateNodeData(id, {
-        prompt: nextPrompt,
-        richPrompt: nextRichPrompt,
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadingRef = useRef(false);
+  const [uploading, setUploading] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [showCommunitySubmission, setShowCommunitySubmission] = useState(false);
+  const [isSavingImage, setIsSavingImage] = useState(false);
+  const handleSaveImage = async () => {
+    if (!data.imageUrl || isSavingImage) return;
+    setIsSavingImage(true);
+    try {
+      await downloadCanvasImage({
+        imageUrl: data.imageUrl,
+        imageAsset: data.imageAsset,
       });
+    } catch (error) {
+      notify({
+        tone: "error",
+        title: "图片下载失败",
+        message: error instanceof Error ? error.message : "请稍后重试",
+      });
+    } finally {
+      setIsSavingImage(false);
     }
   };
-
-  const toggleMaskInput = () => {
-    const nextMaskInputEnabled = !maskInputEnabled;
-    runTracked(() => {
-      if (!nextMaskInputEnabled && maskSourceImage) {
-        deleteEdgesBySourceTargetHandle(maskSourceImage.sourceId, id, "mask");
-      }
-      updateNodeData(id, {
-        maskInputEnabled: nextMaskInputEnabled,
-        ...(!nextMaskInputEnabled ? { maskSourceNodeId: null } : {}),
-      });
-    });
-  };
-
   useEffect(() => {
     updateNodeInternals(id);
-  }, [id, maskInputEnabled, updateNodeInternals]);
-
+  }, [id, data.maskInputEnabled, updateNodeInternals]);
   useEffect(() => {
-    if (!settingsOpen) {
-      return;
+    const imageUrl = data.imageUrl;
+    if (!imageUrl || isBusy || dragging || isResizing) return;
+    let cancelled = false;
+    const projectId = useProjectStore.getState().activeProjectId;
+    const fitImage = ({ width, height }: { width: number; height: number }) => {
+      if (cancelled || useProjectStore.getState().activeProjectId !== projectId)
+        return;
+      const store = useCanvasStore.getState();
+      const node = store.nodes.find((candidate) => candidate.id === id);
+      if (
+        !node ||
+        node.type !== "generateNode" ||
+        node.data.imageUrl !== imageUrl ||
+        node.resizing ||
+        node.data.status === "queued" ||
+        node.data.status === "generating"
+      )
+        return;
+      const size = getGeneratedImageCardSize(width, height, node.width);
+      if (!size || (node.width === size.width && node.height === size.height))
+        return;
+      store.updateNodeData(id, size);
+    };
+    const width =
+      data.imageAsset?.originalWidth ?? data.imageAsset?.displayWidth;
+    const height =
+      data.imageAsset?.originalHeight ?? data.imageAsset?.displayHeight;
+    if (
+      width &&
+      height &&
+      Number.isFinite(width) &&
+      Number.isFinite(height) &&
+      width > 0 &&
+      height > 0
+    ) {
+      fitImage({ width, height });
+    } else {
+      void loadImageDimensions(imageUrl)
+        .then(fitImage)
+        .catch(() => undefined);
     }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (settingsOpen && !settingsRef.current?.contains(target)) {
-        setSettingsOpen(false);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    id,
+    data.imageUrl,
+    data.imageAsset?.originalWidth,
+    data.imageAsset?.originalHeight,
+    data.imageAsset?.displayWidth,
+    data.imageAsset?.displayHeight,
+    isBusy,
+    dragging,
+    isResizing,
+  ]);
+  const handleFile = useCallback(
+    async (file: File) => {
+      const current = useCanvasStore
+        .getState()
+        .nodes.find((node) => node.id === id);
+      if (
+        !file.type.startsWith("image/") ||
+        uploadingRef.current ||
+        !current ||
+        current.type !== "generateNode" ||
+        current.data.imageUrl ||
+        current.data.status === "queued" ||
+        current.data.status === "generating"
+      )
+        return;
+      const projectId = useProjectStore.getState().activeProjectId;
+      uploadingRef.current = true;
+      setUploading(true);
+      try {
+        const image = await importImageFile(
+          file,
+          useSettingsStore.getState().runtime.workspaceConfigured,
+          projectId,
+        );
+        if (useProjectStore.getState().activeProjectId !== projectId) return;
+        const store = useCanvasStore.getState();
+        const nextGraph = buildUploadedImageGraph(
+          store.nodes,
+          store.edges,
+          id,
+          image,
+        );
+        if (nextGraph) runTracked(() => useCanvasStore.setState(nextGraph));
+      } catch (error) {
+        notify({
+          tone: "error",
+          title: "图片上传失败",
+          message: error instanceof Error ? error.message : "请稍后重试",
+        });
+      } finally {
+        uploadingRef.current = false;
+        setUploading(false);
+      }
+    },
+    [id, notify, runTracked],
+  );
+  useEffect(() => {
+    if (!selected || data.imageUrl || isBusy) return;
+    const paste = (event: ClipboardEvent) => {
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.closest('input, textarea, [contenteditable="true"]')
+      )
+        return;
+      const file = Array.from(event.clipboardData?.items ?? [])
+        .find((item) => item.type.startsWith("image/"))
+        ?.getAsFile();
+      if (file) {
+        event.preventDefault();
+        void handleFile(file);
       }
     };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [settingsOpen]);
-
-  const handleEnqueue = () => {
-    const effectivePromptDraft = isConnected ? data.prompt || "" : promptDraft;
-    const effectiveRichPromptDraft = isConnected
-      ? (data.richPrompt ?? null)
-      : richPromptDraft;
-    const currentPrompt = (effectivePromptDraft || data.prompt || "").trim();
-    if (!currentPrompt) {
-      return;
-    }
-
-    const modelEntryId = isOfficialModelReference(modelSelection.reference)
-      ? modelSelection.reference
-      : modelSelection.modelEntryId;
-    if (!modelSelection.canExecute || !modelEntryId) {
-      updateNodeData(id, {
-        status: "error",
-        errorMsg:
-          getNodeModelIssueLabel(modelSelection) ||
-          "请选择可用的图像服务商和模型。",
-      });
-      return;
-    }
-
-    if (hasMaskImage && referenceImages.length === 0) {
-      updateNodeData(id, {
-        status: "error",
-        errorMsg: UI_TEXT.maskNeedsBaseImage,
-        model: effectiveModel,
-      });
-      return;
-    }
-
-    const compiledPrompt = compileImageMentionPrompt({
-      richPrompt: effectiveRichPromptDraft,
-      fallbackPrompt: currentPrompt,
-      references: richPromptReferences,
-    });
-    const taskReferenceImages = referenceImages.map((referenceImage) => ({
-      sourceNodeId: referenceImage.sourceId,
-      imageUrl: referenceImage.imageUrl,
-      assetRelativePath: referenceImage.assetRelativePath ?? null,
-    }));
-    const taskMaskImage = maskSourceImage
-      ? {
-          sourceNodeId: maskSourceImage.sourceId,
-          imageUrl: maskSourceImage.imageUrl,
-          assetRelativePath: maskSourceImage.assetRelativePath ?? null,
-        }
-      : null;
-
-    syncRichPromptToStore(currentPrompt, effectiveRichPromptDraft);
-    updateNodeData(id, { model: effectiveModel });
-    enqueueGenerateTask({
-      projectId: activeProjectId,
-      sourceNodeId: id,
-      prompt: compiledPrompt,
-      negativePrompt: data.negativePrompt,
-      model: modelEntryId,
-      ratio,
-      resolution,
-      quality: isGptImageSettingsModel ? quality : null,
-      operationType: hasMaskImage ? "image-edit" : undefined,
-      sourceImageNodeId: hasMaskImage
-        ? (referenceImages[0]?.sourceId ?? null)
-        : null,
-      maskImageUrl: hasMaskImage ? maskImageUrl : null,
-      editImageSource: hasMaskImage ? (taskReferenceImages[0] ?? null) : null,
-      maskImageSource: hasMaskImage ? taskMaskImage : null,
-      referenceImages: hasMaskImage
-        ? taskReferenceImages.slice(1)
-        : taskReferenceImages,
-      googleSearch: false,
-      googleImageSearch: false,
-    });
-  };
-
-  const hasPrompt = isConnected
-    ? Boolean((data.prompt || "").trim())
-    : hasPromptDraft;
-  const showStatusText = isQueued;
-  const statusLabel = UI_TEXT.queued;
-  const statusDescription = UI_TEXT.previewQueued;
-
+    document.addEventListener("paste", paste);
+    return () => document.removeEventListener("paste", paste);
+  }, [isBusy, data.imageUrl, handleFile, selected]);
   return (
-    <div
-      data-testid={`node-${id}`}
-      className={getNodeShellClassName({ selected })}
-    >
-      <NodeResizerPreset
-        selected={selected}
-        minWidth={320}
-        minHeight={280}
-        maxWidth={720}
-        maxHeight={720}
-        hideVisuals
-      />
-
-      <NodeDeleteButton
-        id={id}
-        selected={selected}
-        ariaLabel={UI_TEXT.deleteNode}
-        onDelete={() => runTracked(() => deleteNode(id))}
-      />
-
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="prompt"
-        className="handle-orb-anchor !w-[18px] !h-[18px] !rounded-full !border-0 !bg-transparent !p-0"
-        style={{ top: "50%" }}
+    <>
+      {selected ? (
+        <StableNodeToolbar
+          position={Position.Top}
+          offset={10}
+          hideWhenNodeOffscreen
+          hideWhenNodeDragging
+          data-testid={`image-actions-toolbar-${id}`}
+        >
+          <div
+            role="toolbar"
+            aria-label="图片节点快捷操作"
+            className={`nodrag nopan flex items-center gap-1 p-[5px] ${themeClasses.nodeToolbarPanel}`}
+          >
+            {data.imageUrl ? (
+              <>
+                <button
+                  type="button"
+                  onClick={handleSaveImage}
+                  disabled={isSavingImage}
+                  className={`${themeClasses.nodeToolbarButton} h-7 w-7`}
+                  aria-label="下载图片"
+                  title="下载图片"
+                >
+                  {isSavingImage ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                </button>
+                {data.imageAsset?.assetId ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowCommunitySubmission(true)}
+                    className={`${themeClasses.nodeToolbarButton} h-7 w-7`}
+                    aria-label="投稿社区"
+                    title="投稿社区"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setPreviewOpen(true)}
+                  className={`${themeClasses.nodeToolbarButton} h-7 w-7`}
+                  aria-label="放大预览"
+                  title="放大预览"
+                >
+                  <Maximize className="h-3.5 w-3.5" />
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading || isBusy}
+                className={`${themeClasses.nodeToolbarButton} h-7 w-7`}
+                aria-label="上传图片素材"
+                title="上传图片素材"
+              >
+                {uploading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Upload className="h-3.5 w-3.5" />
+                )}
+              </button>
+            )}
+          </div>
+        </StableNodeToolbar>
+      ) : null}
+      <div
+        data-testid={`node-${id}`}
+        className={getNodeShellClassName({ selected })}
+        onDragOver={(event) => {
+          if (!data.imageUrl && !isBusy) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const file = event.dataTransfer.files[0];
+          if (file && !data.imageUrl && !isBusy) void handleFile(file);
+        }}
       >
-        <span className="handle-orb handle-orb--target">
-          <span className="handle-orb__glow" />
-          <span className="handle-orb__ring" />
-          <span className="handle-orb__dot" />
-        </span>
-      </Handle>
-
-      {maskInputEnabled ? (
+        <NodeResizerPreset
+          selected={selected}
+          minWidth={data.imageUrl ? 100 : 240}
+          minHeight={data.imageUrl ? 100 : 160}
+          maxWidth={900}
+          maxHeight={900}
+          keepAspectRatio={Boolean(data.imageUrl)}
+          hideVisuals
+        />
+        <NodeDeleteButton
+          id={id}
+          selected={selected}
+          ariaLabel="删除图片节点"
+          onDelete={() => runTracked(() => deleteNode(id))}
+        />
+        <NodeHeader variant="floating" icon={<ImageIcon />} title="图片节点" />
+        <input
+          ref={fileInputRef}
+          className="hidden"
+          type="file"
+          accept="image/*"
+          aria-label="上传图片素材"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) void handleFile(file);
+            event.target.value = "";
+          }}
+        />
         <Handle
           type="target"
           position={Position.Left}
-          id="mask"
+          id="prompt"
           className="handle-orb-anchor !w-[18px] !h-[18px] !rounded-full !border-0 !bg-transparent !p-0"
-          style={{ top: "62%" }}
         >
-          <span className="handle-orb handle-orb--mask">
+          <span className="handle-orb handle-orb--target">
             <span className="handle-orb__glow" />
             <span className="handle-orb__ring" />
             <span className="handle-orb__dot" />
           </span>
         </Handle>
-      ) : null}
-
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="image"
-        className="handle-orb-anchor !w-[18px] !h-[18px] !rounded-full !border-0 !bg-transparent !p-0"
-      >
-        <span className="handle-orb handle-orb--source">
-          <span className="handle-orb__glow" />
-          <span className="handle-orb__ring" />
-          <span className="handle-orb__dot" />
-        </span>
-      </Handle>
-
-      <NodeHeader
-        variant="floating"
-        icon={<Sparkles className="h-3.5 w-3.5 text-[var(--text-muted)]" />}
-        title={UI_TEXT.title}
-      />
-
-      <div className="node-drag-handle flex min-h-0 flex-1 cursor-grab flex-col gap-1.5 p-2.5 active:cursor-grabbing">
-        <div className="flex h-6 shrink-0 items-center justify-end gap-1">
-          <button
-            type="button"
-            onClick={toggleMaskInput}
-            onPointerDown={stopCanvasGesture}
-            onMouseDown={stopCanvasGesture}
-            className={`nodrag nopan ${themeClasses.nodeBadge} transition ${
-              maskInputEnabled
-                ? `${themeClasses.nodeBadgeAmber} hover:border-amber-400/40 hover:bg-amber-400/14`
-                : "border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-muted)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-secondary)]"
-            }`}
-            aria-label={
-              maskInputEnabled
-                ? UI_TEXT.disableMaskInput
-                : UI_TEXT.enableMaskInput
-            }
-            title={
-              maskInputEnabled
-                ? UI_TEXT.disableMaskInput
-                : UI_TEXT.enableMaskInput
-            }
+        {data.maskInputEnabled ? (
+          <Handle
+            type="target"
+            position={Position.Left}
+            id="mask"
+            aria-label="蒙版输入"
+            style={{ top: "72%" }}
+            className="handle-orb-anchor !w-[18px] !h-[18px] !rounded-full !border-0 !bg-transparent !p-0"
           >
-            {UI_TEXT.maskToggle}
-          </button>
-          <span
-            className={`${themeClasses.nodeBadge} ${themeClasses.nodeBadgeViolet}`}
-          >
-            <Link2 className="h-3 w-3" />
-            {generationModeLabel}
+            <span className="handle-orb handle-orb--mask">
+              <span className="handle-orb__glow" />
+              <span className="handle-orb__ring" />
+              <span className="handle-orb__dot" />
+            </span>
+          </Handle>
+        ) : null}
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="image"
+          className="handle-orb-anchor !w-[18px] !h-[18px] !rounded-full !border-0 !bg-transparent !p-0"
+        >
+          <span className="handle-orb handle-orb--source">
+            <span className="handle-orb__glow" />
+            <span className="handle-orb__ring" />
+            <span className="handle-orb__dot" />
           </span>
-        </div>
-        {(referenceImageCount > 0 || hasMaskImage || isConnected) && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            {referenceImageCount > 0 && (
-              <div className={themeClasses.nodeAssetStrip}>
-                <div className="flex items-center gap-1">
-                  {referenceImages.map((referenceImage, index) => (
-                    <span
-                      key={referenceImage.sourceId}
-                      title={`第 ${index + 1} 张参考图`}
-                      className={`group/reference-thumb ${themeClasses.nodeAssetThumb}`}
-                    >
-                      <CanvasImagePreview
-                        src={referenceImage.imageUrl}
-                        alt=""
-                        imageAsset={buildReferenceImageAsset(referenceImage)}
-                        className="h-full w-full object-cover"
-                        draggable={false}
-                        forceLowQualityPreview
-                      />
-                      <span className={themeClasses.nodeAssetIndexBadge}>
-                        {getReferenceOrderLabel(index + 1)}
-                      </span>
-                      <button
-                        type="button"
-                        title="移除这张参考图"
-                        aria-label={`移除第 ${index + 1} 张参考图`}
-                        data-testid={`disconnect-reference-${referenceImage.sourceId}-${id}`}
-                        className={`${themeClasses.nodeAssetRemoveButton} group-hover/reference-thumb:pointer-events-auto group-hover/reference-thumb:opacity-100`}
-                        onPointerDown={stopCanvasGesture}
-                        onMouseDown={stopCanvasGesture}
-                        onClick={(event) => {
-                          stopCanvasGesture(event);
-                          runTracked(() =>
-                            deleteEdgesBySourceTargetExceptHandle(
-                              referenceImage.sourceId,
-                              id,
-                              "mask",
-                            ),
-                          );
-                        }}
-                      >
-                        <X className="h-2.5 w-2.5" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {hasMaskImage && maskSourceImage ? (
-              <div
-                className={themeClasses.nodeAssetStrip}
-                title={UI_TEXT.maskConnected}
-              >
-                <span
-                  className={`group/mask-thumb ${themeClasses.nodeAssetThumb} border-amber-400/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_0_1px_rgba(251,191,36,0.07)]`}
-                >
-                  <CanvasImagePreview
-                    src={maskImageUrl}
-                    alt=""
-                    imageAsset={
-                      maskSourceImage
-                        ? buildReferenceImageAsset(maskSourceImage)
-                        : null
-                    }
-                    className="h-full w-full object-cover"
-                    draggable={false}
-                    forceLowQualityPreview
-                  />
-                  <span className="absolute left-0.5 top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-400/90 px-1 text-[7px] font-bold leading-none text-amber-950 shadow-[0_2px_8px_rgba(0,0,0,0.35)]">
-                    M
-                  </span>
-                  <button
-                    type="button"
-                    title="移除蒙版输入"
-                    aria-label="移除蒙版输入"
-                    data-testid={`disconnect-mask-${maskSourceImage.sourceId}-${id}`}
-                    className={`${themeClasses.nodeAssetRemoveButton} group-hover/mask-thumb:pointer-events-auto group-hover/mask-thumb:opacity-100`}
-                    onPointerDown={stopCanvasGesture}
-                    onMouseDown={stopCanvasGesture}
-                    onClick={(event) => {
-                      stopCanvasGesture(event);
-                      runTracked(() =>
-                        deleteEdgesBySourceTargetHandle(
-                          maskSourceImage.sourceId,
-                          id,
-                          "mask",
-                        ),
-                      );
-                    }}
-                  >
-                    <X className="h-2.5 w-2.5" />
-                  </button>
-                </span>
-              </div>
-            ) : null}
-
-            {hasReferenceLimit && (
-              <span
-                className={`${themeClasses.nodeBadge} border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-secondary)] normal-case tracking-normal`}
-              >
-                {UI_TEXT.referenceLimitHint}
-              </span>
-            )}
-
-            {isConnected && (
-              <span
-                className={`${themeClasses.nodeBadge} ${themeClasses.nodeBadgeViolet}`}
-              >
-                {UI_TEXT.syncedFromText}
-              </span>
-            )}
-          </div>
-        )}
-
-        <RichPromptEditor
-          value={isConnected ? (data.richPrompt ?? null) : richPromptDraft}
-          fallbackText={data.prompt || ""}
-          references={richPromptReferences}
-          placeholder={UI_TEXT.placeholder}
-          readOnly={isConnected}
-          onFocus={() => {
-            if (isConnected) return;
-            beginTransaction();
+        </Handle>
+        <div
+          className="node-drag-handle relative flex min-h-0 flex-1 cursor-grab overflow-hidden rounded-[7px] bg-[var(--node-bg)] active:cursor-grabbing"
+          onDoubleClick={() => {
+            if (data.imageUrl) setPreviewOpen(true);
           }}
-          onChange={(nextRichPrompt, nextText) => {
-            if (isConnected) return;
-            updateRichPromptDraft(nextText, nextRichPrompt);
-            syncRichPromptToStore(nextText, nextRichPrompt);
-          }}
-          onBlur={() => {
-            if (isConnected) return;
-            syncRichPromptToStore(
-              latestPromptDraftRef.current,
-              latestRichPromptDraftRef.current,
-            );
-            commitTransaction();
-          }}
-        />
-
-        <div className={themeClasses.nodeFooter}>
-          <div className="flex items-center gap-1.5">
-            <NodeModelSelector
-              category="image"
-              config={settingsConfig}
-              selection={modelSelection}
-              onSelectModel={selectModel}
-              stopCanvasGesture={stopCanvasGesture}
-              providerAriaLabel="选择图像服务商"
-              modelAriaLabel="选择图像模型和服务商"
-              className="min-w-[250px] flex-[1.2]"
-              menuClassName="min-w-[240px]"
-              layout="grouped"
-              resolution={resolution}
+        >
+          {data.imageUrl ? (
+            <CanvasImagePreview
+              src={data.imageUrl}
+              imageAsset={data.imageAsset}
+              alt="生成图片"
+              className="h-full w-full object-contain"
             />
-
-            <div ref={settingsRef} className="relative min-w-0 flex-[1.15]">
-              <button
-                type="button"
-                className={`nodrag nopan flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-md border px-3 text-left text-xs font-medium leading-5 transition-all ${
-                  settingsOpen
-                    ? "border-[var(--accent-violet-strong)] bg-[var(--node-control-bg-hover)] text-[var(--text-primary)] shadow-[0_10px_24px_rgba(0,0,0,0.16)]"
-                    : "border-[var(--border-subtle)] bg-[var(--node-control-bg)] text-[var(--text-secondary)] hover:border-[var(--accent-violet-muted)] hover:bg-[var(--node-control-bg-hover)]"
-                }`}
-                aria-label={`${UI_TEXT.chooseRatio} / ${UI_TEXT.chooseResolution}`}
-                aria-expanded={settingsOpen}
-                aria-haspopup="dialog"
-                title={settingsSummary}
-                onPointerDown={stopCanvasGesture}
-                onMouseDown={stopCanvasGesture}
-                onClick={(event) => {
-                  stopCanvasGesture(event);
-                  setSettingsOpen((current) => !current);
-                }}
-              >
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-[var(--accent-violet-strong)]" />
-                  <span className="min-w-0 truncate">{settingsSummary}</span>
-                </span>
-                <ChevronDown
-                  className={`h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform ${settingsOpen ? "rotate-180 text-[var(--accent-violet-strong)]" : ""}`}
-                />
-              </button>
-
-              {settingsOpen && (
-                <div
-                  className={`nodrag nopan absolute bottom-full left-1/2 z-50 mb-2 w-[min(15rem,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden p-3 ${themeClasses.strongPanel}`}
-                  role="dialog"
-                  aria-label={`${UI_TEXT.chooseRatio} / ${UI_TEXT.chooseResolution}`}
-                  onPointerDown={stopCanvasGesture}
-                  onMouseDown={stopCanvasGesture}
-                  onClick={stopCanvasGesture}
-                >
-                  <div className="space-y-3">
-                    <SettingsSection title="比例">
-                      <SettingsSegment
-                        value={ratio}
-                        options={RATIOS}
-                        ariaLabel={UI_TEXT.chooseRatio}
-                        onChange={(value) =>
-                          runTracked(() => updateNodeData(id, { ratio: value }))
-                        }
-                        groupClassName="!h-auto !grid-flow-row grid-cols-4 !auto-cols-auto gap-x-1 gap-y-2 rounded-[9px] border-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] bg-[var(--control-bg)] p-2 shadow-none"
-                        buttonClassName="h-[3rem] flex-col gap-1 rounded-[7px] px-1.5 py-1.5 text-[10px] leading-none hover:bg-[color-mix(in_srgb,var(--text-primary)_6%,transparent)]"
-                        gridSlider={{
-                          columns: 4,
-                          rowHeightRem: 3,
-                          columnGapRem: 0.25,
-                          rowGapRem: 0.5,
-                          insetRem: 0.5,
-                        }}
-                        renderOption={(value) => (
-                          <>
-                            <RatioPreview ratio={value} />
-                            {getRatioLabel(value)}
-                          </>
-                        )}
-                      />
-                    </SettingsSection>
-
-                    {showResolutionSettings && (
-                      <SettingsSection title="清晰度">
-                        <SettingsSegment
-                          value={resolution}
-                          options={RESOLUTIONS}
-                          ariaLabel={UI_TEXT.chooseResolution}
-                          onChange={(value) =>
-                            runTracked(() =>
-                              updateNodeData(id, { resolution: value }),
-                            )
-                          }
-                          groupClassName="h-10 rounded-[9px] border-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] bg-[var(--control-bg)] p-1 shadow-none"
-                          buttonClassName="rounded-[7px] text-[11px] hover:bg-[color-mix(in_srgb,var(--text-primary)_5%,transparent)]"
-                          slider
-                          renderOption={(value) => getResolutionLabel(value)}
-                        />
-                      </SettingsSection>
-                    )}
-
-                    {isGptImageSettingsModel && (
-                      <SettingsSection title="画质">
-                        <SettingsSegment
-                          value={quality}
-                          options={GPT_IMAGE_QUALITIES}
-                          ariaLabel="选择 GPT Image 画质"
-                          onChange={(value) =>
-                            runTracked(() =>
-                              updateNodeData(id, { quality: value }),
-                            )
-                          }
-                          groupClassName="h-10 rounded-[9px] border-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] bg-[var(--control-bg)] p-1 shadow-none"
-                          buttonClassName="rounded-[7px] text-[11px] hover:bg-[color-mix(in_srgb,var(--text-primary)_5%,transparent)]"
-                          slider
-                          renderOption={(value) =>
-                            GPT_IMAGE_QUALITY_LABELS[value]
-                          }
-                        />
-                      </SettingsSection>
-                    )}
-                  </div>
-                </div>
-              )}
+          ) : !isBusy ? (
+            <div className="flex w-full flex-col items-center justify-center gap-3 text-[var(--text-muted)]">
+              <ImageIcon className="h-10 w-10 opacity-40" strokeWidth={1.3} />
+              <span className="text-xs">在下方输入提示词生成图片</span>
             </div>
-
-            <button
-              type="button"
-              onClick={handleEnqueue}
-              disabled={!hasPrompt || !modelSelection.canExecute}
-              data-testid={`enqueue-generate-${id}`}
-              className={`${themeClasses.nodePrimaryButton} relative h-9 w-9 shrink-0 shadow-none duration-200`}
-              aria-label={
-                data.status === "error"
-                  ? UI_TEXT.generateFailed
-                  : isQueued
-                    ? UI_TEXT.queued
-                    : isGenerating
-                      ? UI_TEXT.generating
-                      : UI_TEXT.generate
-              }
+          ) : null}
+          {isBusy ? (
+            <ImageGenerationOverlay
+              taskId={data.activeTaskId}
+              queued={isQueued}
+            />
+          ) : null}
+          {data.status === "error" ? (
+            <span
+              role="status"
+              className={`absolute bottom-2 left-2 flex items-center gap-1.5 rounded-md bg-[var(--panel-bg-strong)] px-2 py-1 text-[10px] ${themeClasses.nodeErrorText}`}
             >
-              {isBusy ? (
-                isQueued ? (
-                  <Clock3 className="h-3.5 w-3.5" />
-                ) : (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                )
-              ) : (
-                <Play className="h-3.5 w-3.5 fill-current" />
-              )}
-              {activeTaskCount > 0 ? (
-                <span className="pointer-events-none absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[var(--node-bg)] bg-[var(--accent-violet)] px-1 text-[8px] font-semibold leading-none text-white shadow">
-                  {activeTaskCount}
-                </span>
-              ) : null}
-            </button>
-          </div>
-
-          {showStatusText && (
-            <div
-              className={`mt-1.5 flex items-start gap-2 px-0.5 text-[10px] leading-relaxed ${themeClasses.textSecondary}`}
-            >
-              <Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
-              <div>
-                <p className={themeClasses.nodeWarningText}>{statusLabel}</p>
-                {statusDescription && (
-                  <p className="mt-0.5 text-[var(--text-muted)]">
-                    {statusDescription}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {data.status === "error" && data.errorMsg && (
-            <div className="mt-1.5 flex items-start justify-between gap-3 px-0.5">
-              <p
-                className={`flex-1 text-[10px] leading-relaxed ${themeClasses.nodeErrorText}`}
-              >
-                {data.errorMsg}
-              </p>
-              <button
-                type="button"
-                onClick={handleEnqueue}
-                disabled={!hasPrompt || !modelSelection.canExecute}
-                className="shrink-0 rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-[10px] font-medium text-red-500 transition hover:border-red-400/50 hover:bg-red-500/15 hover:text-red-400 disabled:cursor-not-allowed disabled:border-[var(--border-subtle)] disabled:bg-[var(--control-bg)] disabled:text-[var(--text-muted)] dark:text-red-300"
-                data-testid={`retry-generate-${id}`}
-              >
-                {UI_TEXT.retry}
-              </button>
-            </div>
-          )}
-
-          {!modelSelection.canExecute && modelIssueLabel ? (
-            <p
-              className={`${themeClasses.nodeInlineNotice} ${themeClasses.nodeWarningText}`}
-            >
-              {modelIssueLabel}
-            </p>
+              生成失败
+            </span>
           ) : null}
         </div>
       </div>
-    </div>
+      {previewOpen && data.imageUrl ? (
+        <ZoomableImagePreview
+          imageUrl={data.imageUrl}
+          imageAsset={data.imageAsset}
+          alt="生成图片"
+          closeLabel="关闭预览"
+          onClose={() => setPreviewOpen(false)}
+        />
+      ) : null}
+      {showCommunitySubmission && data.imageAsset?.assetId && data.imageUrl ? (
+        <CommunitySubmissionDialog
+          assetId={data.imageAsset.assetId}
+          imageUrl={data.imageUrl}
+          defaultTitle={
+            typeof data.label === "string" && data.label.trim()
+              ? data.label
+              : "生成图片"
+          }
+          onClose={() => setShowCommunitySubmission(false)}
+        />
+      ) : null}
+    </>
   );
 }, areNodeContentPropsEqual);

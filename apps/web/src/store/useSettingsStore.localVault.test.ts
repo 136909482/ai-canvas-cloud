@@ -123,7 +123,7 @@ test("saving an existing provider keeps its creation-time protocol", () => {
     const [profile] = useSettingsStore.getState().config.providerProfiles;
     assert.equal(profile?.protocol, "openai-compatible");
     assert.equal(profile?.authMode, "bearer");
-    assert.equal(profile?.imageRequestMode, "sync");
+    assert.equal(profile?.imageRequestMode, "async");
     assert.equal(profile?.customManifestId, undefined);
     assert.equal(profile?.baseUrl, "https://custom.example.com");
   } finally {

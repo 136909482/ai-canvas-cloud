@@ -2,6 +2,7 @@ import { useCanvasStore } from "@/store/useCanvasStore";
 import { useTaskQueueStore } from "@/store/useTaskQueueStore";
 import type { GenerateTask, WorkspaceImageAsset } from "@/types";
 import { selectLatestSuccessfulImageTask } from "./taskResultPolicy";
+import { normalizeGptImageBackground } from "@/constants/generateNode";
 
 type SourceTaskStatus = "queued" | "generating" | "done" | "error";
 
@@ -188,6 +189,10 @@ export function syncSourceNodeWithTask(
 
   if (sourceNode.type === "entourageNode") {
     patch.sourceImageNodeId = task.sourceImageNodeId;
+  }
+
+  if (sourceNode.type === "generateNode" && task.background != null) {
+    patch.background = normalizeGptImageBackground(task.background);
   }
 
   if (sourceNode.type === "videoGenerateNode") {

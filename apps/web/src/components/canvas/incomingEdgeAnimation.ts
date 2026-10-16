@@ -4,6 +4,7 @@ type SelectableNode = {
 };
 
 type DirectedEdge = {
+  source: string;
   target: string;
 };
 
@@ -21,10 +22,14 @@ export function getSingleSelectedNodeId(
   return selectedNodeId;
 }
 
-export function shouldAnimateIncomingEdge(
+export function shouldAnimateConnectedEdge(
   edge: DirectedEdge,
   selectedNodeId: string | null,
   enabled: boolean,
 ) {
-  return enabled && selectedNodeId !== null && edge.target === selectedNodeId;
+  return (
+    enabled &&
+    selectedNodeId !== null &&
+    (edge.source === selectedNodeId || edge.target === selectedNodeId)
+  );
 }

@@ -5,16 +5,16 @@ import {
   ChevronDown,
   CloudOff,
   Download,
-  Grid3X3,
   Loader2,
-  Moon,
   Plus,
+  FolderKanban,
+  MoreHorizontal,
   Save,
   Timer,
-  Sun,
   Upload,
 } from "lucide-react";
 import { hasInterruptibleSynchronousImageTask } from "@/features/generateQueue/taskQueueView";
+import { handleMenuKeyboard } from "@/utils/menuKeyboard";
 import { TooltipIconButton } from "@/components/TooltipIconButton";
 import { confirmReturnHome } from "@/components/canvas/canvasHomeNavigation";
 import { platformBridge } from "@/platform";
@@ -89,23 +89,24 @@ function getPersistenceIconView(status: ProjectPersistenceStatus) {
   }
 }
 
-function getNextThemeMode(themeMode: "dark" | "light" | "system") {
-  return themeMode === "light" ? "dark" : "light";
-}
-
-function getThemeLabel(themeMode: "dark" | "light" | "system") {
-  return themeMode === "light" ? "切换到暗色主题" : "切换到浅色主题";
-}
-
-type CanvasQuickActionsProps = {
-  includeWorkflowActions?: boolean;
-  tooltipAlign?: "start" | "center" | "end";
-};
-
-export function CanvasQuickActions({
-  includeWorkflowActions = true,
-  tooltipAlign = "center",
-}: CanvasQuickActionsProps) {
+export function CanvasMoreMenu() {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node))
+        setIsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [isOpen]);
+  const closeMenu = () => {
+    setIsOpen(false);
+    buttonRef.current?.focus();
+  };
   const openSettings = useSettingsDialogStore((state) => state.open);
   const activeProject = useProjectStore((state) => state.getActiveProject());
   const saveActiveProject = useProjectStore((state) => state.saveActiveProject);
@@ -117,13 +118,6 @@ export function CanvasQuickActions({
   const replaceSnapshot = useCanvasStore((state) => state.replaceSnapshot);
   const hasCanvasContent = useCanvasStore(selectHasCanvasContent);
   const clearHistory = useHistoryStore((state) => state.clearHistory);
-  const themeMode = useSettingsStore((state) => state.config.storage.themeMode);
-  const canvasGridEnabled = useSettingsStore(
-    (state) => state.config.storage.canvasGridEnabled,
-  );
-  const updateStorageSettings = useSettingsStore(
-    (state) => state.updateStorageSettings,
-  );
   const notify = useFeedbackStore((state) => state.notify);
   const confirm = useFeedbackStore((state) => state.confirm);
 
@@ -188,89 +182,88 @@ export function CanvasQuickActions({
     }
   };
 
-  const handleToggleTheme = async () => {
-    await updateStorageSettings({
-      themeMode: getNextThemeMode(themeMode),
-    }).catch(() => undefined);
-  };
-
-  const handleToggleCanvasGrid = async () => {
-    await updateStorageSettings({
-      canvasGridEnabled: !canvasGridEnabled,
-    }).catch(() => undefined);
-  };
-
-  const iconButtonClass = `${themeClasses.iconButton} h-6 w-6 rounded-md disabled:cursor-not-allowed disabled:border-transparent disabled:bg-transparent disabled:text-[color-mix(in_srgb,var(--text-muted)_55%,transparent)]`;
-
+  const actions = [
+    {
+      label: "保存项目",
+      testId: "save-project-button",
+      Icon: Save,
+      action: handleSaveProject,
+      disabled: isPersisting,
+    },
+    {
+      label: "导入工作流",
+      testId: "import-workflow-button",
+      Icon: Upload,
+      action: handleImportWorkflow,
+    },
+    {
+      label: "导出工作流",
+      testId: "export-workflow-button",
+      Icon: Download,
+      action: handleExportWorkflow,
+    },
+    {
+      label: "项目管理",
+      testId: "project-manager-button",
+      Icon: FolderKanban,
+      action: () => useProjectDialogStore.getState().open(),
+    },
+  ];
   return (
-    <>
-      <TooltipIconButton
-        label="保存项目"
-        onClick={() => {
-          void handleSaveProject();
+    <div ref={containerRef} className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label="更多画布操作"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        data-testid="canvas-more-button"
+        className={`${themeClasses.iconButton} h-8 w-8 rounded-md`}
+        onClick={() => setIsOpen((open) => !open)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setIsOpen(true);
+            requestAnimationFrame(() =>
+              menuRef.current
+                ?.querySelector<HTMLButtonElement>("button:not(:disabled)")
+                ?.focus(),
+            );
+          }
+          if (event.key === "Escape") closeMenu();
         }}
-        testId="save-project-button"
-        disabled={isPersisting}
-        tooltipAlign={tooltipAlign}
-        className={iconButtonClass}
-        icon={<Save className="h-3.5 w-3.5" />}
-      />
-      {includeWorkflowActions ? (
-        <>
-          <TooltipIconButton
-            label="导出工作流"
-            onClick={() => {
-              void handleExportWorkflow();
-            }}
-            testId="export-workflow-button"
-            tooltipAlign={tooltipAlign}
-            className={iconButtonClass}
-            icon={<Download className="h-3.5 w-3.5" />}
-          />
-          <TooltipIconButton
-            label="导入工作流"
-            onClick={() => {
-              void handleImportWorkflow();
-            }}
-            testId="import-workflow-button"
-            tooltipAlign={tooltipAlign}
-            className={iconButtonClass}
-            icon={<Upload className="h-3.5 w-3.5" />}
-          />
-          <span
-            aria-hidden="true"
-            className={`mx-0.5 h-4 w-px shrink-0 ${themeClasses.divider}`}
-          />
-        </>
-      ) : null}
-      <TooltipIconButton
-        label={getThemeLabel(themeMode)}
-        onClick={() => {
-          void handleToggleTheme();
-        }}
-        testId="toggle-theme-button"
-        tooltipAlign={tooltipAlign}
-        className={iconButtonClass}
-        icon={
-          themeMode === "light" ? (
-            <Moon className="h-3.5 w-3.5" />
-          ) : (
-            <Sun className="h-3.5 w-3.5" />
-          )
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      <div
+        ref={menuRef}
+        role="menu"
+        aria-label="更多画布操作"
+        hidden={!isOpen}
+        className={`absolute right-0 top-[calc(100%+10px)] z-50 w-48 max-h-[calc(100dvh-5rem)] overflow-y-auto p-1 ${themeClasses.compactFloatingPanel}`}
+        onKeyDown={(event) =>
+          handleMenuKeyboard(event.nativeEvent, menuRef.current, closeMenu)
         }
-      />
-      <TooltipIconButton
-        label={canvasGridEnabled ? "隐藏画布网格" : "显示画布网格"}
-        onClick={() => {
-          void handleToggleCanvasGrid();
-        }}
-        testId="toggle-canvas-grid-button"
-        tooltipAlign={tooltipAlign}
-        className={`${iconButtonClass} ${canvasGridEnabled ? themeClasses.iconButtonActive : ""}`}
-        pressed={canvasGridEnabled}
-        icon={<Grid3X3 className="h-3.5 w-3.5" />}
-      />
-    </>
+      >
+        {actions.map(({ label, testId, Icon, action, disabled }) => (
+          <button
+            key={testId}
+            type="button"
+            role="menuitem"
+            data-testid={testId}
+            disabled={disabled}
+            onClick={() => {
+              closeMenu();
+              void action();
+            }}
+            className="flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-xs text-[var(--text-secondary)] transition hover:bg-[var(--control-bg-hover)] focus-visible:outline-none focus-visible:bg-[var(--control-bg-hover)] disabled:opacity-40"
+          >
+            <Icon className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -438,7 +431,7 @@ export function CanvasTopBar() {
   return (
     <div
       ref={projectMenuRef}
-      className={`relative flex max-w-[min(28rem,calc(100vw-1rem))] items-center gap-0.5 p-1 ${themeClasses.compactFloatingPanel}`}
+      className={`relative flex h-9 min-w-0 items-center gap-0.5 px-1 ${themeClasses.canvasTopPanel}`}
     >
       <TooltipIconButton
         label="返回首页"
@@ -447,7 +440,7 @@ export function CanvasTopBar() {
         }}
         testId="return-home-button"
         tooltipAlign="start"
-        className={`${themeClasses.iconButton} h-6 w-6 shrink-0 rounded-md`}
+        className={`${themeClasses.iconButton} h-7 w-7 shrink-0 rounded-md`}
         icon={
           <img
             src="/brand/ai-canvas-mark.png"
@@ -462,7 +455,7 @@ export function CanvasTopBar() {
       />
       <button
         type="button"
-        className={`flex h-6 min-w-36 max-w-60 flex-1 items-center gap-2 rounded-md border border-transparent bg-transparent px-2 text-left text-xs font-semibold ${themeClasses.textPrimary} transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-violet-soft)] disabled:cursor-not-allowed`}
+        className={`flex h-7 min-w-0 max-w-36 sm:max-w-60 flex-1 items-center gap-2 rounded-md border border-transparent bg-transparent px-2 text-left text-xs font-medium ${themeClasses.textPrimary} transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-violet-soft)] disabled:cursor-not-allowed`}
         title="切换项目画布"
         aria-label={`当前项目：${projectName}，切换项目画布`}
         aria-haspopup="menu"
@@ -533,12 +526,22 @@ export function CanvasTopBar() {
         title={status.label}
         data-testid="project-persistence-status"
         data-status-kind={persistenceStatus.kind}
-        className="flex h-6 w-6 shrink-0 items-center justify-center"
+        className="flex h-7 shrink-0 items-center justify-center gap-1.5 px-1"
       >
         <status.Icon
           aria-hidden="true"
           className={`h-3.5 w-3.5 ${status.className}`}
         />
+        <span className="hidden text-[10px] text-[var(--text-muted)] lg:inline">
+          {persistenceStatus.kind === "saving"
+            ? "保存中"
+            : persistenceStatus.kind === "error"
+              ? "同步失败"
+              : persistenceStatus.kind === "auto-saved" ||
+                  persistenceStatus.kind === "manual-saved"
+                ? "已保存"
+                : "待同步"}
+        </span>
       </span>
     </div>
   );

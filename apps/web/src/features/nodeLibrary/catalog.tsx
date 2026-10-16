@@ -116,7 +116,11 @@ export function createCanvasNodeCatalog(
     id: categoryId,
     label: CATEGORY_LABELS[categoryId],
     tools: nodeLibraryRegistrations
-      .filter((registration) => registration.library.category === categoryId)
+      .filter(
+        (registration) =>
+          registration.library.category === categoryId &&
+          registration.type !== "imageNode",
+      )
       .map((registration) => ({
         id: registration.library.id,
         type: registration.type as ManualCanvasNodeType,

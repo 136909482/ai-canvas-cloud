@@ -38,7 +38,7 @@ import {
 } from "./canvasNodeData";
 
 const NODE_DRAG_HANDLE = ".node-drag-handle";
-export const DEFAULT_TEXT_NODE_LABEL = "提示词";
+export const DEFAULT_TEXT_NODE_LABEL = "文本节点";
 
 export type LLMOutputTextNodeDraft = Pick<
   LLMOutputTextNodeData,
@@ -90,6 +90,8 @@ export function buildManualTextNode(
       text: "",
       richPrompt: null,
       label: DEFAULT_TEXT_NODE_LABEL,
+      generationMode: "ai",
+      generationPrompt: "",
     },
   };
 }
@@ -231,6 +233,8 @@ export function buildManualGenerateNode(
       model: DEFAULT_IMAGE_MODEL_ID,
       resolution: "1K",
       quality: "auto",
+      outputCount: 1,
+      background: "auto",
       googleSearch: false,
       googleImageSearch: false,
       connectedTextNode: null,

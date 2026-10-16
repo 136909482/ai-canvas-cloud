@@ -84,9 +84,9 @@ export function createProviderProfile(
       : inferProviderFromApiUrl(baseUrl) === "aliyun"
         ? "dashscope"
         : "openai-compatible";
-  // Standard protocols deliberately use one predictable configuration. The
-  // advanced auth/mode fields remain part of the persisted type for custom
-  // manifests and future re-opening, but are not user-configurable here.
+  // Standard protocols always use Bearer authentication. OpenAI-compatible
+  // image providers may opt into the task polling contract; DashScope keeps
+  // its dedicated synchronous image contract.
   const authMode =
     protocol === "custom-http-image-v1"
       ? overrides.authMode === "none" ||
@@ -107,7 +107,8 @@ export function createProviderProfile(
     baseUrl,
     enabled: overrides.enabled ?? true,
     imageRequestMode:
-      protocol === "custom-http-image-v1" &&
+      (protocol === "openai-compatible" ||
+        protocol === "custom-http-image-v1") &&
       overrides.imageRequestMode === "async"
         ? "async"
         : "sync",

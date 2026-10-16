@@ -2,6 +2,7 @@ import type { ProviderId } from "@/config/modelCatalog";
 import type {
   CustomImageProviderManifestV1,
   GptImageQuality,
+  GptImageBackground,
   ImageInputFidelity,
   ImageOperationType,
   ImageRequestMode,
@@ -30,6 +31,7 @@ export interface GenerateImageParams {
   operationType?: ImageOperationType;
   inputFidelity?: ImageInputFidelity | null;
   quality?: GptImageQuality | null;
+  background?: GptImageBackground | null;
   googleSearch?: boolean;
   googleImageSearch?: boolean;
 }
