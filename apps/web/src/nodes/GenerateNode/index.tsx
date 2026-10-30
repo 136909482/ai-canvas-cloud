@@ -31,6 +31,7 @@ import { downloadCanvasImage } from "@/utils/downloadCanvasImage";
 import { NodeDeleteButton, NodeHeader, NodeResizerPreset } from "../nodeShell";
 import { getNodeShellClassName } from "../nodeShellClassName";
 import { areNodeContentPropsEqual } from "../nodePropComparators";
+import styles from "./ImageNodeEmptyState.module.css";
 
 // The existing generation node is presented as an image card; its task/data
 // contract stays intact and completed images already come back to imageUrl.
@@ -57,6 +58,16 @@ export const GenerateNode = memo(function GenerateNode({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [showCommunitySubmission, setShowCommunitySubmission] = useState(false);
   const [isSavingImage, setIsSavingImage] = useState(false);
+  const [imageDimensions, setImageDimensions] = useState({
+    imageUrl: "",
+    width: 0,
+    height: 0,
+  });
+  const hasImageDimensions =
+    Boolean(data.imageUrl) &&
+    imageDimensions.imageUrl === data.imageUrl &&
+    imageDimensions.width > 0 &&
+    imageDimensions.height > 0;
   const handleSaveImage = async () => {
     if (!data.imageUrl || isSavingImage) return;
     setIsSavingImage(true);
@@ -98,8 +109,15 @@ export const GenerateNode = memo(function GenerateNode({
       )
         return;
       const size = getGeneratedImageCardSize(width, height, node.width);
-      if (!size || (node.width === size.width && node.height === size.height))
-        return;
+      if (!size) return;
+      setImageDimensions((current) =>
+        current.imageUrl === imageUrl &&
+        current.width === width &&
+        current.height === height
+          ? current
+          : { imageUrl, width, height },
+      );
+      if (node.width === size.width && node.height === size.height) return;
       store.updateNodeData(id, size);
     };
     const width =
@@ -298,7 +316,13 @@ export const GenerateNode = memo(function GenerateNode({
           ariaLabel="删除图片节点"
           onDelete={() => runTracked(() => deleteNode(id))}
         />
-        <NodeHeader variant="floating" icon={<ImageIcon />} title="图片节点" />
+        <NodeHeader
+          variant="floating"
+          constrainToNode
+          icon={<ImageIcon />}
+          title={data.imageAsset?.fileName?.trim() || "图片节点"}
+          titleClassName="text-xs font-medium leading-5"
+        />
         <input
           ref={fileInputRef}
           className="hidden"
@@ -365,10 +389,38 @@ export const GenerateNode = memo(function GenerateNode({
               className="h-full w-full object-contain"
             />
           ) : !isBusy ? (
-            <div className="flex w-full flex-col items-center justify-center gap-3 text-[var(--text-muted)]">
-              <ImageIcon className="h-10 w-10 opacity-40" strokeWidth={1.3} />
-              <span className="text-xs">在下方输入提示词生成图片</span>
+            <div className={styles.emptyState}>
+              <ImageIcon className={styles.icon} aria-hidden="true" />
+              <span className={styles.hint}>尝试上传或生成图片</span>
+              <button
+                type="button"
+                className={`nodrag nopan ${styles.uploadButton}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  fileInputRef.current?.click();
+                }}
+                onDoubleClick={(event) => event.stopPropagation()}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <Loader2
+                    className="h-3.5 w-3.5 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                {uploading ? "上传中…" : "上传图片"}
+              </button>
             </div>
+          ) : null}
+          {hasImageDimensions ? (
+            <span
+              data-testid={`image-dimensions-${id}`}
+              className="pointer-events-none absolute bottom-3 right-3 select-none whitespace-nowrap rounded-md bg-black/50 px-2 py-1 text-[10px] font-medium leading-none text-white shadow-[0_4px_12px_rgba(0,0,0,0.22)] backdrop-blur-sm"
+            >
+              {imageDimensions.width} x {imageDimensions.height}
+            </span>
           ) : null}
           {isBusy ? (
             <ImageGenerationOverlay

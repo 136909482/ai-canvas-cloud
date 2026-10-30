@@ -55,6 +55,16 @@ export function getToolbarTransform(
   position: Position,
   offset: number,
   align: ToolbarAlign,
+  horizontalBounds?: {
+    viewportWidth: number;
+    toolbarWidth: number;
+    padding: number;
+  },
+  verticalBounds?: {
+    viewportHeight: number;
+    toolbarHeight: number;
+    padding: number;
+  },
 ) {
   const alignment = getAlignmentFactor(align);
   let x =
@@ -76,6 +86,34 @@ export function getToolbarTransform(
     y = (nodeRect.y + nodeRect.height * alignment) * viewport.zoom + viewport.y;
     shiftX = -100;
     shiftY = -100 * alignment;
+  }
+
+  if (horizontalBounds) {
+    const { viewportWidth, toolbarWidth, padding } = horizontalBounds;
+    const left = x + (toolbarWidth * shiftX) / 100;
+    const boundedLeft = Math.max(
+      padding,
+      Math.min(left, viewportWidth - toolbarWidth - padding),
+    );
+    x += boundedLeft - left;
+  }
+
+  if (verticalBounds) {
+    const { viewportHeight, toolbarHeight, padding } = verticalBounds;
+    if (
+      position === Position.Bottom &&
+      y + toolbarHeight > viewportHeight - padding
+    ) {
+      const above =
+        nodeRect.y * viewport.zoom + viewport.y - offset - toolbarHeight;
+      if (above >= padding) y = above;
+    }
+    const top = y + (toolbarHeight * shiftY) / 100;
+    y +=
+      Math.max(
+        padding,
+        Math.min(top, viewportHeight - toolbarHeight - padding),
+      ) - top;
   }
 
   return `translate(${x}px, ${y}px) translate(${shiftX}%, ${shiftY}%)`;

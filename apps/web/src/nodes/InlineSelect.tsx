@@ -1,7 +1,9 @@
+import { MenuSurface } from "@/components/MenuSurface";
 import {
   Fragment,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -86,19 +88,27 @@ export function InlineSelect({
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [open]);
 
-  useEffect(() => {
-    if (open) {
-      window.requestAnimationFrame(() => {
-        menuRef.current
-          ?.querySelector<HTMLElement>('[aria-selected="true"]')
-          ?.focus();
-      });
+  useLayoutEffect(() => {
+    if (!open) return;
+    const selected = menuRef.current?.querySelector<HTMLElement>(
+      '[aria-selected="true"]:not([disabled])',
+    );
+    const scrollArea = selected?.closest<HTMLElement>("[data-menu-scroll]");
+    if (selected && scrollArea) {
+      const item = selected.getBoundingClientRect();
+      const area = scrollArea.getBoundingClientRect();
+      if (item.top < area.top) scrollArea.scrollTop += item.top - area.top;
+      else if (item.bottom > area.bottom)
+        scrollArea.scrollTop += item.bottom - area.bottom;
     }
+    selected?.focus({ preventScroll: true });
   }, [open]);
 
   const closeMenu = () => {
     setOpen(false);
-    window.requestAnimationFrame(() => triggerRef.current?.focus());
+    window.requestAnimationFrame(() =>
+      triggerRef.current?.focus({ preventScroll: true }),
+    );
   };
 
   return (
@@ -112,7 +122,7 @@ export function InlineSelect({
       <button
         ref={triggerRef}
         type="button"
-        className={`nowheel nodrag nopan flex w-full items-center justify-between rounded-md border text-left font-medium transition-all ${
+        className={`nowheel nodrag nopan flex w-full items-center justify-between rounded-md border text-left font-medium ui-control ${
           density === "compact"
             ? "h-7 gap-1.5 px-2 text-[10px] leading-4"
             : "h-9 gap-2 px-3 text-xs leading-5"
@@ -148,22 +158,26 @@ export function InlineSelect({
         />
       </button>
 
-      {open && (
-        <div
-          id={menuId}
-          ref={menuRef}
-          className={`nowheel nodrag nopan absolute left-0 right-0 z-40 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-xl ${menuPlacement === "top" ? "bottom-full mb-2" : "top-full mt-2"} ${menuClassName}`}
-          role="listbox"
-          aria-label={ariaLabel}
-          onKeyDown={(event) =>
-            handleMenuKeyboard(event.nativeEvent, menuRef.current, closeMenu)
-          }
-          onPointerDown={stopCanvasGesture}
-          onMouseDown={stopCanvasGesture}
-          onClick={stopCanvasGesture}
-          onWheelCapture={stopCanvasGesture}
-        >
+      <MenuSurface
+        open={open}
+        anchorRef={appearance === "ghost" ? triggerRef : undefined}
+        placement={menuPlacement}
+        id={menuId}
+        ref={menuRef}
+        className={`nowheel nodrag nopan absolute left-0 right-0 z-40 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-xl ${menuPlacement === "top" ? "bottom-full mb-2" : "top-full mt-2"} ${menuClassName}`}
+        role="listbox"
+        aria-label={ariaLabel}
+        onKeyDown={(event) =>
+          handleMenuKeyboard(event.nativeEvent, menuRef.current, closeMenu)
+        }
+        onPointerDown={stopCanvasGesture}
+        onMouseDown={stopCanvasGesture}
+        onClick={stopCanvasGesture}
+        onWheelCapture={stopCanvasGesture}
+      >
+        {() => (
           <div
+            data-menu-scroll
             className="scrollbar-hidden nowheel max-h-52 overflow-y-auto overscroll-contain"
             onWheelCapture={stopCanvasGesture}
           >
@@ -213,7 +227,7 @@ export function InlineSelect({
                       stopCanvasGesture(event);
                       if (option.disabled) return;
                       onChange(option.value);
-                      setOpen(false);
+                      closeMenu();
                     }}
                   >
                     <span
@@ -237,8 +251,8 @@ export function InlineSelect({
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </MenuSurface>
     </div>
   );
 }

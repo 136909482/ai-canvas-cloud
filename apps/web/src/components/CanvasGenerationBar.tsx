@@ -1,3 +1,4 @@
+import { MenuSurface } from "@/components/MenuSurface";
 import { useEffect, useRef, useState } from "react";
 import { Position } from "@xyflow/react";
 import {
@@ -37,6 +38,7 @@ import {
 } from "@/store/canvasConnectionSources";
 import { themeClasses } from "@/styles/themeClasses";
 import type { AppNode } from "@/types";
+import styles from "./CanvasGenerationBar.module.css";
 
 export function CanvasGenerationBar() {
   const node = useCanvasStore(selectSingleSelectedGenerateNode);
@@ -49,6 +51,11 @@ export function CanvasGenerationBar() {
       isVisible
       hideWhenNodeOffscreen
       hideWhenNodeDragging
+      hideWhenViewportMoving
+      horizontalViewportPadding={12}
+      verticalViewportPadding={12}
+      portalToCanvasOverlay
+      style={{ zIndex: 25 }}
       className="nodrag nopan nowheel"
     >
       <GeneratePanel node={node} />
@@ -66,6 +73,7 @@ function GeneratePanel({ node }: { node: AppNode<"generateNode"> }) {
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const referencePickerRef = useRef<HTMLDivElement>(null);
+  const referenceButtonRef = useRef<HTMLButtonElement>(null);
   const expandButtonRef = useRef<HTMLButtonElement>(null);
   const promptEditorRef = useRef<RichPromptEditorHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -216,7 +224,7 @@ function GeneratePanel({ node }: { node: AppNode<"generateNode"> }) {
       data-node-id={node.id}
       data-expanded={promptExpanded}
       aria-label="图片生成面板"
-      className={`canvas-generation-panel flex flex-col rounded-2xl border border-[var(--floating-panel-border)] bg-[var(--floating-panel-bg)] text-[var(--text-primary)] shadow-[0_8px_28px_rgba(0,0,0,0.18)] backdrop-blur-xl ${promptExpanded ? "h-full w-full p-3 sm:p-4" : "h-[246px] max-h-[70dvh] w-[658px] max-w-[calc(100vw-24px)] p-3"}`}
+      className={`canvas-generation-panel ${styles.enter} flex flex-col rounded-2xl border border-[var(--floating-panel-border)] bg-[var(--floating-panel-bg)] text-[var(--text-primary)] shadow-[0_8px_28px_rgba(0,0,0,0.18)] ${promptExpanded ? "h-full w-full p-3 sm:p-4" : "h-[246px] max-h-[calc(100dvh-24px)] w-[658px] max-w-[calc(100vw-24px)] p-3"}`}
       onPointerDown={controller.stopCanvasGesture}
       onMouseDown={controller.stopCanvasGesture}
       onClick={controller.stopCanvasGesture}
@@ -237,6 +245,7 @@ function GeneratePanel({ node }: { node: AppNode<"generateNode"> }) {
           }}
         >
           <button
+            ref={referenceButtonRef}
             type="button"
             aria-label="添加参考图"
             aria-expanded={referencesOpen}
@@ -251,61 +260,61 @@ function GeneratePanel({ node }: { node: AppNode<"generateNode"> }) {
               ? ` ${controller.referenceImageCount}`
               : ""}
           </button>
-          {referencesOpen ? (
-            <div
-              role="dialog"
-              aria-label="添加参考图"
-              className={`absolute left-0 top-full z-20 mt-2 w-64 max-w-[calc(100vw-3rem)] p-2 ${themeClasses.compactFloatingPanel}`}
+          <MenuSurface
+            open={referencesOpen}
+            anchorRef={referenceButtonRef}
+            role="dialog"
+            aria-label="添加参考图"
+            className={`absolute left-0 top-full z-20 mt-2 w-64 max-w-[calc(100vw-3rem)] p-2 ${themeClasses.compactFloatingPanel}`}
+          >
+            <button
+              type="button"
+              disabled={uploading}
+              className={`${themeClasses.iconButton} mb-2 h-8 w-full gap-2 text-xs`}
+              onClick={() => fileInputRef.current?.click()}
             >
-              <button
-                type="button"
-                disabled={uploading}
-                className={`${themeClasses.iconButton} mb-2 h-8 w-full gap-2 text-xs`}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {uploading ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Upload className="h-3.5 w-3.5" />
-                )}
-                上传参考图
-              </button>
-              <div className="max-h-44 overflow-y-auto">
-                {availableImages.length ? (
-                  availableImages.map((image) => (
-                    <button
-                      key={image.id}
-                      type="button"
-                      onClick={() => connectImage(image.id)}
-                      className={`${themeClasses.iconButton} flex h-12 w-full justify-start gap-2 px-2 text-xs`}
-                    >
-                      <CanvasImagePreview
-                        src={String(image.data.imageUrl)}
-                        imageAsset={
-                          image.data
-                            .imageAsset as AppNode<"imageNode">["data"]["imageAsset"]
-                        }
-                        alt="画布图片"
-                        className="h-9 w-9 rounded object-cover"
-                        forceLowQualityPreview
-                      />
-                      <span className="min-w-0 truncate">
-                        {String(
-                          image.data.name || image.data.label || "画布图片",
-                        )}
-                      </span>
-                    </button>
-                  ))
-                ) : (
-                  <p
-                    className={`px-2 py-3 text-[11px] ${themeClasses.textMuted}`}
+              {uploading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Upload className="h-3.5 w-3.5" />
+              )}
+              上传参考图
+            </button>
+            <div className="max-h-44 overflow-y-auto">
+              {availableImages.length ? (
+                availableImages.map((image) => (
+                  <button
+                    key={image.id}
+                    type="button"
+                    onClick={() => connectImage(image.id)}
+                    className={`${themeClasses.iconButton} flex h-12 w-full justify-start gap-2 px-2 text-xs`}
                   >
-                    上传图片，或将画布中的图片连入左侧连接口
-                  </p>
-                )}
-              </div>
+                    <CanvasImagePreview
+                      src={String(image.data.imageUrl)}
+                      imageAsset={
+                        image.data
+                          .imageAsset as AppNode<"imageNode">["data"]["imageAsset"]
+                      }
+                      alt="画布图片"
+                      className="h-9 w-9 rounded object-cover"
+                      forceLowQualityPreview
+                    />
+                    <span className="min-w-0 truncate">
+                      {String(
+                        image.data.name || image.data.label || "画布图片",
+                      )}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <p
+                  className={`px-2 py-3 text-[11px] ${themeClasses.textMuted}`}
+                >
+                  上传图片，或将画布中的图片连入左侧连接口
+                </p>
+              )}
             </div>
-          ) : null}
+          </MenuSurface>
         </div>
         <input
           ref={fileInputRef}
@@ -361,7 +370,7 @@ function GeneratePanel({ node }: { node: AppNode<"generateNode"> }) {
           )}
         </button>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="node-menu-scrollbar flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain">
         {controller.connectedText.sourceId ||
         controller.referenceImages.length ||
         controller.maskSourceImage ? (
@@ -398,7 +407,7 @@ function GeneratePanel({ node }: { node: AppNode<"generateNode"> }) {
           </div>
         ) : null}
         <div
-          className="flex min-h-0 flex-1 overflow-hidden overscroll-contain"
+          className="flex min-h-12 min-w-0 flex-1 overflow-hidden overscroll-contain"
           data-testid="generation-prompt-editor"
         >
           <RichPromptEditor
@@ -413,7 +422,7 @@ function GeneratePanel({ node }: { node: AppNode<"generateNode"> }) {
                 : "可直接文字生图，或添加参考图输入指令编辑，例如：将背景改为雪夜"
             }
             readOnly={false}
-            minHeightClassName={promptExpanded ? "min-h-0" : "min-h-[88px]"}
+            minHeightClassName="min-h-0"
             appearance="plain"
             onFocus={controller.beginPromptTransaction}
             onChange={controller.handlePromptChange}
@@ -421,7 +430,7 @@ function GeneratePanel({ node }: { node: AppNode<"generateNode"> }) {
           />
         </div>
       </div>
-      <div className="mt-2 flex shrink-0 flex-wrap items-center gap-1">
+      <div className="mt-2 grid shrink-0 grid-cols-[minmax(0,1.3fr)_auto_minmax(0,1fr)_auto] items-center gap-1">
         <NodeModelSelector
           category="image"
           config={controller.settingsConfig}
@@ -433,13 +442,13 @@ function GeneratePanel({ node }: { node: AppNode<"generateNode"> }) {
           layout="grouped"
           appearance="ghost"
           menuPlacement="top"
-          className="w-72 max-w-full shrink-0"
+          className="w-full"
           menuClassName="min-w-full max-w-[calc(100vw-3rem)]"
           resolution={controller.resolution}
         />
         <span className={`mx-1 h-4 w-px ${themeClasses.divider}`} />
-        <GenerationSettingsMenu controller={controller} />
-        <div className="ml-auto flex shrink-0 items-center gap-4">
+        <GenerationSettingsMenu controller={controller} className="w-full" />
+        <div className="flex shrink-0 items-center gap-2">
           {controller.creditCost !== null ? (
             <span
               data-testid="generation-credit-cost"

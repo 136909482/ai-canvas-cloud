@@ -11,7 +11,7 @@
   --canvas-bg: #09090b;
   --panel-bg: rgba(9, 9, 11, 0.86);
   --panel-bg-strong: rgba(9, 9, 11, 0.98);
-  --floating-panel-bg: rgba(24, 24, 27, 0.9);
+  --floating-panel-bg: rgba(24, 24, 27, 0.98);
   --floating-panel-border: rgba(255, 255, 255, 0.14);
   --node-bg: #171719;
   --node-border: #353538;
@@ -42,7 +42,7 @@
   --canvas-bg: #f4f4f5;
   --panel-bg: rgba(255, 255, 255, 0.82);
   --panel-bg-strong: rgba(255, 255, 255, 0.96);
-  --floating-panel-bg: rgba(255, 255, 255, 0.88);
+  --floating-panel-bg: rgba(255, 255, 255, 0.98);
   --floating-panel-border: rgba(24, 24, 27, 0.12);
   --node-bg: #ffffff;
   --node-border: rgba(212, 212, 216, 0.95);
@@ -72,6 +72,61 @@ html,
 body,
 #root {
   font-family: var(--font-sans);
+}
+
+/* Keep the editor mounted while navigating the canvas; only its overlay hides. */
+[data-viewport-moving]
+  > .react-flow__node-toolbar[data-hide-when-viewport-moving] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+:root {
+  --ui-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ui-feedback-duration: 120ms;
+}
+
+/* Opacity leaves menu geometry and text baselines stable, including above-trigger menus. */
+.ui-menu-surface {
+  opacity: 1;
+  transition: opacity 160ms var(--ui-ease-out);
+}
+
+@starting-style {
+  .ui-menu-surface {
+    opacity: 0;
+  }
+}
+
+.ui-menu-surface[data-state="closed"] {
+  opacity: 0;
+  pointer-events: none;
+  transition-duration: 100ms;
+  transition-timing-function: ease-out;
+}
+
+.ui-control,
+.ui-menu-surface :is(button, [role="menuitem"], [role="option"]) {
+  transition-property:
+    background-color, border-color, color, box-shadow, opacity;
+  transition-duration: var(--ui-feedback-duration);
+  transition-timing-function: var(--ui-ease-out);
+}
+
+.ui-control:enabled:active {
+  opacity: 0.82;
+}
+
+.ui-menu-surface button:enabled:active {
+  background-color: var(--control-bg-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-menu-surface,
+  .ui-control,
+  .ui-menu-surface :is(button, [role="menuitem"], [role="option"]) {
+    transition: none !important;
+  }
 }
 
 @layer base {
@@ -1821,7 +1876,7 @@ body:has(.auth-modal-backdrop) .home-scene-node {
   --panel-bg-strong: color-mix(in srgb, var(--canvas-bg) 97%, transparent);
   --floating-panel-bg: color-mix(
     in srgb,
-    var(--canvas-bg) 82%,
+    var(--canvas-bg) 88%,
     var(--text-primary) 10%
   );
   --shadow-panel: 0 8px 20px rgba(0, 0, 0, 0.22);
@@ -2409,10 +2464,12 @@ body:has(.auth-modal-backdrop) .home-scene-node {
 .prompt-editor-scrollbar::-webkit-scrollbar {
   width: 8px;
   height: 0;
+  cursor: default;
 }
 
 .prompt-editor-scrollbar::-webkit-scrollbar-track {
   background: transparent;
+  cursor: default;
 }
 
 .prompt-editor-scrollbar::-webkit-scrollbar-thumb {
@@ -2420,6 +2477,11 @@ body:has(.auth-modal-backdrop) .home-scene-node {
   border-radius: 9999px;
   background-color: transparent;
   background-clip: padding-box;
+  cursor: grab;
+}
+
+.prompt-editor-scrollbar::-webkit-scrollbar-thumb:active {
+  cursor: grabbing;
 }
 
 .prompt-editor-scrollbar:hover::-webkit-scrollbar-thumb,

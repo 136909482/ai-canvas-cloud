@@ -14,6 +14,7 @@ import {
   Background,
   MiniMap,
   ViewportPortal,
+  useStoreApi,
   type Connection,
   type DefaultEdgeOptions,
   type Edge,
@@ -448,6 +449,7 @@ export function CanvasFlowLayer({
   miniMapMaskColor,
 }: CanvasFlowLayerProps) {
   recordComponentRender("CanvasFlowLayer");
+  const flowStoreApi = useStoreApi();
   const [isNodeDragging, setIsNodeDragging] = useState(false);
   const handleBodyConnectEnd = useCanvasBodyConnection({
     onConnect,
@@ -671,6 +673,10 @@ export function CanvasFlowLayer({
 
   const handleViewportMoveStart = useCallback(
     (_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+      const overlayRoot = canvasFlowRootRef.current?.parentElement;
+      if (!overlayRoot?.hasAttribute("data-viewport-moving")) {
+        overlayRoot?.setAttribute("data-viewport-moving", "");
+      }
       clearViewportRestoreTimers();
       clearNodeDragRenderRestoreTimers();
       isViewportInteractingRef.current = true;
@@ -689,6 +695,10 @@ export function CanvasFlowLayer({
 
   const handleViewportMove = useCallback(
     (_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+      const overlayRoot = canvasFlowRootRef.current?.parentElement;
+      if (!overlayRoot?.hasAttribute("data-viewport-moving")) {
+        overlayRoot?.setAttribute("data-viewport-moving", "");
+      }
       updateImagePreviewQuality(viewport.zoom, {
         allowFullQualityRestore: false,
       });
@@ -717,6 +727,9 @@ export function CanvasFlowLayer({
       clearViewportRestoreTimers();
 
       if (!isViewportInteractingRef.current) {
+        canvasFlowRootRef.current?.parentElement?.removeAttribute(
+          "data-viewport-moving",
+        );
         resumeViewportThumbnailWork();
         if (
           !isNodeDraggingRef.current &&
@@ -731,6 +744,9 @@ export function CanvasFlowLayer({
         viewportInteractionRestoreFrameRef.current =
           window.requestAnimationFrame(() => {
             isViewportInteractingRef.current = false;
+            canvasFlowRootRef.current?.parentElement?.removeAttribute(
+              "data-viewport-moving",
+            );
             resumeViewportThumbnailWork();
             updateImagePreviewQuality(lastViewportZoomRef.current);
             viewportInteractionRestoreFrameRef.current = null;
@@ -835,7 +851,13 @@ export function CanvasFlowLayer({
         isNodeDraggingRef.current &&
         isPureActivePositionDrag(changes)
       ) {
-        if (!shouldUseInternalDrag) {
+        if (shouldUseInternalDrag) {
+          // Controlled nodes do not apply their own position changes. Update
+          // the live Flow store immediately, keeping the outer project graph
+          // and its expensive subscribers out of the pointer-move loop.
+          const flowStore = flowStoreApi.getState();
+          flowStore.setNodes(applyVisualNodeChanges(flowStore.nodes, changes));
+        } else {
           scheduleInteractiveNodeChanges(changes);
         }
         return;
@@ -925,6 +947,7 @@ export function CanvasFlowLayer({
     },
     [
       clearAlignmentGuides,
+      flowStoreApi,
       nodes,
       onNodesChange,
       queueNodeDragSettledChanges,
@@ -955,13 +978,14 @@ export function CanvasFlowLayer({
       hasMovedNodeDragRef.current = false;
       isNodeDraggingRef.current = true;
       isNodeDragRenderingActiveRef.current = true;
-      setIsNodeDragging(false);
+      setIsNodeDragging(shouldUseInternalDrag);
     },
     [
       beginTransaction,
       clearNodeDragRenderRestoreTimers,
       flushNodeDragSettledChanges,
       nodes,
+      shouldUseInternalDrag,
     ],
   );
 
@@ -1099,6 +1123,9 @@ export function CanvasFlowLayer({
 
   useEffect(
     () => () => {
+      canvasFlowRootRef.current?.parentElement?.removeAttribute(
+        "data-viewport-moving",
+      );
       clearViewportRestoreTimers();
       resumeViewportThumbnailWork();
       clearCanvasImagePreviewCache();
@@ -1151,19 +1178,15 @@ export function CanvasFlowLayer({
     () => getInlineImageResultIds(nodes, edges),
     [nodes, edges],
   );
-  const displayNodes = useMemo(() => {
-    const currentNodes =
-      isNodeDragging && !shouldUseInternalDrag ? interactiveNodes : nodes;
-    return currentNodes.map((node) =>
-      inlineImageResultIds.has(node.id) ? { ...node, hidden: true } : node,
-    );
-  }, [
-    inlineImageResultIds,
-    interactiveNodes,
-    isNodeDragging,
-    nodes,
-    shouldUseInternalDrag,
-  ]);
+  const currentDisplayNodes =
+    isNodeDragging && !shouldUseInternalDrag ? interactiveNodes : nodes;
+  const displayNodes = useMemo(
+    () =>
+      currentDisplayNodes.map((node) =>
+        inlineImageResultIds.has(node.id) ? { ...node, hidden: true } : node,
+      ),
+    [currentDisplayNodes, inlineImageResultIds],
+  );
   const displayEdges = useMemo(
     () =>
       edges.map((edge) =>

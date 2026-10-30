@@ -4,7 +4,11 @@ import { LoaderCircle, Plus } from "lucide-react";
 import { AppFeedbackHost } from "@/components/AppFeedbackHost";
 import { AppTooltipHost } from "@/components/AppTooltipHost";
 import { Canvas } from "@/components/Canvas";
-import { CanvasMoreMenu, CanvasTopBar } from "@/components/CanvasTopBar";
+import {
+  CanvasMoreMenu,
+  CanvasSaveButton,
+  CanvasTopBar,
+} from "@/components/CanvasTopBar";
 import { CanvasGenerationBar } from "@/components/CanvasGenerationBar";
 import { CanvasTextGenerationBar } from "@/components/CanvasTextGenerationBar";
 import { resetTextGenerationRuntime } from "@/features/textGeneration/orchestrator";
@@ -100,11 +104,14 @@ function AppContent() {
 
   return (
     <ReactFlowProvider>
-      <div className={`w-screen h-screen relative ${themeClasses.canvas}`}>
+      <div
+        className={`relative h-dvh w-full overflow-clip ${themeClasses.canvas}`}
+      >
         <Toolbar
           leftSlot={<CanvasTopBar />}
           rightSlot={
             <>
+              <CanvasSaveButton />
               <CanvasMoreMenu />
               <AccountMenu />
             </>

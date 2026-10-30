@@ -335,11 +335,14 @@ export function NodeModelSelector({
         triggerLabel: official.name,
         triggerIcon: <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />,
         triggerTrailing: (
-          <span className="shrink-0 text-[10px] font-medium text-[var(--text-secondary)]">
+          <span className="shrink-0 text-[10px] leading-none font-medium text-[var(--text-secondary)]">
             {price ? (
               <span className="inline-flex items-center gap-0.5">
-                {price}
-                <Zap className="h-3 w-3 fill-current" aria-label="算力" />
+                <span className="relative top-px">{price}</span>
+                <Zap
+                  className="h-3 w-3 shrink-0 fill-current"
+                  aria-label="算力"
+                />
               </span>
             ) : (
               "不可用"
@@ -347,9 +350,9 @@ export function NodeModelSelector({
           </span>
         ),
         trailing: price ? (
-          <span className="inline-flex items-center gap-0.5 text-[10px] font-normal text-[var(--text-secondary)]">
-            {price}
-            <Zap className="h-3 w-3 fill-current" aria-label="算力" />
+          <span className="inline-flex items-center gap-0.5 text-[10px] leading-none font-normal text-[var(--text-secondary)]">
+            <span className="relative top-px">{price}</span>
+            <Zap className="h-3 w-3 shrink-0 fill-current" aria-label="算力" />
           </span>
         ) : (
           <span className="text-[10px] font-normal text-[var(--text-muted)]">

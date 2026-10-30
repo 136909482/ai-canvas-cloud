@@ -158,3 +158,85 @@ test("existing image action toolbars retain their top and side anchors", () => {
     "translate(110px, 314px) translate(-100%, -100%)",
   );
 });
+
+test("the generation panel stays inside horizontal viewport edges as its width changes", () => {
+  const node = { x: 0, y: 80, width: 360, height: 204 };
+  const bounds = { viewportWidth: 596, toolbarWidth: 572, padding: 12 };
+  for (const viewportX of [-100, 200, 500]) {
+    assert.equal(
+      getToolbarTransform(
+        node,
+        { x: viewportX, y: 0, zoom: 1 },
+        Position.Bottom,
+        12,
+        "center",
+        bounds,
+      ),
+      "translate(298px, 296px) translate(-50%, 0%)",
+    );
+  }
+  assert.equal(
+    getToolbarTransform(
+      node,
+      { x: 300, y: 0, zoom: 1 },
+      Position.Bottom,
+      12,
+      "center",
+      { ...bounds, viewportWidth: 1000, toolbarWidth: 658 },
+    ),
+    "translate(480px, 296px) translate(-50%, 0%)",
+  );
+});
+
+test("the generation panel prefers below, flips above, then clamps when neither side fits", () => {
+  const bounds = { viewportHeight: 800, toolbarHeight: 246, padding: 12 };
+  const node = { x: 100, y: 80, width: 360, height: 204 };
+  const position = (y: number, height = 204, viewportHeight = 800) =>
+    getToolbarTransform(
+      { ...node, y, height },
+      { x: 0, y: 0, zoom: 1 },
+      Position.Bottom,
+      12,
+      "center",
+      undefined,
+      { ...bounds, viewportHeight },
+    );
+  assert.equal(position(80), "translate(280px, 296px) translate(-50%, 0%)");
+  assert.equal(position(500), "translate(280px, 242px) translate(-50%, 0%)");
+  assert.equal(
+    position(200, 500),
+    "translate(280px, 542px) translate(-50%, 0%)",
+  );
+  assert.equal(
+    position(80, 204, 300),
+    "translate(280px, 42px) translate(-50%, 0%)",
+  );
+});
+
+test("vertical bounds account for zoom, viewport movement and a constrained panel height", () => {
+  const node = { x: 100, y: 900, width: 360, height: 204 };
+  assert.equal(
+    getToolbarTransform(
+      node,
+      { x: 0, y: -100, zoom: 0.5 },
+      Position.Bottom,
+      12,
+      "center",
+      undefined,
+      { viewportHeight: 600, toolbarHeight: 246, padding: 12 },
+    ),
+    "translate(140px, 92px) translate(-50%, 0%)",
+  );
+  assert.equal(
+    getToolbarTransform(
+      node,
+      { x: 0, y: -100, zoom: 0.5 },
+      Position.Bottom,
+      12,
+      "center",
+      undefined,
+      { viewportHeight: 180, toolbarHeight: 156, padding: 12 },
+    ),
+    "translate(140px, 12px) translate(-50%, 0%)",
+  );
+});

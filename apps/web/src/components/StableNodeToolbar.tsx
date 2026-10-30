@@ -27,6 +27,10 @@ type StableNodeToolbarProps = Omit<
   align?: ToolbarAlign;
   hideWhenNodeOffscreen?: boolean;
   hideWhenNodeDragging?: boolean;
+  hideWhenViewportMoving?: boolean;
+  horizontalViewportPadding?: number;
+  verticalViewportPadding?: number;
+  portalToCanvasOverlay?: boolean;
 };
 
 export function StableNodeToolbar({
@@ -38,6 +42,10 @@ export function StableNodeToolbar({
   align = "center",
   hideWhenNodeOffscreen = false,
   hideWhenNodeDragging = false,
+  hideWhenViewportMoving = false,
+  horizontalViewportPadding,
+  verticalViewportPadding,
+  portalToCanvasOverlay = false,
   className,
   style,
   ...rest
@@ -78,12 +86,16 @@ export function StableNodeToolbar({
   });
   const portalRoot = useStore(
     (state) =>
-      state.domNode?.querySelector(
-        ".react-flow__renderer",
-      ) as HTMLElement | null,
+      (portalToCanvasOverlay
+        ? state.domNode?.parentElement
+        : state.domNode?.querySelector(
+            ".react-flow__renderer",
+          )) as HTMLElement | null,
   );
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const positionSignatureRef = useRef("");
+  const toolbarWidthRef = useRef(0);
+  const toolbarHeightRef = useRef(0);
   const isActive = shouldShowNodeToolbar({
     isVisible,
     selectedNodeCount,
@@ -110,8 +122,8 @@ export function StableNodeToolbar({
       const height =
         node.measured.height ?? node.internals.userNode.height ?? 0;
       const [viewportX, viewportY, zoom] = state.transform;
-      const zIndex = node.internals.z + 1;
-      const signature = `${x}:${y}:${width}:${height}:${viewportX}:${viewportY}:${zoom}:${zIndex}:${position}:${offset}:${align}`;
+      const zIndex = Math.max(node.internals.z + 1, Number(style?.zIndex) || 0);
+      const signature = `${x}:${y}:${width}:${height}:${viewportX}:${viewportY}:${zoom}:${zIndex}:${position}:${offset}:${align}:${state.width}:${state.height}:${toolbarWidthRef.current}:${toolbarHeightRef.current}`;
       if (
         positionSignatureRef.current === signature &&
         toolbar.style.transform
@@ -126,21 +138,57 @@ export function StableNodeToolbar({
         position,
         offset,
         align,
+        horizontalViewportPadding === undefined
+          ? undefined
+          : {
+              viewportWidth: state.width,
+              toolbarWidth: toolbarWidthRef.current,
+              padding: horizontalViewportPadding,
+            },
+        verticalViewportPadding === undefined
+          ? undefined
+          : {
+              viewportHeight: state.height,
+              toolbarHeight: toolbarHeightRef.current,
+              padding: verticalViewportPadding,
+            },
       );
       toolbar.style.transform = transform;
       toolbar.style.zIndex = String(zIndex);
     };
 
+    const toolbar = toolbarRef.current;
+    const resizeObserver =
+      horizontalViewportPadding === undefined &&
+      verticalViewportPadding === undefined
+        ? undefined
+        : new ResizeObserver(([entry]) => {
+            toolbarWidthRef.current = entry.borderBoxSize[0].inlineSize;
+            toolbarHeightRef.current = entry.borderBoxSize[0].blockSize;
+            updatePosition();
+          });
+    if (toolbar && resizeObserver) {
+      toolbarWidthRef.current = toolbar.offsetWidth;
+      toolbarHeightRef.current = toolbar.offsetHeight;
+      resizeObserver.observe(toolbar);
+    }
     updatePosition();
-    return storeApi.subscribe(updatePosition);
+    const unsubscribe = storeApi.subscribe(updatePosition);
+    return () => {
+      unsubscribe();
+      resizeObserver?.disconnect();
+    };
   }, [
     align,
     effectiveNodeId,
+    horizontalViewportPadding,
+    verticalViewportPadding,
     isActive,
     offset,
     portalRoot,
     position,
     storeApi,
+    style?.zIndex,
   ]);
 
   if (!isActive || !effectiveNodeId || !portalRoot) {
@@ -149,6 +197,8 @@ export function StableNodeToolbar({
 
   const wrapperStyle: CSSProperties = {
     position: "absolute",
+    top: 0,
+    left: 0,
     ...style,
   };
 
@@ -158,6 +208,7 @@ export function StableNodeToolbar({
       style={wrapperStyle}
       className={`react-flow__node-toolbar ${className ?? ""}`}
       data-id={effectiveNodeId}
+      data-hide-when-viewport-moving={hideWhenViewportMoving || undefined}
       {...rest}
     >
       {children}

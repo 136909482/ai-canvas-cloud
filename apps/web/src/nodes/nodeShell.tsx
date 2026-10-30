@@ -43,6 +43,8 @@ type NodeHeaderProps = {
   title: ReactNode;
   right?: ReactNode;
   variant?: NodeHeaderVariant;
+  titleClassName?: string;
+  constrainToNode?: boolean;
 };
 
 type NodeStateTone = "neutral" | "violet" | "sky" | "amber" | "red";
@@ -160,6 +162,8 @@ export function NodeHeader({
   title,
   right,
   variant = "embedded",
+  titleClassName,
+  constrainToNode = false,
 }: NodeHeaderProps) {
   const zoom = useStore(selectCanvasZoom);
 
@@ -168,10 +172,19 @@ export function NodeHeader({
     const headerContentStyle = {
       transform: `scale(${scale})`,
       transformOrigin: "left bottom",
+      ...(constrainToNode ? { width: `${100 / scale}%` } : {}),
     } satisfies CSSProperties;
 
     return (
-      <div className={getNodeHeaderClassName(variant)}>
+      <div
+        className={getNodeHeaderClassName(variant)}
+        style={
+          constrainToNode
+            ? { width: "calc(100% - 4px)", maxWidth: "none" }
+            : undefined
+        }
+        title={typeof title === "string" ? title : undefined}
+      >
         <div
           className="flex min-w-0 max-w-[220px] items-center gap-1.5"
           style={headerContentStyle}
@@ -179,7 +192,9 @@ export function NodeHeader({
           <span className="flex-none text-[var(--text-muted)] [&_svg]:h-3 [&_svg]:w-3">
             {icon}
           </span>
-          <span className="min-w-0 truncate text-[10px] font-normal leading-4 text-[var(--text-secondary)]">
+          <span
+            className={`min-w-0 truncate text-[var(--text-secondary)] ${titleClassName ?? "text-[10px] font-normal leading-4"}`}
+          >
             {title}
           </span>
           {right}

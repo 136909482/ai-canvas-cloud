@@ -1,3 +1,4 @@
+import { MenuSurface } from "@/components/MenuSurface";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, useReactFlow, useViewport } from "@xyflow/react";
 import {
@@ -119,13 +120,15 @@ export function ViewportControls({
       window.requestAnimationFrame(() =>
         zoomMenuRef.current
           ?.querySelector<HTMLElement>('[role="menuitem"]')
-          ?.focus(),
+          ?.focus({ preventScroll: true }),
       );
   }, [showZoomMenu]);
 
   const closeZoomMenu = () => {
     setShowZoomMenu(false);
-    window.requestAnimationFrame(() => zoomTriggerRef.current?.focus());
+    window.requestAnimationFrame(() =>
+      zoomTriggerRef.current?.focus({ preventScroll: true }),
+    );
   };
 
   const handleZoomPreset = async (nextZoom: number) => {
@@ -142,48 +145,47 @@ export function ViewportControls({
         className={`flex items-center gap-0 ${COMPACT_FLOATING_SURFACE_CLASS}`}
       >
         <div className="relative">
-          {showZoomMenu ? (
-            <div
-              id="zoom-menu"
-              ref={zoomMenuRef}
-              role="menu"
-              aria-label="画布缩放"
-              onKeyDown={(event) =>
-                handleMenuKeyboard(
-                  event.nativeEvent,
-                  zoomMenuRef.current,
-                  closeZoomMenu,
-                )
-              }
-              className={`absolute bottom-[calc(100%+8px)] left-0 w-[92px] animate-in fade-in-0 slide-in-from-bottom-2 duration-200 ${COMPACT_FLOATING_SURFACE_CLASS}`}
-            >
-              <div className="flex flex-col gap-0.5">
-                {ZOOM_PRESETS.map((preset) => {
-                  const active = Math.abs(zoom - preset) < 0.01;
+          <MenuSurface
+            open={showZoomMenu}
+            id="zoom-menu"
+            ref={zoomMenuRef}
+            role="menu"
+            aria-label="画布缩放"
+            onKeyDown={(event) =>
+              handleMenuKeyboard(
+                event.nativeEvent,
+                zoomMenuRef.current,
+                closeZoomMenu,
+              )
+            }
+            className={`absolute bottom-[calc(100%+8px)] left-0 w-[92px] ${COMPACT_FLOATING_SURFACE_CLASS}`}
+          >
+            <div className="flex flex-col gap-0.5">
+              {ZOOM_PRESETS.map((preset) => {
+                const active = Math.abs(zoom - preset) < 0.01;
 
-                  return (
-                    <button
-                      key={preset}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        void handleZoomPreset(preset);
-                      }}
-                      className={`flex h-5.5 w-full items-center justify-center rounded-lg border font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--text-primary)_20%,transparent)] ${
-                        active
-                          ? themeClasses.iconButtonActive
-                          : "border-transparent text-[var(--text-secondary)] hover:border-[var(--border-subtle)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
-                      }`}
-                    >
-                      <span style={CONTROL_TEXT_STYLE}>
-                        {formatZoomLabel(preset)}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      void handleZoomPreset(preset);
+                    }}
+                    className={`flex h-5.5 w-full items-center justify-center rounded-lg border font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--text-primary)_20%,transparent)] ${
+                      active
+                        ? themeClasses.iconButtonActive
+                        : "border-transparent text-[var(--text-secondary)] hover:border-[var(--border-subtle)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)]"
+                    }`}
+                  >
+                    <span style={CONTROL_TEXT_STYLE}>
+                      {formatZoomLabel(preset)}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-          ) : null}
+          </MenuSurface>
 
           <button
             ref={zoomTriggerRef}
@@ -234,34 +236,33 @@ export function ViewportControls({
               setShowShortcutMenu(false);
           }}
         >
-          {showShortcutMenu ? (
-            <div
-              id="shortcut-help"
-              role="dialog"
-              aria-label="快捷键说明"
-              className={`absolute bottom-[calc(100%+8px)] left-0 w-[210px] max-w-[calc(100vw-24px)] p-3.5 animate-in fade-in-0 slide-in-from-bottom-2 duration-200 ${FLOATING_SURFACE_CLASS}`}
-            >
-              <div className="pb-3 text-[10px] font-semibold text-[var(--text-muted)]">
-                快捷键
-              </div>
-
-              <div className="flex flex-col gap-3">
-                {SHORTCUT_ITEMS.map((item) => (
-                  <div
-                    key={item.name}
-                    className="flex min-h-4 items-center justify-between gap-3"
-                  >
-                    <span className="min-w-0 text-[11px] font-medium tracking-normal text-[var(--text-primary)]">
-                      {item.name}
-                    </span>
-                    <span className={themeClasses.shortcutKey}>
-                      {item.keyLabel}
-                    </span>
-                  </div>
-                ))}
-              </div>
+          <MenuSurface
+            open={showShortcutMenu}
+            id="shortcut-help"
+            role="dialog"
+            aria-label="快捷键说明"
+            className={`absolute bottom-[calc(100%+8px)] left-0 w-[210px] max-w-[calc(100vw-24px)] p-3.5 ${FLOATING_SURFACE_CLASS}`}
+          >
+            <div className="pb-3 text-[10px] font-semibold text-[var(--text-muted)]">
+              快捷键
             </div>
-          ) : null}
+
+            <div className="flex flex-col gap-3">
+              {SHORTCUT_ITEMS.map((item) => (
+                <div
+                  key={item.name}
+                  className="flex min-h-4 items-center justify-between gap-3"
+                >
+                  <span className="min-w-0 text-[11px] font-medium tracking-normal text-[var(--text-primary)]">
+                    {item.name}
+                  </span>
+                  <span className={themeClasses.shortcutKey}>
+                    {item.keyLabel}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </MenuSurface>
 
           <button
             type="button"

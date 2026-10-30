@@ -9,11 +9,11 @@ export const themeClasses = {
   strongPanel:
     "rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] shadow-[var(--shadow-panel)] backdrop-blur-2xl",
   iconButton:
-    "inline-flex items-center justify-center rounded-lg border border-transparent bg-transparent text-[var(--text-muted)] transition hover:border-[var(--border-subtle)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--text-primary)_20%,transparent)]",
+    "ui-control inline-flex items-center justify-center rounded-lg border border-transparent bg-transparent text-[var(--text-muted)] transition hover:border-[var(--border-subtle)] hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--text-primary)_20%,transparent)]",
   iconButtonActive:
     "border-[var(--border-subtle)] bg-[var(--control-bg-hover)] text-[var(--text-primary)]",
   secondaryButton:
-    "inline-flex items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-primary)] transition hover:bg-[var(--control-bg-hover)]",
+    "ui-control inline-flex items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-primary)] transition hover:bg-[var(--control-bg-hover)]",
   input:
     "rounded-xl border border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none transition focus:border-[var(--accent-violet-strong)] focus:ring-2 focus:ring-[var(--accent-violet-soft)]",
   textPrimary: "text-[var(--text-primary)]",
@@ -35,11 +35,11 @@ export const themeClasses = {
   nodeToolbarPanel:
     "node-toolbar-panel rounded-xl border border-[var(--border-subtle)] bg-[var(--panel-bg-strong)] shadow-[var(--shadow-panel)] backdrop-blur-2xl",
   nodeToolbarButton:
-    "inline-flex items-center justify-center rounded-lg border border-transparent bg-transparent text-[var(--text-muted)] transition hover:border-[var(--accent-violet-muted)] hover:bg-[var(--accent-violet-soft)] hover:text-[var(--accent-violet-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-violet-soft)] disabled:cursor-not-allowed disabled:text-[var(--text-muted)] disabled:hover:border-transparent disabled:hover:bg-transparent",
+    "ui-control inline-flex items-center justify-center rounded-lg border border-transparent bg-transparent text-[var(--text-muted)] transition hover:border-[var(--accent-violet-muted)] hover:bg-[var(--accent-violet-soft)] hover:text-[var(--accent-violet-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-violet-soft)] disabled:cursor-not-allowed disabled:text-[var(--text-muted)] disabled:hover:border-transparent disabled:hover:bg-transparent",
   nodeActionButton:
-    "inline-flex items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-secondary)] transition hover:border-[var(--accent-violet-muted)] hover:bg-[var(--accent-violet-soft)] hover:text-[var(--accent-violet-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-violet-soft)]",
+    "ui-control inline-flex items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--control-bg)] text-[var(--text-secondary)] transition hover:border-[var(--accent-violet-muted)] hover:bg-[var(--accent-violet-soft)] hover:text-[var(--accent-violet-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-violet-soft)]",
   nodePrimaryButton:
-    "inline-flex items-center justify-center rounded-lg border border-[var(--accent-violet-muted)] bg-[var(--accent-violet)] text-white transition hover:bg-[var(--accent-violet-strong)] disabled:cursor-not-allowed disabled:border-[var(--border-subtle)] disabled:bg-[var(--control-bg)] disabled:text-[var(--text-muted)]",
+    "ui-control inline-flex items-center justify-center rounded-lg border border-[var(--accent-violet-muted)] bg-[var(--accent-violet)] text-white transition hover:bg-[var(--accent-violet-strong)] disabled:cursor-not-allowed disabled:border-[var(--border-subtle)] disabled:bg-[var(--control-bg)] disabled:text-[var(--text-muted)]",
   nodeFooter:
     "mt-auto border-t border-[var(--border-subtle)] bg-transparent px-0 pt-1.5",
   nodeBadge:
@@ -67,7 +67,7 @@ export const themeClasses = {
   nodeSegmentGroup:
     "nodrag nopan grid h-9 grid-flow-col auto-cols-fr overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--control-bg)] p-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]",
   nodeSegmentButton:
-    "flex min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-[11px] font-semibold text-[var(--text-muted)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-secondary)]",
+    "ui-control flex min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-[11px] font-semibold text-[var(--text-muted)] transition hover:bg-[var(--control-bg-hover)] hover:text-[var(--text-secondary)]",
   nodeSegmentButtonActive:
     "bg-[var(--accent-violet-soft)] text-[var(--accent-violet-strong)] shadow-[inset_0_0_0_1px_var(--accent-violet-muted)]",
   nodeLabel: "text-[var(--text-secondary)]",

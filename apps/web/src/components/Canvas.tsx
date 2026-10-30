@@ -96,7 +96,6 @@ const DEFAULT_EDGE_OPTIONS: DefaultEdgeOptions = {
   type: "default",
   animated: false,
 };
-const INTERNAL_DRAG_ENABLE_STORAGE_KEY = "ai-canvas.enableInternalDrag";
 const VISIBLE_ELEMENT_CULLING_OVERRIDE_STORAGE_KEY =
   "ai-canvas.visibleElementCulling";
 
@@ -256,13 +255,11 @@ export function Canvas() {
       : visibleElementCullingOverride === "off"
         ? false
         : true;
-  const internalDragEnabled =
-    typeof window !== "undefined" &&
-    window.localStorage.getItem(INTERNAL_DRAG_ENABLE_STORAGE_KEY) === "1";
+  // Update Flow's live store during a drag and sync the project on release.
+  // Snapping and visual groups still require the controlled render loop.
   const shouldUseInternalDrag =
-    shouldUsePerformanceRendering &&
     !shouldShowAlignmentGuides &&
-    internalDragEnabled;
+    !nodes.some((node) => node.type === "groupNode");
   const { screenToFlowPosition } = useReactFlow();
   const pendingConnectionRef = useRef<PendingConnection | null>(null);
   const quickCreateMenuRef = useRef<HTMLDivElement | null>(null);

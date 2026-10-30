@@ -1,3 +1,4 @@
+import { MenuSurface } from "@/components/MenuSurface";
 import { useEffect, useRef, useState } from "react";
 import {
   Check,
@@ -89,37 +90,12 @@ function getPersistenceIconView(status: ProjectPersistenceStatus) {
   }
 }
 
-export function CanvasMoreMenu() {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!isOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!containerRef.current?.contains(event.target as Node))
-        setIsOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [isOpen]);
-  const closeMenu = () => {
-    setIsOpen(false);
-    buttonRef.current?.focus();
-  };
-  const openSettings = useSettingsDialogStore((state) => state.open);
-  const activeProject = useProjectStore((state) => state.getActiveProject());
+export function CanvasSaveButton() {
   const saveActiveProject = useProjectStore((state) => state.saveActiveProject);
   const isPersisting = useProjectStore((state) => state.isPersisting);
-  const syncActiveWorkingSnapshot = useProjectStore(
-    (state) => state.syncActiveWorkingSnapshot,
-  );
-  const getSnapshot = useCanvasStore((state) => state.getSnapshot);
-  const replaceSnapshot = useCanvasStore((state) => state.replaceSnapshot);
-  const hasCanvasContent = useCanvasStore(selectHasCanvasContent);
-  const clearHistory = useHistoryStore((state) => state.clearHistory);
+  const activeProjectId = useProjectStore((state) => state.activeProjectId);
   const notify = useFeedbackStore((state) => state.notify);
-  const confirm = useFeedbackStore((state) => state.confirm);
+  const openSettings = useSettingsDialogStore((state) => state.open);
 
   const handleSaveProject = async () => {
     try {
@@ -145,6 +121,55 @@ export function CanvasMoreMenu() {
       // The project store reports the structured diagnostic and user feedback.
     }
   };
+
+  return (
+    <TooltipIconButton
+      label={isPersisting ? "正在保存项目" : "保存项目"}
+      testId="save-project-button"
+      disabled={isPersisting || !activeProjectId}
+      onClick={() => void handleSaveProject()}
+      className={`${themeClasses.iconButton} h-8 w-8 shrink-0 rounded-md disabled:cursor-not-allowed disabled:opacity-40`}
+      icon={
+        <>
+          {isPersisting ? (
+            <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+          ) : (
+            <Save aria-hidden="true" className="h-4 w-4" />
+          )}
+        </>
+      }
+    />
+  );
+}
+
+export function CanvasMoreMenu() {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node))
+        setIsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [isOpen]);
+  const closeMenu = () => {
+    setIsOpen(false);
+    buttonRef.current?.focus();
+  };
+  const activeProject = useProjectStore((state) => state.getActiveProject());
+  const syncActiveWorkingSnapshot = useProjectStore(
+    (state) => state.syncActiveWorkingSnapshot,
+  );
+  const getSnapshot = useCanvasStore((state) => state.getSnapshot);
+  const replaceSnapshot = useCanvasStore((state) => state.replaceSnapshot);
+  const hasCanvasContent = useCanvasStore(selectHasCanvasContent);
+  const clearHistory = useHistoryStore((state) => state.clearHistory);
+  const notify = useFeedbackStore((state) => state.notify);
+  const confirm = useFeedbackStore((state) => state.confirm);
 
   const handleExportWorkflow = async () => {
     const suggestedName = `${activeProject?.name || "workflow"}.json`;
@@ -183,13 +208,6 @@ export function CanvasMoreMenu() {
   };
 
   const actions = [
-    {
-      label: "保存项目",
-      testId: "save-project-button",
-      Icon: Save,
-      action: handleSaveProject,
-      disabled: isPersisting,
-    },
     {
       label: "导入工作流",
       testId: "import-workflow-button",
@@ -235,23 +253,22 @@ export function CanvasMoreMenu() {
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
-      <div
+      <MenuSurface
+        open={isOpen}
         ref={menuRef}
         role="menu"
         aria-label="更多画布操作"
-        hidden={!isOpen}
         className={`absolute right-0 top-[calc(100%+10px)] z-50 w-48 max-h-[calc(100dvh-5rem)] overflow-y-auto p-1 ${themeClasses.compactFloatingPanel}`}
         onKeyDown={(event) =>
           handleMenuKeyboard(event.nativeEvent, menuRef.current, closeMenu)
         }
       >
-        {actions.map(({ label, testId, Icon, action, disabled }) => (
+        {actions.map(({ label, testId, Icon, action }) => (
           <button
             key={testId}
             type="button"
             role="menuitem"
             data-testid={testId}
-            disabled={disabled}
             onClick={() => {
               closeMenu();
               void action();
@@ -262,7 +279,7 @@ export function CanvasMoreMenu() {
             {label}
           </button>
         ))}
-      </div>
+      </MenuSurface>
     </div>
   );
 }
@@ -469,53 +486,52 @@ export function CanvasTopBar() {
           className={`ml-auto mr-0.5 h-3.5 w-3.5 shrink-0 transition-transform ${isProjectMenuOpen ? "rotate-180" : ""}`}
         />
       </button>
-      {isProjectMenuOpen ? (
-        <div
-          role="menu"
-          aria-label="项目画布"
-          className={`absolute left-9 top-[calc(100%+6px)] z-50 max-h-[min(16rem,calc(100vh-8rem))] min-w-56 max-w-[calc(100vw-1rem)] overflow-y-auto p-1 ${themeClasses.compactFloatingPanel}`}
-        >
-          {visibleProjects.length ? (
-            visibleProjects.map((project) => (
-              <button
-                key={project.id}
-                type="button"
-                role="menuitem"
-                className={`flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs transition hover:bg-[var(--control-bg-hover)] ${project.id === activeProjectId ? "bg-[var(--accent-violet-soft)] font-semibold" : themeClasses.textPrimary}`}
-                onClick={() => void handleSwitchProject(project.id)}
-                disabled={isSwitchingProject}
-              >
-                <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                {project.id === activeProjectId ? (
-                  <Check
-                    aria-hidden="true"
-                    className="h-3.5 w-3.5 shrink-0 text-[var(--accent-violet-strong)]"
-                  />
-                ) : null}
-              </button>
-            ))
-          ) : (
-            <span
-              className={`block px-2 py-1.5 text-xs ${themeClasses.textMuted}`}
+      <MenuSurface
+        open={isProjectMenuOpen}
+        role="menu"
+        aria-label="项目画布"
+        className={`absolute left-9 top-[calc(100%+6px)] z-50 max-h-[min(16rem,calc(100vh-8rem))] min-w-56 max-w-[calc(100vw-1rem)] overflow-y-auto p-1 ${themeClasses.compactFloatingPanel}`}
+      >
+        {visibleProjects.length ? (
+          visibleProjects.map((project) => (
+            <button
+              key={project.id}
+              type="button"
+              role="menuitem"
+              className={`flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs transition hover:bg-[var(--control-bg-hover)] ${project.id === activeProjectId ? "bg-[var(--accent-violet-soft)] font-semibold" : themeClasses.textPrimary}`}
+              onClick={() => void handleSwitchProject(project.id)}
+              disabled={isSwitchingProject}
             >
-              暂无可用项目
-            </span>
-          )}
-          <div
-            aria-hidden="true"
-            className="my-1 h-px bg-[var(--border-subtle)]"
-          />
-          <button
-            type="button"
-            role="menuitem"
-            onClick={openProjectCreate}
-            className="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-[var(--accent-violet-strong)] transition hover:bg-[var(--control-bg-hover)]"
+              <span className="min-w-0 flex-1 truncate">{project.name}</span>
+              {project.id === activeProjectId ? (
+                <Check
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 shrink-0 text-[var(--accent-violet-strong)]"
+                />
+              ) : null}
+            </button>
+          ))
+        ) : (
+          <span
+            className={`block px-2 py-1.5 text-xs ${themeClasses.textMuted}`}
           >
-            <Plus className="h-3.5 w-3.5 shrink-0" />
-            新建项目
-          </button>
-        </div>
-      ) : null}
+            暂无可用项目
+          </span>
+        )}
+        <div
+          aria-hidden="true"
+          className="my-1 h-px bg-[var(--border-subtle)]"
+        />
+        <button
+          type="button"
+          role="menuitem"
+          onClick={openProjectCreate}
+          className="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-[var(--accent-violet-strong)] transition hover:bg-[var(--control-bg-hover)]"
+        >
+          <Plus className="h-3.5 w-3.5 shrink-0" />
+          新建项目
+        </button>
+      </MenuSurface>
       <span
         aria-hidden="true"
         className={`mx-0.5 h-4 w-px shrink-0 ${themeClasses.divider}`}

@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type WheelEvent,
+  type PointerEvent as ReactPointerEvent,
   type Ref,
 } from "react";
 import { createPortal } from "react-dom";
@@ -86,6 +87,7 @@ export function RichPromptEditor({
       : themeClasses.nodeTextarea;
   const editorFrameRef = useRef<HTMLDivElement>(null);
   const mentionMenuRef = useRef<HTMLDivElement>(null);
+  const scrollbarPointerDownRef = useRef(false);
   const [mentionMenu, setMentionMenu] = useState<{
     range: MentionTriggerRange;
     position: MentionMenuPosition;
@@ -129,7 +131,9 @@ export function RichPromptEditor({
       onChange(nextDocument, richPromptToPlainText(nextDocument));
     },
     onFocus: () => onFocus?.(),
-    onBlur: () => onBlur?.(),
+    onBlur: () => {
+      if (!scrollbarPointerDownRef.current) onBlur?.();
+    },
   });
 
   useEffect(() => {
@@ -268,11 +272,39 @@ export function RichPromptEditor({
   );
 
   const handleWheelCapture = (event: WheelEvent<HTMLDivElement>) => {
-    if (!editor?.isFocused) {
+    if (readOnly || !editor?.isFocused) {
       return;
     }
 
     event.stopPropagation();
+  };
+
+  const handlePointerDownCapture = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (readOnly) return;
+
+    const editorElement = event.currentTarget;
+    const rect = editorElement.getBoundingClientRect();
+    const scrollbarWidth =
+      editorElement.offsetWidth - editorElement.clientWidth;
+    const hitAreaWidth = Math.max(scrollbarWidth, 12);
+    const hitsVerticalScrollbar =
+      editorElement.scrollHeight > editorElement.clientHeight &&
+      event.clientX >= rect.right - hitAreaWidth &&
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom;
+
+    if (hitsVerticalScrollbar) scrollbarPointerDownRef.current = true;
+  };
+
+  const handlePointerUpCapture = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!scrollbarPointerDownRef.current) return;
+
+    scrollbarPointerDownRef.current = false;
+    if (event.type !== "pointercancel") {
+      requestAnimationFrame(() => editor?.commands.focus());
+    }
   };
 
   useEffect(() => {
@@ -312,9 +344,13 @@ export function RichPromptEditor({
         onKeyUp={updateMentionMenu}
         onMouseUp={updateMentionMenu}
         onWheelCapture={handleWheelCapture}
+        onPointerDownCapture={handlePointerDownCapture}
+        onPointerUpCapture={handlePointerUpCapture}
+        onPointerCancelCapture={handlePointerUpCapture}
         onBlur={() => clearAbandonedMentionTrigger()}
-        className={`prompt-editor-scrollbar nowheel h-full ${minHeightClassName} min-w-0 w-full cursor-text overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg px-3 py-2.5 text-sm leading-6 transition nodrag nopan ${appearanceClassName}
-          [&_.ProseMirror]:min-h-full [&_.ProseMirror]:cursor-text [&_.ProseMirror]:outline-none [&_.ProseMirror]:[overflow-wrap:anywhere] [&_.ProseMirror_p]:my-0
+        className={`prompt-editor-scrollbar ${readOnly ? "" : "nowheel nodrag nopan"} h-full ${minHeightClassName} min-w-0 w-full ${readOnly ? "cursor-grab" : "cursor-default"} overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg px-3 py-2.5 text-sm leading-6 transition ${appearanceClassName}
+          [&_.ProseMirror]:min-h-full [&_.ProseMirror]:outline-none [&_.ProseMirror]:[overflow-wrap:anywhere] [&_.ProseMirror_p]:my-0
+          ${readOnly ? "[&_.ProseMirror]:cursor-grab" : "[&_.ProseMirror]:cursor-text"}
           [&_.is-editor-empty:first-child::before]:float-left [&_.is-editor-empty:first-child::before]:h-0
           [&_.is-editor-empty:first-child::before]:pointer-events-none
           [&_.is-editor-empty:first-child::before]:text-[var(--text-muted)]

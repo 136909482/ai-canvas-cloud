@@ -1,3 +1,4 @@
+import { MenuSurface } from "@/components/MenuSurface";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import type { AuthSessionResponse } from "@ai-canvas-cloud/contracts";
@@ -354,95 +355,94 @@ export function AccountMenu() {
         <UserRound className="h-3.5 w-3.5" />
       </button>
 
-      {isOpen ? (
-        <div
-          role="menu"
-          aria-label="用户菜单"
-          className={`absolute right-0 top-[calc(100%+10px)] z-50 w-[180px] overflow-hidden rounded-[8px] ${themeClasses.strongPanel}`}
-        >
-          <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-2 py-2">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] border border-violet-400/25 bg-violet-400/10 text-violet-300">
-              <UserRound className="h-3.5 w-3.5" />
+      <MenuSurface
+        open={isOpen}
+        role="menu"
+        aria-label="用户菜单"
+        className={`absolute right-0 top-[calc(100%+10px)] z-50 w-[180px] overflow-hidden rounded-[8px] ${themeClasses.strongPanel}`}
+      >
+        <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-2 py-2">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] border border-violet-400/25 bg-violet-400/10 text-violet-300">
+            <UserRound className="h-3.5 w-3.5" />
+          </span>
+          <span className="min-w-0">
+            <span
+              className={`block truncate text-[11px] font-semibold ${themeClasses.textPrimary}`}
+            >
+              {session.user.username}
             </span>
-            <span className="min-w-0">
-              <span
-                className={`block truncate text-[11px] font-semibold ${themeClasses.textPrimary}`}
-              >
-                {session.user.username}
-              </span>
-              <span
-                className={`mt-0.5 block truncate text-[9px] ${themeClasses.textMuted}`}
-              >
-                {session.user.email}
-              </span>
+            <span
+              className={`mt-0.5 block truncate text-[9px] ${themeClasses.textMuted}`}
+            >
+              {session.user.email}
             </span>
-          </div>
-
-          <div className="space-y-0.5 p-1.5">
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => openSettingsCategory("storage")}
-              className={menuItemClass}
-            >
-              <HardDrive className="h-3 w-3 shrink-0" />
-              <span className="min-w-0 flex-1">存储空间</span>
-              <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
-            </button>
-
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => openSettingsCategory("devices")}
-              className={menuItemClass}
-            >
-              <MonitorCheck className="h-3 w-3 shrink-0" />
-              <span className="min-w-0 flex-1">登录设备</span>
-              <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
-            </button>
-
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => openSettingsCategory("account")}
-              className={menuItemClass}
-            >
-              <IdCard className="h-3 w-3 shrink-0" />
-              <span className="min-w-0 flex-1">个人资料</span>
-              <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
-            </button>
-
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setIsOpen(false);
-                openSettings(activeSettingsCategory);
-              }}
-              className={menuItemClass}
-            >
-              <Settings className="h-3 w-3 shrink-0" />
-              <span className="min-w-0 flex-1">设置</span>
-              <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
-            </button>
-          </div>
-
-          <div className="border-t border-[var(--border-subtle)] bg-[var(--control-bg)] p-1.5">
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setIsOpen(false);
-                void logout();
-              }}
-              className={menuItemClass}
-            >
-              <LogOut className="h-3 w-3 shrink-0" />
-              <span className="min-w-0 flex-1">退出登录</span>
-            </button>
-          </div>
+          </span>
         </div>
-      ) : null}
+
+        <div className="space-y-0.5 p-1.5">
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => openSettingsCategory("storage")}
+            className={menuItemClass}
+          >
+            <HardDrive className="h-3 w-3 shrink-0" />
+            <span className="min-w-0 flex-1">存储空间</span>
+            <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => openSettingsCategory("devices")}
+            className={menuItemClass}
+          >
+            <MonitorCheck className="h-3 w-3 shrink-0" />
+            <span className="min-w-0 flex-1">登录设备</span>
+            <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => openSettingsCategory("account")}
+            className={menuItemClass}
+          >
+            <IdCard className="h-3 w-3 shrink-0" />
+            <span className="min-w-0 flex-1">个人资料</span>
+            <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setIsOpen(false);
+              openSettings(activeSettingsCategory);
+            }}
+            className={menuItemClass}
+          >
+            <Settings className="h-3 w-3 shrink-0" />
+            <span className="min-w-0 flex-1">设置</span>
+            <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
+          </button>
+        </div>
+
+        <div className="border-t border-[var(--border-subtle)] bg-[var(--control-bg)] p-1.5">
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setIsOpen(false);
+              void logout();
+            }}
+            className={menuItemClass}
+          >
+            <LogOut className="h-3 w-3 shrink-0" />
+            <span className="min-w-0 flex-1">退出登录</span>
+          </button>
+        </div>
+      </MenuSurface>
     </div>
   );
 }

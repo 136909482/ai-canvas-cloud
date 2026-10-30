@@ -24,6 +24,7 @@ import { recordComponentRender } from "@/utils/performanceDiagnostics";
 import {
   NodeDeleteButton,
   NodeEmptyState,
+  NodeHeader,
   NodeResizerPreset,
 } from "../nodeShell";
 import { getNodeShellClassName } from "../nodeShellClassName";
@@ -397,6 +398,16 @@ export const ImageNode = memo(function ImageNode({
           hideVisuals
         />
 
+        {data.imageUrl ? (
+          <NodeHeader
+            variant="floating"
+            constrainToNode
+            icon={<ImageIcon className="text-violet-500" aria-hidden="true" />}
+            title={nodeName}
+            titleClassName="text-xs font-medium leading-5"
+          />
+        ) : null}
+
         <input
           ref={fileInputRef}
           type="file"
@@ -420,13 +431,6 @@ export const ImageNode = memo(function ImageNode({
 
         {data.imageUrl ? (
           <div className="relative flex flex-1 flex-col p-[3px]">
-            <span className="pointer-events-none absolute -top-[22px] left-1 flex select-none items-center gap-1.5 whitespace-nowrap text-[11px] font-medium text-[var(--text-secondary)]">
-              <ImageIcon
-                className="h-3 w-3 text-violet-500"
-                aria-hidden="true"
-              />
-              {nodeName}
-            </span>
             <div
               className="node-drag-handle flex-1 overflow-hidden rounded-[9px] bg-[var(--node-bg)] [backface-visibility:hidden] [clip-path:inset(0_round_9px)] [transform:translateZ(0)]"
               onDoubleClick={(event) => {
